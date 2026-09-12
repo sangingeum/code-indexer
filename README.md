@@ -96,9 +96,10 @@ CLI flags: `--ollama-url`, `--qdrant-url`, `--embed-model`, `--index-root`.
 
 ## Performance note
 
-Measured on a CPU-only Ollama host (8B model, 4096-dim): ~0.17 docs/s
-embedding (~6 s/chunk). The **first index of a large repo is slow** (the
-design targets hours on CPU for thousands of chunks); incremental updates
+Embedding throughput depends on the Ollama host: measured **~1.2 docs/s with
+GPU passthrough** (8B model, 4096-dim, batch 48) vs ~0.17 docs/s CPU-only.
+The **first index of a large repo is the slow part** (thousands of chunks);
+incremental updates
 only re-embed changed chunks, so a typical edit session re-indexes in
 seconds-to-minutes. Qdrant upsert throughput is ~550 pts/s. Embeddings are
 batched (one HTTP round trip per 48 inputs) with keep_alive to avoid model

@@ -51,8 +51,8 @@ CLI flags > env vars > defaults. Flags: `--ollama-url --qdrant-url
 
 | Env var | Default |
 |---|---|
-| `OLLAMA_URL` | `http://192.168.1.103:11434` |
-| `QDRANT_URL` | `http://192.168.1.105:6333` |
+| `OLLAMA_URL` | `http://192.168.X.X:11434` |
+| `QDRANT_URL` | `http://192.168.X.X:6333` |
 | `EMBED_MODEL` | `qwen3-embedding:8b` |
 | `INDEX_ROOT` | `~/.mcp-code-indexer` |
 | `STALE_TTL` | `60` |
@@ -60,9 +60,10 @@ CLI flags > env vars > defaults. Flags: `--ollama-url --qdrant-url
 
 ## Gotchas
 
-- **First-index latency on CPU-hosted 8B model**: ~0.17 docs/s (~6 s/chunk,
-  4096-dim) — a large repo's initial index can take hours on CPU. Plan around
-  it; incremental updates after that are seconds-to-minutes per edit session.
+- **First-index latency depends on the Ollama host**: measured ~1.2 docs/s
+  (GPU passthrough, 8B model, 4096-dim, batch 48) vs ~0.17 docs/s CPU-only —
+  a large repo's initial index can still take a while on CPU. Incremental
+  updates after that are seconds-to-minutes per edit session.
 - **add_project is idempotent** — calling it twice returns the current index
   status summary; only genuinely nonexistent paths error.
 - **remove_project is destructive**: drops the Qdrant collection + manifest +
