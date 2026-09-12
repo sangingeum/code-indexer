@@ -110,6 +110,34 @@ def _spawn_background_index(slug: str, project_path: str) -> None:
     t.start()
 
 
+def _status_summary(entry: Any) -> str:
+    """Human-readable status summary for a registered project.
+
+    state, file/chunk counts from the manifest, and last-indexed time —
+    the same summary ``list_projects`` reports per project.
+    """
+    file_count = chunk_count = 0
+    last_indexed = None
+    mdir = os.path.join(CFG.index_root, entry.slug, "manifest.db")
+    if os.path.isfile(mdir):
+        m = Manifest(mdir)
+        try:
+            rows = m.all_files()
+            file_count = len(rows)
+            chunk_count = sum(r.chunk_count for r in rows.values())
+            li = m.get_meta("last_indexed")
+            if li:
+                last_indexed = time.strftime(
+                    "%Y-%m-%d %H:%M:%S", time.localtime(float(li)))
+        finally:
+            m.close()
+    with _STATE_LOCK:
+        st = _INDEX_STATE.get(entry.slug, {}).get("state", "idle")
+    return (f"path={entry.path} slug={entry.slug} state={st} "
+            f"files={file_count} chunks={chunk_count} "
+            f"last_indexed={last_indexed or 'never'}")
+
+
 def _search_one(entry: Any, query: str, limit: int,
                 file_filter: str | None) -> list[dict[str, Any]]:
     collection = f"idx_{entry.slug}"
@@ -138,14 +166,18 @@ def _search_one(entry: Any, query: str, limit: int,
 def add_project(path: str) -> str:
     """Register an absolute project directory for semantic indexing.
 
-    Creates the Qdrant collection and starts a full initial index in the
-    background (check progress with index_status). Errors if the path does
-    not exist or is already registered.
+    Idempotent: if the path is already registered, no re-index is spawned —
+    the current index_status summary (state, files, chunks, last_indexed) is
+    returned instead. Errors only for paths that do not exist.
     """
     try:
         path = os.path.abspath(os.path.expanduser(path))
         if not os.path.isdir(path):
             return f"error: path does not exist: {path}"
+        entry = REGISTRY.get_by_path(path)
+        if entry is not None:
+            return (f"already registered — index status: "
+                    f"{_status_summary(entry)}")
         entry = REGISTRY.add(path)
     except ValueError as exc:
         return f"error: {exc}"

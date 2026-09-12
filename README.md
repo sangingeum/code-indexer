@@ -12,7 +12,7 @@ a few admin tools. Chunks, hashes, and collections are never exposed.
 
 | Tool | Description |
 |---|---|
-| `add_project(path)` | Register a project directory; creates the Qdrant collection and starts a full initial index in the background. |
+| `add_project(path)` | Register a project directory; creates the Qdrant collection and starts a full initial index in the background. **Idempotent**: re-adding an already-registered path returns the current index status summary (state, files, chunks, last_indexed) and does NOT spawn a re-index — only nonexistent paths error. |
 | `remove_project(path)` | Deregister and **delete** the Qdrant collection, SQLite manifest, and registry entry. |
 | `list_projects()` | Registered projects with file/chunk counts, last-indexed time, and state. |
 | `semantic_search(query, project?, limit=8, file_filter?)` | The hot path. Always runs a staleness check first; `project=None` searches all registered projects. Returns file paths, line ranges, symbols, scores, snippets. |
