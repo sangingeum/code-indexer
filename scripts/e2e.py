@@ -130,6 +130,24 @@ def main() -> None:
     print("search 'db pool':", hits4[0].payload["file"], f"score={hits4[0].score:.4f}")
     assert hits4[0].payload["file"] == "src/db.py", "added file must be searchable"
 
+    # --- lookup_project: registered / unregistered / normalization ---
+    from mcp_code_indexer import server as srv
+    srv.CFG = cfg
+    srv.REGISTRY = reg
+    out = srv.lookup_project(repo)
+    print("lookup registered:", out)
+    assert out.startswith("registered"), out
+    assert f"collection=idx_{slug}" in out and f"slug={slug}" in out
+    assert "files=" in out and "state=" in out
+    out2 = srv.lookup_project(repo + "/")  # trailing slash normalizes
+    assert out2.startswith("registered"), out2
+    ghost = tempfile.mkdtemp(prefix="mci-ghost-")
+    out3 = srv.lookup_project(ghost)
+    print("lookup unregistered:", out3)
+    assert out3.startswith("not registered:"), out3
+    assert reg.get_by_path(ghost) is None, "lookup must not register"
+    shutil.rmtree(ghost, ignore_errors=True)
+
     # --- remove_project equivalent ---
     reg.remove(repo)
     store.drop_collection(collection)

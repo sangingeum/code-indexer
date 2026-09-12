@@ -1,6 +1,6 @@
 """FastMCP server: thin tool surface per design §4.
 
-Six tools only. Agents never touch index internals — semantic_search
+Seven tools only. Agents never touch index internals — semantic_search
 triggers the staleness check / incremental indexing transparently (req 1).
 """
 
@@ -159,8 +159,33 @@ def _search_one(entry: Any, query: str, limit: int,
 
 
 # ---------------------------------------------------------------------------
-# Tools (design §4 — six, no more)
+# Tools (design §4 — seven, no more)
 # ---------------------------------------------------------------------------
+
+@mcp.tool()
+def lookup_project(path: str) -> str:
+    """Check whether a project directory is registered, and report its
+    collection name and index summary.
+
+    Returns one line for a registered project: path, slug, custom name,
+    Qdrant collection name (idx_<slug>), state, files, chunks, and
+    last_indexed — or 'not registered: <path>' if absent. Does NOT register
+    the project or trigger any indexing. Path is normalized (~ expanded,
+    relative resolved); a symlinked path is matched via its real path as a
+    fallback.
+    """
+    raw = os.path.abspath(os.path.expanduser(path))
+    entry = REGISTRY.get_by_path(raw)
+    if entry is None:
+        real = os.path.realpath(raw)
+        if real != raw:
+            entry = REGISTRY.get_by_path(real)
+    if entry is None:
+        return f"not registered: {raw}"
+    collection = f"idx_{entry.slug}"
+    name = f" name={entry.name}" if entry.name else ""
+    return f"registered:{name} {_status_summary(entry)} collection={collection}"
+
 
 @mcp.tool()
 def add_project(path: str, name: str | None = None) -> str:

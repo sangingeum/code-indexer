@@ -16,11 +16,12 @@ project directories in Qdrant (embeddings via Ollama `qwen3-embedding:8b`,
   snippet.
 - Do NOT use for: prose/document memory (that is `mcp-ollama-qdrant`).
 
-## Tools (stdio MCP, six)
+## Tools (stdio MCP, seven)
 
 | Tool | Params | Returns |
 |---|---|---|
 | `add_project` | `path: str` (absolute dir), `name?: str` (custom collection name) | `registered <path> (slug <slug>); initial indexing started in background`. **Idempotent**: already-registered path returns `already registered — index status: path=… slug=… state=… files=… chunks=… last_indexed=…` without spawning a re-index. With `name`, the collection is `idx_<name>` (sanitized to `[A-Za-z0-9_-]`, 1-64 chars, collision-checked) instead of the auto hash slug `idx_{hash}`; omit for default. |
+| `lookup_project` | `path: str` | Registration check + collection-name lookup in one call, side-effect free (never registers or indexes). Registered: `registered: [name=<custom>] path=… slug=… state=… files=… chunks=… last_indexed=… collection=idx_<slug>`. Unregistered: `not registered: <path>`. Normalizes paths (tilde, relative, trailing slash; symlinked paths matched via real path). **Prefer this over calling `add_project` just to test registration.** |
 | `remove_project` | `path: str` | Confirmation that the Qdrant collection, manifest, and registry entry were deleted. **DESTRUCTIVE** — the whole index is dropped; re-adding starts a fresh full index. |
 | `list_projects` | — | One line per project: path, slug, files, chunks, last_indexed, state. |
 | `semantic_search` | `query: str`, `project?: str` (path, slug, or custom name; omit = all), `limit: int = 8`, `file_filter?: str` (glob/substring on path, e.g. `*.py`) | Score-sorted lines `[score] project::file:start-end (symbol)` + 200-char snippet. |
@@ -93,7 +94,8 @@ CLI flags > env vars > defaults. Flags: `--ollama-url --qdrant-url
   a large repo's initial index can still take a while on CPU. Incremental
   updates after that are seconds-to-minutes per edit session.
 - **add_project is idempotent** — calling it twice returns the current index
-  status summary; only genuinely nonexistent paths error.
+  status summary; only genuinely nonexistent paths error. To merely *check*
+  registration (no side effects), use `lookup_project` instead.
 - **remove_project is destructive**: drops the Qdrant collection + manifest +
   registry entry. Re-adding later re-indexes from scratch.
 - Files >1 MB, binary/non-UTF-8, `.git`/`node_modules`/`venv`/`__pycache__`/

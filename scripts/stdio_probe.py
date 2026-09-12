@@ -63,11 +63,12 @@ def main() -> None:
             print("FAILED: no tools/list response within 30s")
             sys.exit(1)
         expected = {"add_project", "remove_project", "list_projects",
-                    "semantic_search", "index_status", "reindex_project"}
+                    "semantic_search", "index_status", "reindex_project",
+                    "lookup_project"}
         print("tools/list:", sorted(tools))
         missing = expected - set(tools)
         assert not missing, f"missing tools: {missing}"
-        assert len(tools) == 6, f"expected exactly 6 tools, got {len(tools)}"
+        assert len(tools) == 7, f"expected exactly 7 tools, got {len(tools)}"
         print(f"HANDSHAKE PASS — {len(tools)} tools exposed")
     finally:
         proc.terminate()

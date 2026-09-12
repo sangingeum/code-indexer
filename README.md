@@ -13,6 +13,7 @@ a few admin tools. Chunks, hashes, and collections are never exposed.
 | Tool | Description |
 |---|---|
 | `add_project(path, name)` | Register a project directory; creates the Qdrant collection and starts a full initial index in the background. **Idempotent**: re-adding an already-registered path returns the current index status summary (state, files, chunks, last_indexed) and does NOT spawn a re-index — only nonexistent paths error. Optional `name` picks the collection name yourself (`idx_<name>`, sanitized to `[A-Za-z0-9_-]`, 1-64 chars, collision-checked) instead of the auto hash slug. |
+| `lookup_project(path)` | Check registration without side effects: returns one line with path, slug, custom name, Qdrant collection name (`idx_<slug>`), state, files, chunks, last_indexed — or `not registered: <path>`. Normalizes paths (tilde, relative, trailing slash; symlink matched via real path). Use this instead of guessing via `add_project` idempotency. |
 | `remove_project(path)` | Deregister and **delete** the Qdrant collection, SQLite manifest, and registry entry. |
 | `list_projects()` | Registered projects with file/chunk counts, last-indexed time, and state. |
 | `semantic_search(query, project?, limit=8, file_filter?)` | The hot path. Always runs a staleness check first; `project=None` searches all registered projects. `project` accepts a path, a slug, or a registered custom name. Returns file paths, line ranges, symbols, scores, snippets. |
