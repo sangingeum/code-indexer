@@ -27,6 +27,24 @@ project directories in Qdrant (embeddings via Ollama `qwen3-embedding:8b`,
 | `index_status` | `path: str` | `project=… state=… last_pass=… [error=…]`; also triggers the staleness check. |
 | `reindex_project` | `path: str` | `full reindex queued` — full rebuild in background. |
 
+## When indexing is in progress (IMPORTANT — read before trusting search results)
+
+- **Call `index_status` after `add_project`, and before trusting any "no
+  results" answer on a large or freshly-added repo.** First indexing runs on
+  a background thread and can take minutes-to-hours on a big codebase.
+- **While `index_status` reports `state=indexing`, search results are
+  PARTIAL** — only chunks already indexed at that moment are searched. An
+  empty or thin result set during indexing does NOT mean the code isn't
+  there; it means it isn't indexed yet.
+- **Empty result on a freshly-added large repo = not an answer.** Poll
+  `index_status` until `state=idle` (with a `last_pass` timestamp) before
+  concluding "not found" or re-searching. Don't fall back to grep/reading
+  files based on a search that raced the indexer.
+- **Unsupported languages fall back to regex chunking.** Languages without a
+  tree-sitter parser are chunked with a fixed-size regex window instead of
+  AST-aware boundaries — hits are still valid, but `symbol` metadata may be
+  coarser or missing for those files.
+
 ## Core behavior rules for agents
 
 - **The indexer indexes itself; you never manage chunks.** Never manually save
