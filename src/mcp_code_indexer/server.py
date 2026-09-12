@@ -20,7 +20,7 @@ from .embedder import Embedder
 from .indexer import Indexer
 from .locks import project_lock
 from .manifest import Manifest
-from .registry import Registry, slug_for
+from .registry import Registry
 from .store import Store
 
 logger = logging.getLogger("mcp-code-indexer")
@@ -163,12 +163,17 @@ def _search_one(entry: Any, query: str, limit: int,
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def add_project(path: str) -> str:
+def add_project(path: str, name: str | None = None) -> str:
     """Register an absolute project directory for semantic indexing.
 
     Idempotent: if the path is already registered, no re-index is spawned —
     the current index_status summary (state, files, chunks, last_indexed) is
     returned instead. Errors only for paths that do not exist.
+
+    name (optional): caller-chosen collection name. Sanitized to
+    [A-Za-z0-9_-] (1-64 chars); the collection becomes idx_<name> instead of
+    the auto hash slug idx_{hash}. Collision-checked against the registry.
+    Omit for the default auto slug.
     """
     try:
         path = os.path.abspath(os.path.expanduser(path))
@@ -178,7 +183,7 @@ def add_project(path: str) -> str:
         if entry is not None:
             return (f"already registered — index status: "
                     f"{_status_summary(entry)}")
-        entry = REGISTRY.add(path)
+        entry = REGISTRY.add(path, name=name)
     except ValueError as exc:
         return f"error: {exc}"
     _spawn_background_index(entry.slug, entry.path)
@@ -253,13 +258,17 @@ def semantic_search(query: str, project: str | None = None, limit: int = 8,
 
     Automatically runs a staleness check first and incrementally re-indexes
     changed files, so results are always fresh (within one scan interval).
-    Args: query (natural language); project (optional path — omit to search
-    all registered projects); limit; file_filter (optional substring/glob
-    on file path, e.g. '*.py').
+    Args: query (natural language); project (optional path, slug, or custom
+    name — omit to search all registered projects); limit; file_filter
+    (optional substring/glob on file path, e.g. '*.py').
     """
     entries = []
     if project:
-        entry = REGISTRY.get_by_path(os.path.abspath(os.path.expanduser(project)))
+        apath = os.path.abspath(os.path.expanduser(project))
+        entry = REGISTRY.get_by_path(apath)
+        if entry is None:
+            # Also accept a registered slug or custom name.
+            entry = REGISTRY.get_by_slug(project) or REGISTRY.get_by_name(project)
         if not entry:
             return f"error: project not registered: {project}"
         entries = [entry]

@@ -12,10 +12,10 @@ a few admin tools. Chunks, hashes, and collections are never exposed.
 
 | Tool | Description |
 |---|---|
-| `add_project(path)` | Register a project directory; creates the Qdrant collection and starts a full initial index in the background. **Idempotent**: re-adding an already-registered path returns the current index status summary (state, files, chunks, last_indexed) and does NOT spawn a re-index — only nonexistent paths error. |
+| `add_project(path, name)` | Register a project directory; creates the Qdrant collection and starts a full initial index in the background. **Idempotent**: re-adding an already-registered path returns the current index status summary (state, files, chunks, last_indexed) and does NOT spawn a re-index — only nonexistent paths error. Optional `name` picks the collection name yourself (`idx_<name>`, sanitized to `[A-Za-z0-9_-]`, 1-64 chars, collision-checked) instead of the auto hash slug. |
 | `remove_project(path)` | Deregister and **delete** the Qdrant collection, SQLite manifest, and registry entry. |
 | `list_projects()` | Registered projects with file/chunk counts, last-indexed time, and state. |
-| `semantic_search(query, project?, limit=8, file_filter?)` | The hot path. Always runs a staleness check first; `project=None` searches all registered projects. Returns file paths, line ranges, symbols, scores, snippets. |
+| `semantic_search(query, project?, limit=8, file_filter?)` | The hot path. Always runs a staleness check first; `project=None` searches all registered projects. `project` accepts a path, a slug, or a registered custom name. Returns file paths, line ranges, symbols, scores, snippets. |
 | `index_status(path)` | `idle \| indexing \| error` + last-pass progress. |
 | `reindex_project(path)` | Force a full rebuild. |
 
@@ -55,7 +55,8 @@ $INDEX_ROOT/               (default ~/.mcp-code-indexer)
 ```
 
 Qdrant holds one collection per project: `idx_{slug}` where slug is an 8-hex
-hash of the absolute path.
+hash of the absolute path — or `idx_<name>` when the project was registered
+with a custom `name`.
 
 ## Configuration
 

@@ -38,7 +38,11 @@ def _guess_symbol(line: str) -> str | None:
     for pat in _SYMBOL_PATTERNS:
         m = pat.match(line)
         if m:
-            return m.group(2) or m.group(1)
+            # Different patterns name the symbol in different groups;
+            # pick the last participating group (regexes list the
+            # symbol name last). group(2) unconditionally raised
+            # IndexError("no such group") on single-group patterns.
+            return next((g for g in reversed(m.groups()) if g is not None), None)
     return None
 
 

@@ -20,12 +20,22 @@ project directories in Qdrant (embeddings via Ollama `qwen3-embedding:8b`,
 
 | Tool | Params | Returns |
 |---|---|---|
-| `add_project` | `path: str` (absolute dir) | `registered <path> (slug <slug>); initial indexing started in background`. **Idempotent**: already-registered path returns `already registered — index status: path=… slug=… state=… files=… chunks=… last_indexed=…` without spawning a re-index. |
+| `add_project` | `path: str` (absolute dir), `name?: str` (custom collection name) | `registered <path> (slug <slug>); initial indexing started in background`. **Idempotent**: already-registered path returns `already registered — index status: path=… slug=… state=… files=… chunks=… last_indexed=…` without spawning a re-index. With `name`, the collection is `idx_<name>` (sanitized to `[A-Za-z0-9_-]`, 1-64 chars, collision-checked) instead of the auto hash slug `idx_{hash}`; omit for default. |
 | `remove_project` | `path: str` | Confirmation that the Qdrant collection, manifest, and registry entry were deleted. **DESTRUCTIVE** — the whole index is dropped; re-adding starts a fresh full index. |
 | `list_projects` | — | One line per project: path, slug, files, chunks, last_indexed, state. |
-| `semantic_search` | `query: str`, `project?: str` (path; omit = all), `limit: int = 8`, `file_filter?: str` (glob/substring on path, e.g. `*.py`) | Score-sorted lines `[score] project::file:start-end (symbol)` + 200-char snippet. |
+| `semantic_search` | `query: str`, `project?: str` (path, slug, or custom name; omit = all), `limit: int = 8`, `file_filter?: str` (glob/substring on path, e.g. `*.py`) | Score-sorted lines `[score] project::file:start-end (symbol)` + 200-char snippet. |
 | `index_status` | `path: str` | `project=… state=… last_pass=… [error=…]`; also triggers the staleness check. |
 | `reindex_project` | `path: str` | `full reindex queued` — full rebuild in background. |
+
+## Custom collection names
+
+`add_project(path, name="myproject")` names the collection yourself instead
+of the auto `idx_{hash}` slug: sanitized to `[A-Za-z0-9_-]` (1-64 chars,
+others → `_`), stored in the registry, collision-checked. This makes a
+project's collection predictable and shareable — e.g. `semantic_search`
+also accepts `project` as the slug or custom name, not just the path.
+Default (no `name`) remains the deterministic hash slug; existing
+registrations keep theirs (additive, migration-safe registry change).
 
 ## When indexing is in progress (IMPORTANT — read before trusting search results)
 
