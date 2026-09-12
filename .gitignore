@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+test-index/
+.mcp-code-indexer/
+*.db
+*.db-wal
+*.db-shm
+*.lock
+logs/
