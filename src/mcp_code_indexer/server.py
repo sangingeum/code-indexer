@@ -22,6 +22,7 @@ from .locks import project_lock
 from .manifest import Manifest
 from .registry import Registry
 from .store import Store
+from .watcher import FileWatcher
 
 logger = logging.getLogger("mcp-code-indexer")
 
@@ -42,6 +43,17 @@ _INDEX_STATE: dict[str, dict[str, Any]] = {}
 _STATE_LOCK = threading.Lock()
 
 mcp = FastMCP("mcp-code-indexer")
+
+# Filesystem watcher (design addendum §8): edits on registered roots trigger
+# the same incremental _run_index without waiting for a tool call. One
+# Observer thread total; project_lock serializes against tool-triggered
+# passes; failures are contained inside the watcher (supervised restart).
+def _watch_runner(slug: str, path: str) -> None:
+    """Watcher entry point: same incremental pass as tool-triggered refresh."""
+    _run_index(slug, path, force=False)
+
+
+WATCHER = FileWatcher(_watch_runner, debounce_seconds=CFG.watch_debounce)
 
 
 def _manifest_for(slug: str) -> Manifest:
@@ -212,6 +224,7 @@ def add_project(path: str, name: str | None = None) -> str:
     except ValueError as exc:
         return f"error: {exc}"
     _spawn_background_index(entry.slug, entry.path)
+    WATCHER.watch(entry.slug, entry.path)
     return f"registered {entry.path} (slug {entry.slug}); initial indexing started in background"
 
 
@@ -223,6 +236,7 @@ def remove_project(path: str) -> str:
     entry = REGISTRY.remove(path)
     if entry is None:
         return f"error: not registered: {path}"
+    WATCHER.unwatch(entry.slug)
     collection = f"idx_{entry.slug}"
     if STORE.collection_exists(collection):
         STORE.drop_collection(collection)
@@ -378,4 +392,10 @@ def main() -> None:
         "mcp-code-indexer starting — ollama=%s qdrant=%s model=%s index_root=%s",
         CFG.ollama_url, CFG.qdrant_url, CFG.embed_model, CFG.index_root,
     )
+    try:
+        for entry in REGISTRY.list_projects():
+            WATCHER.watch(entry.slug, entry.path)
+        WATCHER.start()
+    except Exception:  # noqa: BLE001
+        logger.exception("file watcher startup failed — continuing without it")
     mcp.run(transport="stdio")

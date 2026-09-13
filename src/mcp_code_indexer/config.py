@@ -18,6 +18,7 @@ _DEFAULTS: dict[str, str] = {
     "embed_batch": "48",        # texts per Ollama embed request
     "upsert_batch": "256",      # points per Qdrant upsert
     "max_file_bytes": "1048576",  # skip files > 1MB
+    "watch_debounce": "3",      # seconds; watcher quiet period before re-index
 }
 
 
@@ -31,6 +32,7 @@ class Config:
     embed_batch: int
     upsert_batch: int
     max_file_bytes: int
+    watch_debounce: int
     extra: dict[str, str] = field(default_factory=dict)
 
 
@@ -67,4 +69,5 @@ def load_config(argv: list[str] | None = None) -> Config:
         embed_batch=int(cfg["embed_batch"]),
         upsert_batch=int(cfg["upsert_batch"]),
         max_file_bytes=int(cfg["max_file_bytes"]),
+        watch_debounce=int(cfg["watch_debounce"]),
     )

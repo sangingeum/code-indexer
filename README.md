@@ -41,6 +41,19 @@ a few admin tools. Chunks, hashes, and collections are never exposed.
 - **Filtering**: honors `.gitignore` and `.codeindexignore` (nested, per-
   directory), skips `.git`/`node_modules`/`venv`/`__pycache__`/`dist`/`build`
   /`target`, files > 1 MB, and binary/non-UTF-8 files.
+- **Filesystem watcher**: registered project roots are watched live (inotify
+  via `watchdog`, one observer thread total). Edits outside of `.git`/
+  `node_modules`/etc. trigger the same incremental index pass after a
+  `WATCH_DEBOUNCE` second quiet period (default 3), so the index stays fresh
+  even when agents edit code without ever calling `semantic_search`. The
+  watcher takes the same per-project lock as tool-triggered passes (no
+  racing), runs off the event thread, and is failure-isolated: any watcher
+  error is logged and the observer restarts with backoff — it can never take
+  the MCP server down. Watches follow the registry: added on `add_project`
+  (and at startup for already-registered projects), dropped on
+  `remove_project`. Can be exercised standalone via
+  `uv run python scripts/watcher_smoke.py` (no Ollama/Qdrant needed) or
+  `scripts/watcher_live.py` (real end-to-end pass on vivarium-sim).
 - **Concurrency**: multiple MCP client processes (multiple agents) are safe —
   per-project `O_EXCL` lock files (stale locks stolen after 30 min), WAL-mode
   SQLite, idempotent point IDs. Two servers indexing the same project at once
@@ -70,6 +83,7 @@ Resolution order: CLI flags > environment variables > defaults.
 | `EMBED_MODEL` | `qwen3-embedding:8b` | Embedding model |
 | `INDEX_ROOT` | `~/.mcp-code-indexer` | State directory |
 | `STALE_TTL` | `60` | Seconds between staleness re-scans |
+| `WATCH_DEBOUNCE` | `3` | Watcher quiet period (s) before a file-event re-index |
 | `EMBED_BATCH` | `48` | Texts per Ollama embed request |
 | `UPSERT_BATCH` | `256` | Points per Qdrant upsert |
 | `MAX_FILE_BYTES` | `1048576` | Skip files larger than this |

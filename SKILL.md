@@ -70,6 +70,10 @@ registrations keep theirs (additive, migration-safe registry change).
   content actually changed.
 - First index after `add_project` runs on a background thread; results are
   incomplete until `index_status` reports `state=idle` with a last_pass.
+- **Edits re-index themselves**: registered roots are watched via inotify;
+  ~`WATCH_DEBOUNCE` (3 s) after your last write, the server incrementally
+  re-indexes changed files — no tool call needed. `semantic_search` results
+  are therefore fresh even if nobody searched since the edit.
 - Search without `project` searches ALL registered projects (slowest); pass
   `project` for a known repo.
 
@@ -85,6 +89,7 @@ CLI flags > env vars > defaults. Flags: `--ollama-url --qdrant-url
 | `EMBED_MODEL` | `qwen3-embedding:8b` |
 | `INDEX_ROOT` | `~/.mcp-code-indexer` |
 | `STALE_TTL` | `60` |
+| `WATCH_DEBOUNCE` | `3` (watcher quiet period before re-index) |
 | `EMBED_BATCH` / `UPSERT_BATCH` / `MAX_FILE_BYTES` | 48 / 256 / 1048576 |
 
 ## Gotchas
