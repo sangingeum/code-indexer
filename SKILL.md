@@ -27,6 +27,21 @@ project directories in Qdrant (embeddings via Ollama `qwen3-embedding:8b`,
 | `semantic_search` | `query: str`, `project?: str` (path, slug, or custom name; omit = all), `limit: int = 8`, `file_filter?: str` (glob/substring on path, e.g. `*.py`) | Score-sorted lines `[score] project::file:start-end (symbol)` + 200-char snippet. |
 | `index_status` | `path: str` | `project=… state=… last_pass=… [error=…]`; also triggers the staleness check. |
 | `reindex_project` | `path: str` | `full reindex queued` — full rebuild in background. |
+| `find_symbol` | `name: str`, `project?: str`, `substring?: bool = false` | Symbol-index lookup (SQLite manifest): `[confidence] file:start-end name (type)`, exact name match (`COLLATE NOCASE`) by default, capped labeled substring fallback if nothing matches exactly. `confidence=exact` = extracted from tree-sitter AST; `heuristic` = regex-chunked file. |
+| `find_definition` | `name: str`, `project?: str` | Exact-match symbols only (no substring fallback). |
+| `get_code_context` | `file: str`, `start_line?: int`, `end_line?: int`, `symbol?: str`, `project?: str`, `context_lines?: int = 0` | **Returns only the requested source lines — prefer this over reading whole files.** Two forms: line-range (`start_line`/`end_line`) or symbol= (resolves via the symbol index; all matches returned, capped 5). Path is resolved against the registered project root; escapes (`../`) are rejected. Serves from disk — may drift if the file changed since the last index pass. |
+| `find_references` | `name: str`, `project?: str`, `relationship?: str` (`calls`\|`includes`\|...) | Lines `file:line (src_symbol → target, relationship, confidence)`. One `symbol_refs` table; call edges are textual and honestly labeled `heuristic` — navigation aid, not static analysis. |
+
+## Code navigation workflow (token-efficient — use it)
+
+```
+semantic_search()  →  find_symbol/find_definition  →  get_code_context(symbol=)
+```
+
+Never read a whole file to inspect one symbol; `get_code_context` returns just
+the relevant range. Note: pre-schema-v2 manifests have no symbol rows until the
+next incremental pass or one `reindex_project` — an empty `find_symbol` on an
+old project returns a hint saying so.
 
 ## Custom collection names
 
