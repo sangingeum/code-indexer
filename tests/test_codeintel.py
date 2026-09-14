@@ -220,3 +220,31 @@ def test_extract_symbols_skips_symbolless_chunks():
     for c in chunks:
         c.source = "ast"
     assert ts_chunker.extract_symbols("x.cpp", text, chunks) == []
+
+
+def test_decorated_python_definitions_get_real_names():
+    """Regression: @decorator-wrapped defs went through the first-line regex
+    guess and produced garbage names ('ifest:\\n ') instead of Manifest etc."""
+    src = (
+        "import functools\n"
+        "\n"
+        "@functools.cache\n"
+        "class Manifest:\n"
+        "    pass\n"
+        "\n"
+        "@staticmethod\n"
+        "def mark_scanned():\n"
+        "    return 1\n"
+    )
+    chunks = ts_chunker.chunk_text("x.py", src)
+    syms = {c.symbol for c in chunks}
+    assert "Manifest" in syms, syms
+    assert "mark_scanned" in syms, syms
+
+
+def test_utf8_source_byte_offsets():
+    """Regression: tree-sitter byte offsets were used to slice a str, so any
+    name after a multi-byte char came out corrupted."""
+    src = "# café — em-dash comment, 2+ multi-byte chars\nclass Foo:\n    pass\n"
+    chunks = ts_chunker.chunk_text("x.py", src)
+    assert any(c.symbol == "Foo" for c in chunks), [c.symbol for c in chunks]

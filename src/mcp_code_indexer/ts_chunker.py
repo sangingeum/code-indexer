@@ -77,7 +77,8 @@ def chunk_text(path: str, text: str) -> list[Chunk]:
         return fallback_chunk(text)
     try:
         parser = tree_sitter_language_pack.get_parser(lang)
-        tree = parser.parse(text.encode("utf-8"))
+        data = text.encode("utf-8")
+        tree = parser.parse(data)
     except Exception as exc:  # noqa: BLE001
         logger.debug("tree-sitter parse failed for %s (%s): %s", path, lang, exc)
         return fallback_chunk(text)
@@ -86,7 +87,10 @@ def chunk_text(path: str, text: str) -> list[Chunk]:
     root = tree.root_node
     if root.has_error:
         logger.debug("tree-sitter error-tolerant parse for %s — using AST anyway", path)
-    _walk(root, text, chunks)
+    # tree-sitter byte offsets index the ENCODED buffer, not the str. Slicing
+    # the str with byte offsets corrupts any name after multi-byte chars.
+    # Decode each slice from the bytes buffer instead.
+    _walk(root, data, chunks)
     if not chunks:
         return fallback_chunk(text)
     for i, c in enumerate(chunks):
@@ -95,14 +99,15 @@ def chunk_text(path: str, text: str) -> list[Chunk]:
     return chunks
 
 
-def _walk(node, text: str, out: list[Chunk]) -> None:
+def _walk(node, data: bytes, out: list[Chunk]) -> None:
     """Collect declaration units; recurse into non-unit containers."""
+    text = None  # decoded lazily only when needed
     for child in node.children:
         if child.type in _UNIT_TYPES:
             start = child.start_point[0] + 1
             end = child.end_point[0] + 1  # end_point row is 0-based
-            node_text = text[child.start_byte:child.end_byte]
-            symbol = _symbol_from_node(child, text)
+            node_text = data[child.start_byte:child.end_byte].decode("utf-8", "replace")
+            symbol = _symbol_from_node(child, data)
             sym_type = _TYPE_BY_NODE.get(child.type)
             if len(node_text) > _CHAR_CAP:
                 # Oversized unit: split via fallback on its own text,
@@ -130,10 +135,10 @@ def _walk(node, text: str, out: list[Chunk]) -> None:
         elif child.type in _UNIT_TYPES_EXTRACT_ONLY:
             # Namespace: emit a symbol row via the chunk that _make_chunk
             # would produce ONLY when the body is small; always recurse.
-            if symbol := _symbol_from_node(child, text):
+            if symbol := _symbol_from_node(child, data):
                 start = child.start_point[0] + 1
                 end = child.end_point[0] + 1
-                node_text = text[child.start_byte:child.end_byte]
+                node_text = data[child.start_byte:child.end_byte].decode("utf-8", "replace")
                 if len(node_text) <= _CHAR_CAP:
                     h = hashlib.sha256(node_text.encode()).hexdigest()
                     out.append(Chunk(
@@ -141,31 +146,38 @@ def _walk(node, text: str, out: list[Chunk]) -> None:
                         start_line=start, end_line=end, chunk_index=0,
                         source="ast", symbol_type="namespace",
                     ))
-            _walk(child, text, out)
+            _walk(child, data, out)
         elif child.child_count:
-            _walk(child, text, out)
+            _walk(child, data, out)
+    del text
 
 
-def _symbol_from_node(node, text: str) -> str | None:
+def _symbol_from_node(node, data: bytes) -> str | None:
     # First named child of type identifier/name is the declaration name.
     for ch in node.children:
         if ch.type in ("identifier", "name", "property_identifier", "type_identifier"):
-            return text[ch.start_byte:ch.end_byte]
+            return data[ch.start_byte:ch.end_byte].decode("utf-8", "replace")
+    # Python wraps classes/functions in decorated_definition when a decorator
+    # is present: descend into the wrapped unit for the real name.
+    if node.type == "decorated_definition":
+        for ch in node.children:
+            if ch.type in _UNIT_TYPES:
+                return _symbol_from_node(ch, data)
     # C/C++ grammars nest the name: function_definition → function_declarator
     # → qualified_identifier → identifier; class_specifier → type_identifier
     # is a direct child (covered above); namespace → namespace_identifier.
     for ch in node.children:
         if ch.type in ("function_declarator",):
-            return _symbol_from_declarator(ch, text)
+            return _symbol_from_declarator(ch, data)
         if ch.type in ("namespace_identifier",):
-            return text[ch.start_byte:ch.end_byte]
+            return data[ch.start_byte:ch.end_byte].decode("utf-8", "replace")
     # Fallback: regex on the first line.
-    first_line = text[node.start_byte:node.end_byte].splitlines()[0] \
-        if node.end_byte > node.start_byte else ""
+    first_line = data[node.start_byte:node.end_byte].decode("utf-8", "replace") \
+        .splitlines()[0] if node.end_byte > node.start_byte else ""
     return _guess_symbol(first_line)
 
 
-def _symbol_from_declarator(node, text: str) -> str | None:
+def _symbol_from_declarator(node, data: bytes) -> str | None:
     """Name inside a function_declarator: prefer the LAST identifier part of
     a qualified_identifier (Foo::bar → 'bar'), else the plain identifier."""
     for ch in node.children:
@@ -174,9 +186,9 @@ def _symbol_from_declarator(node, text: str) -> str | None:
                      if c.type in ("identifier", "namespace_identifier",
                                    "destructor_name", "operator_name")]
             if parts:
-                return text[parts[-1].start_byte:parts[-1].end_byte]
+                return data[parts[-1].start_byte:parts[-1].end_byte].decode("utf-8", "replace")
         if ch.type in ("identifier", "field_identifier", "destructor_name"):
-            return text[ch.start_byte:ch.end_byte]
+            return data[ch.start_byte:ch.end_byte].decode("utf-8", "replace")
     return None
 
 
