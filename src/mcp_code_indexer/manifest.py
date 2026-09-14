@@ -93,12 +93,14 @@ class Manifest:
             self._conn.executescript(_SCHEMA)
             # schema_version must actually advance on old manifests
             # (INSERT OR IGNORE would leave v1 stuck forever).
+            old_version = self.get_meta("schema_version")
             self._conn.execute(
                 "INSERT INTO meta(key, value) VALUES ('schema_version', ?) "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value "
                 "WHERE CAST(excluded.value AS INTEGER) > CAST(value AS INTEGER)",
                 (SCHEMA_VERSION,),
             )
+        self._migrated_from = old_version
 
     def close(self) -> None:
         self._conn.close()

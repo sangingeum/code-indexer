@@ -21,7 +21,7 @@ from .config import Config, load_config
 from .embedder import Embedder
 from .indexer import Indexer
 from .locks import project_lock
-from .manifest import Manifest
+from .manifest import SCHEMA_VERSION, Manifest
 from .registry import Registry
 from .store import Store
 from .watcher import FileWatcher
@@ -199,6 +199,26 @@ def _resolve_entry(project: str | None) -> tuple[Any | None, str]:
 
 def _manifest_open(entry: Any) -> Manifest:
     return _manifest_for(entry.slug)
+
+
+def _schema_migrated(entry: Any) -> bool:
+    """True when this manifest was just upgraded from a pre-symbol schema.
+
+    v1 manifests contain files but no symbol rows for their unchanged files;
+    a full reindex is needed once before find_symbol/get_code_context can
+    see anything. Detected via the migration marker set in Manifest init.
+    """
+    m = _manifest_for(entry.slug)
+    try:
+        return getattr(m, "_migrated_from", SCHEMA_VERSION) not in (None, SCHEMA_VERSION)
+    finally:
+        m.close()
+
+
+_MIGRATION_HINT = (
+    "note: project manifest was upgraded from an older schema — run "
+    "reindex_project once to populate the symbol index"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -455,7 +475,10 @@ def find_symbol(name: str, project: str | None = None,
                 r._substring = True  # type: ignore[attr-defined]
             match_label = True
         if not rows:
-            return f"no symbols matching {name!r}"
+            msg = f"no symbols matching {name!r}"
+            if _schema_migrated(entry):
+                msg += "\n" + _MIGRATION_HINT
+            return msg
         return _fmt_symbol_rows(rows, entry.path, match_label)
     finally:
         m.close()
@@ -477,7 +500,10 @@ def find_definition(name: str, project: str | None = None) -> str:
     try:
         rows = m.find_symbols(name, substring=False)
         if not rows:
-            return f"no exact-match symbols named {name!r}"
+            msg = f"no exact-match symbols named {name!r}"
+            if _schema_migrated(entry):
+                msg += "\n" + _MIGRATION_HINT
+            return msg
         return _fmt_symbol_rows(rows, entry.path, match_label=False)
     finally:
         m.close()
