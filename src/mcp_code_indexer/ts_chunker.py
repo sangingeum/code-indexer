@@ -40,7 +40,8 @@ EXT_LANG = {
 # inner symbol from chunking.
 _UNIT_TYPES = {
     "function_definition", "function_declaration", "method_definition",
-    "class_definition", "class_declaration", "struct_item", "impl_item",
+    "class_definition", "class_declaration", "class_specifier",
+    "struct_item", "struct_specifier", "impl_item",
     "export_statement", "decorated_definition", "enum_specifier",
     "preproc_function_def",
 }
@@ -52,6 +53,7 @@ _TYPE_BY_NODE = {
     "function_definition": "function", "function_declaration": "function",
     "method_definition": "method", "preproc_function_def": "function",
     "class_definition": "class", "class_declaration": "class",
+    "class_specifier": "class",
     "struct_item": "struct", "struct_specifier": "struct",
     "impl_item": "class", "enum_specifier": "enum",
     "namespace_definition": "namespace",
@@ -149,10 +151,33 @@ def _symbol_from_node(node, text: str) -> str | None:
     for ch in node.children:
         if ch.type in ("identifier", "name", "property_identifier", "type_identifier"):
             return text[ch.start_byte:ch.end_byte]
+    # C/C++ grammars nest the name: function_definition → function_declarator
+    # → qualified_identifier → identifier; class_specifier → type_identifier
+    # is a direct child (covered above); namespace → namespace_identifier.
+    for ch in node.children:
+        if ch.type in ("function_declarator",):
+            return _symbol_from_declarator(ch, text)
+        if ch.type in ("namespace_identifier",):
+            return text[ch.start_byte:ch.end_byte]
     # Fallback: regex on the first line.
     first_line = text[node.start_byte:node.end_byte].splitlines()[0] \
         if node.end_byte > node.start_byte else ""
     return _guess_symbol(first_line)
+
+
+def _symbol_from_declarator(node, text: str) -> str | None:
+    """Name inside a function_declarator: prefer the LAST identifier part of
+    a qualified_identifier (Foo::bar → 'bar'), else the plain identifier."""
+    for ch in node.children:
+        if ch.type == "qualified_identifier":
+            parts = [c for c in ch.children
+                     if c.type in ("identifier", "namespace_identifier",
+                                   "destructor_name", "operator_name")]
+            if parts:
+                return text[parts[-1].start_byte:parts[-1].end_byte]
+        if ch.type in ("identifier", "field_identifier", "destructor_name"):
+            return text[ch.start_byte:ch.end_byte]
+    return None
 
 
 # ---------------------------------------------------------------------------
