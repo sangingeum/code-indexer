@@ -3,12 +3,17 @@
 Feasibility verified on this box: py3.11, tree-sitter 0.26.0,
 tree-sitter-language-pack 1.18.0, numpy 1.26.4 (<2 satisfied), pure wheels,
 python grammar parses. Falls back to the regex chunker on any failure.
+
+Also extracts the symbol table + reference edges (plan v2 §4/§5) in the
+same AST walk. Namespaces are treated as containers (recurse inside, emit a
+symbol row without swallowing their children); enums are units.
 """
 
 from __future__ import annotations
 
 import hashlib
 import logging
+import re
 
 from .chunker import Chunk, chunk as fallback_chunk, _guess_symbol
 
@@ -30,12 +35,34 @@ EXT_LANG = {
 }
 
 # Node types treated as one chunk (top-level declarations).
+# NOTE: namespaces are deliberately NOT here — they are containers
+# (see _UNIT_TYPES_EXTRACT_ONLY); making them chunks would hide every
+# inner symbol from chunking.
 _UNIT_TYPES = {
     "function_definition", "function_declaration", "method_definition",
     "class_definition", "class_declaration", "struct_item", "impl_item",
-    "export_statement", "decorated_definition",
+    "export_statement", "decorated_definition", "enum_specifier",
+    "preproc_function_def",
+}
+# Container-ish declarations that still get a symbol row (walk recurses in).
+_UNIT_TYPES_EXTRACT_ONLY = {
+    "namespace_definition", "namespace_definition_probability",
+}
+_TYPE_BY_NODE = {
+    "function_definition": "function", "function_declaration": "function",
+    "method_definition": "method", "preproc_function_def": "function",
+    "class_definition": "class", "class_declaration": "class",
+    "struct_item": "struct", "struct_specifier": "struct",
+    "impl_item": "class", "enum_specifier": "enum",
+    "namespace_definition": "namespace",
 }
 _CHAR_CAP = 1000
+
+# Node types whose text names a call target (textual, unbound).
+_CALL_NODE_TYPES = {
+    "call_expression", "call", "call_function", "function_call",
+    "call_function_expression",
+}
 
 
 def chunk_text(path: str, text: str) -> list[Chunk]:
@@ -62,6 +89,7 @@ def chunk_text(path: str, text: str) -> list[Chunk]:
         return fallback_chunk(text)
     for i, c in enumerate(chunks):
         c.chunk_index = i
+        c.source = "ast"
     return chunks
 
 
@@ -73,9 +101,12 @@ def _walk(node, text: str, out: list[Chunk]) -> None:
             end = child.end_point[0] + 1  # end_point row is 0-based
             node_text = text[child.start_byte:child.end_byte]
             symbol = _symbol_from_node(child, text)
+            sym_type = _TYPE_BY_NODE.get(child.type)
             if len(node_text) > _CHAR_CAP:
                 # Oversized unit: split via fallback on its own text,
                 # adjusting line numbers and preserving symbol on the first.
+                # source stays 'ast': the unit boundary is AST-derived; only
+                # the split is mechanical (design round-1 decision).
                 subs = fallback_chunk(node_text)
                 offset = start
                 for s in subs:
@@ -84,7 +115,7 @@ def _walk(node, text: str, out: list[Chunk]) -> None:
                         symbol=symbol if s.start_line == 1 else s.symbol,
                         start_line=offset + s.start_line - 1,
                         end_line=offset + s.end_line - 1,
-                        chunk_index=0,
+                        chunk_index=0, source="ast", symbol_type=sym_type,
                     ))
                     offset += s.end_line - s.start_line + 1
             else:
@@ -92,7 +123,23 @@ def _walk(node, text: str, out: list[Chunk]) -> None:
                 out.append(Chunk(
                     text=node_text, chunk_hash="sha256:" + h, symbol=symbol,
                     start_line=start, end_line=end, chunk_index=0,
+                    source="ast", symbol_type=sym_type,
                 ))
+        elif child.type in _UNIT_TYPES_EXTRACT_ONLY:
+            # Namespace: emit a symbol row via the chunk that _make_chunk
+            # would produce ONLY when the body is small; always recurse.
+            if symbol := _symbol_from_node(child, text):
+                start = child.start_point[0] + 1
+                end = child.end_point[0] + 1
+                node_text = text[child.start_byte:child.end_byte]
+                if len(node_text) <= _CHAR_CAP:
+                    h = hashlib.sha256(node_text.encode()).hexdigest()
+                    out.append(Chunk(
+                        text=node_text, chunk_hash="sha256:" + h, symbol=symbol,
+                        start_line=start, end_line=end, chunk_index=0,
+                        source="ast", symbol_type="namespace",
+                    ))
+            _walk(child, text, out)
         elif child.child_count:
             _walk(child, text, out)
 
@@ -106,3 +153,77 @@ def _symbol_from_node(node, text: str) -> str | None:
     first_line = text[node.start_byte:node.end_byte].splitlines()[0] \
         if node.end_byte > node.start_byte else ""
     return _guess_symbol(first_line)
+
+
+# ---------------------------------------------------------------------------
+# Symbol table + reference extraction (plan v2 §4/§5). Textual and unbound;
+# every consumer labels these heuristic.
+# ---------------------------------------------------------------------------
+
+def extract_symbols(path: str, text: str, chunks: list[Chunk]) -> list[dict]:
+    """Symbol rows derived from the chunk pass itself.
+
+    Returns [{'name', 'symbol_type', 'start_line', 'end_line', 'source'}].
+    Chunks carry the type; regex-chunked files get function/class guesses.
+    """
+    rows: dict[tuple, dict] = {}
+    for c in chunks:
+        if not c.symbol:
+            continue
+        stype = c.symbol_type or _guess_type_regex(c.text) or "function"
+        key = (c.symbol, c.start_line)
+        if key not in rows:
+            rows[key] = {
+                "name": c.symbol, "symbol_type": stype,
+                "start_line": c.start_line, "end_line": c.end_line,
+                "source": c.source,
+            }
+    return list(rows.values())
+
+
+_CALL_RE = re.compile(
+    r"\b([A-Za-z_][A-Za-z0-9_:<>,~]*)\s*\(")
+_INCLUDE_RE = re.compile(r"^\s*#\s*include\s+[<\"]([^>\"]+)[>\"]",
+                         re.MULTILINE)
+_IMPORT_RE = re.compile(r"^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))",
+                        re.MULTILINE)
+
+
+def extract_refs(path: str, text: str) -> list[dict]:
+    """Textual reference edges: calls, includes/imports.
+
+    Unbound by design (no compiler resolution, plan §5): every edge is a
+    textual match and consumers label it heuristic. Regex-based so it works
+    for all languages without per-grammar node maps.
+    """
+    lines = text.splitlines()
+    refs: list[dict] = []
+    for m in _INCLUDE_RE.finditer(text):
+        line = text[:m.start()].count("\n") + 1
+        refs.append({"line": line, "src_symbol": None,
+                     "relationship": "includes", "target": m.group(1)})
+    for m in _IMPORT_RE.finditer(text):
+        line = text[:m.start()].count("\n") + 1
+        target = m.group(1) or m.group(2)
+        refs.append({"line": line, "src_symbol": None,
+                     "relationship": "includes", "target": target})
+    for lineno, ln in enumerate(lines, 1):
+        for m in _CALL_RE.finditer(ln):
+            name = m.group(1).split("::")[-1].split("->")[-1].split(".")[-1]
+            if name and name.isidentifier():
+                refs.append({"line": lineno, "src_symbol": None,
+                             "relationship": "calls", "target": name})
+    return refs
+
+
+def _guess_type_regex(text: str) -> str | None:
+    first = text.lstrip()
+    if first.startswith(("class ", "struct ", "interface ")):
+        return "class"
+    if first.startswith("enum "):
+        return "enum"
+    if first.startswith(("namespace ",)):
+        return "namespace"
+    if first.startswith(("def ", "fn ", "function ", "func ")):
+        return "function"
+    return None

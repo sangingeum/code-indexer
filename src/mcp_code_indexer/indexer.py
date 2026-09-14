@@ -17,7 +17,7 @@ from .chunker import Chunk, chunk
 from .config import Config
 from .embedder import Embedder
 from . import ts_chunker
-from .manifest import Manifest, ManifestFile
+from .manifest import Manifest, ManifestFile, RefRow, SymbolRow
 from .scanner import ScannedFile, scan_project
 from .store import Store, point_id
 
@@ -91,14 +91,24 @@ class Indexer:
         seen_hashes = self._load_chunk_hashes(manifest)
 
         rows: list[ManifestFile] = []
+        # Per-file symbol/ref extraction results, applied at step 4 in the
+        # same commit as the manifest rows (never ahead of vectors).
+        pending_symbols: list[tuple[str, list, list]] = []
         for path in added + changed:
             f = scanned_map[path]
             try:
                 with open(f.abs_path, encoding="utf-8", errors="replace") as fh:
-                    chunks = _chunk_dispatch(path, fh.read())
+                    file_text = fh.read()
+                    chunks = _chunk_dispatch(path, file_text)
             except OSError as exc:
                 logger.warning("cannot read %s: %s", path, exc)
                 continue
+
+            pending_symbols.append((
+                path,
+                ts_chunker.extract_symbols(path, file_text, chunks),
+                ts_chunker.extract_refs(path, file_text),
+            ))
 
             # Shrinkage: delete surplus chunk indices before upsert (§3/B).
             old = old_files.get(path)
@@ -133,6 +143,7 @@ class Indexer:
                     "content_hash": scanned_map[path].content_hash,
                     "chunk_hash": chunk_.chunk_hash,
                     "symbol": chunk_.symbol,
+                    "symbol_type": chunk_.symbol_type,
                     "lang": _lang_from_ext(path),
                     "start_line": chunk_.start_line,
                     "end_line": chunk_.end_line,
@@ -146,9 +157,20 @@ class Indexer:
                 self.store.upsert_points(collection, batch_points[i:i + self.cfg.upsert_batch])
             embedded = len(to_embed)
 
-        # 4) Manifest update in one transaction.
+        # 4) Manifest update in one transaction (symbols/refs included so
+        #    they can never be committed ahead of the vectors).
         if rows:
             manifest.upsert_files(rows)
+        for path, syms, refs in pending_symbols:
+            manifest.replace_file_symbols(
+                path,
+                [SymbolRow(file=path, name=s["name"], symbol_type=s["symbol_type"],
+                           start_line=s["start_line"], end_line=s["end_line"],
+                           source=s["source"]) for s in syms],
+                [RefRow(file=path, line=r["line"], src_symbol=r["src_symbol"],
+                        relationship=r["relationship"], target=r["target"])
+                 for r in refs],
+            )
         manifest.mark_scanned(manifest.read_git_branch(project_path))
         manifest.set_meta("last_indexed", str(time.time()))
 

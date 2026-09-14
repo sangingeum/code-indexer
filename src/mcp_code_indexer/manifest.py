@@ -1,8 +1,10 @@
-"""Per-project SQLite manifest (design §3).
+"""Per-project SQLite manifest (design §3; schema v2 adds code intelligence).
 
 Schema:
     files(path TEXT PK, content_hash TEXT, size INT, chunk_count INT, status TEXT)
     meta(key TEXT PK, value TEXT)  # schema_version, last_full_scan, branch, last_indexed
+    symbols(file, name, symbol_type, start_line, end_line, source)   # v2
+    symbol_refs(file, line, src_symbol, relationship, target)        # v2
 
 Opened in WAL mode. All writes are short transactions — safe under the
 per-project lock discipline; WAL allows concurrent readers during indexing.
@@ -17,7 +19,7 @@ from dataclasses import dataclass
 
 logger = logging.getLogger("mcp-code-indexer.manifest")
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS files (
@@ -31,6 +33,25 @@ CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+CREATE TABLE IF NOT EXISTS symbols (
+    file TEXT NOT NULL,
+    name TEXT NOT NULL,
+    symbol_type TEXT NOT NULL,
+    start_line INTEGER NOT NULL,
+    end_line INTEGER NOT NULL,
+    source TEXT NOT NULL DEFAULT 'regex',
+    PRIMARY KEY (file, name, start_line)
+);
+CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);
+CREATE TABLE IF NOT EXISTS symbol_refs (
+    file TEXT NOT NULL,
+    line INTEGER NOT NULL,
+    src_symbol TEXT,
+    relationship TEXT NOT NULL,
+    target TEXT NOT NULL,
+    PRIMARY KEY (file, line, relationship, target)
+);
+CREATE INDEX IF NOT EXISTS idx_symbol_refs_target ON symbol_refs(target);
 """
 
 
@@ -43,6 +64,25 @@ class ManifestFile:
     status: str
 
 
+@dataclass
+class SymbolRow:
+    file: str
+    name: str
+    symbol_type: str
+    start_line: int
+    end_line: int
+    source: str  # 'ast' | 'regex'
+
+
+@dataclass
+class RefRow:
+    file: str
+    line: int
+    src_symbol: str | None
+    relationship: str  # calls | inherits | includes | references
+    target: str
+
+
 class Manifest:
     def __init__(self, db_path: str):
         self.db_path = db_path
@@ -51,8 +91,12 @@ class Manifest:
         self._conn.execute("PRAGMA synchronous=NORMAL")
         with self._conn:
             self._conn.executescript(_SCHEMA)
+            # schema_version must actually advance on old manifests
+            # (INSERT OR IGNORE would leave v1 stuck forever).
             self._conn.execute(
-                "INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', ?)",
+                "INSERT INTO meta(key, value) VALUES ('schema_version', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value "
+                "WHERE CAST(excluded.value AS INTEGER) > CAST(value AS INTEGER)",
                 (SCHEMA_VERSION,),
             )
 
@@ -88,10 +132,83 @@ class Manifest:
             )
 
     def delete_files(self, paths: list[str]) -> None:
+        """Remove file rows AND their symbol/ref rows in one transaction."""
         with self._conn:
             self._conn.executemany(
                 "DELETE FROM files WHERE path = ?", [(p,) for p in paths]
             )
+            self._conn.executemany(
+                "DELETE FROM symbols WHERE file = ?", [(p,) for p in paths]
+            )
+            self._conn.executemany(
+                "DELETE FROM symbol_refs WHERE file = ?", [(p,) for p in paths]
+            )
+
+    # -- symbols / refs --------------------------------------------------
+
+    def replace_file_symbols(self, file: str, symbols: list[SymbolRow],
+                             refs: list[RefRow]) -> None:
+        """Atomically replace a file's symbol and ref rows.
+
+        Delete-before-insert keyed by file: chunk ordering shifts make blind
+        upserts duplicate rows. Must be called in the same pass that commits
+        the file's manifest row (design: symbols never ahead of vectors).
+        """
+        with self._conn:
+            self._conn.execute("DELETE FROM symbols WHERE file = ?", (file,))
+            self._conn.execute("DELETE FROM symbol_refs WHERE file = ?", (file,))
+            self._conn.executemany(
+                "INSERT OR REPLACE INTO symbols(file, name, symbol_type, "
+                "start_line, end_line, source) VALUES (?, ?, ?, ?, ?, ?)",
+                [(s.file, s.name, s.symbol_type, s.start_line, s.end_line, s.source)
+                 for s in symbols],
+            )
+            self._conn.executemany(
+                "INSERT OR REPLACE INTO symbol_refs(file, line, src_symbol, "
+                "relationship, target) VALUES (?, ?, ?, ?, ?)",
+                [(r.file, r.line, r.src_symbol, r.relationship, r.target)
+                 for r in refs],
+            )
+
+    def find_symbols(self, name: str, symbol_type: str | None = None,
+                     substring: bool = False, limit: int = 25) -> list[SymbolRow]:
+        """Exact-first (ast rows above regex rows); optional capped substring tier."""
+        op = "LIKE" if substring else "="
+        pattern = f"%{name}%" if substring else name
+        sql = (
+            "SELECT file, name, symbol_type, start_line, end_line, source "
+            "FROM symbols WHERE name "
+            f"{op} ? COLLATE NOCASE"
+        )
+        args: list = [pattern]
+        if symbol_type:
+            sql += " AND symbol_type = ?"
+            args.append(symbol_type)
+        sql += " ORDER BY CASE source WHEN 'ast' THEN 0 ELSE 1 END, name, start_line LIMIT ?"
+        args.append(limit)
+        return [SymbolRow(*row) for row in
+                self._conn.execute(sql, args).fetchall()]
+
+    def symbols_for_file(self, file: str) -> list[SymbolRow]:
+        return [SymbolRow(*row) for row in self._conn.execute(
+            "SELECT file, name, symbol_type, start_line, end_line, source "
+            "FROM symbols WHERE file = ? ORDER BY start_line", (file,)
+        ).fetchall()]
+
+    def all_symbol_names(self) -> set[str]:
+        return {r[0] for r in self._conn.execute("SELECT DISTINCT name FROM symbols")}
+
+    def find_refs(self, target: str, relationship: str | None = None,
+                  limit: int = 25) -> list[RefRow]:
+        sql = ("SELECT file, line, src_symbol, relationship, target "
+               "FROM symbol_refs WHERE target = ?")
+        args: list = [target]
+        if relationship:
+            sql += " AND relationship = ?"
+            args.append(relationship)
+        sql += " ORDER BY file, line LIMIT ?"
+        args.append(limit)
+        return [RefRow(*row) for row in self._conn.execute(sql, args).fetchall()]
 
     # -- meta ----------------------------------------------------------
 

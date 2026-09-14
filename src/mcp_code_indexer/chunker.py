@@ -32,6 +32,8 @@ class Chunk:
     start_line: int   # 1-based
     end_line: int
     chunk_index: int
+    source: str = "regex"      # 'ast' | 'regex' — which chunker produced it
+    symbol_type: str | None = None  # function|method|class|struct|enum|namespace
 
 
 def _guess_symbol(line: str) -> str | None:

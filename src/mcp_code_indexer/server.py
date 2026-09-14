@@ -1,7 +1,9 @@
 """FastMCP server: thin tool surface per design §4.
 
-Seven tools only. Agents never touch index internals — semantic_search
+Core navigation tools; agents never touch index internals — semantic_search
 triggers the staleness check / incremental indexing transparently (req 1).
+Plan v2 adds code-intelligence tools (find_symbol, find_definition,
+get_code_context, find_references) on top of the same manifest.
 """
 
 from __future__ import annotations
@@ -163,6 +165,7 @@ def _search_one(entry: Any, query: str, limit: int,
             "file": p.get("file"),
             "score": round(h.score, 4),
             "symbol": p.get("symbol"),
+            "symbol_type": p.get("symbol_type"),
             "start_line": p.get("start_line"),
             "end_line": p.get("end_line"),
             "snippet": (p.get("snippet") or "")[:500],
@@ -170,8 +173,36 @@ def _search_one(entry: Any, query: str, limit: int,
     return out
 
 
+def _resolve_entry(project: str | None) -> tuple[Any | None, str]:
+    """Resolve an optional project arg (path, slug, or custom name)."""
+    if project is None:
+        entries = REGISTRY.list_projects()
+        if not entries:
+            return None, "error: no projects registered"
+        if len(entries) > 1:
+            return None, ("error: multiple projects registered — pass project "
+                          "(path, slug, or name): "
+                          + ", ".join(e.path for e in entries))
+        return entries[0], ""
+    apath = os.path.abspath(os.path.expanduser(project))
+    entry = REGISTRY.get_by_path(apath) or REGISTRY.get_by_slug(project) \
+        or REGISTRY.get_by_name(project)
+    if entry is None:
+        # Symlinked path fallback.
+        real = os.path.realpath(apath)
+        if real != apath:
+            entry = REGISTRY.get_by_path(real)
+    if entry is None:
+        return None, f"error: project not registered: {project}"
+    return entry, ""
+
+
+def _manifest_open(entry: Any) -> Manifest:
+    return _manifest_for(entry.slug)
+
+
 # ---------------------------------------------------------------------------
-# Tools (design §4 — seven, no more)
+# Tools (design §4 — core navigation; plan v2 adds code intelligence)
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
@@ -292,24 +323,23 @@ def list_projects() -> str:
 
 @mcp.tool()
 def semantic_search(query: str, project: str | None = None, limit: int = 8,
-                    file_filter: str | None = None) -> str:
+                    file_filter: str | None = None,
+                    format: str = "text") -> str:
     """Semantic code search across indexed projects. THE hot path.
 
     Automatically runs a staleness check first and incrementally re-indexes
     changed files, so results are always fresh (within one scan interval).
     Args: query (natural language); project (optional path, slug, or custom
     name — omit to search all registered projects); limit; file_filter
-    (optional substring/glob on file path, e.g. '*.py').
+    (optional substring/glob on file path, e.g. '*.py'); format ('text'
+    default, or 'json' — stable field contract: project, file, score,
+    symbol, symbol_type, start_line, end_line, snippet).
     """
     entries = []
     if project:
-        apath = os.path.abspath(os.path.expanduser(project))
-        entry = REGISTRY.get_by_path(apath)
+        entry, err = _resolve_entry(project)
         if entry is None:
-            # Also accept a registered slug or custom name.
-            entry = REGISTRY.get_by_slug(project) or REGISTRY.get_by_name(project)
-        if not entry:
-            return f"error: project not registered: {project}"
+            return err
         entries = [entry]
     else:
         entries = REGISTRY.list_projects()
@@ -332,9 +362,14 @@ def semantic_search(query: str, project: str | None = None, limit: int = 8,
     all_hits = all_hits[:max(1, limit)]
     if not all_hits:
         return "no results"
+    if format == "json":
+        import json as _json
+        return _json.dumps(all_hits, ensure_ascii=False, indent=2)
     lines = ["search results (score desc):"]
     for h in all_hits:
-        sym = f" ({h['symbol']})" if h["symbol"] else ""
+        sym = f" ({h['symbol']}" if h["symbol"] else ""
+        if sym:
+            sym += f", {h['symbol_type']})" if h.get("symbol_type") else ")"
         lines.append(
             f"- [{h['score']:.4f}] {h['project']}::{h['file']}"
             f":{h['start_line']}-{h['end_line']}{sym}"
@@ -380,6 +415,170 @@ def reindex_project(path: str) -> str:
         _run_index(entry.slug, entry.path, force=True)
     threading.Thread(target=_force, daemon=True, name=f"reindex-{entry.slug}").start()
     return f"full reindex queued for {path}"
+
+
+def _fmt_symbol_rows(rows, project_path: str, match_label: bool) -> str:
+    out = []
+    for r in rows:
+        line = (f"- {project_path}::{r.file}:{r.start_line}-{r.end_line} "
+                f"{r.name} ({r.symbol_type}, confidence="
+                f"{'exact' if r.source == 'ast' else 'heuristic'}")
+        if match_label:
+            line += ", match=exact" if not getattr(r, "_substring", False) \
+                else ", match=substring"
+        out.append(line + ")")
+    return "\n".join(out)
+
+
+@mcp.tool()
+def find_symbol(name: str, project: str | None = None,
+                symbol_type: str | None = None) -> str:
+    """Look up symbols by name in the manifest symbol index (no semantic search).
+
+    Exact match first (AST-extracted rows ranked above regex-extracted);
+    falls back to a capped (25) labelled substring tier when nothing matches
+    exactly. Every row reports file:line range, type, and confidence
+    (exact = from a tree-sitter AST; heuristic = regex-chunked file).
+    symbol_type filters: function|method|class|struct|enum|namespace.
+    """
+    entry, err = _resolve_entry(project)
+    if entry is None:
+        return err
+    _maybe_refresh(entry.slug, entry.path)
+    m = _manifest_open(entry)
+    try:
+        rows = m.find_symbols(name, symbol_type=symbol_type, substring=False)
+        match_label = False
+        if not rows:
+            rows = m.find_symbols(name, symbol_type=symbol_type, substring=True)
+            for r in rows:
+                r._substring = True  # type: ignore[attr-defined]
+            match_label = True
+        if not rows:
+            return f"no symbols matching {name!r}"
+        return _fmt_symbol_rows(rows, entry.path, match_label)
+    finally:
+        m.close()
+
+
+@mcp.tool()
+def find_definition(name: str, project: str | None = None) -> str:
+    """Find where a symbol is declared (exact name match only, no fallback).
+
+    Returns all declaration-like sites. NOTE: for C/C++ a header declaration
+    and a .cpp definition are both symbol_type='function' from tree-sitter's
+    view — declaration vs definition is not distinguished.
+    """
+    entry, err = _resolve_entry(project)
+    if entry is None:
+        return err
+    _maybe_refresh(entry.slug, entry.path)
+    m = _manifest_open(entry)
+    try:
+        rows = m.find_symbols(name, substring=False)
+        if not rows:
+            return f"no exact-match symbols named {name!r}"
+        return _fmt_symbol_rows(rows, entry.path, match_label=False)
+    finally:
+        m.close()
+
+
+def _read_range(abs_path: str, start: int, end: int) -> str:
+    with open(abs_path, encoding="utf-8", errors="replace") as f:
+        lines = f.readlines()
+    total = len(lines)
+    start = max(1, start)
+    end = min(total, end)
+    if start > total:
+        return f"error: start_line {start} beyond end of file ({total} lines)"
+    return "\n".join(
+        f"{i:>5}| {lines[i - 1].rstrip()}" for i in range(start, end + 1))
+
+
+@mcp.tool()
+def get_code_context(file: str, project: str | None = None,
+                     start_line: int | None = None, end_line: int | None = None,
+                     symbol: str | None = None, context_lines: int = 0) -> str:
+    """Retrieve ONLY the relevant source lines instead of reading whole files.
+
+    Two forms:
+    - line range: get_code_context(file, start_line, end_line)
+    - by symbol:  get_code_context(file, symbol='Foo::bar') — resolves the
+      symbol via the index and returns each matching site's line range
+      (all matches, capped at 5; decl in .hpp and def in .cpp are both shown).
+    context_lines pads each range by that many lines on both sides.
+    Serves raw disk content; line numbers reflect the last index pass, so
+    they can drift from disk right after an unindexed edit.
+    File is resolved against the registered project root; paths outside the
+    project are rejected.
+    """
+    entry, err = _resolve_entry(project)
+    if entry is None:
+        return err
+    rel = file.lstrip("/")
+    abs_path = os.path.normpath(os.path.join(entry.path, rel))
+    if not abs_path.startswith(os.path.normpath(entry.path) + os.sep):
+        return f"error: path outside registered project: {file}"
+    if not os.path.isfile(abs_path):
+        return f"error: file not found: {abs_path}"
+
+    ranges: list[tuple[int, int]] = []
+    if symbol:
+        _maybe_refresh(entry.slug, entry.path)
+        m = _manifest_open(entry)
+        try:
+            rows = [r for r in m.find_symbols(symbol, substring=False)
+                    if r.file == rel]
+        finally:
+            m.close()
+        if not rows:
+            return f"error: symbol {symbol!r} not indexed in {rel}"
+        for r in rows[:5]:
+            ranges.append((max(1, r.start_line - context_lines),
+                           r.end_line + context_lines))
+    elif start_line is not None:
+        end = end_line if end_line is not None else start_line
+        ranges.append((max(1, start_line - context_lines),
+                       end + context_lines))
+    else:
+        return "error: provide start_line/end_line or symbol"
+
+    blocks = []
+    for s, e in ranges:
+        blocks.append(f"--- {rel}:{s}-{e} ---\n" + _read_range(abs_path, s, e))
+    return "\n".join(blocks)
+
+
+@mcp.tool()
+def find_references(name: str, project: str | None = None,
+                    relationship: str | None = None, limit: int = 25) -> str:
+    """Find textual references TO a symbol: calls, inherits, includes.
+
+    One relationship representation; relationship optionally filters
+    (calls|inherits|includes|references). All edges are textual/unbound —
+    every result is labeled confidence='heuristic' (navigation aid, not
+    static analysis). Regex-chunked files contribute no ref edges.
+    """
+    entry, err = _resolve_entry(project)
+    if entry is None:
+        return err
+    _maybe_refresh(entry.slug, entry.path)
+    m = _manifest_open(entry)
+    try:
+        rows = m.find_refs(name, relationship=relationship, limit=limit)
+        if not rows:
+            return f"no references to {name!r}"
+        known = m.all_symbol_names()
+        lines = [f"references to {name!r} (all confidence=heuristic):"]
+        for r in rows:
+            exact = "exact" if r.target in known else "heuristic"
+            src = f" in {r.src_symbol}" if r.src_symbol else ""
+            lines.append(
+                f"- {entry.path}::{r.file}:{r.line}{src} "
+                f"{r.relationship} {r.target} (target_confidence={exact})")
+        return "\n".join(lines)
+    finally:
+        m.close()
 
 
 def main() -> None:
