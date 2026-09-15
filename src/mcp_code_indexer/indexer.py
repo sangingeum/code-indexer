@@ -73,6 +73,12 @@ class Indexer:
             changed = list(scanned_map.keys())
             added = []
             deleted = [p for p in old_files if p not in scanned_map]
+            # A full rebuild must actually re-embed: the chunk_hashes cache
+            # records "this vector exists in Qdrant", and Qdrant may have been
+            # wiped/reset independently of the manifest (owner reset, collection
+            # loss). Stale cache + empty collection = silent index loss. Force
+            # re-embed everything on a full pass.
+            manifest.set_meta("chunk_hashes", "")
 
         # 1) Purge deleted files (payload-filter delete + manifest rows).
         for path in deleted:
