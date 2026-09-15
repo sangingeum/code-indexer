@@ -97,7 +97,18 @@ class DebouncingHandler(FileSystemEventHandler):
         self._roots: dict[str, tuple[str, str]] = {}
 
     # -- watchdog callback API ------------------------------------------------
+    # Read-only event types: opening/closing a file without writing mutates
+    # nothing. Reacting to them caused a self-sustaining busy loop — external
+    # pollers (uv re-checking pyproject/uv.lock every few seconds) kept the
+    # debounce armed and the indexer re-scanned the whole tree forever.
+    _IGNORED_EVENT_TYPES = {
+        "opened", "closed_no_write", "FileOpenedEvent", "FileClosedNoWriteEvent",
+    }
+
     def on_any_event(self, event: FileSystemEvent) -> None:
+        etype = type(event).__name__
+        if etype in self._IGNORED_EVENT_TYPES or getattr(event, "event_type", "") in self._IGNORED_EVENT_TYPES:
+            return
         dest = getattr(event, "dest_path", None)
         for raw in (event.src_path, dest):
             if raw:
