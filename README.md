@@ -66,6 +66,15 @@ tick is a cheap hash scan with zero embedding and zero Qdrant traffic.
 | `semantic_search(query, project?, limit=8, file_filter?)` | The hot path. Always runs a staleness check first; `project=None` searches all registered projects. `project` accepts a path, a slug, or a registered custom name. Returns file paths, line ranges, symbols, scores, snippets. |
 | `index_status(path)` | `idle \| indexing \| error` + last-pass progress. |
 | `reindex_project(path)` | Force a full rebuild. |
+| `find_symbol(name, project?, symbol_type?)` | Look up symbols by name in the manifest symbol index (no semantic search). Exact AST-first, capped substring fallback. `symbol_type`: function\|method\|class\|struct\|enum\|namespace. |
+| `find_definition(name, project?)` | Where a symbol is declared (exact name match only, no substring). |
+| `find_references(name, project?, relationship?, limit=25)` | Textual references TO a symbol (all confidence=heuristic). `relationship`: calls\|inherits\|includes\|references. |
+| `get_code_context(file, project?, start_line?, end_line?, symbol?, context_lines?)` | Retrieve ONLY the relevant source lines — by line range (`start_line`+`end_line`) or via a symbol (`symbol`), padded by `context_lines`. |
+
+MCP `project` parameters accept a path, slug, or registered custom name
+(equivalent to the CLI's `--project X` / `--name X`). There is no MCP `watch`
+tool: a watcher makes no sense inside an MCP server that is already
+long-lived — `watch` is CLI-only.
 
 ## How indexing / staleness works
 
