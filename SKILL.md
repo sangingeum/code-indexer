@@ -1,11 +1,14 @@
 ---
-name: code-indexer
-description: Automatic semantic code index over local project dirs (Ollama + Qdrant) via MCP. Use when the agent needs semantic search over a codebase — the indexer handles indexing/staleness itself.
+name: code-indexer-mcp
+description: "Use for agent semantic code search via code-indexer MCP tools."
 ---
 
-# code-indexer
+# code-indexer-mcp
 
-MCP stdio server that keeps automatic semantic indexes of registered local
+MCP stdio server (entry point `code-indexer-mcp`, run with
+`uv run code-indexer-mcp` from `/home/keum/dev/athena/code-indexer/`) over the
+same core as the `code-indexer` one-shot CLI. Keeps automatic semantic indexes
+of registered local
 project directories in Qdrant (embeddings via Ollama `qwen3-embedding:8b`,
 4096-dim; tree-sitter AST chunking, regex-window fallback). LAN-local.
 
@@ -14,9 +17,9 @@ project directories in Qdrant (embeddings via Ollama `qwen3-embedding:8b`,
 - "Where is X implemented in this repo?" / "find code that does Y" — semantic
   code search across one or many projects, ranked with file:line, symbol, and
   snippet.
-- Do NOT use for: prose/document memory (that is `mcp-ollama-qdrant`).
+- Do NOT use for: prose/document memory (that is `vector-memory`).
 
-## Tools (stdio MCP, seven)
+## Tools (stdio MCP, ten)
 
 | Tool | Params | Returns |
 |---|---|---|
@@ -83,14 +86,13 @@ registrations keep theirs (additive, migration-safe registry change).
   files are incrementally re-indexed first. A search can therefore block a few
   seconds while a re-scan runs; long cold-start embeds happen only when
   content actually changed.
-- First index after `add_project` runs on a background thread; results are
-  incomplete until `index_status` reports `state=idle` with a last_pass.
-- **Edits re-index themselves**: registered roots are watched via inotify;
-  ~`WATCH_DEBOUNCE` (3 s) after your last write, the server incrementally
-  re-indexes changed files — no tool call needed. `semantic_search` results
-  are therefore fresh even if nobody searched since the edit.
 - Search without `project` searches ALL registered projects (slowest); pass
-  `project` for a known repo.
+  `project` for a known repo. There is no background watcher: staleness is
+  enforced by the STALE_TTL probe on every search/status call (CLI one-shot
+  process model — no daemon).
+- Run the server with `uv run code-indexer-mcp` from the repo directory
+  (`/home/keum/dev/athena/code-indexer/`); the one-shot CLI binary is
+  `code-indexer` (see the `code-indexer` skill).
 
 ## Configuration
 
@@ -104,7 +106,6 @@ CLI flags > env vars > defaults. Flags: `--ollama-url --qdrant-url
 | `EMBED_MODEL` | `qwen3-embedding:8b` |
 | `INDEX_ROOT` | `~/.code-indexer` |
 | `STALE_TTL` | `60` |
-| `WATCH_DEBOUNCE` | `3` (watcher quiet period before re-index) |
 | `EMBED_BATCH` / `UPSERT_BATCH` / `MAX_FILE_BYTES` | 48 / 256 / 1048576 |
 
 ## Gotchas
@@ -124,5 +125,9 @@ CLI flags > env vars > defaults. Flags: `--ollama-url --qdrant-url
 - Chunking is content-hash-based, so branch switches re-index correctly
   (mtimes are ignored); point IDs are deterministic, so re-index upserts are
   idempotent.
-- Multiple MCP client processes are safe (per-project lock files, WAL SQLite);
-  two servers indexing the same project concurrently is wasteful, not corrupt.
+- Multiple MCP client processes are safe (per-project flock locks, WAL
+  SQLite with busy_timeout); two processes indexing the same project
+  concurrently is wasteful, not corrupt — the flock serializes to one pass.
+- Upgrading from old `mcp-code-indexer` registrations: run `code-indexer add`
+  for each project; existing `idx_*` collections are reused, no reindex
+  required (state dir moved to `~/.code-indexer`).

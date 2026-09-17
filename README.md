@@ -72,6 +72,17 @@ daemon). CLI subcommands and MCP tools map 1:1 to core operations.
   idempotent point IDs. Two processes indexing the same project at once is
   wasteful, not corrupting: the flock serializes them to exactly one pass.
 
+## Upgrading from mcp-code-indexer
+
+Upgrading from the old `mcp-code-indexer` repo/server: run `code-indexer add`
+for each project; existing `idx_*` collections are reused, no reindex
+required. The default state directory moved from `~/.mcp-code-indexer` to
+`~/.code-indexer` — the new registry starts empty (an undocumented reset, not
+a migration), so re-registering with the **same custom names** (`--name`) that
+the old projects used reattaches to the already-existing Qdrant collections.
+Re-run `reindex-project` once per old project to populate its symbol index
+(pre-schema-v2 manifests have no symbol rows).
+
 ## State layout
 
 ```
@@ -141,9 +152,8 @@ uv sync                                  # install deps (.venv)
 uv run code-indexer-mcp                  # run the stdio MCP server
 uv run code-indexer list-projects        # one-shot CLI (no daemon)
 uv run pytest                            # unit + concurrency tests
-uv run python scripts/benchmark.py       # M0 embed-throughput benchmark
-uv run python scripts/stdio_probe.py     # stdio handshake + tools/list probe
-uv run python scripts/e2e.py             # end-to-end test (real repo, real backends)
+# (old dev/audit scripts under scripts/ were removed with the rename; the
+# live e2e coverage now lives in tests/, scripts/live_smoke.py in vector-memory)
 ```
 
 Python 3.11. Constraints: pins `numpy<2` (1.26.4), `qdrant-client<1.15`,
