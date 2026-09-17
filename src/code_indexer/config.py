@@ -1,4 +1,4 @@
-"""Configuration resolution for mcp-code-indexer.
+"""Configuration resolution for code-indexer.
 
 Order (highest wins): CLI flags -> environment variables -> built-in defaults.
 """
@@ -13,7 +13,7 @@ _DEFAULTS: dict[str, str] = {
     "ollama_url": "http://192.168.1.103:11434",
     "qdrant_url": "http://192.168.1.105:6333",
     "embed_model": "qwen3-embedding:8b",
-    "index_root": "~/.mcp-code-indexer",
+    "index_root": "~/.code-indexer",
     "stale_ttl": "60",          # seconds; staleness re-scan interval
     "embed_batch": "48",        # texts per Ollama embed request
     "upsert_batch": "256",      # points per Qdrant upsert
@@ -37,18 +37,23 @@ class Config:
 
 
 def load_config(argv: list[str] | None = None) -> Config:
-    """Resolve configuration from env vars, overridden by CLI flags."""
+    """Resolve configuration from env vars, overridden by explicit argv flags.
+
+    Called with argv=None (the normal case from core), only environment
+    variables and defaults apply — sys.argv is deliberately NOT parsed, so
+    library consumers and the typer CLI are unaffected by argparse.
+    """
     cfg = {key: os.environ.get(key.upper(), default) for key, default in _DEFAULTS.items()}
 
     parser = argparse.ArgumentParser(
-        prog="mcp-code-indexer",
-        description="MCP server: automatic semantic code index via Ollama + Qdrant",
+        prog="code-indexer",
+        description="Semantic code index via Ollama + Qdrant",
     )
     parser.add_argument("--ollama-url", default=None, help="Ollama base URL")
     parser.add_argument("--qdrant-url", default=None, help="Qdrant base URL")
     parser.add_argument("--embed-model", default=None, help="Embedding model name")
     parser.add_argument("--index-root", default=None, help="State directory (manifests, registry, locks)")
-    args, _unknown = parser.parse_known_args(argv)
+    args, _unknown = parser.parse_known_args(argv or [])
 
     for key, value in (
         ("ollama_url", args.ollama_url),

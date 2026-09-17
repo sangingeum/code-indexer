@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 import pathspec
 
-logger = logging.getLogger("mcp-code-indexer.scanner")
+logger = logging.getLogger("code-indexer.scanner")
 
 SKIP_DIRS = {
     ".git", "node_modules", "venv", ".venv", "__pycache__",

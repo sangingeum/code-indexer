@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from mcp_code_indexer.registry import Registry, sanitize_name, slug_for
+from code_indexer.registry import Registry, sanitize_name, slug_for
 
 
 @pytest.fixture()

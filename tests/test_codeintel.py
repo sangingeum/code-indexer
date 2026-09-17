@@ -16,10 +16,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import pytest  # noqa: E402
 
-from mcp_code_indexer.config import Config  # noqa: E402
-from mcp_code_indexer.indexer import Indexer  # noqa: E402
-from mcp_code_indexer.manifest import Manifest  # noqa: E402
-from mcp_code_indexer import ts_chunker  # noqa: E402
+from code_indexer.config import Config  # noqa: E402
+from code_indexer.indexer import Indexer  # noqa: E402
+from code_indexer.manifest import Manifest  # noqa: E402
+from code_indexer import ts_chunker  # noqa: E402
 
 
 class StubEmbedder:

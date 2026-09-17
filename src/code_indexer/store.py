@@ -21,7 +21,7 @@ from qdrant_client.models import (
     Range,
 )
 
-logger = logging.getLogger("mcp-code-indexer.store")
+logger = logging.getLogger("code-indexer.store")
 
 NAMESPACE_URL = uuid.NAMESPACE_URL
 

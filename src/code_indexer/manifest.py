@@ -17,7 +17,7 @@ import sqlite3
 import time
 from dataclasses import dataclass
 
-logger = logging.getLogger("mcp-code-indexer.manifest")
+logger = logging.getLogger("code-indexer.manifest")
 
 SCHEMA_VERSION = "2"
 
@@ -89,6 +89,7 @@ class Manifest:
         self._conn = sqlite3.connect(db_path, timeout=30)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
+        self._conn.execute("PRAGMA busy_timeout=5000")
         with self._conn:
             self._conn.executescript(_SCHEMA)
             # schema_version must actually advance on old manifests

@@ -19,7 +19,7 @@ import sqlite3
 import time
 from dataclasses import dataclass
 
-logger = logging.getLogger("mcp-code-indexer.registry")
+logger = logging.getLogger("code-indexer.registry")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS projects (
@@ -65,7 +65,11 @@ def sanitize_name(name: str) -> str:
 class Registry:
     def __init__(self, db_path: str):
         self.db_path = db_path
-        self._conn = sqlite3.connect(db_path, timeout=30)
+        # check_same_thread=False: the core is used from worker threads
+        # (server background index threads, CLI helper threads). All access
+        # is short transactions under WAL + busy_timeout, and cross-process
+        # writes are serialized by the per-project flock.
+        self._conn = sqlite3.connect(db_path, timeout=30, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._conn.execute("PRAGMA busy_timeout=30000")

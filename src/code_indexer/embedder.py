@@ -7,7 +7,7 @@ import time
 
 import ollama
 
-logger = logging.getLogger("mcp-code-indexer.embedder")
+logger = logging.getLogger("code-indexer.embedder")
 
 
 class Embedder:

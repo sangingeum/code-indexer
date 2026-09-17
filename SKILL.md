@@ -1,9 +1,9 @@
 ---
-name: mcp-code-indexer
+name: code-indexer
 description: Automatic semantic code index over local project dirs (Ollama + Qdrant) via MCP. Use when the agent needs semantic search over a codebase — the indexer handles indexing/staleness itself.
 ---
 
-# mcp-code-indexer
+# code-indexer
 
 MCP stdio server that keeps automatic semantic indexes of registered local
 project directories in Qdrant (embeddings via Ollama `qwen3-embedding:8b`,
@@ -102,7 +102,7 @@ CLI flags > env vars > defaults. Flags: `--ollama-url --qdrant-url
 | `OLLAMA_URL` | `http://192.168.X.X:11434` |
 | `QDRANT_URL` | `http://192.168.X.X:6333` |
 | `EMBED_MODEL` | `qwen3-embedding:8b` |
-| `INDEX_ROOT` | `~/.mcp-code-indexer` |
+| `INDEX_ROOT` | `~/.code-indexer` |
 | `STALE_TTL` | `60` |
 | `WATCH_DEBOUNCE` | `3` (watcher quiet period before re-index) |
 | `EMBED_BATCH` / `UPSERT_BATCH` / `MAX_FILE_BYTES` | 48 / 256 / 1048576 |

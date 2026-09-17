@@ -1,14 +1,37 @@
-# mcp-code-indexer
+# code-indexer
 
-An MCP stdio server that keeps an automatic semantic index of one or more
-local project directories in Qdrant, using Ollama (`qwen3-embedding:8b`,
-4096-dim) for embeddings. Fully LAN-local; no cloud.
+Semantic code index over Ollama + Qdrant, with **two entry points over the
+same core** (`code_indexer.core`): an MCP stdio server (`code-indexer-mcp`)
+for agent use, and a one-shot CLI (`code-indexer`) for shell/scripts. The MCP
+server keeps an automatic semantic index of one or more local project
+directories in Qdrant, using Ollama (`qwen3-embedding:8b`, 4096-dim) for
+embeddings. Fully LAN-local; no cloud.
 
 **Agents never index anything themselves.** They only call `semantic_search`
 (which transparently runs a staleness check + incremental indexing first) plus
 a few admin tools. Chunks, hashes, and collections are never exposed.
 
-## Tools
+## CLI
+
+```bash
+code-indexer add-project /path/to/repo [--name myproject]
+code-indexer lookup-project /path/to/repo
+code-indexer list-projects
+code-indexer semantic-search "auth token refresh" --project /path/to/repo --limit 8 [--json]
+code-indexer find-symbol FileTransferSession [--symbol-type class]
+code-indexer find-definition main
+code-indexer find-references QTimer --relationship calls
+code-indexer get-code-context src/session.hpp --start-line 40 --end-line 80
+code-indexer index-status /path/to/repo
+code-indexer reindex-project /path/to/repo
+code-indexer remove-project /path/to/repo
+```
+
+Every subcommand accepts `--skip-stale-check` to skip the staleness probe /
+incremental index pass on that invocation (startup-cost opt-out; there is no
+daemon). CLI subcommands and MCP tools map 1:1 to core operations.
+
+## Tools (MCP)
 
 | Tool | Description |
 |---|---|
@@ -41,28 +64,18 @@ a few admin tools. Chunks, hashes, and collections are never exposed.
 - **Filtering**: honors `.gitignore` and `.codeindexignore` (nested, per-
   directory), skips `.git`/`node_modules`/`venv`/`__pycache__`/`dist`/`build`
   /`target`, files > 1 MB, and binary/non-UTF-8 files.
-- **Filesystem watcher**: registered project roots are watched live (inotify
-  via `watchdog`, one observer thread total). Edits outside of `.git`/
-  `node_modules`/etc. trigger the same incremental index pass after a
-  `WATCH_DEBOUNCE` second quiet period (default 3), so the index stays fresh
-  even when agents edit code without ever calling `semantic_search`. The
-  watcher takes the same per-project lock as tool-triggered passes (no
-  racing), runs off the event thread, and is failure-isolated: any watcher
-  error is logged and the observer restarts with backoff — it can never take
-  the MCP server down. Watches follow the registry: added on `add_project`
-  (and at startup for already-registered projects), dropped on
-  `remove_project`. Can be exercised standalone via
-  `uv run python scripts/watcher_smoke.py` (no Ollama/Qdrant needed) or
-  `scripts/watcher_live.py` (real end-to-end pass on vivarium-sim).
-- **Concurrency**: multiple MCP client processes (multiple agents) are safe —
-  per-project `O_EXCL` lock files (stale locks stolen after 30 min), WAL-mode
-  SQLite, idempotent point IDs. Two servers indexing the same project at once
-  is wasteful, not corrupting.
+- **Concurrency**: multiple processes (multiple agents, CLI + server) are
+  safe — per-project `flock` lock files (`fcntl.flock(LOCK_EX|LOCK_NB)`;
+  BlockingIOError reports "indexing in progress"; the kernel releases the
+  lock automatically when a process dies, so there is no stale-lock stealing
+  and lock files are permanent), WAL-mode SQLite with `busy_timeout`,
+  idempotent point IDs. Two processes indexing the same project at once is
+  wasteful, not corrupting: the flock serializes them to exactly one pass.
 
 ## State layout
 
 ```
-$INDEX_ROOT/               (default ~/.mcp-code-indexer)
+$INDEX_ROOT/               (default ~/.code-indexer)
 ├── registry.db            # path -> slug mapping (SQLite, WAL)
 ├── <slug>.lock            # per-project lock
 └── <slug>/manifest.db     # per-project file manifest (SQLite, WAL)
@@ -81,7 +94,7 @@ Resolution order: CLI flags > environment variables > defaults.
 | `OLLAMA_URL` | `http://192.168.X.X:11434` | Ollama base URL |
 | `QDRANT_URL` | `http://192.168.X.X:6333` | Qdrant base URL |
 | `EMBED_MODEL` | `qwen3-embedding:8b` | Embedding model |
-| `INDEX_ROOT` | `~/.mcp-code-indexer` | State directory |
+| `INDEX_ROOT` | `~/.code-indexer` | State directory |
 | `STALE_TTL` | `60` | Seconds between staleness re-scans |
 | `WATCH_DEBOUNCE` | `3` | Watcher quiet period (s) before a file-event re-index |
 | `EMBED_BATCH` | `48` | Texts per Ollama embed request |
@@ -95,11 +108,11 @@ CLI flags: `--ollama-url`, `--qdrant-url`, `--embed-model`, `--index-root`.
 ```json
 {
   "mcpServers": {
-    "mcp-code-indexer": {
+    "code-indexer": {
       "command": "uv",
       "args": [
-        "--directory", "/path/to/mcp-code-indexer",
-        "run", "mcp-code-indexer"
+        "--directory", "/path/to/code-indexer",
+        "run", "code-indexer"
       ],
       "env": {
         "OLLAMA_URL": "http://192.168.X.X:11434",
@@ -125,12 +138,12 @@ unload between batches.
 
 ```bash
 uv sync                                  # install deps (.venv)
-uv run mcp-code-indexer                  # run the stdio server
-uv run pytest                            # unit tests
+uv run code-indexer-mcp                  # run the stdio MCP server
+uv run code-indexer list-projects        # one-shot CLI (no daemon)
+uv run pytest                            # unit + concurrency tests
 uv run python scripts/benchmark.py       # M0 embed-throughput benchmark
 uv run python scripts/stdio_probe.py     # stdio handshake + tools/list probe
 uv run python scripts/e2e.py             # end-to-end test (real repo, real backends)
-uv run python scripts/concurrency_smoke.py
 ```
 
 Python 3.11. Constraints: pins `numpy<2` (1.26.4), `qdrant-client<1.15`,

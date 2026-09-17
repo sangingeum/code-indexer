@@ -26,7 +26,7 @@ def _chunk_dispatch(path: str, text: str) -> list[Chunk]:
     """Chunker seam (design §5): tree-sitter AST when supported, else fallback."""
     return ts_chunker.chunk_text(path, text)
 
-logger = logging.getLogger("mcp-code-indexer.indexer")
+logger = logging.getLogger("code-indexer.indexer")
 
 
 @dataclass
@@ -158,9 +158,15 @@ class Indexer:
                 }
                 from qdrant_client.models import PointStruct
                 batch_points.append(PointStruct(id=pid, vector=vec, payload=payload))
-                self._remember_chunk_hash(manifest, path, chunk_)
+            # Record chunk hashes only AFTER the vectors are actually in
+            # Qdrant: recording up-front means a mid-pass crash leaves the
+            # cache claiming vectors exist that were never upserted (silent
+            # index loss). Post-commit recording keeps first-index resumable
+            # — a retry re-embeds only what never reached the store.
             for i in range(0, len(batch_points), self.cfg.upsert_batch):
                 self.store.upsert_points(collection, batch_points[i:i + self.cfg.upsert_batch])
+            for (path, chunk_), _vec in zip(to_embed, vectors):
+                self._remember_chunk_hash(manifest, path, chunk_)
             embedded = len(to_embed)
 
         # 4) Manifest update in one transaction (symbols/refs included so

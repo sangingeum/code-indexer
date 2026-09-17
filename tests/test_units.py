@@ -2,9 +2,9 @@
 
 import pytest
 
-from mcp_code_indexer.chunker import chunk
-from mcp_code_indexer.manifest import Manifest, ManifestFile
-from mcp_code_indexer.scanner import scan_project
+from code_indexer.chunker import chunk
+from code_indexer.manifest import Manifest, ManifestFile
+from code_indexer.scanner import scan_project
 
 
 @pytest.fixture()

@@ -17,7 +17,7 @@ import re
 
 from .chunker import Chunk, chunk as fallback_chunk, _guess_symbol
 
-logger = logging.getLogger("mcp-code-indexer.tschunker")
+logger = logging.getLogger("code-indexer.tschunker")
 
 try:
     import tree_sitter_language_pack

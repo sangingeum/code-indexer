@@ -16,17 +16,23 @@ import pytest
 # Bind config to throwaway state before importing the server module.
 os.environ["INDEX_ROOT"] = tempfile.mkdtemp(prefix="mci-lookup-test-")
 
-from mcp_code_indexer import server  # noqa: E402
-from mcp_code_indexer.registry import Registry, sanitize_name  # noqa: E402
+from code_indexer import server  # noqa: E402
+from code_indexer.registry import Registry, sanitize_name  # noqa: E402
 
 
 @pytest.fixture()
 def reg(tmp_path, monkeypatch):
-    """Replace the server's global registry with one on tmp_path."""
-    r = Registry(str(tmp_path / "registry.db"))
-    monkeypatch.setattr(server, "REGISTRY", r)
-    yield r
-    r.close()
+    """Bind the server's global CORE to a registry on tmp_path."""
+    from code_indexer.core import Core
+    from code_indexer.config import Config
+    cfg = Config(
+        ollama_url="http://stub", qdrant_url="http://stub", embed_model="stub",
+        index_root=str(tmp_path / "state"), stale_ttl=60, embed_batch=48,
+        upsert_batch=256, max_file_bytes=1048576, watch_debounce=3)
+    c = Core(cfg)
+    monkeypatch.setattr(server, "CORE", c)
+    yield c.registry
+    c.registry.close()
 
 
 @pytest.fixture()

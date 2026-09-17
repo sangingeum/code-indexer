@@ -1,5 +1,5 @@
 [project]
-name = "mcp-code-indexer"
+name = "code-indexer"
 version = "0.1.0"
 description = "MCP server: automatic semantic code index (Ollama embeddings + Qdrant) with incremental staleness-checked indexing"
 readme = "README.md"
@@ -15,11 +15,12 @@ dependencies = [
     "pathspec>=0.12",
     "tree-sitter==0.26.0",
     "tree-sitter-language-pack==1.18.0",
-    "watchdog>=6.0.0",
+    "typer>=0.12",
 ]
 
 [project.scripts]
-mcp-code-indexer = "mcp_code_indexer:main"
+code-indexer = "code_indexer.cli:main"
+code-indexer-mcp = "code_indexer.server:main"
 
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]
