@@ -11,6 +11,18 @@ embeddings. Fully LAN-local; no cloud.
 (which transparently runs a staleness check + incremental indexing first) plus
 a few admin tools. Chunks, hashes, and collections are never exposed.
 
+## Installation (CLI)
+
+From the repo directory, install both executables as editable `uv` tools (on
+PATH in `~/.local/bin`, edits to the checkout take effect immediately):
+
+```bash
+uv tool install -e .
+```
+
+This installs `code-indexer` (and the optional `code-indexer-mcp` server
+executable). Verify with `code-indexer list-projects`.
+
 ## CLI
 
 ```bash
