@@ -25,11 +25,35 @@ code-indexer get-code-context src/session.hpp --start-line 40 --end-line 80
 code-indexer index-status /path/to/repo
 code-indexer reindex-project /path/to/repo
 code-indexer remove-project /path/to/repo
+code-indexer watch /path/to/repo [--duration 300]   # optional poll-loop watcher
+code-indexer watch --all                            # watch all registered projects
 ```
 
 Every subcommand accepts `--skip-stale-check` to skip the staleness probe /
 incremental index pass on that invocation (startup-cost opt-out; there is no
-daemon). CLI subcommands and MCP tools map 1:1 to core operations.
+daemon **on the default path**). CLI subcommands and MCP tools map 1:1 to core
+operations.
+
+`find-symbol`, `find-definition`, `find-references`, and `get-code-context`
+accept both `--project X` and `--name X` for the project argument (path,
+slug, or registered custom name).
+
+## watch (optional, opt-in)
+
+`code-indexer watch [PATH...] | --all [--duration T]` runs a long-lived
+poll-loop watcher: each tick it takes the per-project flock and runs the same
+staleness probe / incremental pass the one-shot commands use, then sleeps
+`WATCH_DEBOUNCE` seconds (default 3). Polling, not inotify — an unchanged
+tick is a cheap hash scan with zero embedding and zero Qdrant traffic.
+
+- `--duration T` bounds the watcher's life (exit 0 after T seconds); `0` or
+  omitted runs forever. SIGINT/SIGTERM exit 0; the kernel flock is released
+  automatically.
+- Multiple projects are served round-robin: repeatable path/slug/name args,
+  or `--all` for every registered project (registry order, one pass per
+  project per tick). Never combine paths with `--all`.
+- Opt-in and never a prerequisite: without a watcher, one-shot commands
+  behave exactly as before (STALE_TTL probe per invocation).
 
 ## Tools (MCP)
 
@@ -107,7 +131,7 @@ Resolution order: CLI flags > environment variables > defaults.
 | `EMBED_MODEL` | `qwen3-embedding:8b` | Embedding model |
 | `INDEX_ROOT` | `~/.code-indexer` | State directory |
 | `STALE_TTL` | `60` | Seconds between staleness re-scans |
-| `WATCH_DEBOUNCE` | `3` | Watcher quiet period (s) before a file-event re-index |
+| `WATCH_DEBOUNCE` | `3` | `watch` poll tick (s) between incremental passes |
 | `EMBED_BATCH` | `48` | Texts per Ollama embed request |
 | `UPSERT_BATCH` | `256` | Points per Qdrant upsert |
 | `MAX_FILE_BYTES` | `1048576` | Skip files larger than this |

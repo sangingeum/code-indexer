@@ -18,7 +18,7 @@ _DEFAULTS: dict[str, str] = {
     "embed_batch": "48",        # texts per Ollama embed request
     "upsert_batch": "256",      # points per Qdrant upsert
     "max_file_bytes": "1048576",  # skip files > 1MB
-    "watch_debounce": "3",      # seconds; watcher quiet period before re-index
+    "watch_debounce": "3",      # seconds; `watch` poll tick between passes
 }
 
 

@@ -33,7 +33,30 @@ code-indexer get-code-context src/f.hpp --start-line 40 --end-line 80   # or --s
 code-indexer index-status /path/repo
 code-indexer reindex-project /path/repo   # full rebuild, foreground
 code-indexer remove-project /path/repo    # DESTRUCTIVE: drops collection + manifest + registry entry
+code-indexer watch /path/repo [--duration 300]   # optional poll-loop re-index daemon
+code-indexer watch --all                  # watch every registered project
 ```
+
+## watch (optional daemon, never required)
+
+`code-indexer watch` is a long-lived poll-loop watcher: each tick it takes
+the per-project flock and runs the same staleness probe / incremental pass
+the one-shot commands use, then sleeps `WATCH_DEBOUNCE` seconds (default 3).
+Polling, not inotify — the content-hash diff makes an unchanged tick cheap
+(hash scan only; no embedding, no Qdrant traffic when nothing changed).
+
+- `--duration T` bounds its life: exits 0 after T seconds. `0` or omitted =
+  run forever. SIGINT/SIGTERM exit 0 and release the lock (kernel flock).
+- Projects: repeatable path/slug/name args, or `--all` (every registered
+  project, round-robin one pass per project per tick). Never pass both.
+- Opt-in only: one-shot commands work identically without any watcher; the
+  watcher never registers anything and is never on the default path.
+
+## --name alias
+
+`find-symbol`, `find-definition`, `find-references`, `get-code-context`
+accept BOTH `--project X` and `--name X` for the project argument (path,
+slug, or registered custom name) — typer dual option names.
 
 ## Key rules
 
@@ -49,7 +72,8 @@ code-indexer remove-project /path/repo    # DESTRUCTIVE: drops collection + mani
 - Never manage index state yourself (manifests, chunk hashes, collections) —
   the tool owns them.
 - Env: `OLLAMA_URL`, `QDRANT_URL`, `EMBED_MODEL`, `INDEX_ROOT`
-  (default `~/.code-indexer`), `STALE_TTL`.
+  (default `~/.code-indexer`), `STALE_TTL`, `WATCH_DEBOUNCE`
+  (`watch` poll tick, default 3 s).
 
 ## Gotchas
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from typing import NoReturn
 
 import typer
@@ -205,10 +206,103 @@ def reindex_project(
     _echo_index_result(entry.slug, core.run_index(entry.slug, entry.path, force=True))
 
 
+@app.command()
+def watch(
+    paths: list[str] = typer.Argument(
+        None, help="Project paths (or slugs/names) to watch. Repeatable."),
+    all_projects: bool = typer.Option(
+        False, "--all", help="Watch every registered project."),
+    duration: float = typer.Option(
+        None, "--duration",
+        help="Seconds to run before exiting 0. 0 or omitted = run forever."),
+    skip_stale_check: bool = SkipOpt,
+) -> None:
+    """Optional long-lived watcher: poll-loop re-index daemon.
+
+    Each tick takes the per-project flock and runs the same staleness probe /
+    incremental pass the one-shot commands use, then sleeps
+    WATCH_DEBOUNCE seconds (config watch_debounce, default 3). Polling, not
+    inotify: a simple interval loop avoids per-watch OS limits and the
+    inotify-vs-quiet-period complexity; the content-hash diff makes an
+    unchanged tick cheap (no embedding, no Qdrant traffic).
+
+    Lifecycle: give --duration T to bound the watcher's life to T seconds
+    (then exit 0); 0 or omitted runs forever. SIGINT/SIGTERM release the
+    flock and exit 0. Multiple projects are served round-robin — one pass
+    per project per tick, in argument order (with --all: registry order).
+
+    This is opt-in and never a prerequisite: one-shot commands work without
+    any watcher running.
+    """
+    import signal
+    import threading as _threading
+    core = _get_core(skip_stale_check)
+
+    if all_projects and paths:
+        _die("error: pass project paths OR --all, not both")
+    if all_projects:
+        entries = core.registry.list_projects()
+        if not entries:
+            _die("error: no projects registered")
+    else:
+        entries = []
+        for p in paths or []:
+            entries.append(_resolve(core, p))
+        if not entries:
+            _die("error: give at least one project path (or --all)")
+
+    deadline: float | None = (
+        time.monotonic() + duration if duration and duration > 0 else None)
+
+    stop = {"flag": False}
+
+    def _handle(_sig: int, _frm: object) -> None:
+        stop["flag"] = True  # flock releases via run_index's context manager
+
+    if _threading.current_thread() is _threading.main_thread():
+        signal.signal(signal.SIGINT, _handle)
+        signal.signal(signal.SIGTERM, _handle)
+    # (Non-main thread: signal handlers can't be installed; the loop still
+    # honors --duration and stays joinable — tests rely on this.)
+
+    debounce = max(1, core.cfg.watch_debounce)
+    targets = [(e.slug, e.path) for e in entries]
+    typer.echo(f"watching {len(targets)} project(s), tick={debounce}s, "
+               f"duration={'forever' if deadline is None else f'{duration}s'}")
+    try:
+        while not stop["flag"]:
+            for slug, path in targets:
+                if stop["flag"]:
+                    break
+                result = core.watch_pass(slug, path)
+                if result["state"] == "idle":
+                    r = result["result"]
+                    if (r["files_indexed"] or r["files_deleted"]
+                            or r["chunks_embedded"]):
+                        typer.echo(f"{slug}: pass {json.dumps(r, ensure_ascii=False)}")
+                elif result["state"] == "indexing":
+                    typer.echo(f"{slug}: {result['detail']}")
+                elif result["state"] == "error":
+                    typer.echo(f"{slug}: indexing error: {result['error']}", err=True)
+            if deadline is not None and time.monotonic() >= deadline:
+                break
+            # Sleep in small slices so a signal lands promptly mid-nap.
+            slept = 0.0
+            while slept < debounce and not stop["flag"]:
+                time.sleep(0.2)
+                slept += 0.2
+    finally:
+        # flock fds are held only inside run_index; nothing to release here.
+        typer.echo("watch: exiting")
+    raise typer.Exit(0)
+
+
 @app.command(name="find-symbol")
 def find_symbol(
     name: str = typer.Argument(..., help="Symbol name."),
-    project: str = typer.Option(None, help="Project path, slug, or name."),
+    project: str = typer.Option(
+        None, "--project", "--name",
+        help="Project path, slug, or name (--project X or --name X)."),
     symbol_type: str = typer.Option(None, help="function|method|class|struct|enum|namespace"),
     skip_stale_check: bool = SkipOpt,
 ) -> None:
@@ -247,7 +341,9 @@ def find_symbol(
 @app.command(name="find-definition")
 def find_definition(
     name: str = typer.Argument(..., help="Symbol name (exact match only)."),
-    project: str = typer.Option(None, help="Project path, slug, or name."),
+    project: str = typer.Option(
+        None, "--project", "--name",
+        help="Project path, slug, or name (--project X or --name X)."),
     skip_stale_check: bool = SkipOpt,
 ) -> None:
     """Find where a symbol is declared (exact name match only)."""
@@ -274,7 +370,9 @@ def find_definition(
 @app.command(name="get-code-context")
 def get_code_context(
     file: str = typer.Argument(..., help="File path relative to the project root."),
-    project: str = typer.Option(None, help="Project path, slug, or name."),
+    project: str = typer.Option(
+        None, "--project", "--name",
+        help="Project path, slug, or name (--project X or --name X)."),
     start_line: int = typer.Option(None, help="Start line (with --end-line)."),
     end_line: int = typer.Option(None, help="End line."),
     symbol: str = typer.Option(None, help="Resolve range(s) via this symbol."),
@@ -327,7 +425,9 @@ def get_code_context(
 @app.command(name="find-references")
 def find_references(
     name: str = typer.Argument(..., help="Target symbol name."),
-    project: str = typer.Option(None, help="Project path, slug, or name."),
+    project: str = typer.Option(
+        None, "--project", "--name",
+        help="Project path, slug, or name (--project X or --name X)."),
     relationship: str = typer.Option(None, help="calls|inherits|includes|references"),
     limit: int = typer.Option(25, help="Max rows."),
     skip_stale_check: bool = SkipOpt,

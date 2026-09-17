@@ -87,9 +87,11 @@ registrations keep theirs (additive, migration-safe registry change).
   seconds while a re-scan runs; long cold-start embeds happen only when
   content actually changed.
 - Search without `project` searches ALL registered projects (slowest); pass
-  `project` for a known repo. There is no background watcher: staleness is
-  enforced by the STALE_TTL probe on every search/status call (CLI one-shot
-  process model — no daemon).
+  `project` for a known repo. There is no background watcher on the default
+  path: staleness is enforced by the STALE_TTL probe on every search/status
+  call (CLI one-shot process model — no daemon). An optional opt-in
+  poll-loop watcher exists as the CLI `code-indexer watch` subcommand
+  (never required, never default; see the `code-indexer` CLI skill).
 - Run the server with `uv run code-indexer-mcp` from the repo directory
   (`/home/keum/dev/athena/code-indexer/`); the one-shot CLI binary is
   `code-indexer` (see the `code-indexer` skill).
@@ -106,6 +108,7 @@ CLI flags > env vars > defaults. Flags: `--ollama-url --qdrant-url
 | `EMBED_MODEL` | `qwen3-embedding:8b` |
 | `INDEX_ROOT` | `~/.code-indexer` |
 | `STALE_TTL` | `60` |
+| `WATCH_DEBOUNCE` | `3` (watch poll tick, s) |
 | `EMBED_BATCH` / `UPSERT_BATCH` / `MAX_FILE_BYTES` | 48 / 256 / 1048576 |
 
 ## Gotchas

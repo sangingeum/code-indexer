@@ -99,6 +99,16 @@ class Core:
             finally:
                 manifest.close()
 
+    def watch_pass(self, slug: str, project_path: str) -> dict[str, Any]:
+        """One watcher pass: staleness probe + incremental index under the flock.
+
+        Same core op as maybe_refresh's terminal call (run_index with
+        force=False), but unconditioned by the STALE_TTL cache — the watch
+        loop calls this every tick. Cheap when nothing changed (hash diff
+        only; embeddings happen only for real changes).
+        """
+        return self.run_index(slug, project_path, force=False)
+
     def maybe_refresh(self, slug: str, project_path: str) -> dict[str, Any]:
         """Staleness probe: incremental re-index if last check > stale_ttl ago.
 
