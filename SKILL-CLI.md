@@ -33,22 +33,34 @@ code-indexer get-code-context src/f.hpp --start-line 40 --end-line 80   # or --s
 code-indexer index-status /path/repo
 code-indexer reindex-project /path/repo   # full rebuild, foreground
 code-indexer remove-project /path/repo    # DESTRUCTIVE: drops collection + manifest + registry entry
-code-indexer watch /path/repo [--duration 300]   # optional poll-loop re-index daemon
+code-indexer watch /path/repo [--duration 300] [--background]   # optional inotify re-index daemon
 code-indexer watch --all                  # watch every registered project
 ```
 
 ## watch (optional daemon, never required)
 
-`code-indexer watch` is a long-lived poll-loop watcher: each tick it takes
-the per-project flock and runs the same staleness probe / incremental pass
-the one-shot commands use, then sleeps `WATCH_DEBOUNCE` seconds (default 3).
-Polling, not inotify — the content-hash diff makes an unchanged tick cheap
-(hash scan only; no embedding, no Qdrant traffic when nothing changed).
+`code-indexer watch` is a long-lived **event-based** watcher: project roots
+are watched recursively with Linux inotify (`watchdog` Observer, opt-in
+`watch` dependency-group). A file event schedules an incremental pass after
+a quiet period of `WATCH_DEBOUNCE` seconds (default 3 — the old poll tick
+is now the debounce; alias `WATCH_QUIET_PERIOD` wins when set). Bursts
+coalesce into at most one pass per quiet period; an unchanged burst costs a
+hash scan only (no embedding, no Qdrant traffic).
 
-- `--duration T` bounds its life: exits 0 after T seconds. `0` or omitted =
-  run forever. SIGINT/SIGTERM exit 0 and release the lock (kernel flock).
-- Projects: repeatable path/slug/name args, or `--all` (every registered
-  project, round-robin one pass per project per tick). Never pass both.
+- `--duration T` bounds its life: exits 0 after T seconds (`0`/omitted =
+  forever; honored by `--background` too). SIGINT/SIGTERM exit 0.
+- Self-heal: a full staleness pass per watched project runs every
+  `WATCH_SWEEP_INTERVAL` seconds (default 300 s) even with zero events.
+- Degradation: no watchdog installed or inotify watch-descriptor
+  exhaustion -> quiet-period polling fallback (hash scan per project per
+  quiet tick). Correctness is never lost, only latency.
+- `--background` daemonizes (double-fork + setsid): PID file
+  `<INDEX_ROOT>/watch.pid` (flock-guarded; a second watcher is refused
+  while a live one holds it), logs `<INDEX_ROOT>/watch.log`. `--foreground`
+  (default) is the plain inherited-stdio behavior. A stopped watcher leaves
+  no live lock or PID residue.
+- Projects: repeatable path/slug/name args, or `--all` (round-robin).
+  Never pass both.
 - Opt-in only: one-shot commands work identically without any watcher; the
   watcher never registers anything and is never on the default path.
 
@@ -73,7 +85,8 @@ slug, or registered custom name) — typer dual option names.
   the tool owns them.
 - Env: `OLLAMA_URL`, `QDRANT_URL`, `EMBED_MODEL`, `INDEX_ROOT`
   (default `~/.code-indexer`), `STALE_TTL`, `WATCH_DEBOUNCE`
-  (`watch` poll tick, default 3 s).
+  (`watch` quiet period, default 3 s; alias `WATCH_QUIET_PERIOD`),
+  `WATCH_SWEEP_INTERVAL` (periodic full sweep, default 300 s).
 
 ## Gotchas
 

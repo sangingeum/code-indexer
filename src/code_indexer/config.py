@@ -18,7 +18,8 @@ _DEFAULTS: dict[str, str] = {
     "embed_batch": "48",        # texts per Ollama embed request
     "upsert_batch": "256",      # points per Qdrant upsert
     "max_file_bytes": "1048576",  # skip files > 1MB
-    "watch_debounce": "3",      # seconds; `watch` poll tick between passes
+    "watch_debounce": "3",      # seconds; `watch` quiet period between passes
+    "watch_sweep_interval": "300",  # seconds; periodic full staleness sweep
 }
 
 
@@ -33,6 +34,7 @@ class Config:
     upsert_batch: int
     max_file_bytes: int
     watch_debounce: int
+    watch_sweep_interval: int
     extra: dict[str, str] = field(default_factory=dict)
 
 
@@ -44,6 +46,11 @@ def load_config(argv: list[str] | None = None) -> Config:
     library consumers and the typer CLI are unaffected by argparse.
     """
     cfg = {key: os.environ.get(key.upper(), default) for key, default in _DEFAULTS.items()}
+    # Alias: WATCH_QUIET_PERIOD is the clearer name for the debounce value
+    # and wins over WATCH_DEBOUNCE when both are set.
+    quiet_alias = os.environ.get("WATCH_QUIET_PERIOD")
+    if quiet_alias is not None:
+        cfg["watch_debounce"] = quiet_alias
 
     parser = argparse.ArgumentParser(
         prog="code-indexer",
@@ -75,4 +82,5 @@ def load_config(argv: list[str] | None = None) -> Config:
         upsert_batch=int(cfg["upsert_batch"]),
         max_file_bytes=int(cfg["max_file_bytes"]),
         watch_debounce=int(cfg["watch_debounce"]),
+        watch_sweep_interval=int(cfg["watch_sweep_interval"]),
     )

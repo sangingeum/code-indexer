@@ -90,8 +90,14 @@ registrations keep theirs (additive, migration-safe registry change).
   `project` for a known repo. There is no background watcher on the default
   path: staleness is enforced by the STALE_TTL probe on every search/status
   call (CLI one-shot process model — no daemon). An optional opt-in
-  poll-loop watcher exists as the CLI `code-indexer watch` subcommand
+  event-based watcher exists as the CLI `code-indexer watch` subcommand
   (never required, never default; see the `code-indexer` CLI skill).
+  The watcher is event-based (Linux inotify via the watchdog Observer
+  library, opt-in `watch` dependency-group): events schedule a pass after
+  a quiet period (WATCH_DEBOUNCE, default 3 s); a full staleness sweep
+  self-heals every WATCH_SWEEP_INTERVAL (default 300 s); `--background`
+  daemonizes with a flock-guarded PID file `<INDEX_ROOT>/watch.pid` and
+  logs to `<INDEX_ROOT>/watch.log`.
 - Run the server with `uv run code-indexer-mcp` from the repo directory
   (`/home/keum/dev/athena/code-indexer/`); the one-shot CLI binary is
   `code-indexer` (see the `code-indexer` skill).
@@ -108,7 +114,8 @@ CLI flags > env vars > defaults. Flags: `--ollama-url --qdrant-url
 | `EMBED_MODEL` | `qwen3-embedding:8b` |
 | `INDEX_ROOT` | `~/.code-indexer` |
 | `STALE_TTL` | `60` |
-| `WATCH_DEBOUNCE` | `3` (watch poll tick, s) |
+| `WATCH_DEBOUNCE` | `3` (watch quiet period, s) |
+| `WATCH_SWEEP_INTERVAL` | `300` (watch periodic full sweep, s) |
 | `EMBED_BATCH` / `UPSERT_BATCH` / `MAX_FILE_BYTES` | 48 / 256 / 1048576 |
 
 ## Gotchas

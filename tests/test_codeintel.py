@@ -82,7 +82,7 @@ def indexer(project):
     cfg = Config(ollama_url="", qdrant_url="", embed_model="stub",
                  index_root=tempfile.mkdtemp(prefix="ci-idx-"), stale_ttl=60,
                  embed_batch=48, upsert_batch=256, max_file_bytes=1048576,
-                 watch_debounce=3)
+                 watch_debounce=3, watch_sweep_interval=300)
     yield Indexer(cfg, StubEmbedder(), StubStore())
     shutil.rmtree(cfg.index_root, ignore_errors=True)
 

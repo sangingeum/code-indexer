@@ -30,3 +30,6 @@ build-backend = "uv_build"
 dev = [
     "pytest>=8.0",
 ]
+watch = [
+    "watchdog>=6.0.0",
+]

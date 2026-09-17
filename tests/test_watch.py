@@ -61,7 +61,8 @@ def core(tmp_path, monkeypatch):
     cfg = Config(
         ollama_url="http://stub", qdrant_url="http://stub", embed_model="stub",
         index_root=str(tmp_path / "state"), stale_ttl=0, embed_batch=48,
-        upsert_batch=256, max_file_bytes=1048576, watch_debounce=1)
+        upsert_batch=256, max_file_bytes=1048576, watch_debounce=1,
+        watch_sweep_interval=3600)
     return _stub_core(cfg)
 
 
@@ -118,11 +119,23 @@ def test_watch_holds_flock_parallel_search_sees_contention(core, project, monkey
     entry = core.registry.add(str(project))
     _patch_core(monkeypatch, core)
 
-    # Hold the lock the way another process would; a watcher tick must then
-    # report the held state instead of indexing.
+    # Hold the lock the way another process would; a watcher pass triggered
+    # by a real file event must then report the held state instead of
+    # indexing (quiet period 1 s -> pass fires ~1 s into a 4 s window).
+    # The write happens ~1.5 s in: inotify only sees events raised after the
+    # observer starts.
+    import threading as _th
+
+    def _poke() -> None:
+        time.sleep(1.5)
+        (project / "new.py").write_text("def new():\n    pass\n")
+
     with project_lock(core._lock_path(entry.slug)) as acquired:
         assert acquired is True
-        result = runner.invoke(app, ["watch", str(project), "--duration", "1"])
+        th = _th.Thread(target=_poke)
+        th.start()
+        result = runner.invoke(app, ["watch", str(project), "--duration", "4"])
+        th.join()
         assert result.exit_code == 0
         assert "indexing in progress" in result.output
 

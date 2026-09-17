@@ -37,7 +37,7 @@ code-indexer get-code-context src/session.hpp --start-line 40 --end-line 80
 code-indexer index-status /path/to/repo
 code-indexer reindex-project /path/to/repo
 code-indexer remove-project /path/to/repo
-code-indexer watch /path/to/repo [--duration 300]   # optional poll-loop watcher
+code-indexer watch /path/to/repo [--duration 300] [--background]   # optional inotify watcher
 code-indexer watch --all                            # watch all registered projects
 ```
 
@@ -52,18 +52,43 @@ slug, or registered custom name).
 
 ## watch (optional, opt-in)
 
-`code-indexer watch [PATH...] | --all [--duration T]` runs a long-lived
-poll-loop watcher: each tick it takes the per-project flock and runs the same
-staleness probe / incremental pass the one-shot commands use, then sleeps
-`WATCH_DEBOUNCE` seconds (default 3). Polling, not inotify — an unchanged
-tick is a cheap hash scan with zero embedding and zero Qdrant traffic.
+`code-indexer watch [PATH...] | --all [--duration T] [--background]` runs a
+long-lived **event-based** watcher: project roots are watched recursively
+with Linux inotify (the `watchdog` Observer library, opt-in `watch`
+dependency-group — the MCP server and one-shot commands never import it).
+A file event schedules an incremental pass after a quiet period of
+`WATCH_DEBOUNCE` seconds (default 3 — the old poll tick is now the
+debounce; the env alias `WATCH_QUIET_PERIOD` is accepted and wins). A
+burst of events coalesces into at most one pass per quiet period, and an
+event burst that changes no content costs a hash scan only — zero
+embedding, zero Qdrant traffic.
 
-- `--duration T` bounds the watcher's life (exit 0 after T seconds); `0` or
-  omitted runs forever. SIGINT/SIGTERM exit 0; the kernel flock is released
-  automatically.
+- **Self-heal sweep**: a full staleness pass for every watched project runs
+  every `WATCH_SWEEP_INTERVAL` seconds (default **300 s**) even with zero
+  events, healing anything inotify missed.
+- **Degradation**: without watchdog installed, or if inotify watch
+  descriptors are exhausted (OSError scheduling the recursive watches), the
+  watcher falls back to quiet-period polling (one hash scan per project per
+  quiet tick) — correctness is never lost, only latency.
+- **Self-write suppression**: events under the index root, `.git` paths,
+  and editor temp files (`.swp`, `~`, `.tmp`, ...) are filtered; the
+  watcher's own manifest/registry writes never trigger a pass.
+- **Moved/deleted dirs**: directory delete/move events dirty the project
+  (a wholesale file-set change), so deletions are purged on the next pass.
+- `--duration T` bounds the watcher's life (exit 0 after T seconds; `0` or
+  omitted = forever; applies to background mode too). SIGINT/SIGTERM exit
+  0; the kernel flock is released automatically.
 - Multiple projects are served round-robin: repeatable path/slug/name args,
-  or `--all` for every registered project (registry order, one pass per
-  project per tick). Never combine paths with `--all`.
+  or `--all` for every registered project (registry order). Never combine
+  paths with `--all`.
+- **`--background`** daemonizes (double-fork + setsid), writes the daemon
+  PID to `<INDEX_ROOT>/watch.pid` guarded by an `flock` on that file (a
+  second watcher is refused while a live one holds it — the flock, not the
+  pid, is the liveness test), and redirects stdout/stderr to
+  `<INDEX_ROOT>/watch.log`. `--foreground` (default) keeps the inherited
+  stdio and normal output and does not take the pidfile. A stopped watcher
+  leaves no live lock or PID residue (the pidfile is unlinked only after
+  the flock is released).
 - Opt-in and never a prerequisite: without a watcher, one-shot commands
   behave exactly as before (STALE_TTL probe per invocation).
 
@@ -134,7 +159,9 @@ Re-run `reindex-project` once per old project to populate its symbol index
 $INDEX_ROOT/               (default ~/.code-indexer)
 ├── registry.db            # path -> slug mapping (SQLite, WAL)
 ├── <slug>.lock            # per-project lock
-└── <slug>/manifest.db     # per-project file manifest (SQLite, WAL)
+├── <slug>/manifest.db     # per-project file manifest (SQLite, WAL)
+├── watch.pid              # flock-guarded watcher PID file (--background only)
+└── watch.log              # watcher daemon stdout/stderr (--background only)
 ```
 
 Qdrant holds one collection per project: `idx_{slug}` where slug is an 8-hex
@@ -152,7 +179,9 @@ Resolution order: CLI flags > environment variables > defaults.
 | `EMBED_MODEL` | `qwen3-embedding:8b` | Embedding model |
 | `INDEX_ROOT` | `~/.code-indexer` | State directory |
 | `STALE_TTL` | `60` | Seconds between staleness re-scans |
-| `WATCH_DEBOUNCE` | `3` | `watch` poll tick (s) between incremental passes |
+| `WATCH_DEBOUNCE` | `3` | `watch` quiet period (s) between an event burst and its pass |
+| `WATCH_QUIET_PERIOD` | — | alias for `WATCH_DEBOUNCE` (wins when both set) |
+| `WATCH_SWEEP_INTERVAL` | `300` | `watch` periodic full staleness sweep (s) |
 | `EMBED_BATCH` | `48` | Texts per Ollama embed request |
 | `UPSERT_BATCH` | `256` | Points per Qdrant upsert |
 | `MAX_FILE_BYTES` | `1048576` | Skip files larger than this |
