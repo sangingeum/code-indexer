@@ -119,6 +119,10 @@ CLI flags > env vars > defaults. Flags: `--ollama-url --qdrant-url
   registration (no side effects), use `lookup_project` instead.
 - **remove_project is destructive**: drops the Qdrant collection + manifest +
   registry entry. Re-adding later re-indexes from scratch.
+- Existing `idx_*` collections are reused if the registry is retained; a fresh
+  registry re-add re-attaches to the same collection and re-indexes (chunk-hash
+  diff means only changed chunks are re-embedded; deterministic uuid5 point IDs
+  make re-upserts idempotent).
 - Files >1 MB, binary/non-UTF-8, `.git`/`node_modules`/`venv`/`__pycache__`/
   `dist`/`build`/`target` are skipped; `.gitignore` and `.codeindexignore`
   are honored — don't expect hits in those.
