@@ -17,6 +17,9 @@ import time
 import pytest
 from typer.testing import CliRunner
 
+pytest.importorskip(
+    "watchdog.observers", reason="watchdog not installed (uv sync --group watch)")
+
 from code_indexer.cli import app
 from code_indexer.config import Config
 from code_indexer.core import Core
