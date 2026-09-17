@@ -332,7 +332,7 @@ def _make_engine(core: Core, targets: list[tuple[str, str]], *, quiet: float,
     return WatchEngine(
         core, targets, quiet=quiet,
         sweep_interval=sweep_interval if sweep_interval else SWEEP_INTERVAL_DEFAULT,
-        index_root=core.cfg.index_root, echo=lambda msg: typer.echo(msg))
+        index_root=core.cfg.index_root, echo=typer.echo)
 
 
 def _watch_background(core: Core, targets: list[tuple[str, str]],

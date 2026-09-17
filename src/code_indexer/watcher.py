@@ -193,7 +193,7 @@ class WatchEngine:
         quiet: float,
         sweep_interval: float,
         index_root: str,
-        echo: Callable[[str], None],
+        echo: Callable[..., None],
     ) -> None:
         self.core = core
         self.targets = targets
@@ -245,8 +245,7 @@ class WatchEngine:
             # hash scan!) must not re-schedule a pass, or a pass would
             # perpetually re-dirty its project.
             _PASSING_TYPES = frozenset({
-                "modified", "created", "deleted", "moved", "moved_unmatched",
-                "closed",
+                "modified", "created", "deleted", "moved", "closed",
             })
 
             def on_any_event(self, event: Any) -> None:
@@ -257,7 +256,7 @@ class WatchEngine:
                 if src is None:
                     return
                 if event.is_directory and event.event_type not in (
-                        "deleted", "moved", "moved_unmatched"):
+                        "deleted", "moved"):
                     # A created dir has no indexable content yet; its files
                     # raise their own events. Deleted/moved dirs change file
                     # sets wholesale and must dirty the project.
@@ -305,7 +304,7 @@ class WatchEngine:
         elif result["state"] == "indexing":
             self.echo(f"{slug}: {result['detail']}")
         elif result["state"] == "error":
-            self.echo(f"{slug}: indexing error: {result['error']}")
+            self.echo(f"{slug}: indexing error: {result['error']}", err=True)
         self._last_pass[slug] = time.monotonic()
         if sweep:
             self.echo(f"{slug}: staleness sweep (periodic, every "
