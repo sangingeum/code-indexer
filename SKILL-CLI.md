@@ -6,17 +6,31 @@ version: 1.0.0
 
 # code-indexer (CLI)
 
-One-shot typer CLI over `code_indexer.core` (same core as the
-`code-indexer-mcp` MCP server — see the `code-indexer-mcp` skill for the
-agent/MCP surface). Repo: `/home/keum/dev/athena/code-indexer/`. Binary:
-`code-indexer`; package `code_indexer`. LAN-local; no daemon, no server RPC.
+One-shot typer CLI over `code_indexer.core`. Repo:
+`/home/keum/dev/athena/code-indexer/`. Binary: `code-indexer`; package
+`code_indexer`. CLI-only — no MCP variant exists. LAN-local; no server RPC.
 
 ## When to use
 
-- Shell, cron jobs, or scripts that need semantic code navigation against
-  registered repos: search, symbols, refs, line-ranged source context.
-- For in-conversation agent tool calls, prefer the MCP tools
-  (`code-indexer-mcp` skill) — same operations.
+- All semantic code navigation against registered repos: search, symbols,
+  refs, line-ranged source context — from shell, scripts, or in-conversation.
+
+## Automatic indexing (watch daemon — standard setup)
+
+Projects are indexed **automatically** via the inotify watcher:
+
+```bash
+code-indexer watch /path/repo --background      # one project
+code-indexer watch --all --background           # every registered project
+```
+
+`--background` daemonizes (PID file `<INDEX_ROOT>/watch.pid`, flock-guarded;
+logs `<INDEX_ROOT>/watch.log`). File events trigger an incremental index pass
+after a 3 s quiet period (bursts coalesce); a full staleness sweep runs every
+300 s even with no events. Watchers self-heal; a stopped watcher leaves no
+residue. Start a watcher for a project right after `add-project` — one-shot
+commands still work without any watcher, but the watcher keeps the index
+fresh so queries never pay the staleness pass.
 
 ## Commands (each accepts --skip-stale-check)
 
@@ -37,32 +51,17 @@ code-indexer watch /path/repo [--duration 300] [--background]   # optional inoti
 code-indexer watch --all                  # watch every registered project
 ```
 
-## watch (optional daemon, never required)
-
-`code-indexer watch` is a long-lived **event-based** watcher: project roots
-are watched recursively with Linux inotify (`watchdog` Observer, opt-in
-`watch` dependency-group). A file event schedules an incremental pass after
-a quiet period of `WATCH_DEBOUNCE` seconds (default 3 — the old poll tick
-is now the debounce; alias `WATCH_QUIET_PERIOD` wins when set). Bursts
-coalesce into at most one pass per quiet period; an unchanged burst costs a
-hash scan only (no embedding, no Qdrant traffic).
+## watch details
 
 - `--duration T` bounds its life: exits 0 after T seconds (`0`/omitted =
   forever; honored by `--background` too). SIGINT/SIGTERM exit 0.
-- Self-heal: a full staleness pass per watched project runs every
-  `WATCH_SWEEP_INTERVAL` seconds (default 300 s) even with zero events.
 - Degradation: no watchdog installed or inotify watch-descriptor
   exhaustion -> quiet-period polling fallback (hash scan per project per
   quiet tick). Correctness is never lost, only latency.
-- `--background` daemonizes (double-fork + setsid): PID file
-  `<INDEX_ROOT>/watch.pid` (flock-guarded; a second watcher is refused
-  while a live one holds it), logs `<INDEX_ROOT>/watch.log`. `--foreground`
-  (default) is the plain inherited-stdio behavior. A stopped watcher leaves
-  no live lock or PID residue.
+- `--foreground` (default) is the plain inherited-stdio behavior.
 - Projects: repeatable path/slug/name args, or `--all` (round-robin).
   Never pass both.
-- Opt-in only: one-shot commands work identically without any watcher; the
-  watcher never registers anything and is never on the default path.
+- A second watcher is refused while a live one holds the PID-file flock.
 
 ## --name alias
 
