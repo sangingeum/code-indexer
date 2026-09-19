@@ -152,6 +152,10 @@ function start_transfer  src/session.hpp:102-140  int start_transfer(const std::
   optional `file` filter and the query drops the name clause when None.
   Cap stays at `--limit` (default 25) — a nameless query on a big repo is
   exactly where an unbounded dump would destroy the token budget.
+- MCP note: the MCP server exposes browse mode as a **separate
+  `find_symbols` tool** with its own cap (find_symbol keeps its exact/
+  substring semantics); the CLI extends `find-symbol` in place. 1:1
+  core, two surfaces.
 
 ### 2.4 `deps` (phase 2)
 
@@ -237,8 +241,7 @@ Files touched, in order:
 
 1. `manifest.py` — schema v3 (two columns + migration), extend
    `SymbolRow`, `replace_file_symbols`, `find_symbols` (optional name,
-   `file` filter, `visibility` filter), new `symbols_by_prefix(path)`
-   and `imports_for(file, reverse=False)` helpers.
+   `file` filter, `visibility` filter), `imports_for(file, reverse=False)` helpers.
 2. `ts_chunker.py` — signature + visibility extraction in the existing
    walk; body-node-name dict; extend `_IMPORT_RE` family (phase 2).
 3. `chunker.py` — regex-fallback `extract_symbols` fills the two new

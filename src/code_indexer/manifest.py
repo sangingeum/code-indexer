@@ -222,13 +222,6 @@ class Manifest:
         return [SymbolRow(*row) for row in
                 self._conn.execute(sql, args).fetchall()]
 
-    def symbols_by_prefix(self, prefix: str) -> list[SymbolRow]:
-        """All symbols in files under `prefix` (design §2.1), path order."""
-        sql = (self._SYMBOL_COLS +
-               " WHERE substr(file, 1, ?) = ? ORDER BY file, start_line")
-        return [SymbolRow(*row) for row in
-                self._conn.execute(sql, (len(prefix), prefix)).fetchall()]
-
     def symbols_with_files(self) -> tuple[dict[str, ManifestFile], list[SymbolRow]]:
         """All files + all symbols for the skeleton projection (design §2.1).
 

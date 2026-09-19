@@ -213,8 +213,9 @@ def find_symbols(project: str | None = None, symbol_type: str | None = None,
                  format: str = "text") -> str:
     """Browse-mode symbol listing (design §2.3 — replaces list-symbols):
     optional symbol_type / file filters over the manifest symbol index,
-    capped at limit. format: 'text' or 'json'. Signatures included when
-    stored (schema v3)."""
+    capped at limit (max 500). format: 'text' or 'json'. Signatures
+    included when stored (schema v3)."""
+    limit = max(1, min(int(limit), 500))
     entry, err = CORE.resolve_entry(project)
     if entry is None:
         return err

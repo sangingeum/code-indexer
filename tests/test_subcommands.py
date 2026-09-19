@@ -290,6 +290,40 @@ def test_skeleton_prefix_and_limit_and_no_signatures(core):
                for g in data2["files"] for s in g["symbols"])
 
 
+def test_skeleton_limit_header_reflects_cap(core):
+    c, entry = core
+    data = c.skeleton(entry, prefix="src", limit=1)
+    text = c.format_skeleton(data, "text")
+    header = next(ln for ln in text.split("\n")
+                  if ln.startswith("src/session.py"))
+    assert "showing 1" in header, header
+    assert "symbols, showing" in header, header
+    session = next(g for g in data["files"]
+                   if g["file"] == "src/session.py")
+    total = session["total_symbols"]
+    assert total >= 2, "fixture file has several symbols"
+    assert len(session["symbols"]) == 1
+
+
+def test_skeleton_tree_projection(core):
+    c, entry = core
+    data = c.skeleton(entry, tree_mode=True, limit=1)
+    assert "dirs" in data, "tree mode returns dir projection"
+    assert "files" not in data, "no symbols listed in tree mode"
+    dirs = {d["dir"]: d for d in data["dirs"]}
+    assert "src" in dirs
+    d = dirs["src"]
+    assert d["dominant"] == "python"
+    assert d["symbols"] > 0, "per-dir symbol count"
+    assert "files" not in d and "symbols" not in dir(d)
+    text = c.format_skeleton(data, "text")
+    assert "" not in text.split("\n")
+    assert "src/  (" in text and "python" in text
+    assert "def public_fn" not in text, "no symbol lines in tree output"
+    parsed = json.loads(c.format_skeleton(data, "json"))
+    assert parsed["dirs"] == data["dirs"]
+
+
 def test_skeleton_empty_file_and_no_symbols_still_listed(core):
     c, entry = core
     data = c.skeleton(entry)

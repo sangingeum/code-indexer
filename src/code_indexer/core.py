@@ -291,6 +291,8 @@ class Core:
         by_file: dict[str, list[SymbolRow]] = {}
         for s in symbols:
             by_file.setdefault(s.file, []).append(s)
+        if tree_mode:
+            return self._tree_projection(entry, sorted(files), by_file)
         out_files: list[dict[str, Any]] = []
         for path in sorted(files):
             f = files[path]
@@ -301,6 +303,7 @@ class Core:
                 "file": path,
                 "lang": _lang_from_path(path),
                 "size": f.size,
+                "total_symbols": len(by_file.get(path, [])),
                 "symbols": [
                     {"name": s.name, "type": s.symbol_type,
                      "start_line": s.start_line, "end_line": s.end_line,
@@ -310,15 +313,48 @@ class Core:
             })
         return {"project": entry.path, "files": out_files}
 
+    @staticmethod
+    def _tree_projection(
+            entry: ProjectEntry,
+            file_paths: list[str],
+            by_file: dict[str, list[SymbolRow]]) -> dict[str, Any]:
+        """`--tree` mode (design §2.1): directory tree with per-dir symbol
+        count and dominant language. No symbols listed; --limit ignored."""
+        dirs: dict[str, dict[str, Any]] = {}
+        for path in file_paths:
+            parent = os.path.dirname(path).replace(os.sep, "/") or "."
+            d = dirs.setdefault(parent, {"symbols": 0, "langs": {}})
+            d["symbols"] += len(by_file.get(path, []))
+            lang = _lang_from_path(path)
+            d["langs"][lang] = d["langs"].get(lang, 0) + 1
+        out_dirs = [
+            {"dir": path, "symbols": d["symbols"],
+             "dominant": (max(sorted(d["langs"]),
+                              key=lambda l: d["langs"][l])
+                          if d["langs"] else None),
+             "langs": dict(sorted(d["langs"].items()))}
+            for path, d in sorted(dirs.items())]
+        return {"project": entry.path, "dirs": out_dirs}
+
     def format_skeleton(self, data: dict[str, Any], fmt: str = "text") -> str:
         """Dense skeleton render (design §2.1): one file per group, one
-        symbol per line, no prose, no blank lines."""
+        symbol per line, no prose, no blank lines. `--tree` renders the
+        directory-tree projection (per-dir symbol count + dominant language)."""
         if fmt == "json":
             return json.dumps(data, ensure_ascii=False, indent=2)
+        if "dirs" in data:
+            lines = [f"{d['dir']}/  ({d['symbols']} symbols, "
+                     f"{d['dominant'] or 'no code'})" for d in data["dirs"]]
+            return "\n".join(lines) if lines else "(no files)"
         lines: list[str] = []
         for f in data["files"]:
-            lines.append(
-                f"{f['file']}  ({f['lang']}, {len(f['symbols'])} symbols)")
+            total = f.get("total_symbols", len(f["symbols"]))
+            shown = len(f["symbols"])
+            header = (f"{f['file']}  ({f['lang']}, {total} symbols)"
+                      if shown == total else
+                      f"{f['file']}  ({f['lang']}, {total} symbols, "
+                      f"showing {shown})")
+            lines.append(header)
             for s in f["symbols"]:
                 sig = f"  {s['signature']}" if s.get("signature") else ""
                 lines.append(
@@ -355,8 +391,16 @@ class Core:
         if include_docstrings:
             abs_path = os.path.join(entry.path, rel)
             if os.path.isfile(abs_path):
+                # Bounded read: docstrings live within decl+3 lines, so
+                # cap at the last declaration's window, not the whole file.
+                max_line = max((r.end_line for r in rows), default=0) + 4
                 with open(abs_path, encoding="utf-8", errors="replace") as fh:
-                    src_lines = fh.read().splitlines()
+                    src_lines = []
+                    for _ in range(max_line):
+                        line = fh.readline()
+                        if not line:
+                            break
+                        src_lines.append(line.rstrip("\n"))
         out = []
         for r in rows:
             d: dict[str, Any] = {
