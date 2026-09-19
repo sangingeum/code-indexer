@@ -15,7 +15,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sys
 import threading
 import time
 from typing import Any
@@ -380,11 +379,9 @@ def find_references(name: str, project: str | None = None,
 
 
 def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        stream=sys.stderr,
-    )
+    from .logsetup import configure_logging
+
+    configure_logging(verbose=os.environ.get("VERBOSE", "") not in ("", "0"))
     logger.info(
         "code-indexer MCP starting — ollama=%s qdrant=%s model=%s index_root=%s",
         CORE.cfg.ollama_url, CORE.cfg.qdrant_url, CORE.cfg.embed_model,

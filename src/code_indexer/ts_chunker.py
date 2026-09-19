@@ -41,26 +41,46 @@ EXT_LANG = {
 # inner symbol from chunking.
 _UNIT_TYPES = {
     "function_definition", "function_declaration", "method_definition",
+    "method_declaration", "constructor_declaration",
     "class_definition", "class_declaration", "class_specifier",
     "struct_item", "struct_specifier", "impl_item",
     "export_statement", "decorated_definition", "enum_specifier",
+    "enum_declaration", "interface_declaration", "struct_declaration",
+    "record_declaration", "function_item",
     "preproc_function_def",
 }
 # Container-ish declarations that still get a symbol row (walk recurses in).
 _UNIT_TYPES_EXTRACT_ONLY = {
     "namespace_definition", "namespace_definition_probability",
+    "namespace_declaration",
 }
 _TYPE_BY_NODE = {
     "function_definition": "function", "function_declaration": "function",
-    "method_definition": "method", "preproc_function_def": "function",
+    "method_definition": "method", "method_declaration": "method",
+    "constructor_declaration": "method", "preproc_function_def": "function",
+    "function_item": "function",
     "class_definition": "class", "class_declaration": "class",
     "class_specifier": "class",
     "struct_item": "struct", "struct_specifier": "struct",
+    "struct_declaration": "struct",
     "impl_item": "class", "enum_specifier": "enum",
-    "namespace_definition": "namespace",
+    "enum_declaration": "enum",
+    "interface_declaration": "interface",
+    "record_declaration": "class",
+    "namespace_definition": "namespace", "namespace_declaration": "namespace",
 }
 _CHAR_CAP = 1000
 SIG_CAP = 120
+
+# Unit types that CONTAIN other symbols (classes, structs, interfaces,
+# records, impls). _walk recurses into them so nested methods/properties
+# land in the symbol table; their chunk text is already covered by the
+# container chunk itself.
+_CONTAINER_TYPES = {
+    "class_definition", "class_declaration", "class_specifier",
+    "struct_item", "struct_specifier", "struct_declaration",
+    "interface_declaration", "record_declaration", "impl_item",
+}
 
 # Grammar-specific body node names (design §3): the child field that starts
 # the symbol body. A signature is the declaration text from start_byte up to
@@ -69,13 +89,20 @@ _BODY_NODE_BY_TYPE = {
     "function_definition": "body",
     "function_declaration": "body",
     "method_definition": "body",
+    "method_declaration": "body",
+    "constructor_declaration": "body",
     "class_definition": "body",
     "class_declaration": "body",
     "class_specifier": "field_declaration_list",
     "struct_specifier": "field_declaration_list",
+    "struct_declaration": "declaration_list",
+    "interface_declaration": "declaration_list",
+    "record_declaration": "parameter_list",
     "impl_item": "declaration_list",
     "enum_specifier": "enumerator_list",
+    "enum_declaration": "enum_member_declaration_list",
     "namespace_definition": "body",
+    "namespace_declaration": "declaration_list",
     "preproc_function_def": "value",
 }
 
@@ -191,6 +218,10 @@ def _walk(node, data: bytes, out: list[Chunk]) -> None:
                         node_type=child.type,
                     ))
                     offset += s.end_line - s.start_line + 1
+                # The split pieces hide any nested units (methods inside a
+                # >1000-char C# class, etc.) from the symbol table — walk the
+                # unit's own body so inner symbols are still extracted.
+                _walk(child, data, out)
             else:
                 h = hashlib.sha256(node_text.encode()).hexdigest()
                 out.append(Chunk(
@@ -199,6 +230,12 @@ def _walk(node, data: bytes, out: list[Chunk]) -> None:
                     source="ast", symbol_type=sym_type,
                     signature=signature, node_type=child.type,
                 ))
+                # Container types carry nested symbols (methods in a class,
+                # namespaces in a namespace, etc.): recurse so they land in
+                # the symbol table as well. Their chunks are covered by the
+                # container chunk above; this walk is extract-only there.
+                if child.type in _CONTAINER_TYPES:
+                    _walk(child, data, out)
         elif child.type in _UNIT_TYPES_EXTRACT_ONLY:
             # Namespace: emit a symbol row via the chunk that _make_chunk
             # would produce ONLY when the body is small; always recurse.
@@ -222,7 +259,9 @@ def _walk(node, data: bytes, out: list[Chunk]) -> None:
 
 
 def _symbol_from_node(node, data: bytes) -> str | None:
-    # First named child of type identifier/name is the declaration name.
+    # First named child of a common identifier type is the declaration name.
+    # NOTE: for grammars where the declaration name arrives via a `name`
+    # FIELD (C#-family), the field-based pass below handles it.
     for ch in node.children:
         if ch.type in ("identifier", "name", "property_identifier", "type_identifier"):
             return data[ch.start_byte:ch.end_byte].decode("utf-8", "replace")
@@ -240,6 +279,26 @@ def _symbol_from_node(node, data: bytes) -> str | None:
             return _symbol_from_declarator(ch, data)
         if ch.type in ("namespace_identifier",):
             return data[ch.start_byte:ch.end_byte].decode("utf-8", "replace")
+    # C#-family grammars name class/struct/interface/enum/record and methods
+    # through a `name` FIELD on a differently-typed child — the direct
+    # identifier-type check above can't always see it (e.g. a
+    # method_declaration's name child is typed after the return type, so the
+    # first-identifier heuristic can grab the return type instead).
+    # Field-based extraction is grammar-agnostic and exact, so try it
+    # before the first-line regex guess.
+    if node.child_by_field_name("name") is not None:
+        name_node = node.child_by_field_name("name")
+        if name_node.type == "qualified_name":
+            # C# `namespace Estate.Sim {}` names the field with a
+            # qualified_name node — take its full dotted text (find_symbol
+            # callers can match either the full name or the leaf).
+            full = data[name_node.start_byte:name_node.end_byte].decode(
+                "utf-8", "replace")
+            return full.split(".")[-1] if "." in full else full
+        if name_node.type in ("identifier", "type_identifier",
+                              "namespace_identifier", "token_identifier"):
+            return data[name_node.start_byte:name_node.end_byte].decode(
+                "utf-8", "replace")
     # Fallback: regex on the first line.
     first_line = data[node.start_byte:node.end_byte].decode("utf-8", "replace") \
         .splitlines()[0] if node.end_byte > node.start_byte else ""

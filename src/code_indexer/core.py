@@ -74,12 +74,15 @@ class Core:
     # indexing
     # ------------------------------------------------------------------
 
-    def run_index(self, slug: str, project_path: str, force: bool = False) -> dict[str, Any]:
+    def run_index(self, slug: str, project_path: str, force: bool = False,
+                  verbose: bool = False) -> dict[str, Any]:
         """Run one indexing pass under the per-project lock.
 
         Returns {'state': 'idle', 'result': IndexResult-dict} on success,
         {'state': 'indexing', 'detail': 'indexing in progress'} when another
         process holds the lock, or {'state': 'error', 'error': ...}.
+        ``verbose=True`` (CLI --refresh) surfaces the pass summary; the
+        default query-path pass is silent.
         """
         with project_lock(self._lock_path(slug)) as acquired:
             if not acquired:
@@ -91,6 +94,8 @@ class Core:
                     project_path, slug, manifest, force_full=force)
                 self._last_scan[slug] = time.monotonic()
                 self._set_state(slug, state="idle", last_result=vars(result))
+                if verbose:
+                    logger.info("index pass %s: %s", slug, vars(result))
                 return {"state": "idle", "result": vars(result)}
             except Exception as exc:  # noqa: BLE001
                 logger.exception("indexing failed for %s", project_path)
@@ -109,22 +114,27 @@ class Core:
         """
         return self.run_index(slug, project_path, force=False)
 
-    def maybe_refresh(self, slug: str, project_path: str) -> dict[str, Any]:
+    def maybe_refresh(self, slug: str, project_path: str,
+                      force: bool = False) -> dict[str, Any]:
         """Staleness probe: incremental re-index if last check > stale_ttl ago.
 
-        The scan (hashing) is cheap; embedding only happens on real changes.
-        Skipped entirely when the core was built with skip_stale_check=True
-        (--skip-stale-check on the CLI; the vetoed daemon is NOT used).
+        Default (quiet) mode: within TTL, or on a flock miss, this returns
+        without indexing — a query-path re-index costs latency and noise.
+        The pass is silent (no logging at INFO) and only runs when actually
+        stale. Callers that want the pass regardless of TTL pass force=True
+        (CLI --refresh). Skipped entirely when the core was built with
+        skip_stale_check=True (--skip-stale-check on the CLI; the vetoed
+        daemon is NOT used).
         """
         if self.skip_stale_check:
             return {"state": "fresh"}
         last = self._last_scan.get(slug, 0.0)
-        if time.monotonic() - last < self.cfg.stale_ttl:
+        if not force and time.monotonic() - last < self.cfg.stale_ttl:
             return {"state": "fresh"}
         entry = self.registry.get_by_slug(slug)
         if entry is None or not os.path.isdir(entry.path):
             return {"state": "idle"}
-        return self.run_index(slug, entry.path, force=False)
+        return self.run_index(slug, entry.path, force=False, verbose=force)
 
     # ------------------------------------------------------------------
     # project resolution / summaries
@@ -207,7 +217,8 @@ class Core:
         return out
 
     def search(self, query: str, project: str | None = None, limit: int = 8,
-               file_filter: str | None = None) -> list[dict[str, Any]]:
+               file_filter: str | None = None,
+               skip_refresh: bool = False) -> list[dict[str, Any]]:
         """Semantic search across one or all registered projects.
 
         Runs the staleness probe per project first (unless skipped). Raises
@@ -225,7 +236,8 @@ class Core:
                 raise ValueError("error: no projects registered")
         all_hits: list[dict[str, Any]] = []
         for entry in entries:
-            self.maybe_refresh(entry.slug, entry.path)
+            if not skip_refresh:
+                self.maybe_refresh(entry.slug, entry.path)
             try:
                 all_hits.extend(self.search_one(entry, query, limit, file_filter))
             except Exception as exc:  # noqa: BLE001
@@ -254,10 +266,11 @@ class Core:
 
     def search_for_display(self, query: str, project: str | None = None,
                            limit: int = 8, file_filter: str | None = None,
-                           fmt: str = "text") -> str:
+                           fmt: str = "text",
+                           skip_refresh: bool = False) -> str:
         try:
             hits = self.search(query, project=project, limit=limit,
-                               file_filter=file_filter)
+                               file_filter=file_filter, skip_refresh=skip_refresh)
         except ValueError as exc:
             return str(exc)
         return self.format_hits(hits, fmt)

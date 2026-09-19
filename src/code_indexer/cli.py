@@ -66,6 +66,10 @@ def _echo_index_result(slug: str, result: dict) -> None:
 SkipOpt = typer.Option(
     False, "--skip-stale-check",
     help="Skip the staleness probe / incremental index pass on this invocation.")
+RefreshOpt = typer.Option(
+    False, "--refresh",
+    help="Force a fresh staleness pass on this query (runs an incremental "
+         "index now; default is to index only when actually stale, quietly).")
 
 
 @app.command()
@@ -159,35 +163,48 @@ def semantic_search(
     file_filter: str = typer.Option(None, help="Substring/glob on file path, e.g. '*.py'."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
     skip_stale_check: bool = SkipOpt,
+    refresh: bool = RefreshOpt,
 ) -> None:
-    """Semantic code search. Staleness check + incremental indexing run
-    first unless --skip-stale-check is given."""
+    """Semantic code search. The staleness pass runs only when the index is
+    actually stale (quietly); --refresh forces it now, --skip-stale-check
+    skips the probe entirely."""
     core = _get_core(skip_stale_check)
+    if project:
+        entry, err = core.resolve_entry(project)
+        if entry is None:
+            _die(err)
+        core.maybe_refresh(entry.slug, entry.path, force=refresh)
+    else:
+        for e in core.registry.list_projects():
+            core.maybe_refresh(e.slug, e.path, force=refresh)
     typer.echo(core.search_for_display(
         query, project=project, limit=limit, file_filter=file_filter,
-        fmt="json" if json_output else "text"))
+        fmt="json" if json_output else "text", skip_refresh=True))
 
 
 @app.command(name="index-status")
 def index_status(
     path: str = typer.Argument(..., help="Registered project path."),
     skip_stale_check: bool = SkipOpt,
+    refresh: bool = RefreshOpt,
 ) -> None:
-    """Report indexing state (idle | indexing | stale | error) and trigger
-    the staleness check unless skipped."""
+    """Report indexing state (idle | indexing | stale | error). By default
+    this is informational only — it does NOT trigger a re-index. --refresh
+    runs the staleness pass now (output notes the pass)."""
     core = _get_core(skip_stale_check)
     path = os.path.abspath(os.path.expanduser(path))
     entry = core.registry.get_by_path(path)
     if entry is None:
         _die(f"error: not registered: {path}")
-    refresh = core.maybe_refresh(entry.slug, entry.path)
+    refresh_result = (core.maybe_refresh(entry.slug, entry.path, force=True)
+                      if refresh else {"state": "not-requested"})
     st = core.state_for(entry.slug)
     parts = [f"project={path}", f"state={st.get('state', 'idle')}"]
     if st.get("last_result"):
         parts.append(f"last_pass={st['last_result']}")
     if st.get("error"):
         parts.append(f"error={st['error']}")
-    if refresh.get("state") == "indexing":
+    if refresh_result.get("state") == "indexing":
         parts.append("note=incremental pass ran/was held by another process")
     typer.echo(" ".join(parts))
 
@@ -624,6 +641,17 @@ def find_references(
                        f"{r.relationship} {r.target} (target_confidence={exact})")
     finally:
         m.close()
+
+
+@app.callback()
+def _main(
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Verbose diagnostics (INFO) on stderr."),
+) -> None:
+    """Global options for the code-indexer CLI."""
+    from .logsetup import configure_logging
+
+    configure_logging(verbose=verbose)
 
 
 def main() -> None:
