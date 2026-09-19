@@ -208,14 +208,22 @@ def _walk(node, data: bytes, out: list[Chunk]) -> None:
                 subs = fallback_chunk(node_text)
                 offset = start
                 for s in subs:
+                    # Only the FIRST sub-piece is the declaration head and
+                    # carries the container's symbol/type. Later pieces are
+                    # anonymous body fragments — they must NOT inherit the
+                    # container's symbol_type, or the regex-guessed symbol
+                    # gets registered as a bogus class/method row (seen on
+                    # CrimeSurface.cs: comment-leading fragments surfaced
+                    # as 'FeelsRemorse class' / 'if class').
                     out.append(Chunk(
                         text=s.text, chunk_hash=s.chunk_hash,
-                        symbol=symbol if s.start_line == 1 else s.symbol,
+                        symbol=symbol if s.start_line == 1 else None,
                         start_line=offset + s.start_line - 1,
                         end_line=offset + s.end_line - 1,
-                        chunk_index=0, source="ast", symbol_type=sym_type,
+                        chunk_index=0, source="ast",
+                        symbol_type=sym_type if s.start_line == 1 else None,
                         signature=signature if s.start_line == 1 else None,
-                        node_type=child.type,
+                        node_type=child.type if s.start_line == 1 else None,
                     ))
                     offset += s.end_line - s.start_line + 1
                 # The split pieces hide any nested units (methods inside a
@@ -259,12 +267,27 @@ def _walk(node, data: bytes, out: list[Chunk]) -> None:
 
 
 def _symbol_from_node(node, data: bytes) -> str | None:
-    # First named child of a common identifier type is the declaration name.
-    # NOTE: for grammars where the declaration name arrives via a `name`
-    # FIELD (C#-family), the field-based pass below handles it.
-    for ch in node.children:
-        if ch.type in ("identifier", "name", "property_identifier", "type_identifier"):
-            return data[ch.start_byte:ch.end_byte].decode("utf-8", "replace")
+    # Exact name-field pass FIRST: grammars that carry a `name` FIELD
+    # (C#-family) must never fall through to the first-identifier heuristic
+    # below — that heuristic can grab a return-type identifier instead of
+    # the declared name (e.g. `public static HostileActVerdict Evaluate()`
+    # → first identifier is the return type). Field lookup returns None on
+    # grammars without name fields, so Python/TS are unaffected.
+    if node.child_by_field_name("name") is not None:
+        name_node = node.child_by_field_name("name")
+        if name_node.type == "qualified_name":
+            # C# `namespace Estate.Sim {}` names the field with a
+            # qualified_name node — take its full dotted text (find_symbol
+            # callers can match either the full name or the leaf).
+            full = data[name_node.start_byte:name_node.end_byte].decode(
+                "utf-8", "replace")
+            return full.split(".")[-1] if "." in full else full
+        if name_node.type in ("identifier", "type_identifier",
+                              "namespace_identifier", "token_identifier"):
+            return data[name_node.start_byte:name_node.end_byte].decode(
+                "utf-8", "replace")
+    # First named child of a common identifier type is the declaration name
+    # (fallback for grammars without name fields).
     # Python wraps classes/functions in decorated_definition when a decorator
     # is present: descend into the wrapped unit for the real name.
     if node.type == "decorated_definition":
@@ -279,26 +302,6 @@ def _symbol_from_node(node, data: bytes) -> str | None:
             return _symbol_from_declarator(ch, data)
         if ch.type in ("namespace_identifier",):
             return data[ch.start_byte:ch.end_byte].decode("utf-8", "replace")
-    # C#-family grammars name class/struct/interface/enum/record and methods
-    # through a `name` FIELD on a differently-typed child — the direct
-    # identifier-type check above can't always see it (e.g. a
-    # method_declaration's name child is typed after the return type, so the
-    # first-identifier heuristic can grab the return type instead).
-    # Field-based extraction is grammar-agnostic and exact, so try it
-    # before the first-line regex guess.
-    if node.child_by_field_name("name") is not None:
-        name_node = node.child_by_field_name("name")
-        if name_node.type == "qualified_name":
-            # C# `namespace Estate.Sim {}` names the field with a
-            # qualified_name node — take its full dotted text (find_symbol
-            # callers can match either the full name or the leaf).
-            full = data[name_node.start_byte:name_node.end_byte].decode(
-                "utf-8", "replace")
-            return full.split(".")[-1] if "." in full else full
-        if name_node.type in ("identifier", "type_identifier",
-                              "namespace_identifier", "token_identifier"):
-            return data[name_node.start_byte:name_node.end_byte].decode(
-                "utf-8", "replace")
     # Fallback: regex on the first line.
     first_line = data[node.start_byte:node.end_byte].decode("utf-8", "replace") \
         .splitlines()[0] if node.end_byte > node.start_byte else ""

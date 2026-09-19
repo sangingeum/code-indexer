@@ -47,6 +47,15 @@ namespace Estate.Sim
             return pawnId > 0;
         }
 
+        // User-typed return value: the method_declaration's first identifier
+        // child is the RETURN TYPE, not the name — the regression that made
+        // test_csharp_user_typed_return_type fail before the name-field
+        // pass was moved ahead of the first-identifier heuristic.
+        public static HostileActVerdict EvaluateThreat(int level)
+        {
+            return new HostileActVerdict();
+        }
+
         private double ScoreThreat(int level)
         {
             return level * 1.5;
@@ -102,6 +111,26 @@ def test_csharp_method_symbols_found(cs_project):
     assert row.source == "ast"
     assert row.file == "src/CrimeSurface.cs"
     assert row.start_line == 7
+
+
+def test_csharp_user_typed_return_type(cs_project):
+    """Regression (butler-verified vs real repo, CrimeSurface.cs:171):
+    _symbol_from_node's first-identifier pass matched the return-type
+    identifier BEFORE the name-field pass, so a method with a user-typed
+    return value (`public static HostileActVerdict Evaluate(...)`) was
+    registered under the return type's name instead of its own. Methods
+    with builtin returns (void/bool/double) escaped because predefined_type
+    nodes never matched the identifier heuristic — which is why earlier
+    fixture-only tests passed. The name-field lookup must win first."""
+    rows = cs_project.find_symbols("EvaluateThreat")
+    assert rows, "method with user-typed return registered under wrong name"
+    row = rows[0]
+    assert row.symbol_type == "method"
+    # The return type must appear as its own class row, not as the method.
+    assert not cs_project.find_symbols("HostileActVerdict",
+                                       symbol_type="method")
+    # And the line must point at the method declaration, not the return type.
+    assert row.start_line == 16
 
 
 def test_csharp_constructor_and_private_method(cs_project):
