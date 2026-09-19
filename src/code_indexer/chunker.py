@@ -34,6 +34,8 @@ class Chunk:
     chunk_index: int
     source: str = "regex"      # 'ast' | 'regex' — which chunker produced it
     symbol_type: str | None = None  # function|method|class|struct|enum|namespace
+    signature: str | None = None    # v3: decl text up to body (best-effort)
+    node_type: str | None = None    # v3: tree-sitter node type (visibility)
 
 
 def _guess_symbol(line: str) -> str | None:
@@ -138,3 +140,25 @@ def _split_text(text: str) -> list[str]:
     if cur:
         parts.append("\n".join(cur))
     return parts
+
+
+# ---------------------------------------------------------------------------
+# Schema v3 best-effort fields for the regex-fallback path (design §3):
+# signature = first line of the chunk, visibility per the Python underscore
+# rule only (other languages → public).
+# ---------------------------------------------------------------------------
+
+REGEX_SIG_CAP = 120
+
+
+def regex_signature(text: str) -> str:
+    """First physical line of the chunk, whitespace-collapsed, capped."""
+    first = text.splitlines()[0] if text else ""
+    return " ".join(first.split())[:REGEX_SIG_CAP]
+
+
+def regex_visibility(name: str | None) -> str:
+    """Python-underscore rule only for the fallback path; else public."""
+    if name and name.startswith("_"):
+        return "private"
+    return "public"

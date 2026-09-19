@@ -386,43 +386,127 @@ def _watch_background(core: Core, targets: list[tuple[str, str]],
                f"log={log_path}")
 
 
-@app.command(name="find-symbol")
-def find_symbol(
-    name: str = typer.Argument(..., help="Symbol name."),
+@app.command(name="skeleton")
+@app.command(name="map", hidden=True)
+def skeleton(
     project: str = typer.Option(
         None, "--project", "--name",
         help="Project path, slug, or name (--project X or --name X)."),
-    symbol_type: str = typer.Option(None, help="function|method|class|struct|enum|namespace"),
+    path_prefix: str = typer.Argument(
+        None, help="Restrict to files under this project-relative path."),
+    tree_mode: bool = typer.Option(
+        False, "--tree", help="Directory-tree projection (no symbols listed)."),
+    no_signatures: bool = typer.Option(
+        False, "--no-signatures", help="Omit signature column (densest output)."),
+    limit: int | None = typer.Option(
+        None, help="Cap symbol lines per file (ignored in --tree mode)."),
+    json_output: bool = typer.Option(False, "--json", help="JSON output."),
+    skip_stale_check: bool = SkipOpt,
+) -> None:
+    """Whole-project or per-subtree structural map from the manifest only
+    (design §2.1): files with their symbol lines, one symbol per line,
+    schema-v3 signature when stored."""
+    core = _get_core(skip_stale_check)
+    entry = _resolve(core, project)
+    data = core.skeleton(entry, prefix=path_prefix, tree_mode=tree_mode,
+                         limit=limit,
+                         include_signatures=not no_signatures)
+    text = core.format_skeleton(data, "json" if json_output else "text")
+    if core.schema_migrated(entry):
+        text += "\n" + MIGRATION_HINT
+    typer.echo(text)
+
+
+@app.command(name="outline")
+@app.command(name="file-outline", hidden=True)
+def outline(
+    file: str = typer.Argument(
+        ..., help="File path relative to the project root."),
+    project: str = typer.Option(
+        None, "--project", "--name",
+        help="Project path, slug, or name (--project X or --name X)."),
+    docstrings: bool = typer.Option(
+        False, "--docstrings",
+        help="Add one docstring line under each declaration (bounded read)."),
+    json_output: bool = typer.Option(False, "--json", help="JSON output."),
+    skip_stale_check: bool = SkipOpt,
+) -> None:
+    """One file: declarations, signatures, one-line docstrings (design §2.2)."""
+    core = _get_core(skip_stale_check)
+    entry = _resolve(core, project)
+    try:
+        data = core.outline(entry, file, include_docstrings=docstrings)
+    except ValueError as exc:
+        _die(str(exc))
+    text = core.format_outline(data, "json" if json_output else "text")
+    if core.schema_migrated(entry):
+        text += "\n" + MIGRATION_HINT
+    typer.echo(text)
+
+
+@app.command(name="find-symbol")
+def find_symbol(
+    name: str = typer.Argument(
+        None, help="Symbol name (optional: omit for browse mode with filters)."),
+    project: str = typer.Option(
+        None, "--project", "--name",
+        help="Project path, slug, or name (--project X or --name X)."),
+    symbol_type: str = typer.Option(
+        None, "--type", "--symbol-type",
+        help="function|method|class|struct|enum|namespace."),
+    file_filter: str = typer.Option(
+        None, "--file", help="Restrict to this file (project-relative)."),
+    substring: bool = typer.Option(
+        False, "--substring", help="Substring match (browse mode)."),
+    limit: int = typer.Option(25, help="Max rows (browse-mode cap)."),
+    json_output: bool = typer.Option(False, "--json", help="JSON output."),
     skip_stale_check: bool = SkipOpt,
 ) -> None:
     """Look up symbols by name in the manifest symbol index (no semantic
-    search). Exact AST-first, capped substring fallback."""
+    search). Exact AST-first, capped substring fallback. With NAME omitted,
+    browse mode: --type/--file filters only, capped at --limit (design §2.3).
+    Output gains the schema-v3 signature when stored."""
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
     core.maybe_refresh(entry.slug, entry.path)
     m = core.manifest_for(entry.slug)
     try:
-        rows = m.find_symbols(name, symbol_type=symbol_type, substring=False)
-        match_label = False
+        if name:
+            # Unchanged semantics: exact-first, capped substring fallback.
+            rows = m.find_symbols(name, symbol_type=symbol_type, substring=False)
+            match_label = False
+            if not rows:
+                rows = m.find_symbols(
+                    name, symbol_type=symbol_type, substring=True, limit=limit)
+                match_label = True
+        else:
+            # Browse mode (design §2.3): no name clause, filters only.
+            rows = m.find_symbols(
+                None, symbol_type=symbol_type, file=file_filter, limit=limit)
+            match_label = False
         if not rows:
-            rows = m.find_symbols(name, symbol_type=symbol_type, substring=True)
-            for r in rows:
-                r._substring = True  # type: ignore[attr-defined]
-            match_label = True
-        if not rows:
-            msg = f"no symbols matching {name!r}"
+            msg = (f"no symbols matching {name!r}" if name
+                   else "no symbols matching the given filters")
             if core.schema_migrated(entry):
                 msg += "\n" + MIGRATION_HINT
             typer.echo(msg)
             return
+        if json_output:
+            typer.echo(json.dumps([
+                {"file": r.file, "name": r.name, "type": r.symbol_type,
+                 "start_line": r.start_line, "end_line": r.end_line,
+                 "signature": r.signature}
+                for r in rows], ensure_ascii=False, indent=2))
+            return
         for r in rows:
             label = ""
             if match_label:
-                label = ", match=exact" if not getattr(r, "_substring", False) \
-                    else ", match=substring"
+                label = ", match=exact" if r.name == name else ", match=substring"
             conf = "exact" if r.source == "ast" else "heuristic"
+            sig = f"  {r.signature}" if r.signature else ""
             typer.echo(f"- {entry.path}::{r.file}:{r.start_line}-{r.end_line} "
-                       f"{r.name} ({r.symbol_type}, confidence={conf}{label})")
+                       f"{r.name} ({r.symbol_type}, confidence={conf}{label})"
+                       f"{sig}")
     finally:
         m.close()
 

@@ -40,7 +40,12 @@ code-indexer add-project /path/repo [--name myproj]   # register + initial index
 code-indexer lookup-project /path/repo                # registration check, no side effects
 code-indexer list-projects
 code-indexer semantic-search "query" [--project P] [--limit 8] [--file-filter '*.py'] [--json]
-code-indexer find-symbol Name [--project P] [--symbol-type class]   # exact-first, capped substring fallback
+code-indexer skeleton [--project P | --name P] [PATH_PREFIX] [--tree] [--no-signatures] [--limit N] [--json]
+code-indexer map ...      # alias for skeleton
+code-indexer outline [--project P | --name P] FILE [--docstrings] [--json]
+code-indexer file-outline ...   # alias for outline
+code-indexer find-symbol Name [--project P] [--type class]   # exact-first, capped substring fallback
+code-indexer find-symbol [--project P] [--type class] [--file src/x.py] [--limit 25]   # browse mode (no name)
 code-indexer find-definition Name [--project P]                      # exact match only
 code-indexer find-references Name [--project P] [--relationship calls]  # all confidence=heuristic
 code-indexer get-code-context src/f.hpp --start-line 40 --end-line 80   # or --symbol Foo::bar
@@ -50,6 +55,17 @@ code-indexer remove-project /path/repo    # DESTRUCTIVE: drops collection + mani
 code-indexer watch /path/repo [--duration 300] [--background]   # optional inotify re-index daemon
 code-indexer watch --all                  # watch every registered project
 ```
+
+## Token reduction (schema v3)
+
+Signatures + visibility are extracted at index time (schema v3;
+`signature`/`visibility` columns on `symbols`; v2 manifests ALTER-migrate,
+old rows keep NULL — `reindex-project` fills them). `skeleton`/`outline`/
+`find-symbol` are manifest-only at query time: zero re-parsing. Dense
+output: one symbol per line, no blank lines; `--json` for structured
+consumers. `outline --docstrings` is the only on-demand source read.
+C/C++ visibility is weak by design (everything public — access sections
+are not tracked); do not oversell it.
 
 ## watch details
 

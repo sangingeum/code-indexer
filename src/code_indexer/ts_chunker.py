@@ -15,7 +15,8 @@ import hashlib
 import logging
 import re
 
-from .chunker import Chunk, chunk as fallback_chunk, _guess_symbol
+from .chunker import (Chunk, chunk as fallback_chunk, _guess_symbol,
+                      regex_signature, regex_visibility)
 
 logger = logging.getLogger("code-indexer.tschunker")
 
@@ -59,6 +60,24 @@ _TYPE_BY_NODE = {
     "namespace_definition": "namespace",
 }
 _CHAR_CAP = 1000
+SIG_CAP = 120
+
+# Grammar-specific body node names (design §3): the child field that starts
+# the symbol body. A signature is the declaration text from start_byte up to
+# the body node's start; one node-field lookup + one slice.
+_BODY_NODE_BY_TYPE = {
+    "function_definition": "body",
+    "function_declaration": "body",
+    "method_definition": "body",
+    "class_definition": "body",
+    "class_declaration": "body",
+    "class_specifier": "field_declaration_list",
+    "struct_specifier": "field_declaration_list",
+    "impl_item": "declaration_list",
+    "enum_specifier": "enumerator_list",
+    "namespace_definition": "body",
+    "preproc_function_def": "value",
+}
 
 # Node types whose text names a call target (textual, unbound).
 _CALL_NODE_TYPES = {
@@ -99,6 +118,50 @@ def chunk_text(path: str, text: str) -> list[Chunk]:
     return chunks
 
 
+def _declaration_signature(node, data: bytes) -> str:
+    """Decl text from the node's start up to the body node (design §3).
+
+    First line only, whitespace-collapsed, capped at SIG_CAP. When no body
+    node is found, fall back to the first physical line.
+    """
+    body_name = _BODY_NODE_BY_TYPE.get(node.type)
+    if node.type == "decorated_definition":
+        # Signature should be the wrapped unit's decl, not the decorator.
+        for ch in node.children:
+            if ch.type in _UNIT_TYPES:
+                return _declaration_signature(ch, data)
+    body = None
+    if body_name:
+        body = node.child_by_field_name(body_name)
+    end = body.start_byte if body is not None else None
+    if end is None or end <= node.start_byte:
+        text = data[node.start_byte:node.end_byte].decode("utf-8", "replace")
+        first_line = text.splitlines()[0] if text else ""
+    else:
+        text = data[node.start_byte:end].decode("utf-8", "replace")
+        first_line = text.splitlines()[0] if text else ""
+    return " ".join(first_line.split())[:SIG_CAP]
+
+
+def _visibility_from_name(name: str | None, node_type: str,
+                          node_text: str, sym_type: str | None) -> str:
+    """Per-language visibility rule (design §2.5, §3). C/C++/Java default
+    public (class-member access sections are not tracked — documented
+    limitation, do not oversell)."""
+    if not name:
+        return "public"
+    # Rust: `pub` present in decl head → public; otherwise private (design
+    # §2.5: pub absent → private, no underscore exception needed).
+    if node_type in ("function_item", "struct_item", "impl_item",
+                     "enum_item", "type_item"):
+        head = " ".join(node_text.split()[:4])
+        return "public" if "pub" in head.split() else "private"
+    # Python: leading underscore → private.
+    if sym_type in ("function", "method", "class") and name.startswith("_"):
+        return "private"
+    return "public"
+
+
 def _walk(node, data: bytes, out: list[Chunk]) -> None:
     """Collect declaration units; recurse into non-unit containers."""
     text = None  # decoded lazily only when needed
@@ -109,6 +172,7 @@ def _walk(node, data: bytes, out: list[Chunk]) -> None:
             node_text = data[child.start_byte:child.end_byte].decode("utf-8", "replace")
             symbol = _symbol_from_node(child, data)
             sym_type = _TYPE_BY_NODE.get(child.type)
+            signature = _declaration_signature(child, data)
             if len(node_text) > _CHAR_CAP:
                 # Oversized unit: split via fallback on its own text,
                 # adjusting line numbers and preserving symbol on the first.
@@ -123,6 +187,8 @@ def _walk(node, data: bytes, out: list[Chunk]) -> None:
                         start_line=offset + s.start_line - 1,
                         end_line=offset + s.end_line - 1,
                         chunk_index=0, source="ast", symbol_type=sym_type,
+                        signature=signature if s.start_line == 1 else None,
+                        node_type=child.type,
                     ))
                     offset += s.end_line - s.start_line + 1
             else:
@@ -131,6 +197,7 @@ def _walk(node, data: bytes, out: list[Chunk]) -> None:
                     text=node_text, chunk_hash="sha256:" + h, symbol=symbol,
                     start_line=start, end_line=end, chunk_index=0,
                     source="ast", symbol_type=sym_type,
+                    signature=signature, node_type=child.type,
                 ))
         elif child.type in _UNIT_TYPES_EXTRACT_ONLY:
             # Namespace: emit a symbol row via the chunk that _make_chunk
@@ -145,6 +212,8 @@ def _walk(node, data: bytes, out: list[Chunk]) -> None:
                         text=node_text, chunk_hash="sha256:" + h, symbol=symbol,
                         start_line=start, end_line=end, chunk_index=0,
                         source="ast", symbol_type="namespace",
+                        signature=_declaration_signature(child, data),
+                        node_type=child.type,
                     ))
             _walk(child, data, out)
         elif child.child_count:
@@ -200,8 +269,10 @@ def _symbol_from_declarator(node, data: bytes) -> str | None:
 def extract_symbols(path: str, text: str, chunks: list[Chunk]) -> list[dict]:
     """Symbol rows derived from the chunk pass itself.
 
-    Returns [{'name', 'symbol_type', 'start_line', 'end_line', 'source'}].
-    Chunks carry the type; regex-chunked files get function/class guesses.
+    Returns [{'name', 'symbol_type', 'start_line', 'end_line', 'source',
+    'signature', 'visibility'}]. Chunks carry the type; regex-chunked files
+    get function/class guesses plus best-effort signature/visibility (design
+    §3: signature = first line of the chunk, source stays 'regex').
     """
     rows: dict[tuple, dict] = {}
     for c in chunks:
@@ -210,10 +281,21 @@ def extract_symbols(path: str, text: str, chunks: list[Chunk]) -> list[dict]:
         stype = c.symbol_type or _guess_type_regex(c.text) or "function"
         key = (c.symbol, c.start_line)
         if key not in rows:
+            if c.source == "ast":
+                signature = c.signature
+                visibility = _visibility_from_name(
+                    c.symbol, c.node_type or "", c.text, stype)
+            else:
+                # Regex-chunked: best-effort (design §3) — first line of the
+                # chunk; Python underscore rule only.
+                signature = regex_signature(c.text)
+                visibility = regex_visibility(c.symbol)
             rows[key] = {
                 "name": c.symbol, "symbol_type": stype,
                 "start_line": c.start_line, "end_line": c.end_line,
                 "source": c.source,
+                "signature": signature,
+                "visibility": visibility,
             }
     return list(rows.values())
 

@@ -12,6 +12,7 @@ staleness is enforced by the core's STALE_TTL probe on search/status.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -169,7 +170,10 @@ def _fmt_symbol_rows(rows, project_path: str, match_label: bool) -> str:
         if match_label:
             line += ", match=exact" if not getattr(r, "_substring", False) \
                 else ", match=substring"
-        out.append(line + ")")
+        line += ")"
+        if getattr(r, "signature", None):
+            line += f"  {r.signature}"
+        out.append(line)
     return "\n".join(out)
 
 
@@ -201,6 +205,75 @@ def find_symbol(name: str, project: str | None = None,
         return _fmt_symbol_rows(rows, entry.path, match_label)
     finally:
         m.close()
+
+
+@mcp.tool()
+def find_symbols(project: str | None = None, symbol_type: str | None = None,
+                 file: str | None = None, limit: int = 25,
+                 format: str = "text") -> str:
+    """Browse-mode symbol listing (design §2.3 — replaces list-symbols):
+    optional symbol_type / file filters over the manifest symbol index,
+    capped at limit. format: 'text' or 'json'. Signatures included when
+    stored (schema v3)."""
+    entry, err = CORE.resolve_entry(project)
+    if entry is None:
+        return err
+    CORE.maybe_refresh(entry.slug, entry.path)
+    m = CORE.manifest_for(entry.slug)
+    try:
+        rows = m.find_symbols(None, symbol_type=symbol_type,
+                              file=file, limit=limit)
+        if not rows:
+            msg = "no symbols matching the given filters"
+            if CORE.schema_migrated(entry):
+                msg += "\n" + MIGRATION_HINT
+            return msg
+        if format == "json":
+            return json.dumps([
+                {"file": r.file, "name": r.name, "type": r.symbol_type,
+                 "start_line": r.start_line, "end_line": r.end_line,
+                 "signature": r.signature}
+                for r in rows], ensure_ascii=False, indent=2)
+        return _fmt_symbol_rows(rows, entry.path, match_label=False)
+    finally:
+        m.close()
+
+
+@mcp.tool()
+def skeleton(project: str | None = None, path_prefix: str | None = None,
+             limit: int | None = None, format: str = "text") -> str:
+    """Whole-project or per-subtree structural map from the manifest only
+    (design §2.1): one file per group, one symbol per line with lines and
+    signature. path_prefix restricts to files under a project-relative path.
+    format: 'text' or 'json'."""
+    entry, err = CORE.resolve_entry(project)
+    if entry is None:
+        return err
+    data = CORE.skeleton(entry, prefix=path_prefix, tree_mode=False,
+                         limit=limit, include_signatures=True)
+    text = CORE.format_skeleton(data, format)
+    if CORE.schema_migrated(entry):
+        text += "\n" + MIGRATION_HINT
+    return text
+
+
+@mcp.tool()
+def outline(file: str, project: str | None = None,
+            docstrings: bool = False, format: str = "text") -> str:
+    """One file: declarations, signatures, one-line docstrings (design §2.2).
+    file is project-relative (or absolute — the project root prefix is
+    stripped). format: 'text' or 'json'."""
+    entry, err = CORE.resolve_entry(project)
+    if entry is None:
+        return err
+    try:
+        data = CORE.outline(entry, file, include_docstrings=docstrings)
+    except ValueError as exc:
+        return str(exc)
+    text = CORE.format_outline(data, format)
+    if CORE.schema_migrated(entry):
+        text += "\n" + MIGRATION_HINT
+    return text
 
 
 @mcp.tool()
