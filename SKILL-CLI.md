@@ -8,7 +8,7 @@ version: 1.0.0
 
 One-shot typer CLI over `code_indexer.core`. Repo:
 `/home/keum/dev/athena/code-indexer/`. Binary: `code-indexer`; package
-`code_indexer`. CLI-only — no MCP variant exists. LAN-local; no server RPC.
+`code_indexer`. CLI-only, LAN-local, no daemon on the query path.
 
 ## When to use
 
@@ -55,6 +55,43 @@ code-indexer remove-project /path/repo    # DESTRUCTIVE: drops collection + mani
 code-indexer watch /path/repo [--duration 300] [--background]   # optional inotify re-index daemon
 code-indexer watch --all                  # watch every registered project
 ```
+
+## Subcommand reference
+
+- **add-project / lookup-project / list-projects** — registry management.
+  `add-project` registers a repo and runs the initial index (foreground);
+  `lookup-project` is a side-effect-free registration check.
+- **semantic-search** — natural-language search over indexed chunks.
+  Best when you know *what the code does*, not what it's called. Follow up
+  with `find-definition`/`get-code-context` for the precise lines.
+- **skeleton** (alias `map`) — token-reduction workhorse. Dense structural
+  map of the whole project or a `PATH_PREFIX` subtree: one file header per
+  group, one symbol per line (`type name:start-end  signature`). No bodies,
+  no prose — a whole-repo orientation layer in a few hundred–few thousand
+  tokens. `--tree` instead prints a directory tree with per-dir symbol
+  count + dominant language; `--no-signatures` drops signature text;
+  `--limit N` caps symbol lines per file. Call this **before any
+  exploratory reads** in an unfamiliar repo.
+- **outline** (alias `file-outline`) — one file's top-level declarations,
+  signatures, and line ranges, one per line. Use to decide whether a full
+  `get-code-context` call is worth it. `--docstrings` adds the first
+  docstring/comment line per declaration (the only subcommand that reads
+  source at query time).
+- **find-symbol** — symbol lookup by exact name (capped substring
+  fallback), or **browse mode** with no name: filter by `--type`,
+  `--file`, `--limit` to list "what exists where". With schema v3, output
+  includes the persisted signature.
+- **find-definition** — exact-name definition location only.
+- **find-references** — all references to a symbol, optionally filtered by
+  `--relationship` (e.g. `calls`). Confidence is heuristic.
+- **get-code-context** — the only way to read actual source: a line range
+  (`--start-line/--end-line`) or the lines around a symbol
+  (`--symbol Foo::bar`). Never read whole files; this answers "show me the
+  code" questions.
+- **index-status / reindex-project / remove-project / watch** — index
+  lifecycle. `reindex-project` is a full rebuild (also populates schema-v3
+  signature/visibility columns on old manifests); `remove-project` is
+  destructive; `watch` is the background freshness daemon.
 
 ## Token reduction (schema v3)
 
