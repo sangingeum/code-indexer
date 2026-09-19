@@ -1,9 +1,10 @@
-"""Per-project SQLite manifest (design §3; schema v2 adds code intelligence).
+"""Per-project SQLite manifest (design §3; schema v3 adds signatures).
 
 Schema:
     files(path TEXT PK, content_hash TEXT, size INT, chunk_count INT, status TEXT)
     meta(key TEXT PK, value TEXT)  # schema_version, last_full_scan, branch, last_indexed
     symbols(file, name, symbol_type, start_line, end_line, source)   # v2
+    symbols.signature, symbols.visibility                            # v3
     symbol_refs(file, line, src_symbol, relationship, target)        # v2
 
 Opened in WAL mode. All writes are short transactions — safe under the
@@ -19,7 +20,7 @@ from dataclasses import dataclass
 
 logger = logging.getLogger("code-indexer.manifest")
 
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "3"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS files (
@@ -43,6 +44,7 @@ CREATE TABLE IF NOT EXISTS symbols (
     PRIMARY KEY (file, name, start_line)
 );
 CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);
+CREATE INDEX IF NOT EXISTS idx_symbols_file_start ON symbols(file, start_line);
 CREATE TABLE IF NOT EXISTS symbol_refs (
     file TEXT NOT NULL,
     line INTEGER NOT NULL,
@@ -72,6 +74,8 @@ class SymbolRow:
     start_line: int
     end_line: int
     source: str  # 'ast' | 'regex'
+    signature: str | None = None  # v3: decl text up to body; NULL tolerated
+    visibility: str | None = None  # v3: 'public' | 'private'; NULL → public
 
 
 @dataclass
@@ -92,6 +96,16 @@ class Manifest:
         self._conn.execute("PRAGMA busy_timeout=5000")
         with self._conn:
             self._conn.executescript(_SCHEMA)
+            # v2 -> v3 migration: add the two new columns before the version
+            # bump (design §3). Existing rows keep NULL signature/visibility;
+            # readers tolerate NULL (print no signature; treat as public).
+            existing_cols = {
+                r[1] for r in self._conn.execute("PRAGMA table_info(symbols)")
+            }
+            for col in ("signature", "visibility"):
+                if col not in existing_cols:
+                    self._conn.execute(
+                        f"ALTER TABLE symbols ADD COLUMN {col} TEXT")
             # schema_version must actually advance on old manifests
             # (INSERT OR IGNORE would leave v1 stuck forever).
             old_version = self.get_meta("schema_version")
@@ -162,8 +176,10 @@ class Manifest:
             self._conn.execute("DELETE FROM symbol_refs WHERE file = ?", (file,))
             self._conn.executemany(
                 "INSERT OR REPLACE INTO symbols(file, name, symbol_type, "
-                "start_line, end_line, source) VALUES (?, ?, ?, ?, ?, ?)",
-                [(s.file, s.name, s.symbol_type, s.start_line, s.end_line, s.source)
+                "start_line, end_line, source, signature, visibility) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [(s.file, s.name, s.symbol_type, s.start_line, s.end_line,
+                  s.source, s.signature, s.visibility)
                  for s in symbols],
             )
             self._conn.executemany(
@@ -173,29 +189,55 @@ class Manifest:
                  for r in refs],
             )
 
-    def find_symbols(self, name: str, symbol_type: str | None = None,
-                     substring: bool = False, limit: int = 25) -> list[SymbolRow]:
-        """Exact-first (ast rows above regex rows); optional capped substring tier."""
-        op = "LIKE" if substring else "="
-        pattern = f"%{name}%" if substring else name
-        sql = (
-            "SELECT file, name, symbol_type, start_line, end_line, source "
-            "FROM symbols WHERE name "
-            f"{op} ? COLLATE NOCASE"
-        )
-        args: list = [pattern]
+    _SYMBOL_COLS = ("SELECT file, name, symbol_type, start_line, end_line, "
+                    "source, signature, visibility FROM symbols")
+
+    def find_symbols(self, name: str | None, symbol_type: str | None = None,
+                     substring: bool = False, limit: int = 25,
+                     file: str | None = None) -> list[SymbolRow]:
+        """Exact-first (ast rows above regex rows); optional capped substring tier.
+
+        name=None is browse mode (design §2.3): --type/--file filters only,
+        capped by limit.
+        """
+        clauses: list[str] = []
+        args: list = []
+        if name:
+            op = "LIKE" if substring else "="
+            pattern = f"%{name}%" if substring else name
+            clauses.append(f"name {op} ? COLLATE NOCASE")
+            args.append(pattern)
         if symbol_type:
-            sql += " AND symbol_type = ?"
+            clauses.append("symbol_type = ?")
             args.append(symbol_type)
-        sql += " ORDER BY CASE source WHEN 'ast' THEN 0 ELSE 1 END, name, start_line LIMIT ?"
+        if file:
+            clauses.append("file = ?")
+            args.append(file)
+        sql = self._SYMBOL_COLS
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += (" ORDER BY CASE source WHEN 'ast' THEN 0 ELSE 1 END, "
+                "name, start_line LIMIT ?")
         args.append(limit)
         return [SymbolRow(*row) for row in
                 self._conn.execute(sql, args).fetchall()]
 
+    def symbols_with_files(self) -> tuple[dict[str, ManifestFile], list[SymbolRow]]:
+        """All files + all symbols for the skeleton projection (design §2.1).
+
+        Both from one connection: under WAL a concurrent writer can't tear
+        the pair apart (replace_file_symbols is atomic per file, and each
+        SELECT is a point-in-time snapshot).
+        """
+        files = self.all_files()
+        syms = [SymbolRow(*row) for row in self._conn.execute(
+            self._SYMBOL_COLS + " ORDER BY file, start_line").fetchall()]
+        return files, syms
+
     def symbols_for_file(self, file: str) -> list[SymbolRow]:
         return [SymbolRow(*row) for row in self._conn.execute(
-            "SELECT file, name, symbol_type, start_line, end_line, source "
-            "FROM symbols WHERE file = ? ORDER BY start_line", (file,)
+            self._SYMBOL_COLS +
+            " WHERE file = ? ORDER BY start_line", (file,)
         ).fetchall()]
 
     def all_symbol_names(self) -> set[str]:

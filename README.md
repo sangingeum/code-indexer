@@ -30,6 +30,10 @@ code-indexer add-project /path/to/repo [--name myproject]
 code-indexer lookup-project /path/to/repo
 code-indexer list-projects
 code-indexer semantic-search "auth token refresh" --project /path/to/repo --limit 8 [--json]
+code-indexer skeleton [--project P | --name P] [PATH_PREFIX] [--tree] [--no-signatures] [--limit N] [--json]
+code-indexer map ...      # alias for skeleton
+code-indexer outline [--project P | --name P] FILE [--docstrings] [--json]
+code-indexer file-outline ...   # alias for outline
 code-indexer find-symbol FileTransferSession [--symbol-type class]
 code-indexer find-definition main
 code-indexer find-references QTimer --relationship calls
@@ -49,6 +53,21 @@ operations.
 `find-symbol`, `find-definition`, `find-references`, and `get-code-context`
 accept both `--project X` and `--name X` for the project argument (path,
 slug, or registered custom name).
+
+### Token-reduction subcommands (schema v3)
+
+`skeleton` (alias `map`) prints a whole-project or per-subtree structural
+map from the manifest only — one file per group, one symbol per line with
+lines and the schema-v3 signature (`--no-signatures` for the densest
+output; `--limit N` caps symbols per file). `outline` (alias
+`file-outline`) prints one file's declarations, signatures, and (with
+`--docstrings`) one docstring line per declaration — the only on-demand
+source read in the toolset. `find-symbol` gained browse mode: omit NAME and
+filter with `--type`/`--file`, capped at `--limit` (default 25); output
+includes the signature when stored. All are manifest-only at query time —
+zero re-parsing. Signatures/visibility are extracted at index time (schema
+v3); pre-v3 manifests are migrated automatically (old rows keep NULL
+signature/visibility and `reindex-project` fills them).
 
 ## watch (optional, opt-in)
 
@@ -104,6 +123,9 @@ embedding, zero Qdrant traffic.
 | `index_status(path)` | `idle \| indexing \| error` + last-pass progress. |
 | `reindex_project(path)` | Force a full rebuild. |
 | `find_symbol(name, project?, symbol_type?)` | Look up symbols by name in the manifest symbol index (no semantic search). Exact AST-first, capped substring fallback. `symbol_type`: function\|method\|class\|struct\|enum\|namespace. |
+| `find_symbols(project?, symbol_type?, file?, limit=25, format?)` | Browse mode (no name): filter the manifest symbol index by type/file, capped. Replaces the pruned list-symbols proposal. |
+| `skeleton(project?, path_prefix?, limit?, format?)` | Whole-project or per-subtree structural map from the manifest only (design §2.1): files with symbol lines and signatures. |
+| `outline(file, project?, docstrings?, format?)` | One file: declarations, signatures, optional one-line docstrings (design §2.2). |
 | `find_definition(name, project?)` | Where a symbol is declared (exact name match only, no substring). |
 | `find_references(name, project?, relationship?, limit=25)` | Textual references TO a symbol (all confidence=heuristic). `relationship`: calls\|inherits\|includes\|references. |
 | `get_code_context(file, project?, start_line?, end_line?, symbol?, context_lines?)` | Retrieve ONLY the relevant source lines — by line range (`start_line`+`end_line`) or via a symbol (`symbol`), padded by `context_lines`. |

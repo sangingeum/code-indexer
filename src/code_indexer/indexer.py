@@ -178,7 +178,8 @@ class Indexer:
                 path,
                 [SymbolRow(file=path, name=s["name"], symbol_type=s["symbol_type"],
                            start_line=s["start_line"], end_line=s["end_line"],
-                           source=s["source"]) for s in syms],
+                           source=s["source"], signature=s.get("signature"),
+                           visibility=s.get("visibility")) for s in syms],
                 [RefRow(file=path, line=r["line"], src_symbol=r["src_symbol"],
                         relationship=r["relationship"], target=r["target"])
                  for r in refs],

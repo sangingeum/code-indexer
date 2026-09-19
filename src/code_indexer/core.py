@@ -20,7 +20,7 @@ from .config import Config, load_config
 from .embedder import Embedder
 from .indexer import Indexer
 from .locks import project_lock
-from .manifest import SCHEMA_VERSION, Manifest
+from .manifest import SCHEMA_VERSION, Manifest, SymbolRow
 from .registry import ProjectEntry, Registry
 from .store import Store
 
@@ -262,8 +262,214 @@ class Core:
             return str(exc)
         return self.format_hits(hits, fmt)
 
+    # ------------------------------------------------------------------
+    # token reduction: skeleton / outline (subcommand design §2.1/§2.2)
+    # ------------------------------------------------------------------
+
+    def skeleton(self, entry: ProjectEntry, prefix: str | None = None,
+                 tree_mode: bool = False, limit: int | None = None,
+                 include_signatures: bool = True) -> dict[str, Any]:
+        """Whole-project or per-subtree structural map (design §2.1).
+
+        Manifest only — files joined with symbols ordered by start_line.
+        Zero re-parsing. Pre-v3 manifests simply have NULL signatures (and
+        and the caller emits MIGRATION_HINT when a migration just happened).
+        """
+        if not self.skip_stale_check:
+            self.maybe_refresh(entry.slug, entry.path)
+        m = self.manifest_for(entry.slug)
+        try:
+            files, symbols = m.symbols_with_files()
+        finally:
+            m.close()
+        if prefix:
+            prefix = prefix.rstrip("/")
+            symbols = [s for s in symbols if s.file == prefix
+                       or s.file.startswith(prefix + "/")]
+        files = {p: f for p, f in files.items()
+                 if not prefix or p == prefix or p.startswith(prefix + "/")}
+        by_file: dict[str, list[SymbolRow]] = {}
+        for s in symbols:
+            by_file.setdefault(s.file, []).append(s)
+        if tree_mode:
+            return self._tree_projection(entry, sorted(files), by_file)
+        out_files: list[dict[str, Any]] = []
+        for path in sorted(files):
+            f = files[path]
+            rows = by_file.get(path, [])
+            if limit is not None:
+                rows = rows[:limit]
+            out_files.append({
+                "file": path,
+                "lang": _lang_from_path(path),
+                "size": f.size,
+                "total_symbols": len(by_file.get(path, [])),
+                "symbols": [
+                    {"name": s.name, "type": s.symbol_type,
+                     "start_line": s.start_line, "end_line": s.end_line,
+                     "signature": s.signature if include_signatures else None}
+                    for s in rows
+                ],
+            })
+        return {"project": entry.path, "files": out_files}
+
+    @staticmethod
+    def _tree_projection(
+            entry: ProjectEntry,
+            file_paths: list[str],
+            by_file: dict[str, list[SymbolRow]]) -> dict[str, Any]:
+        """`--tree` mode (design §2.1): directory tree with per-dir symbol
+        count and dominant language. No symbols listed; --limit ignored."""
+        dirs: dict[str, dict[str, Any]] = {}
+        for path in file_paths:
+            parent = os.path.dirname(path).replace(os.sep, "/") or "."
+            d = dirs.setdefault(parent, {"symbols": 0, "langs": {}})
+            d["symbols"] += len(by_file.get(path, []))
+            lang = _lang_from_path(path)
+            d["langs"][lang] = d["langs"].get(lang, 0) + 1
+        out_dirs = [
+            {"dir": path, "symbols": d["symbols"],
+             "dominant": (max(sorted(d["langs"]),
+                              key=lambda l: d["langs"][l])
+                          if d["langs"] else None),
+             "langs": dict(sorted(d["langs"].items()))}
+            for path, d in sorted(dirs.items())]
+        return {"project": entry.path, "dirs": out_dirs}
+
+    def format_skeleton(self, data: dict[str, Any], fmt: str = "text") -> str:
+        """Dense skeleton render (design §2.1): one file per group, one
+        symbol per line, no prose, no blank lines. `--tree` renders the
+        directory-tree projection (per-dir symbol count + dominant language)."""
+        if fmt == "json":
+            return json.dumps(data, ensure_ascii=False, indent=2)
+        if "dirs" in data:
+            lines = [f"{d['dir']}/  ({d['symbols']} symbols, "
+                     f"{d['dominant'] or 'no code'})" for d in data["dirs"]]
+            return "\n".join(lines) if lines else "(no files)"
+        lines: list[str] = []
+        for f in data["files"]:
+            total = f.get("total_symbols", len(f["symbols"]))
+            shown = len(f["symbols"])
+            header = (f"{f['file']}  ({f['lang']}, {total} symbols)"
+                      if shown == total else
+                      f"{f['file']}  ({f['lang']}, {total} symbols, "
+                      f"showing {shown})")
+            lines.append(header)
+            for s in f["symbols"]:
+                sig = f"  {s['signature']}" if s.get("signature") else ""
+                lines.append(
+                    f"  {s['type']} {s['name']}:{s['start_line']}-"
+                    f"{s['end_line']}{sig}")
+        return "\n".join(lines) if lines else "(no files)"
+
+    def outline(self, entry: ProjectEntry, file: str,
+                include_docstrings: bool = False) -> dict[str, Any]:
+        """One file: declarations, signatures, optional docstrings (§2.2).
+
+        FILE is relative to the project root (manifest path space); absolute
+        paths are normalized by stripping the project root prefix. Data
+        source: Manifest.symbols_for_file + schema-v3 signature. --docstrings
+        reads the declaration's first lines from disk — the only on-demand
+        source read in the design.
+        """
+        rel = os.path.relpath(
+            os.path.normpath(file if os.path.isabs(file)
+                             else os.path.join(entry.path, file.lstrip("/"))),
+            entry.path).replace(os.sep, "/")
+        if rel.startswith(".."):
+            raise ValueError(f"error: path outside registered project: {file}")
+        if not self.skip_stale_check:
+            self.maybe_refresh(entry.slug, entry.path)
+        m = self.manifest_for(entry.slug)
+        try:
+            rows = m.symbols_for_file(rel)
+        finally:
+            m.close()
+        if not rows and not self.registry_has_file(entry, rel):
+            raise ValueError(f"error: file not indexed: {file}")
+        src_lines: list[str] = []
+        if include_docstrings:
+            abs_path = os.path.join(entry.path, rel)
+            if os.path.isfile(abs_path):
+                # Bounded read: docstrings live within decl+3 lines, so
+                # cap at the last declaration's window, not the whole file.
+                max_line = max((r.end_line for r in rows), default=0) + 4
+                with open(abs_path, encoding="utf-8", errors="replace") as fh:
+                    src_lines = []
+                    for _ in range(max_line):
+                        line = fh.readline()
+                        if not line:
+                            break
+                        src_lines.append(line.rstrip("\n"))
+        out = []
+        for r in rows:
+            d: dict[str, Any] = {
+                "name": r.name, "type": r.symbol_type,
+                "start_line": r.start_line, "end_line": r.end_line,
+                "signature": r.signature,
+            }
+            if include_docstrings and src_lines:
+                doc = self._first_docstring(src_lines, r.start_line)
+                if doc:
+                    d["doc"] = doc
+            out.append(d)
+        return {"file": rel, "declarations": out}
+
+    @staticmethod
+    def _first_docstring(lines: list[str], start_line: int) -> str | None:
+        """First docstring/comment line from the decl line onward (bounded:
+        decl line + 3), truncated to ~100 chars."""
+        for i in range(start_line, min(start_line + 4, len(lines) + 1)):
+            stripped = lines[i - 1].strip()
+            if not stripped:
+                continue
+            if stripped.startswith(('"""', "'''", '"', "'", "#", "//", "/*")):
+                cleaned = stripped.strip('"\'')
+                cleaned = cleaned.lstrip("#/ ").strip()
+                return cleaned[:100] or None
+            if i == start_line:
+                continue  # the declaration line itself
+            return None  # body code before any docstring → none
+        return None
+
+    def registry_has_file(self, entry: ProjectEntry, rel: str) -> bool:
+        m = self.manifest_for(entry.slug)
+        try:
+            return m.get_file(rel) is not None
+        finally:
+            m.close()
+
+    def format_outline(self, data: dict[str, Any], fmt: str = "text") -> str:
+        """Dense outline render (§2.2): one declaration per line."""
+        if fmt == "json":
+            return json.dumps(data, ensure_ascii=False, indent=2)
+        lines: list[str] = []
+        for d in data["declarations"]:
+            sig = f"  {d['signature']}" if d.get("signature") else ""
+            lines.append(
+                f"{d['type']} {d['name']}:{d['start_line']}-{d['end_line']}{sig}")
+            if d.get("doc"):
+                lines.append(f"  {d['doc']}")
+        return "\n".join(lines) if lines else "(no declarations)"
+
 
 MIGRATION_HINT = (
     "note: project manifest was upgraded from an older schema — run "
     "reindex_project once to populate the symbol index"
 )
+
+
+# ---------------------------------------------------------------------------
+# Token-reduction ops (subcommand design §2.1/§2.2): manifest-only, no parsing
+# at query time. Each op has a format_* twin following format_hits' pattern.
+# ---------------------------------------------------------------------------
+
+def _lang_from_path(path: str) -> str:
+    ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
+    return {
+        "py": "python", "js": "javascript", "ts": "typescript",
+        "rs": "rust", "go": "go", "java": "java", "c": "c", "cpp": "cpp",
+        "cc": "cpp", "h": "c", "hpp": "cpp", "cs": "csharp", "rb": "ruby",
+        "php": "php", "sh": "bash", "md": "markdown", "json": "json",
+        "yaml": "yaml", "yml": "yaml", "toml": "toml",
+    }.get(ext, ext or "text")
