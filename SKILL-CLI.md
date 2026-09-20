@@ -6,8 +6,7 @@ version: 1.0.0
 
 # code-indexer (CLI)
 
-One-shot typer CLI over `code_indexer.core`. Repo:
-`/home/keum/dev/athena/code-indexer/`. Binary: `code-indexer`; package
+One-shot typer CLI over `code_indexer.core`. Binary: `code-indexer`; package
 `code_indexer`. CLI-only, LAN-local, no daemon on the query path.
 
 ## When to use
@@ -35,7 +34,7 @@ fresh so queries never pay the staleness pass.
 ## Commands (each accepts --skip-stale-check)
 
 ```bash
-cd /home/keum/dev/athena/code-indexer && uv run code-indexer <cmd>   # or installed console script
+uv run code-indexer <cmd>   # or installed console script
 code-indexer add-project /path/repo [--name myproj]   # register + initial index (foreground in CLI)
 code-indexer lookup-project /path/repo                # registration check, no side effects
 code-indexer list-projects
