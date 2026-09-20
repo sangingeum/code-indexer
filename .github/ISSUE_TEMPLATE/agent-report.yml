@@ -1,0 +1,51 @@
+name: Agent tool report
+description: Report a bug, gap, or improvement idea for this house tool (calc-engine / code-indexer / vector-memory).
+labels: ["agent-report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Filed by a household agent during real dev work (house convention: agents
+        report issues; Athena owns and handles these repos). Keep it factual —
+        exact command, exact output.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Report kind
+      options:
+        - Bug (wrong output / error)
+        - Missing capability
+        - Skill doc wrong or stale
+        - Performance
+        - Improvement idea
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Exact command run
+      placeholder: |
+        calc eval "..." / code-indexer skeleton ... / vector-memory search ...
+      validations:
+        required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed output (stdout + stderr, verbatim)
+      validations:
+        required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      validations:
+        required: true
+  - type: input
+    id: context
+    attributes:
+      label: Reporting agent / session
+      placeholder: e.g. mikael session 20260920_... (project <name>)
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested fix (optional)
