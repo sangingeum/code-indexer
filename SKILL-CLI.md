@@ -71,6 +71,13 @@ code-indexer watch --all                  # watch every registered project
   count + dominant language; `--no-signatures` drops signature text;
   `--limit N` caps symbol lines per file. Call this **before any
   exploratory reads** in an unfamiliar repo.
+  Project auto-resolution: when `--project` is omitted, the positional
+  `PATH_PREFIX` (then the cwd) is matched against registered projects —
+  the most-specific containing project wins. So
+  `code-indexer skeleton . --tree --limit 6` works from inside a
+  registered repo even with multiple projects registered; `.`/absolute
+  prefixes are normalized to project-relative. The old
+  single-project/ambiguity error only fires when nothing matches.
 - **outline** (alias `file-outline`) — one file's top-level declarations,
   signatures, and line ranges, one per line. Use to decide whether a full
   `get-code-context` call is worth it. `--docstrings` adds the first

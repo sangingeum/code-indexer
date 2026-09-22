@@ -140,9 +140,31 @@ class Core:
     # project resolution / summaries
     # ------------------------------------------------------------------
 
-    def resolve_entry(self, project: str | None) -> tuple[ProjectEntry | None, str]:
-        """Resolve an optional project arg (path, slug, or custom name)."""
+    def _containing_entry(self, target: str) -> ProjectEntry | None:
+        """Most-specific registered project whose path contains ``target``."""
+        candidates = [
+            e for e in self.registry.list_projects()
+            if target == e.path or target.startswith(e.path.rstrip("/") + "/")
+        ]
+        return max(candidates, key=lambda e: len(e.path)) if candidates else None
+
+    def resolve_entry(self, project: str | None,
+                      hint: str | None = None) -> tuple[ProjectEntry | None, str]:
+        """Resolve an optional project arg (path, slug, or custom name).
+
+        With ``project`` unset, try to infer the project from ``hint`` (e.g. a
+        positional path prefix) and then the current working directory: the
+        most-specific registered ancestor wins. Falls back to the legacy
+        single-project/ambiguity behavior when nothing matches.
+        """
         if project is None:
+            for target in (hint, os.getcwd()):
+                if not target:
+                    continue
+                apath = os.path.abspath(os.path.expanduser(target))
+                entry = self._containing_entry(apath)
+                if entry is not None:
+                    return entry, ""
             entries = self.registry.list_projects()
             if not entries:
                 return None, "error: no projects registered"

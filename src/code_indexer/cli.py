@@ -43,9 +43,14 @@ def _die(msg: str) -> NoReturn:
     raise typer.Exit(1)
 
 
-def _resolve(core: Core, project: str | None) -> ProjectEntry:
-    """Resolve an optional project arg (path, slug, name) or exit with error."""
-    entry, err = core.resolve_entry(project)
+def _resolve(core: Core, project: str | None,
+             hint: str | None = None) -> ProjectEntry:
+    """Resolve an optional project arg (path, slug, name) or exit with error.
+
+    ``hint`` (e.g. a positional path prefix) disambiguates when multiple
+    projects are registered and no --project was given.
+    """
+    entry, err = core.resolve_entry(project, hint=hint)
     if entry is None:
         _die(err)
     assert entry is not None
@@ -424,7 +429,16 @@ def skeleton(
     (design §2.1): files with their symbol lines, one symbol per line,
     schema-v3 signature when stored."""
     core = _get_core(skip_stale_check)
-    entry = _resolve(core, project)
+    entry = _resolve(core, project, hint=path_prefix)
+    # Normalize the prefix: `.` or an absolute path under the project root
+    # becomes project-relative; anything else stays as a literal prefix.
+    if path_prefix and entry:
+        apath = os.path.abspath(os.path.expanduser(path_prefix))
+        root = entry.path.rstrip("/")
+        if apath == root:
+            path_prefix = None
+        elif apath.startswith(root + "/"):
+            path_prefix = apath[len(root) + 1:]
     data = core.skeleton(entry, prefix=path_prefix, tree_mode=tree_mode,
                          limit=limit,
                          include_signatures=not no_signatures)
