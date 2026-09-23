@@ -69,6 +69,19 @@ code-indexer watch --all                  # watch every registered project
   token-overlap score (better for queries containing exact identifiers);
   default `vector` is pure cosine. `--symbol-type` and `--language` scope
   the search by payload filters without extra round trips.
+  **`--language` values (exhaustive)** — the stored `lang` payload, derived
+  from the file extension at index time; filter matches it exactly:
+  - AST-parsed via tree-sitter (structured chunks with symbol names):
+    `python`, `javascript`, `typescript`, `rust`, `go`, `java`, `c`, `cpp`,
+    `csharp`, `ruby`, `php`, `bash`, `lua`, `swift`, `kotlin`, `markdown`,
+    `json`, `yaml`, `toml`, `html`, `css`.
+    NOTE the one map mismatch: `.sh` files PARSE via the `bash` grammar but
+    the stored payload value is `shell` — filter `.sh` with
+    `--language shell`. C/C++/Java carry weak visibility (everything
+    public) by design; other grammars carry real visibility.
+  - Fallback-only (regex-window chunks, no AST symbols; stored as the raw
+    extension string): any other extension — observed values `gitignore`,
+    `lock`, `python-version`, `csx`, `text`. Still valid filter values.
 - **skeleton** (alias `map`) — token-reduction workhorse. Dense structural
   map of the whole project or a `PATH_PREFIX` subtree: one file header per
   group, one symbol per line (`type name:start-end  signature`). No bodies,

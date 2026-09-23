@@ -77,6 +77,52 @@ round trips on multi-language repos. The default call remains identical
 to the pre-round behavior for every existing field; the only change to
 the JSON contract is the addition of the `lang` key.
 
+#### Supported languages (exhaustive)
+
+The `lang` payload value is derived from the file extension at index time
+(`--language` matches it exactly). The exhaustive list of `--language`
+values the filter accepts:
+
+**Parsed + chunked by tree-sitter AST** (the tree-sitter-language-pack
+grammar resolves; structured chunks with symbol names):
+
+| `--language` value | File extensions | Notes |
+|---|---|---|
+| `python` | `.py` | |
+| `javascript` | `.js`, `.jsx` | |
+| `typescript` | `.ts`, `.tsx` | |
+| `rust` | `.rs` | |
+| `go` | `.go` | |
+| `java` | `.java` | default-internal visibility (see below) |
+| `c` | `.c`, `.h` | weak visibility by design (everything public) |
+| `cpp` | `.cpp`, `.cc`, `.hpp` | default-internal visibility (see below) |
+| `csharp` | `.cs` | |
+| `ruby` | `.rb` | |
+| `php` | `.php` | |
+| `bash` | `.sh` | parsed via the pack's `bash` grammar; the stored `lang` payload value for `.sh` files is `shell` (the indexer's manifest map) — filter with `--language shell` |
+| `lua` | `.lua` | |
+| `swift` | `.swift` | |
+| `kotlin` | `.kt` | |
+| `markdown` | `.md` | |
+| `json` | `.json` | |
+| `yaml` | `.yaml`, `.yml` | |
+| `toml` | `.toml` | |
+| `html` | `.html` | |
+| `css` | `.css` | |
+
+**Fallback-only values** (no tree-sitter grammar resolves for the
+extension, or the extension is absent from the AST map; chunks come from
+the regex-window fallback chunker — searchable, but without AST symbol
+extraction): any extension not in the AST map above is stored verbatim as
+the extension string (observed in real indexes: `gitignore` for
+`.gitignore`, `lock` for `.lock`, `python-version` for `.python-version`,
+`csx` for `.csx`, `text` for `.txt` and extensionless files). These are
+still valid `--language` filter values — they just carry no AST structure.
+
+**Visibility caveats**: C/C++/Java default to weak visibility (everything
+public; access sections are not tracked) — do not oversell it. Python,
+C#, and the other grammars carry real visibility.
+
 ### Token-reduction subcommands (schema v3)
 
 `skeleton` (alias `map`) prints a whole-project or per-subtree structural
