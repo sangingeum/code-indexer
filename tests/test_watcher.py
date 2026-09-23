@@ -171,7 +171,8 @@ def test_events_under_index_root_and_git_are_filtered(core, project, tmp_path):
         (git / "config").write_text("x")
         (project / "editor.py~").write_text("x")
         (project / "notes.swp").write_text("x")
-        (open(core.cfg.index_root + "/stray.bin", "w")).write("x")  # our writes
+        with open(core.cfg.index_root + "/stray.bin", "w") as stray:
+            stray.write("x")  # our writes
         time.sleep(1.0)
         assert engine.dirty == {}, f"unexpected dirty: {engine.dirty}"
     finally:

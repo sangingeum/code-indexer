@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 from .chunker import Chunk, chunk
 from .config import Config
+from .embed_text import embed_text
 from .embedder import Embedder
 from . import ts_chunker
 from .manifest import Manifest, ManifestFile, RefRow, SymbolRow
@@ -137,7 +138,10 @@ class Indexer:
         # 3) Embed in batches (one HTTP round trip per batch).
         embedded = 0
         if to_embed:
-            vectors = self.embedder.embed([c.text for _, c in to_embed])
+            # Contextual embedding text (path+symbol header + chunk text):
+            # raw code chunks alone land in a tight similarity band and NL
+            # queries mis-rank them; the header restores file/symbol context.
+            vectors = self.embedder.embed([embed_text(p, c) for p, c in to_embed])
             now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             batch_points = []
             for (path, chunk_), vec in zip(to_embed, vectors):
