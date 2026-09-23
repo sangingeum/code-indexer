@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 
-import pytest
 
 from code_indexer.chunker import Chunk
 from code_indexer.embed_text import embed_text
