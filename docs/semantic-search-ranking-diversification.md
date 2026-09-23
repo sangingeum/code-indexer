@@ -105,4 +105,5 @@ CLI: `code-indexer semantic-search "query" [--ranking vector|metadata|hybrid]
 [--symbol-type TYPE] [--language LANG]`.
 MCP: `semantic_search(query, project?, limit=8, file_filter?,
 symbol_type?, language?, ranking="vector", format="text")`.
-Default behavior is byte-identical to before (mode `vector`, no filters).
+Default behavior is unchanged for pre-round consumers (mode `vector`, no
+filters); the JSON field contract gains a `lang` key.

@@ -5,10 +5,11 @@ module layers optional, opt-in re-ranking on top of that candidate pool:
 
 - **metadata adjustments** — small additive deltas from payload facts already
   stored at index time (symbol presence, test/vendor path heuristics).
-- **hybrid fusion** — reciprocal rank fusion (RRF) of the vector ranking with
-  a lightweight lexical token-overlap score over symbol name, file path, and
-  snippet text. Helps queries that mix natural language with exact
-  identifiers, where embeddings alone under-rank the right chunk.
+- **hybrid fusion** — weighted-sum fusion of the vector ranking with a
+  lightweight lexical token-overlap score over symbol name, file path, and
+  snippet text (`fused = vector_score + 0.25 * lexical`). Helps queries
+  that mix natural language with exact identifiers, where embeddings
+  alone under-rank the right chunk.
 
 All functions are pure and unit-testable without Qdrant or Ollama.
 """
@@ -16,7 +17,6 @@ All functions are pure and unit-testable without Qdrant or Ollama.
 from __future__ import annotations
 
 import re
-from collections import Counter
 from typing import Any
 
 TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -115,7 +115,7 @@ def hybrid_fuse(vector_hits: list[dict[str, Any]], qtokens: list[str],
         out = dict(hit)
         out["vector_score"] = hit["score"]
         out["lexical_score"] = round(ls, 4)
-        out["score"] = round(hit["score"] + lexical_weight * ls, 4)
+        out["score"] = round(hit["score"] + lexical_weight * round(ls, 4), 4)
         fused.append(out)
     fused.sort(key=lambda h: h["score"], reverse=True)
     return fused

@@ -179,7 +179,8 @@ def semantic_search(
     actually stale (quietly); --refresh forces it now, --skip-stale-check
     skips the probe entirely. --ranking metadata applies small metadata
     score adjustments (definition boost, test-path penalty); --ranking
-    hybrid fuses vector order with a lexical token-overlap ranking (RRF)."""
+    hybrid fuses the vector score with a lexical token-overlap score
+    (weighted sum, fused = vector_score + 0.25 * lexical)."""
     core = _get_core(skip_stale_check)
     if project:
         entry, err = core.resolve_entry(project)

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import time
 
-from code_indexer.config import load_config
 from code_indexer.core import Core
 
 # (project, query, ground-truth matcher: file suffix + symbol substring)

@@ -122,8 +122,8 @@ def semantic_search(query: str, project: str | None = None, limit: int = 8,
     changed files. format: 'text' or 'json' (stable field contract: project,
     file, score, symbol, symbol_type, lang, start_line, end_line, snippet).
     ranking: 'vector' (pure cosine, default) | 'metadata' (cosine plus small
-    definition/test-path adjustments) | 'hybrid' (reciprocal rank fusion of
-    vector order with lexical token overlap — better for queries containing
+    definition/test-path adjustments) | 'hybrid' (weighted-sum fusion of
+    the vector score with lexical token overlap — better for queries containing
     exact identifiers). symbol_type/language scope the search to one symbol
     type or language.
     """

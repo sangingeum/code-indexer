@@ -1,4 +1,5 @@
-"""Unit tests for query-time ranking: metadata adjustments + hybrid RRF fusion.
+"""Unit tests for query-time ranking: metadata adjustments + hybrid
+weighted-sum fusion.
 
 Pure functions — no Qdrant/Ollama needed.
 """

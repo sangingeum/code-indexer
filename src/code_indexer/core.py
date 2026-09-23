@@ -21,7 +21,6 @@ from .embedder import Embedder
 from .indexer import Indexer
 from .locks import project_lock
 from .manifest import SCHEMA_VERSION, Manifest, SymbolRow
-from .ranking import lexical_score  # re-exported for callers/tests
 from . import ranking
 from .registry import ProjectEntry, Registry
 from .store import Store
@@ -228,7 +227,8 @@ class Core:
         """One project's search. `ranking_mode` selects the query-time
         ranking on the candidate pool: 'vector' (default, pure cosine),
         'metadata' (cosine + metadata adjustments), 'hybrid'
-        (RRF fusion of vector order with lexical token overlap)."""
+        (weighted-sum fusion of the vector score with lexical token
+        overlap)."""
         collection = f"idx_{entry.slug}"
         vector = self.embedder.embed([query])[0]
         # Over-fetch: re-ranking on a wider pool is cheap and stabilizes

@@ -73,8 +73,9 @@ measured results):
 
 `--symbol-type` and `--language` (e.g. `--symbol-type class`,
 `--language python`) scope the search by exact payload filter — no extra
-round trips on multi-language repos. The default call remains
-byte-identical to the pre-round behavior.
+round trips on multi-language repos. The default call remains identical
+to the pre-round behavior for every existing field; the only change to
+the JSON contract is the addition of the `lang` key.
 
 ### Token-reduction subcommands (schema v3)
 
