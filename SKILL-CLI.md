@@ -38,7 +38,7 @@ uv run code-indexer <cmd>   # or installed console script
 code-indexer add-project /path/repo [--name myproj]   # register + initial index (foreground in CLI)
 code-indexer lookup-project /path/repo                # registration check, no side effects
 code-indexer list-projects
-code-indexer semantic-search "query" [--project P] [--limit 8] [--file-filter '*.py'] [--json]
+code-indexer semantic-search "query" [--project P] [--limit 8] [--file-filter '*.py'] [--symbol-type class] [--language python] [--ranking vector|metadata|hybrid] [--json]
 code-indexer skeleton [--project P | --name P] [PATH_PREFIX] [--tree] [--no-signatures] [--limit N] [--json]
 code-indexer map ...      # alias for skeleton
 code-indexer outline [--project P | --name P] FILE [--docstrings] [--json]
@@ -63,6 +63,12 @@ code-indexer watch --all                  # watch every registered project
 - **semantic-search** — natural-language search over indexed chunks.
   Best when you know *what the code does*, not what it's called. Follow up
   with `find-definition`/`get-code-context` for the precise lines.
+  Optional `--ranking` diversifies the query-time ranking:
+  `metadata` adds small score adjustments (definition boost, test-path
+  penalty) on top of cosine; `hybrid` fuses cosine with a lexical
+  token-overlap score (better for queries containing exact identifiers);
+  default `vector` is pure cosine. `--symbol-type` and `--language` scope
+  the search by payload filters without extra round trips.
 - **skeleton** (alias `map`) — token-reduction workhorse. Dense structural
   map of the whole project or a `PATH_PREFIX` subtree: one file header per
   group, one symbol per line (`type name:start-end  signature`). No bodies,

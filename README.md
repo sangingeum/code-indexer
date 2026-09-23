@@ -29,7 +29,7 @@ executable). Verify with `code-indexer list-projects`.
 code-indexer add-project /path/to/repo [--name myproject]
 code-indexer lookup-project /path/to/repo
 code-indexer list-projects
-code-indexer semantic-search "auth token refresh" --project /path/to/repo --limit 8 [--json]
+code-indexer semantic-search "auth token refresh" --project /path/to/repo --limit 8 [--file-filter '*.py'] [--symbol-type class] [--language python] [--ranking vector|metadata|hybrid] [--json]
 code-indexer skeleton [--project P | --name P] [PATH_PREFIX] [--tree] [--no-signatures] [--limit N] [--json]
 code-indexer map ...      # alias for skeleton
 code-indexer outline [--project P | --name P] FILE [--docstrings] [--json]
@@ -53,6 +53,28 @@ operations.
 `find-symbol`, `find-definition`, `find-references`, and `get-code-context`
 accept both `--project X` and `--name X` for the project argument (path,
 slug, or registered custom name).
+
+### Ranking diversification (semantic-search)
+
+`semantic-search` defaults to pure cosine ranking (`--ranking vector`).
+Two opt-in modes re-rank a wider candidate pool at query time
+(`docs/semantic-search-ranking-diversification.md` for the design and
+measured results):
+
+- `--ranking metadata` — small additive adjustments from index-time payload
+  facts: a definition boost for chunks carrying a symbol and a mild penalty
+  for test/fixture/vendor paths (waived when the query targets tests).
+  Measured: improved top-1 5/8 -> 6/8 and top-5 6/8 -> 7/8 on the ranking
+  evaluation intents with no added latency.
+- `--ranking hybrid` — fuses the cosine score with a lightweight lexical
+  token-overlap score (`fused = cosine + 0.25 * lexical` over symbol, path,
+  and snippet). Intended for queries that contain exact identifiers; it is
+  noisier on pure natural-language intents, so it stays opt-in.
+
+`--symbol-type` and `--language` (e.g. `--symbol-type class`,
+`--language python`) scope the search by exact payload filter — no extra
+round trips on multi-language repos. The default call remains
+byte-identical to the pre-round behavior.
 
 ### Token-reduction subcommands (schema v3)
 
@@ -119,7 +141,7 @@ embedding, zero Qdrant traffic.
 | `lookup_project(path)` | Check registration without side effects: returns one line with path, slug, custom name, Qdrant collection name (`idx_<slug>`), state, files, chunks, last_indexed — or `not registered: <path>`. Normalizes paths (tilde, relative, trailing slash; symlink matched via real path). Use this instead of guessing via `add_project` idempotency. |
 | `remove_project(path)` | Deregister and **delete** the Qdrant collection, SQLite manifest, and registry entry. |
 | `list_projects()` | Registered projects with file/chunk counts, last-indexed time, and state. |
-| `semantic_search(query, project?, limit=8, file_filter?)` | The hot path. Always runs a staleness check first; `project=None` searches all registered projects. `project` accepts a path, a slug, or a registered custom name. Returns file paths, line ranges, symbols, scores, snippets. |
+| `semantic_search(query, project?, limit=8, file_filter?, symbol_type?, language?, ranking?, format?)` | The hot path. Always runs a staleness check first; `project=None` searches all registered projects. `project` accepts a path, a slug, or a registered custom name. Returns file paths, line ranges, symbols, scores, snippets. `ranking`: `vector` (pure cosine, default) \| `metadata` (small definition boost / test-path penalty adjustments) \| `hybrid` (cosine fused with lexical token overlap — better for exact-identifier queries). `symbol_type`/`language` scope results by payload filter. |
 | `index_status(path)` | `idle \| indexing \| error` + last-pass progress. |
 | `reindex_project(path)` | Force a full rebuild. |
 | `find_symbol(name, project?, symbol_type?)` | Look up symbols by name in the manifest symbol index (no semantic search). Exact AST-first, capped substring fallback. `symbol_type`: function\|method\|class\|struct\|enum\|namespace. |

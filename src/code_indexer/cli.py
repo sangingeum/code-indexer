@@ -166,13 +166,20 @@ def semantic_search(
     project: str = typer.Option(None, help="Project path, slug, or name."),
     limit: int = typer.Option(8, help="Max hits."),
     file_filter: str = typer.Option(None, help="Substring/glob on file path, e.g. '*.py'."),
+    symbol_type: str = typer.Option(None, "--symbol-type",
+        help="Filter by symbol type (function|method|class|struct|enum|namespace)."),
+    language: str = typer.Option(None, help="Filter by language (python|csharp|cpp|...)."),
+    ranking: str = typer.Option("vector", "--ranking",
+        help="Ranking mode: vector (default) | metadata | hybrid."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
     skip_stale_check: bool = SkipOpt,
     refresh: bool = RefreshOpt,
 ) -> None:
     """Semantic code search. The staleness pass runs only when the index is
     actually stale (quietly); --refresh forces it now, --skip-stale-check
-    skips the probe entirely."""
+    skips the probe entirely. --ranking metadata applies small metadata
+    score adjustments (definition boost, test-path penalty); --ranking
+    hybrid fuses vector order with a lexical token-overlap ranking (RRF)."""
     core = _get_core(skip_stale_check)
     if project:
         entry, err = core.resolve_entry(project)
@@ -184,6 +191,7 @@ def semantic_search(
             core.maybe_refresh(e.slug, e.path, force=refresh)
     typer.echo(core.search_for_display(
         query, project=project, limit=limit, file_filter=file_filter,
+        symbol_type=symbol_type, language=language, ranking_mode=ranking,
         fmt="json" if json_output else "text", skip_refresh=True))
 
 

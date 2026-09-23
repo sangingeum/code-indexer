@@ -112,15 +112,25 @@ def list_projects() -> str:
 @mcp.tool()
 def semantic_search(query: str, project: str | None = None, limit: int = 8,
                     file_filter: str | None = None,
+                    symbol_type: str | None = None,
+                    language: str | None = None,
+                    ranking: str = "vector",
                     format: str = "text") -> str:
     """Semantic code search across indexed projects. THE hot path.
 
     Automatically runs a staleness check first and incrementally re-indexes
     changed files. format: 'text' or 'json' (stable field contract: project,
-    file, score, symbol, symbol_type, start_line, end_line, snippet).
+    file, score, symbol, symbol_type, lang, start_line, end_line, snippet).
+    ranking: 'vector' (pure cosine, default) | 'metadata' (cosine plus small
+    definition/test-path adjustments) | 'hybrid' (reciprocal rank fusion of
+    vector order with lexical token overlap — better for queries containing
+    exact identifiers). symbol_type/language scope the search to one symbol
+    type or language.
     """
-    return CORE.search_for_display(query, project=project, limit=limit,
-                                   file_filter=file_filter, fmt=format)
+    return CORE.search_for_display(
+        query, project=project, limit=limit, file_filter=file_filter,
+        symbol_type=symbol_type, language=language, ranking_mode=ranking,
+        fmt=format)
 
 
 @mcp.tool()

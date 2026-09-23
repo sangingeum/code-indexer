@@ -95,10 +95,18 @@ class Store:
             return 0
 
     def search(self, name: str, vector: list[float], limit: int = 8,
-               file_filter: str | None = None) -> list[Any]:
-        qfilter = None
+               file_filter: str | None = None,
+               symbol_type: str | None = None,
+               language: str | None = None) -> list[Any]:
+        must: list[Any] = []
         if file_filter:
-            qfilter = Filter(must=[FieldCondition(key="file", match=MatchValue(value=file_filter))])
+            must.append(FieldCondition(key="file", match=MatchValue(value=file_filter)))
+        if symbol_type:
+            must.append(FieldCondition(key="symbol_type",
+                                       match=MatchValue(value=symbol_type)))
+        if language:
+            must.append(FieldCondition(key="lang", match=MatchValue(value=language)))
+        qfilter = Filter(must=must) if must else None
         res = self.client.query_points(
             collection_name=name, query=vector, query_filter=qfilter, limit=limit,
             with_payload=True,

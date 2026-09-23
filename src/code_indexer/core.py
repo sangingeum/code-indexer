@@ -21,6 +21,8 @@ from .embedder import Embedder
 from .indexer import Indexer
 from .locks import project_lock
 from .manifest import SCHEMA_VERSION, Manifest, SymbolRow
+from .ranking import lexical_score  # re-exported for callers/tests
+from . import ranking
 from .registry import ProjectEntry, Registry
 from .store import Store
 
@@ -219,10 +221,23 @@ class Core:
     # ------------------------------------------------------------------
 
     def search_one(self, entry: ProjectEntry, query: str, limit: int,
-                   file_filter: str | None) -> list[dict[str, Any]]:
+                   file_filter: str | None,
+                   symbol_type: str | None = None,
+                   language: str | None = None,
+                   ranking_mode: str = "vector") -> list[dict[str, Any]]:
+        """One project's search. `ranking_mode` selects the query-time
+        ranking on the candidate pool: 'vector' (default, pure cosine),
+        'metadata' (cosine + metadata adjustments), 'hybrid'
+        (RRF fusion of vector order with lexical token overlap)."""
         collection = f"idx_{entry.slug}"
         vector = self.embedder.embed([query])[0]
-        hits = self.store.search(collection, vector, limit=limit, file_filter=file_filter)
+        # Over-fetch: re-ranking on a wider pool is cheap and stabilizes
+        # the fused order; the final truncate back to `limit` happens in
+        # search().
+        fetch = limit if ranking_mode == "vector" else max(limit * 3, 24)
+        hits = self.store.search(
+            collection, vector, limit=fetch, file_filter=file_filter,
+            symbol_type=symbol_type, language=language)
         out = []
         for h in hits:
             p = h.payload or {}
@@ -232,14 +247,27 @@ class Core:
                 "score": round(h.score, 4),
                 "symbol": p.get("symbol"),
                 "symbol_type": p.get("symbol_type"),
+                "lang": p.get("lang"),
                 "start_line": p.get("start_line"),
                 "end_line": p.get("end_line"),
                 "snippet": (p.get("snippet") or "")[:500],
             })
+        if ranking_mode != "vector":
+            qtokens = ranking.query_tokens(query)
+            if ranking_mode == "metadata":
+                out = ranking.metadata_rerank(out, qtokens)
+            elif ranking_mode == "hybrid":
+                out = ranking.hybrid_fuse(out, qtokens)
+            else:
+                raise ValueError(
+                    f"error: unknown ranking mode: {ranking_mode}")
         return out
 
     def search(self, query: str, project: str | None = None, limit: int = 8,
                file_filter: str | None = None,
+               symbol_type: str | None = None,
+               language: str | None = None,
+               ranking_mode: str = "vector",
                skip_refresh: bool = False) -> list[dict[str, Any]]:
         """Semantic search across one or all registered projects.
 
@@ -261,7 +289,10 @@ class Core:
             if not skip_refresh:
                 self.maybe_refresh(entry.slug, entry.path)
             try:
-                all_hits.extend(self.search_one(entry, query, limit, file_filter))
+                all_hits.extend(self.search_one(
+                    entry, query, limit, file_filter,
+                    symbol_type=symbol_type, language=language,
+                    ranking_mode=ranking_mode))
             except Exception as exc:  # noqa: BLE001
                 logger.exception("search failed for %s", entry.path)
                 raise ValueError(f"error: search failed on {entry.path}: {exc}") from exc
@@ -288,11 +319,17 @@ class Core:
 
     def search_for_display(self, query: str, project: str | None = None,
                            limit: int = 8, file_filter: str | None = None,
+                           symbol_type: str | None = None,
+                           language: str | None = None,
+                           ranking_mode: str = "vector",
                            fmt: str = "text",
                            skip_refresh: bool = False) -> str:
         try:
             hits = self.search(query, project=project, limit=limit,
-                               file_filter=file_filter, skip_refresh=skip_refresh)
+                               file_filter=file_filter,
+                               symbol_type=symbol_type, language=language,
+                               ranking_mode=ranking_mode,
+                               skip_refresh=skip_refresh)
         except ValueError as exc:
             return str(exc)
         return self.format_hits(hits, fmt)

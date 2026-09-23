@@ -56,7 +56,8 @@ class StubStore:
     def purge_file_points(self, name, project, path, min_chunk_index=0):
         pass
 
-    def search(self, name, vector, limit=8, file_filter=None):
+    def search(self, name, vector, limit=8, file_filter=None,
+               symbol_type=None, language=None):
         class _Hit:
             def __init__(self, payload, score):
                 self.payload = payload
