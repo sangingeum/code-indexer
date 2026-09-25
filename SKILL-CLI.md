@@ -31,6 +31,16 @@ residue. Start a watcher for a project right after `add-project` — one-shot
 commands still work without any watcher, but the watcher keeps the index
 fresh so queries never pay the staleness pass.
 
+Re-running `watch ... --background` while a live watcher already holds the
+pidfile is idempotent: it prints
+`watch: already running (pid=NNNN, pidfile=...)` plus the projects the live
+watcher serves, and exits 0 when the requested project(s) are already covered
+by that watcher (a watcher on a parent directory covers subprojects). If the
+requested project(s) are NOT covered, it exits with a clearly-worded
+nonzero status (3) telling you to stop the live watcher first. The message
+"failed to start" never appears for this case — it is reserved for genuine
+startup failures.
+
 ## Commands (each accepts --skip-stale-check)
 
 ```bash

@@ -113,6 +113,85 @@ def read_pid(pidfile_path: str) -> int | None:
         return None
 
 
+# Daemon-side exit code meaning "refused: another live watcher holds the
+# pidfile". Distinct from generic failure so the parent can report the
+# already-running case as a normal idempotent outcome instead of
+# "failed to start".
+BUSY_EXIT = 3
+
+
+class AlreadyRunning(Exception):
+    """A live watcher already holds the pidfile (parent-side, pre-check).
+
+    Carries the holder's pid when it could be read, plus the holder's
+    watched roots (absolute paths) when the holder is alive and inspectable.
+    """
+
+    def __init__(
+        self,
+        pidfile_path: str,
+        holder_pid: int | None,
+        holder_roots: list[str] | None = None,
+    ) -> None:
+        self.pidfile_path = pidfile_path
+        self.holder_pid = holder_pid
+        self.holder_roots = holder_roots
+        super().__init__(
+            f"watch: already running (pid={holder_pid}, pidfile={pidfile_path})")
+
+
+def probe_watcher_holder(pidfile_path: str) -> tuple[bool, int | None,
+                                                     list[str] | None]:
+    """Best-effort probe of the watcher holding ``pidfile_path``.
+
+    Returns ``(alive, pid, roots)``. ``alive`` is False when the pidfile is
+    absent or its pid does not exist (stale residue). ``roots`` lists the
+    absolute paths the holder watches, recovered from /proc when the holder
+    is on this machine, else None when unknown. Parent-side heuristic only —
+    the daemon-side flock remains the authoritative single-instance gate.
+    """
+    pid = read_pid(pidfile_path)
+    if pid is None or pid <= 0:
+        return (False, None, None)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return (False, pid, None)
+    except PermissionError:
+        pass  # exists, owned by someone else — treat as live
+    return (True, pid, _holder_roots(pid))
+
+
+def _holder_roots(pid: int) -> list[str] | None:
+    """Watched roots of a running watcher, from /proc; None if unknown."""
+    try:
+        with open(f"/proc/{pid}/cmdline", encoding="utf-8", errors="replace") as fh:
+            argv = [a for a in fh.read().split("\0") if a]
+    except OSError:
+        return None
+    # Holder's cwd: relative roots (e.g. `watch .`) resolve against it, not
+    # against the probing process's cwd.
+    holder_cwd: str | None = None
+    try:
+        holder_cwd = os.readlink(f"/proc/{pid}/cwd")
+    except OSError:
+        pass
+    # Find the `watch` subcommand; everything after it up to a --flag
+    # (e.g. --background) is a positional target path.
+    try:
+        idx = argv.index("watch")
+    except ValueError:
+        return None
+    roots: list[str] = []
+    for arg in argv[idx + 1:]:
+        if arg.startswith("-"):
+            break
+        if holder_cwd and not os.path.isabs(arg):
+            arg = os.path.join(holder_cwd, arg)
+        roots.append(os.path.abspath(arg))
+    return roots
+
+
 def _redirect_stdio(log_path: str) -> None:
     os.makedirs(os.path.dirname(log_path) or ".", exist_ok=True)
     fd = os.open(log_path, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o644)
@@ -157,6 +236,13 @@ def spawn_background(
             daemon_pid = read_pid(pidfile_path)
             if daemon_pid:
                 return daemon_pid
+        # Non-ok handshake: distinguish "a live watcher already holds the
+        # pidfile" (including a lock lost between the parent-side check and
+        # the daemon's flock acquire) from a genuine startup failure. The
+        # flock itself is the truth — probe it via the pidfile holder.
+        alive, holder_pid, _roots = probe_watcher_holder(pidfile_path)
+        if alive:
+            raise AlreadyRunning(pidfile_path, holder_pid)
         raise RuntimeError(
             f"watch --background failed to start; see {log_path}")
     # First child: new session, fork again so the daemon can never

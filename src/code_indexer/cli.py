@@ -370,7 +370,20 @@ def _watch_background(core: Core, targets: list[tuple[str, str]],
                       duration: float | None, pidfile_path: str,
                       log_path: str) -> None:
     """Daemonize and run the watcher loop in the daemon process."""
-    from .watcher import PidFileLock, spawn_background
+    from .watcher import (BUSY_EXIT, PidFileLock, AlreadyRunning,
+                          probe_watcher_holder, read_pid, spawn_background)
+
+    # Parent-side pre-check: if a live watcher already holds the pidfile,
+    # this is an idempotent re-invocation, not a failure. Compare the
+    # requested targets against what the holder actually watches (recovered
+    # from /proc). Only the daemon-side flock below is authoritative — this
+    # check is advisory and the race path re-probes after daemonization.
+    alive, holder_pid, holder_roots = probe_watcher_holder(pidfile_path)
+    if alive:
+        _report_already_running(targets, holder_pid, holder_roots,
+                                pidfile_path)
+        raise typer.Exit(0 if holder_roots is not None
+                         and _covers(holder_roots, targets) else 3)
 
     daemon_state: dict[str, Any] = {}
 
@@ -380,9 +393,10 @@ def _watch_background(core: Core, targets: list[tuple[str, str]],
 
         lock = PidFileLock(pidfile_path)
         if not lock.acquire():
+            holder_pid = read_pid(pidfile_path)
             print(f"watch: refusing to start — a live watcher already holds "
-                  f"{pidfile_path}", flush=True)
-            return 1
+                  f"{pidfile_path} (pid={holder_pid})", flush=True)
+            return BUSY_EXIT
         daemon_state["lock"] = lock
         stop = {"flag": False}
 
@@ -411,10 +425,72 @@ def _watch_background(core: Core, targets: list[tuple[str, str]],
 
     try:
         daemon_pid = spawn_background(pidfile_path, log_path, setup, run_loop)
+    except AlreadyRunning as exc:
+        # Lost the race between the pre-check and the daemon's flock
+        # acquire: same idempotent case, reported cleanly, never as
+        # "failed to start".
+        holder_roots = _holder_roots_safe(exc.holder_pid)
+        _report_already_running(targets, exc.holder_pid, holder_roots,
+                                pidfile_path)
+        raise typer.Exit(0 if holder_roots is not None
+                         and _covers(holder_roots, targets) else 3) from exc
     except RuntimeError as exc:
         _die(f"error: {exc}")
     typer.echo(f"watch daemon started: pid={daemon_pid} pidfile={pidfile_path} "
                f"log={log_path}")
+
+
+def _holder_roots_safe(pid: int | None) -> list[str] | None:
+    """Holder's watched roots from /proc, or None when not recoverable."""
+    from .watcher import _holder_roots
+
+    if not pid or pid <= 0:
+        return None
+    try:
+        return _holder_roots(pid)
+    except OSError:
+        return None
+
+
+def _covers(holder_roots: list[str], targets: list[tuple[str, str]]) -> bool:
+    """True when the live holder watches every requested target.
+
+    A root covers a target when the target path is the root itself or lies
+    beneath it (a watcher on a parent directory serves subprojects).
+    """
+    for _slug, target in targets:
+        target_abs = os.path.abspath(target)
+        if not any(
+            target_abs == root or target_abs.startswith(root + os.sep)
+            for root in holder_roots
+        ):
+            return False
+    return True
+
+
+def _report_already_running(
+    targets: list[tuple[str, str]],
+    holder_pid: int | None,
+    holder_roots: list[str] | None,
+    pidfile_path: str,
+) -> None:
+    """Print the already-running verdict to the caller's terminal."""
+    typer.echo(f"watch: already running "
+               f"(pid={holder_pid}, pidfile={pidfile_path})")
+    if holder_roots is None:
+        typer.echo(
+            "watch: holder's watched projects could not be determined "
+            "(not on this machine or /proc unavailable); the existing "
+            "watcher was left in charge", err=True)
+        return
+    typer.echo(f"watch: live watcher is watching: {', '.join(holder_roots)}")
+    if _covers(holder_roots, targets):
+        typer.echo("watch: requested project(s) already covered; nothing to do")
+    else:
+        typer.echo(
+            "watch: requested project(s) are NOT covered by the live "
+            "watcher (stop the live watcher (kill its pid or SIGTERM it) "
+            "before starting a different set)", err=True)
 
 
 @app.command(name="skeleton")
