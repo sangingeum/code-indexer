@@ -3,6 +3,7 @@ name = "code-indexer"
 version = "0.1.0"
 description = "MCP server: automatic semantic code index (Ollama embeddings + Qdrant) with incremental staleness-checked indexing"
 readme = "README.md"
+license = "MIT"
 authors = [
     { name = "sangingeum", email = "sangingeum@gmail.com" }
 ]
