@@ -29,6 +29,12 @@ logger = logging.getLogger("code-indexer.core")
 
 STALE_TTL_DEFAULT = 60
 
+# State reported for a registered project whose manifest records no completed
+# indexing pass (interrupted/killed initial add-project, or a pass that never
+# ran). Registry registration alone is not evidence of an indexed project, so
+# this must be distinguishable from a normal idle one.
+NEVER_INDEXED = "never-indexed"
+
 
 class Core:
     """Stateful core: owns config, registry, embedder, store, indexer.
@@ -70,6 +76,38 @@ class Core:
 
     def state_for(self, slug: str) -> dict[str, Any]:
         return dict(self._index_state.get(slug, {}))
+
+    def has_successful_pass(self, slug: str) -> bool:
+        """True when the manifest records at least one completed indexing pass.
+
+        `last_indexed` is written only after a pass commits, so its absence on
+        a registered project means the initial index never finished (an
+        interrupted or killed `add-project`, or an index that never started).
+        A manifest that does not exist yet is equally evidence-free. This is
+        the persisted signal that keeps `list-projects` / `index-status`
+        honest about projects that are registered but not indexed.
+        """
+        mdir = os.path.join(self.cfg.index_root, slug, "manifest.db")
+        if not os.path.isfile(mdir):
+            return False
+        m = Manifest(mdir)
+        try:
+            return m.get_meta("last_indexed") is not None
+        finally:
+            m.close()
+
+    def effective_state(self, slug: str, recorded: str | None = None) -> str:
+        """The reported state: in-memory state refined by the persisted signal.
+
+        An in-flight pass ('indexing') or a recorded failure ('error') is
+        reported as is; an otherwise idle project with no completed pass is
+        `never-indexed`, never a plain `idle`.
+        """
+        state = recorded if recorded is not None else \
+            self.state_for(slug).get("state", "idle")
+        if state in (None, "idle") and not self.has_successful_pass(slug):
+            return NEVER_INDEXED
+        return state or "idle"
 
     # ------------------------------------------------------------------
     # indexing
@@ -203,6 +241,11 @@ class Core:
             finally:
                 m.close()
         st = self.state_for(entry.slug).get("state", "idle")
+        # A registered project with no committed pass is never a plain idle
+        # one (see effective_state): last_indexed is written only after a pass
+        # commits, and the manifest read above already answers it.
+        if st in (None, "idle") and last_indexed is None:
+            st = NEVER_INDEXED
         return (f"path={entry.path} slug={entry.slug} state={st} "
                 f"files={file_count} chunks={chunk_count} "
                 f"last_indexed={last_indexed or 'never'}")

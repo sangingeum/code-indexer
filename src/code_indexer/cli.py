@@ -16,7 +16,7 @@ from typing import Any, NoReturn
 
 import typer
 
-from .core import Core, MIGRATION_HINT
+from .core import NEVER_INDEXED, Core, MIGRATION_HINT
 from .registry import ProjectEntry
 
 app = typer.Typer(
@@ -92,6 +92,11 @@ def add_project(
     entry = core.registry.get_by_path(path)
     if entry is not None:
         typer.echo(f"already registered — {core.status_summary(entry)}")
+        if not core.has_successful_pass(entry.slug):
+            typer.echo(
+                "note: no indexing pass has completed for this project — run "
+                f"reindex-project {path} (or remove-project and add it again) "
+                "to build the index")
         return
     try:
         entry = core.registry.add(path, name=name)
@@ -205,9 +210,11 @@ def index_status(
     skip_stale_check: bool = SkipOpt,
     refresh: bool = RefreshOpt,
 ) -> None:
-    """Report indexing state (idle | indexing | stale | error). By default
-    this is informational only — it does NOT trigger a re-index. --refresh
-    runs the staleness pass now (output notes the pass)."""
+    """Report indexing state (idle | indexing | never-indexed | error). By
+    default this is informational only — it does NOT trigger a re-index.
+    --refresh runs the staleness pass now (output notes the pass). A
+    registered project with no completed indexing pass reports
+    state=never-indexed rather than a misleading idle."""
     core = _get_core(skip_stale_check)
     path = os.path.abspath(os.path.expanduser(path))
     entry = core.registry.get_by_path(path)
@@ -216,11 +223,15 @@ def index_status(
     refresh_result = (core.maybe_refresh(entry.slug, entry.path, force=True)
                       if refresh else {"state": "not-requested"})
     st = core.state_for(entry.slug)
-    parts = [f"project={path}", f"state={st.get('state', 'idle')}"]
+    state = core.effective_state(entry.slug, st.get("state", "idle"))
+    parts = [f"project={path}", f"state={state}"]
     if st.get("last_result"):
         parts.append(f"last_pass={st['last_result']}")
     if st.get("error"):
         parts.append(f"error={st['error']}")
+    if state == NEVER_INDEXED:
+        parts.append("note=registered but no indexing pass has completed; "
+                     "run reindex-project to build the index")
     if refresh_result.get("state") == "indexing":
         parts.append("note=incremental pass ran/was held by another process")
     typer.echo(" ".join(parts))

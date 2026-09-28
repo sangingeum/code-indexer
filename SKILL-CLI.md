@@ -130,7 +130,11 @@ code-indexer unwatch --all [--timeout 10] # stop it for every registered project
   (`--symbol Foo::bar`). Never read whole files; this answers "show me the
   code" questions.
 - **index-status / reindex-project / remove-project / watch / unwatch** — index
-  lifecycle. `reindex-project` is a full rebuild (also populates schema-v3
+  lifecycle. Reports `idle | indexing | never-indexed | error`:
+  `never-indexed` is a registered project whose manifest has no completed
+  pass (an interrupted/killed `add-project`) — no index exists yet, so do not
+  trust empty results from it; `reindex-project` builds it. `reindex-project`
+  is a full rebuild (also populates schema-v3
   signature/visibility columns on old manifests); `remove-project` is
   destructive; `watch` is the background freshness daemon; `unwatch` is the
   reverse of `watch` (see below).

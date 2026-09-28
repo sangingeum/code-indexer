@@ -236,7 +236,7 @@ threads, no hidden work).
 | `remove_project(path)` | `remove-project` | Deregister and **delete** the Qdrant collection, SQLite manifest, and registry entry. |
 | `list_projects()` | `list-projects` | Registered projects with file/chunk counts, last-indexed time, and state. |
 | `semantic_search(query, project?, limit=8, file_filter?, symbol_type?, language?, ranking?, format?)` | `semantic-search` | The hot path. Runs the staleness check first (only when the index is actually stale, quietly); `project=None` searches all registered projects. Returns file paths, line ranges, symbols, scores, snippets. `ranking`: `vector` (pure cosine, default) \| `metadata` (small definition boost / test-path penalty adjustments) \| `hybrid` (cosine fused with lexical token overlap — better for exact-identifier queries). `symbol_type`/`language` scope results by payload filter; `format='json'` selects the CLI's JSON contract. |
-| `index_status(path)` | `index-status` | `idle \| indexing \| stale \| error` + last-pass progress. Like the CLI, this is **informational only** — it does not trigger a re-index. |
+| `index_status(path)` | `index-status` | `idle \| indexing \| never-indexed \| error` + last-pass progress. `never-indexed` marks a registered project whose manifest records no completed pass (an interrupted or killed `add-project`) — the registry entry exists but there is no index. Like the CLI, this is **informational only** — it does not trigger a re-index. |
 | `reindex_project(path)` | `reindex-project` | Force a full rebuild, **in the foreground** (blocks until finished). |
 | `find_symbol(name, project?, symbol_type?)` | `find-symbol` | Look up symbols by name in the manifest symbol index (no semantic search). Exact AST-first, capped substring fallback. `symbol_type`: function\|method\|class\|struct\|enum\|namespace. |
 | `find_symbols(project?, symbol_type?, file?, limit=25, format?)` | `find-symbol` (browse) | No name: filter the manifest symbol index by type/file, capped at `limit` (default 25). |
@@ -257,7 +257,12 @@ long-lived — `watch` is CLI-only.
 - **First index** (`add-project`, and the `add_project` tool) runs in the
   **foreground**: the command returns when indexing finishes (no background
   thread). `index-status` reports the current state at any time; add
-  `--refresh` to force a staleness pass.
+  `--refresh` to force a staleness pass. If the initial pass does not
+  complete (the invocation is interrupted or killed), the project stays
+  registered but reports `state=never-indexed` with `files=0 chunks=0
+  last_indexed=never` — it is never presented as a normal idle/indexed
+  project. `reindex-project` builds the index; `add-project` on that path
+  prints the same state plus a hint.
 - **Staleness check** (on `semantic-search`): if the project hasn't been
   scanned within `STALE_TTL` seconds (default 60), the command re-scans file
   hashes and incrementally re-indexes only what changed; `index-status` is
