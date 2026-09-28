@@ -1,5 +1,7 @@
 # code-indexer
 
+[![M8ven Verified](https://m8ven.ai/badge/mcp/sangingeum-code-indexer-1t93x3?variant=verified)](https://m8ven.ai/mcp/sangingeum/code-indexer)
+
 Semantic code index over Ollama + Qdrant, with a one-shot CLI
 (`code-indexer`, typer) and an MCP stdio server (`code-indexer-mcp`) that is a
 **thin wrapper over that same CLI**: every MCP tool builds the argv of the
