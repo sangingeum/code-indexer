@@ -18,8 +18,9 @@ similarity; this round adds opt-in ranking modes and interface filters.
 New module `code_indexer/ranking.py` (pure functions, unit-tested without
 Qdrant/Ollama). `semantic_search` accepts `ranking`:
 
-- **`vector`** (default) — unchanged behavior: pure cosine, fetch exactly
-  `limit`. Zero cost for callers that don't opt in.
+- **`vector`** (default) — pure cosine ranking; the candidate pool is
+  over-fetched like the other modes (the data-file mitigation below needs
+  candidates to promote), and the ranking itself is unchanged.
 - **`metadata`** — small additive adjustments from payload facts already
   stored at index time:
   - `+0.02` (definition boost) when the chunk carries a symbol
@@ -38,9 +39,10 @@ Qdrant/Ollama). `semantic_search` accepts `ranking`:
   prototype measurably failed to promote exact-identifier matches past
   generic lookalikes and was replaced before commit.
 
-In `metadata`/`hybrid` modes the pool is over-fetched (3× limit, min 24)
-before re-ranking and truncated back to `limit` after; results additionally
-carry `vector_score` and `lexical_score`/`metadata_delta` for observability.
+In every mode the candidate pool is over-fetched (3× limit, min 24) before
+the query-time ranking and truncated back to `limit` after; `metadata` and
+`hybrid` results additionally carry `vector_score` and
+`lexical_score`/`metadata_delta` for observability.
 
 ### 2. `symbol_type` / `language` filters
 
@@ -58,6 +60,40 @@ and deferred: it costs one extra LLM scoring call per candidate per query
 hot path for a gain that the measured lexical fusion already captures at
 zero latency. Revisit only if hybrid fusion proves insufficient on real
 workloads.
+
+### 4. Data-file dominance mitigation (all modes, including the default)
+
+A follow-up round. Pure-data payload chunks (`json`/`yaml`/`toml`) carry no
+code, but their self-descriptive keys match analysis-shaped query vocabulary
+better than the code that produces the data, so they could occupy most of a
+top-k window. Two query-time steps are applied to every result set
+regardless of `--ranking`:
+
+- **down-weight** — pure-data chunks lose a small constant (0.03) on the
+  score; code chunks within that delta overtake them. The original cosine is
+  preserved in `vector_score` and the applied delta recorded in
+  `data_penalty`.
+- **top-k share cap** — at most 40% of the `limit` window may be pure-data
+  chunks (floor, minimum 1); any further pure-data chunks are moved behind
+  the non-data hits. Nothing is dropped and data files stay searchable —
+  they just cannot crowd code out of the window.
+
+Both steps are waived when the query itself names a data format
+(`json`/`yaml`/`toml`), i.e. when the caller is deliberately looking at a
+data file.
+
+Live check against the indexed C# project (same process, same index snapshot,
+mitigation monkeypatched off vs on, `--limit 5`): "summarize the metrics
+recorded in the latest validation run" went 4/5 → 1/5 data-file chunks with
+the code that records the telemetry promoted to rank 1, and "explain the
+telemetry trajectory recorded in the run data" went 3/5 → 1/5. For other
+phrasings the window was already code-dominated and the mitigation changed
+nothing (`what differs between two verification run manifests` 0/5 either
+way) — the effect is query-dependent by nature, since the dominance itself
+is.
+
+The down-weight magnitude (0.03) and the window share (40%) are the two
+knobs; both are module constants in `code_indexer/ranking.py`.
 
 ## Measurement
 
@@ -94,8 +130,12 @@ quality win and the recommended non-default.
 
 - `tests/test_ranking.py` — tokenizer, lexical scoring, metadata deltas
   (definition boost, test-path penalty and its waiver), metadata re-rank
-  ordering, hybrid fusion promotion/tie-stability/empty-pool, all with
-  synthetic hits.
+  ordering, hybrid fusion promotion/tie-stability/empty-pool, and the
+  data-file mitigation (payload detection, down-weight, waiver, top-k share
+  cap never dropping hits), all with synthetic hits.
+- `tests/test_search_data_files.py` — the mitigation at the search seam with a
+  stubbed store: over-fetch, code mixed into a data-heavy window, data files
+  kept searchable, penalty recorded, waiver for data-targeted queries.
 - `tests/test_concurrency.py` stub store extended for the new
   `symbol_type`/`language` parameters.
 

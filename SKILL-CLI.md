@@ -79,7 +79,11 @@ code-indexer unwatch --all [--timeout 10] # stop it for every registered project
   `metadata` adds small score adjustments (definition boost, test-path
   penalty) on top of cosine; `hybrid` fuses cosine with a lexical
   token-overlap score (better for queries containing exact identifiers);
-  default `vector` is pure cosine. `--symbol-type` and `--language` scope
+  default `vector` is pure cosine. In every mode pure-data chunks
+  (`.json`/`.yaml`/`.toml`) are down-weighted and capped to at most 40% of
+  the top-k window so they cannot crowd out code for analysis-shaped
+  queries; they stay searchable, and the mitigation is waived when the
+  query names a data format. `--symbol-type` and `--language` scope
   the search by payload filters without extra round trips.
   **`--language` values (exhaustive)** — the stored `lang` payload, derived
   from the file extension at index time; filter matches it exactly:

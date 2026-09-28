@@ -180,7 +180,10 @@ def semantic_search(
     skips the probe entirely. --ranking metadata applies small metadata
     score adjustments (definition boost, test-path penalty); --ranking
     hybrid fuses the vector score with a lexical token-overlap score
-    (weighted sum, fused = vector_score + 0.25 * lexical)."""
+    (weighted sum, fused = vector_score + 0.25 * lexical). In every mode
+    pure-data chunks (.json/.yaml/.toml) are down-weighted and capped to at
+    most 40% of the top-k window, so data files cannot crowd code out of it
+    (waived when the query names a data format)."""
     core = _get_core(skip_stale_check)
     if project:
         entry, err = core.resolve_entry(project)

@@ -228,13 +228,18 @@ class Core:
         ranking on the candidate pool: 'vector' (default, pure cosine),
         'metadata' (cosine + metadata adjustments), 'hybrid'
         (weighted-sum fusion of the vector score with lexical token
-        overlap)."""
+        overlap).
+
+        On top of the selected mode, every result set passes through the
+        data-file mitigation (pure-data json/yaml/toml chunks are down-weighted
+        and share-capped in the top-k window) so data files cannot crowd code
+        out of the window. The pool is over-fetched so the mitigation has
+        candidates to promote."""
         collection = f"idx_{entry.slug}"
         vector = self.embedder.embed([query])[0]
-        # Over-fetch: re-ranking on a wider pool is cheap and stabilizes
-        # the fused order; the final truncate back to `limit` happens in
-        # search().
-        fetch = limit if ranking_mode == "vector" else max(limit * 3, 24)
+        # Over-fetch: re-ranking (and the data-file cap) operates on a wider
+        # pool; the final truncate back to `limit` happens in search().
+        fetch = max(limit * 3, 24)
         hits = self.store.search(
             collection, vector, limit=fetch, file_filter=file_filter,
             symbol_type=symbol_type, language=language)
@@ -252,16 +257,15 @@ class Core:
                 "end_line": p.get("end_line"),
                 "snippet": (p.get("snippet") or "")[:500],
             })
-        if ranking_mode != "vector":
-            qtokens = ranking.query_tokens(query)
-            if ranking_mode == "metadata":
-                out = ranking.metadata_rerank(out, qtokens)
-            elif ranking_mode == "hybrid":
-                out = ranking.hybrid_fuse(out, qtokens)
-            else:
-                raise ValueError(
-                    f"error: unknown ranking mode: {ranking_mode}")
-        return out
+        qtokens = ranking.query_tokens(query)
+        if ranking_mode == "metadata":
+            out = ranking.metadata_rerank(out, qtokens)
+        elif ranking_mode == "hybrid":
+            out = ranking.hybrid_fuse(out, qtokens)
+        elif ranking_mode != "vector":
+            raise ValueError(f"error: unknown ranking mode: {ranking_mode}")
+        out = ranking.downweight_data_files(out, qtokens)
+        return ranking.cap_data_file_share(out, limit, qtokens)
 
     def search(self, query: str, project: str | None = None, limit: int = 8,
                file_filter: str | None = None,
@@ -297,6 +301,10 @@ class Core:
                 logger.exception("search failed for %s", entry.path)
                 raise ValueError(f"error: search failed on {entry.path}: {exc}") from exc
         all_hits.sort(key=lambda h: h["score"], reverse=True)
+        # Multi-project results can re-mix data-file chunks across projects, so
+        # re-apply the share cap on the merged, sorted pool before truncating.
+        all_hits = ranking.cap_data_file_share(
+            all_hits, max(1, limit), ranking.query_tokens(query))
         return all_hits[:max(1, limit)]
 
     def format_hits(self, hits: list[dict[str, Any]], fmt: str = "text") -> str:

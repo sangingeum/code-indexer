@@ -7,10 +7,14 @@ Pure functions — no Qdrant/Ollama needed.
 import pytest
 
 from code_indexer.ranking import (
+    DATA_FILE_PENALTY,
     DEFINITION_BOOST,
     LEXICAL_WEIGHT,
     TEST_PATH_PENALTY,
+    cap_data_file_share,
+    downweight_data_files,
     hybrid_fuse,
+    is_data_payload,
     lexical_score,
     metadata_adjustment,
     metadata_rerank,
@@ -20,11 +24,11 @@ from code_indexer.ranking import (
 
 
 def hit(score: float, file: str = "src/app.py", symbol: str | None = None,
-        snippet: str = "") -> dict:
+        snippet: str = "", lang: str = "python") -> dict:
     return {
         "score": score, "file": file, "symbol": symbol,
         "symbol_type": "function" if symbol else None,
-        "lang": "python", "start_line": 1, "end_line": 10,
+        "lang": lang, "start_line": 1, "end_line": 10,
         "snippet": snippet,
     }
 
@@ -105,3 +109,70 @@ def test_hybrid_fuse_stable_when_lexical_is_tied():
 
 def test_hybrid_fuse_empty_pool():
     assert hybrid_fuse([], query_tokens("anything")) == []
+
+
+# -- data-file dominance mitigation -----------------------------------------
+
+
+def test_is_data_payload_detects_data_files():
+    assert is_data_payload(hit(0.5, file="telemetry/run.json", lang="json"))
+    assert is_data_payload(hit(0.5, file="cfg/app.yaml", lang="yaml"))
+    assert is_data_payload(hit(0.5, file="cfg/app.toml", lang="toml"))
+    # extension fallback when no lang payload is present
+    assert is_data_payload({"score": 0.5, "file": "data/runs.JSON"})
+    assert not is_data_payload(hit(0.5, file="src/metrics.py"))
+    assert not is_data_payload(hit(0.5, file="src/app.cs", lang="csharp"))
+
+
+def test_downweight_data_files_promotes_code_over_data():
+    pool = [
+        hit(0.52, file="telemetry/run.json", lang="json"),
+        hit(0.50, file="src/metrics.py", symbol="record_metrics"),
+    ]
+    out = downweight_data_files(pool, query_tokens("summarize run metrics"))
+    assert out[0]["symbol"] == "record_metrics"
+    data = next(h for h in out if h["file"].endswith(".json"))
+    assert data["score"] == pytest.approx(0.52 - DATA_FILE_PENALTY)
+    assert data["data_penalty"] == DATA_FILE_PENALTY
+    assert data["vector_score"] == 0.52  # original cosine preserved
+
+
+def test_downweight_keeps_data_files_searchable():
+    pool = [hit(0.9, file="a.json", lang="json"), hit(0.4, file="b.py")]
+    out = downweight_data_files(pool, query_tokens("metrics"))
+    assert len(out) == 2, "data-file chunks must not be excluded"
+    assert any(h["file"] == "a.json" for h in out)
+
+
+def test_downweight_waived_when_query_targets_a_data_format():
+    pool = [hit(0.5, file="a.json", lang="json")]
+    out = downweight_data_files(pool, query_tokens("the json schema of a run"))
+    assert out[0]["score"] == 0.5
+
+
+def test_cap_data_file_share_mixes_code_into_the_window():
+    pool = [hit(0.55 - i / 100, file=f"data/run{i}.json", lang="json")
+            for i in range(5)]
+    pool += [hit(0.48 - i / 100, file=f"src/m{i}.py", symbol=f"metrics_{i}")
+             for i in range(4)]
+    out = cap_data_file_share(
+        downweight_data_files(pool, query_tokens("summarize metrics")),
+        limit=5, qtokens=query_tokens("summarize metrics"))
+    window = out[:5]
+    assert sum(1 for h in window if is_data_payload(h)) <= 2
+    assert sum(1 for h in window if not is_data_payload(h)) >= 3
+    assert len(out) == len(pool), "cap must never drop hits"
+
+
+def test_cap_keeps_data_files_searchable_beyond_the_window():
+    pool = [hit(0.5 - i / 100, file=f"d{i}.json", lang="json") for i in range(6)]
+    out = cap_data_file_share(pool, limit=5, qtokens=query_tokens("metrics"))
+    assert [h["file"] for h in out if is_data_payload(h)] == \
+        [f"d{i}.json" for i in range(6)]
+
+
+def test_cap_waived_when_query_targets_a_data_format():
+    pool = [hit(0.5 - i / 100, file=f"a{i}.json", lang="json") for i in range(5)]
+    out = cap_data_file_share(pool, limit=5,
+                              qtokens=query_tokens("find the yaml config"))
+    assert [h["file"] for h in out] == [h["file"] for h in pool]

@@ -10,6 +10,11 @@ module layers optional, opt-in re-ranking on top of that candidate pool:
   snippet text (`fused = vector_score + 0.25 * lexical`). Helps queries
   that mix natural language with exact identifiers, where embeddings
   alone under-rank the right chunk.
+- **data-file mitigation** — always applied (all modes, including the
+  default vector mode): pure-data payload chunks (json/yaml/toml) get a
+  small down-weight and their share of the top-k window is capped, because
+  their self-descriptive keys can crowd out the code that produces the data
+  for analysis-shaped queries. Waived when the query names a data format.
 
 All functions are pure and unit-testable without Qdrant or Ollama.
 """
@@ -37,6 +42,20 @@ TEST_PATH_PENALTY = 0.05
 
 # Weighted-sum fusion default weight (hybrid mode).
 LEXICAL_WEIGHT = 0.25
+
+# Pure-data payload files carry no code. Their self-descriptive keys match
+# analysis-shaped query vocabulary better than the code that produces the data,
+# so they can crowd every top-k slot for queries like "summarize the metrics
+# recorded in the latest run". They stay searchable — only down-weighted and
+# share-capped in the top-k window, never excluded.
+DATA_FILE_LANGS = frozenset({"json", "yaml", "toml"})
+DATA_FILE_EXTENSIONS = frozenset({".json", ".yaml", ".yml", ".toml"})
+DATA_FILE_PENALTY = 0.03
+# Fraction of the top-k window pure-data chunks may occupy (floor; at least 1).
+DATA_FILE_TOP_K_SHARE = 0.4
+# Query tokens that mean the caller is deliberately looking at a data file, in
+# which case the data-file mitigation is waived entirely.
+DATA_QUERY_MARKERS = frozenset({"json", "yaml", "yml", "toml"})
 
 
 def tokenize(text: str | None) -> list[str]:
@@ -135,3 +154,84 @@ def metadata_rerank(vector_hits: list[dict[str, Any]],
         out.append(h)
     out.sort(key=lambda h: h["score"], reverse=True)
     return out
+
+
+# -- data-file dominance mitigation (all ranking modes) ---------------------
+
+
+def is_data_payload(hit: dict[str, Any]) -> bool:
+    """True for a pure-data payload chunk (no code): json/yaml/toml.
+
+    Uses the stored `lang` when present (the index-time language payload,
+    set from the file extension) and falls back to the file extension.
+    """
+    lang = (hit.get("lang") or "").lower()
+    if lang in DATA_FILE_LANGS:
+        return True
+    file = (hit.get("file") or "").lower()
+    return any(file.endswith(ext) for ext in DATA_FILE_EXTENSIONS)
+
+
+def _targets_data(qtokens: list[str] | None) -> bool:
+    """The caller named a data format — the mitigation is waived."""
+    if not qtokens:
+        return False
+    return bool({t.lower() for t in qtokens} & DATA_QUERY_MARKERS)
+
+
+def downweight_data_files(hits: list[dict[str, Any]],
+                          qtokens: list[str] | None = None) -> list[dict[str, Any]]:
+    """Subtract a small delta from pure-data chunks and re-sort.
+
+    Data files stay in the result set (still searchable, never excluded);
+    their scores only move, so code chunks within the delta overtake them.
+    Records `data_penalty` per hit and keeps the pre-adjustment score in
+    `vector_score` when the caller has not already set it. Waived when the
+    query explicitly targets a data format.
+    """
+    if _targets_data(qtokens):
+        return hits
+    out: list[dict[str, Any]] = []
+    for hit in hits:
+        h = dict(hit)
+        h.setdefault("vector_score", hit["score"])
+        if is_data_payload(hit):
+            h["data_penalty"] = DATA_FILE_PENALTY
+            h["score"] = round(hit["score"] - DATA_FILE_PENALTY, 4)
+        else:
+            h["data_penalty"] = 0.0
+        out.append(h)
+    out.sort(key=lambda h: h["score"], reverse=True)
+    return out
+
+
+def cap_data_file_share(hits: list[dict[str, Any]], limit: int,
+                        qtokens: list[str] | None = None,
+                        max_share: float = DATA_FILE_TOP_K_SHARE
+                        ) -> list[dict[str, Any]]:
+    """Bound how many pure-data chunks may occupy the top-`limit` window.
+
+    `hits` must be score-ordered (best first). The highest-scoring data-file
+    chunks up to the cap stay in place; any further data-file chunks move
+    behind the non-data hits, so a code chunk is always preferred inside the
+    window when one is competitive. No hit is dropped and data files remain
+    searchable — they are only prevented from dominating the window. Waived
+    when the query targets a data format, or when the window is too small to
+    cap meaningfully.
+    """
+    if limit <= 0 or _targets_data(qtokens):
+        return hits
+    max_data = max(1, int(limit * max_share))
+    head: list[dict[str, Any]] = []
+    overflow: list[dict[str, Any]] = []
+    seen_data = 0
+    for hit in hits:
+        if is_data_payload(hit):
+            if seen_data < max_data:
+                head.append(hit)
+                seen_data += 1
+            else:
+                overflow.append(hit)
+        else:
+            head.append(hit)
+    return head + overflow

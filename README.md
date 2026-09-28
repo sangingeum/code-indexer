@@ -75,6 +75,12 @@ measured results):
   and snippet). Intended for queries that contain exact identifiers; it is
   noisier on pure natural-language intents, so it stays opt-in.
 
+Regardless of the mode, pure-data payload chunks (`.json`/`.yaml`/`.toml`)
+are down-weighted and capped to at most 40% of the top-k window, so they
+cannot crowd out the code that produces the data for analysis-shaped
+queries; they stay searchable and keep their place when the query names a
+data format (`docs/semantic-search-ranking-diversification.md` §4).
+
 `--symbol-type` and `--language` (e.g. `--symbol-type class`,
 `--language python`) scope the search by exact payload filter — no extra
 round trips on multi-language repos. The default call remains identical
