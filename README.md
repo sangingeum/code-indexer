@@ -44,6 +44,8 @@ code-indexer reindex-project /path/to/repo
 code-indexer remove-project /path/to/repo
 code-indexer watch /path/to/repo [--duration 300] [--background]   # optional inotify watcher
 code-indexer watch --all                            # watch all registered projects
+code-indexer unwatch /path/to/repo                  # stop the watcher (reverse of watch)
+code-indexer unwatch --all [--timeout 10]           # stop it for all registered projects
 ```
 
 Every subcommand accepts `--skip-stale-check` to skip the staleness probe /
@@ -176,9 +178,19 @@ embedding, zero Qdrant traffic.
   second watcher is refused while a live one holds it — the flock, not the
   pid, is the liveness test), and redirects stdout/stderr to
   `<INDEX_ROOT>/watch.log`. `--foreground` (default) keeps the inherited
-  stdio and normal output and does not take the pidfile. A stopped watcher
-  leaves no live lock or PID residue (the pidfile is unlinked only after
-  the flock is released).
+  stdio and normal output and takes the **same** pidfile, so "one watcher
+  per index root" holds in both modes. A stopped watcher leaves no live
+  lock or PID residue (the pidfile is unlinked only after the flock is
+  released).
+- **Stopping a watcher**: `code-indexer unwatch [PATH...|--all]
+  [--timeout S]` is the reverse of `watch`. It SIGTERMs the live watcher
+  holding the index root's pidfile — a `--background` daemon or a foreground
+  watcher alike — waits for the flock to be released (default 10 s), and
+  reports the projects that watcher was serving. Arguments mirror `watch`
+  (paths or `--all`, never both). The flock, never pid existence, is the
+  liveness test, so a stale pidfile left by a killed watcher is cleaned up
+  silently. No watcher running is a clean no-op: one line and exit 0 (exit
+  1 only when a live holder could not be stopped).
 - Opt-in and never a prerequisite: without a watcher, one-shot commands
   behave exactly as before (STALE_TTL probe per invocation).
 
@@ -270,7 +282,7 @@ $INDEX_ROOT/               (default ~/.code-indexer)
 ├── registry.db            # path -> slug mapping (SQLite, WAL)
 ├── <slug>.lock            # per-project lock
 ├── <slug>/manifest.db     # per-project file manifest (SQLite, WAL)
-├── watch.pid              # flock-guarded watcher PID file (--background only)
+├── watch.pid              # flock-guarded watcher PID file (both modes)
 └── watch.log              # watcher daemon stdout/stderr (--background only)
 ```
 

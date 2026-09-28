@@ -23,7 +23,8 @@ Semantic code index over Ollama embeddings + Qdrant, exposed as a one-shot CLI
 
 ## Architecture principles
 
-- One-shot CLI, no daemon required; `watch` is the optional freshness daemon.
+- One-shot CLI, no daemon required; `watch` is the optional freshness daemon
+  and `unwatch` stops it (both take the same flock-guarded pidfile).
 - The MCP server is a **thin wrapper over the CLI**, not a second
   implementation: each tool runs the matching `code-indexer` subcommand as a
   subprocess and relays its output (same code path, same foreground

@@ -44,6 +44,11 @@ Design ruling for the ``watch`` subcommand:
   refused. The lock lives on the inode, so a SIGKILLed watcher leaves no
   *live* lock; the pidfile is unlinked only after the fd is closed and the
   flock released (never while held).
+
+- **One pidfile per index root, both modes.** A foreground watcher takes the
+  same flock-guarded ``watch.pid`` as ``--background``, so "one watcher per
+  index root" holds in both modes and ``unwatch`` (``stop_watcher``) can find
+  and SIGTERM either one. Liveness is always the flock, never the pid.
 """
 
 from __future__ import annotations
@@ -52,12 +57,17 @@ import contextlib
 import fcntl
 import json
 import os
+import signal
 import sys
 import time
 from collections.abc import Callable
 from typing import Any
 
 SWEEP_INTERVAL_DEFAULT = 300
+
+# How long `stop_watcher` waits for a SIGTERMed watcher to release the
+# pidfile flock before giving up (CLI `unwatch --timeout`).
+STOP_TIMEOUT_DEFAULT = 10.0
 
 # Editor/backup/temp artifacts that never deserve an index pass.
 _TEMP_SUFFIXES: tuple[str, ...] = (".tmp", ".swp", ".swx", ".orig", ".rej", ".part", "~")
@@ -190,6 +200,72 @@ def _holder_roots(pid: int) -> list[str] | None:
             arg = os.path.join(holder_cwd, arg)
         roots.append(os.path.abspath(arg))
     return roots
+
+
+def pidfile_is_free(pidfile_path: str) -> bool:
+    """True when no live process holds the flock on ``pidfile_path``.
+
+    The flock — never pid existence — is the liveness test (see
+    ``PidFileLock``); a missing file counts as free. Best effort: an
+    unopenable pidfile is reported as free.
+    """
+    try:
+        fd = os.open(pidfile_path, os.O_RDWR)
+    except OSError:
+        return True
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return False
+    except OSError:
+        return True
+    else:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return True
+    finally:
+        os.close(fd)
+
+
+def stop_watcher(pidfile_path: str,
+                 timeout: float = STOP_TIMEOUT_DEFAULT) -> dict[str, Any]:
+    """SIGTERM the live watcher holding ``pidfile_path``; wait for the flock.
+
+    The reverse of ``watch``: both watcher modes — a ``--background`` daemon
+    and a foreground watcher — take this same pidfile and release it on exit,
+    so one unwatch handles either. Liveness is the flock (never the pid), and
+    a stale pidfile left by a SIGKILLed watcher is cleaned up silently.
+
+    Returns one of:
+
+    - ``{'state': 'absent', 'pid': None, 'roots': None}`` — no live holder;
+    - ``{'state': 'stopped', 'pid': p, 'roots': roots}`` — SIGTERM delivered
+      and the flock released within ``timeout``;
+    - ``{'state': 'timeout', 'pid': p, 'roots': roots}`` — still held after
+      ``timeout`` seconds;
+    - ``{'state': 'unresolvable', 'pid': None, 'roots': None}`` — a live
+      holder whose pid could not be read, so it cannot be signalled.
+
+    ``roots`` are the holder's watched project paths when recoverable
+    (``/proc``), else None.
+    """
+    if pidfile_is_free(pidfile_path):
+        with contextlib.suppress(OSError):
+            os.unlink(pidfile_path)
+        return {"state": "absent", "pid": None, "roots": None}
+    pid = read_pid(pidfile_path)
+    if not pid or pid <= 0:
+        return {"state": "unresolvable", "pid": None, "roots": None}
+    roots = _holder_roots(pid)
+    with contextlib.suppress(ProcessLookupError):
+        os.kill(pid, signal.SIGTERM)
+    deadline = time.monotonic() + max(0.0, timeout)
+    while time.monotonic() < deadline:
+        if pidfile_is_free(pidfile_path):
+            with contextlib.suppress(OSError):
+                os.unlink(pidfile_path)
+            return {"state": "stopped", "pid": pid, "roots": roots}
+        time.sleep(0.05)
+    return {"state": "timeout", "pid": pid, "roots": roots}
 
 
 def _redirect_stdio(log_path: str) -> None:

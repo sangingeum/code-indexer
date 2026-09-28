@@ -63,6 +63,8 @@ code-indexer reindex-project /path/repo   # full rebuild, foreground
 code-indexer remove-project /path/repo    # DESTRUCTIVE: drops collection + manifest + registry entry
 code-indexer watch /path/repo [--duration 300] [--background]   # optional inotify re-index daemon
 code-indexer watch --all                  # watch every registered project
+code-indexer unwatch /path/repo           # stop the watcher (reverse of watch)
+code-indexer unwatch --all [--timeout 10] # stop it for every registered project
 ```
 
 ## Subcommand reference
@@ -123,10 +125,11 @@ code-indexer watch --all                  # watch every registered project
   (`--start-line/--end-line`) or the lines around a symbol
   (`--symbol Foo::bar`). Never read whole files; this answers "show me the
   code" questions.
-- **index-status / reindex-project / remove-project / watch** — index
+- **index-status / reindex-project / remove-project / watch / unwatch** — index
   lifecycle. `reindex-project` is a full rebuild (also populates schema-v3
   signature/visibility columns on old manifests); `remove-project` is
-  destructive; `watch` is the background freshness daemon.
+  destructive; `watch` is the background freshness daemon; `unwatch` is the
+  reverse of `watch` (see below).
 
 ## Token reduction (schema v3)
 
@@ -146,10 +149,20 @@ are not tracked); do not oversell it.
 - Degradation: no watchdog installed or inotify watch-descriptor
   exhaustion -> quiet-period polling fallback (hash scan per project per
   quiet tick). Correctness is never lost, only latency.
-- `--foreground` (default) is the plain inherited-stdio behavior.
+- `--foreground` (default) is the plain inherited-stdio behavior, and takes
+  the SAME flock-guarded `<INDEX_ROOT>/watch.pid` as `--background`, so "one
+  watcher per index root" holds in both modes.
 - Projects: repeatable path/slug/name args, or `--all` (round-robin).
   Never pass both.
 - A second watcher is refused while a live one holds the PID-file flock.
+- `unwatch [PATH...|--all] [--timeout S]` is the reverse: it SIGTERMs the
+  live watcher holding `<INDEX_ROOT>/watch.pid` (either mode), waits for the
+  flock to be released (default 10 s), and reports the projects that watcher
+  was serving. The flock — never pid existence — is the liveness test, so a
+  stale pidfile left by a killed watcher is cleaned up silently. No watcher
+  running is a clean no-op (one-line message, exit 0); exit 1 only when a
+  live holder could not be stopped (`--timeout` elapsed, or its pid is
+  unreadable). Arguments mirror `watch`: paths or `--all`, never both.
 
 ## --name alias
 

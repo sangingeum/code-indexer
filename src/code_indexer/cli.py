@@ -292,8 +292,11 @@ def watch(
     <index_root>/watch.log, and exits the parent after the daemon's
     startup handshake. A stopped watcher leaves no live lock or PID
     residue (the pidfile is unlinked only after the flock is released).
-    --foreground is the default (inherited stdio, normal output) and does
-    not take the pidfile.
+    --foreground is the default (inherited stdio, normal output) and takes
+    the SAME pidfile, so one watcher per index root holds in both modes
+    and `unwatch` can stop either.
+
+    Stop it with `code-indexer unwatch [PATH...|--all]`.
 
     This is opt-in and never a prerequisite: one-shot commands work without
     any watcher running.
@@ -324,7 +327,18 @@ def watch(
         _watch_background(core, targets, duration, pidfile_path, log_path)
         return  # parent path returns; daemon path exits inside spawn
 
-    # ----- foreground (default): current behavior -----------------------
+    # ----- foreground (default) -----------------------------------------
+    # Foreground takes the same pidfile as --background: it is the
+    # single-instance gate in both modes (the flock, not the pid, is the
+    # liveness test) and the handle `unwatch` signals.
+    from .watcher import PidFileLock, read_pid
+
+    lock = PidFileLock(pidfile_path)
+    if not lock.acquire():
+        typer.echo(f"watch: already running (pid={read_pid(pidfile_path)}, "
+                   f"pidfile={pidfile_path})", err=True)
+        raise typer.Exit(3)
+
     deadline: float | None = (
         time.monotonic() + duration if duration and duration > 0 else None)
 
@@ -341,17 +355,95 @@ def watch(
 
     quiet = max(1, core.cfg.watch_debounce)
     sweep_interval = max(1, core.cfg.watch_sweep_interval)
-    engine = _make_engine(
-        core, targets, quiet=quiet, sweep_interval=sweep_interval)
-    mode = "inotify" if engine.start_events() else "poll"
-    typer.echo(
-        f"watching {len(targets)} project(s), mode={mode}, "
-        f"quiet={quiet}s, sweep={sweep_interval}s, "
-        f"duration={'forever' if deadline is None else f'{duration}s'}")
     try:
+        engine = _make_engine(
+            core, targets, quiet=quiet, sweep_interval=sweep_interval)
+        mode = "inotify" if engine.start_events() else "poll"
+        typer.echo(
+            f"watching {len(targets)} project(s), mode={mode}, "
+            f"quiet={quiet}s, sweep={sweep_interval}s, "
+            f"duration={'forever' if deadline is None else f'{duration}s'}")
         engine.run(duration, stop)
     finally:
         typer.echo("watch: exiting")
+        lock.release(unlink=True)
+    raise typer.Exit(0)
+
+
+@app.command()
+def unwatch(
+    paths: list[str] = typer.Argument(
+        None, help="Project paths (or slugs/names) the watcher covers. Repeatable."),
+    all_projects: bool = typer.Option(
+        False, "--all", help="Stop the watcher covering every registered project."),
+    timeout: float = typer.Option(
+        10.0, "--timeout",
+        help="Seconds to wait for the watcher to release the pidfile flock."),
+    skip_stale_check: bool = SkipOpt,
+) -> None:
+    """Stop the watcher started by `watch` — the reverse of `watch`.
+
+    SIGTERMs the live watcher holding this index root's pidfile
+    (<index_root>/watch.pid) and waits for it to release the flock. The
+    flock — never pid existence — is the liveness test, so a stale pidfile
+    left by a killed watcher is cleaned up silently. Works for both a
+    `--background` daemon and a foreground watcher (they share the pidfile).
+
+    Arguments mirror `watch`: repeatable project paths (or slugs/names), or
+    `--all`; never both, and never neither. The holder's watched projects
+    are reported, with a note when they do not cover everything requested.
+
+    No watcher running is a clean no-op: a one-line message and exit 0.
+    Exit 1 only when a live holder could not be stopped (`--timeout`
+    elapsed, or its pid is unreadable).
+    """
+    from .watcher import STOP_TIMEOUT_DEFAULT, stop_watcher
+
+    core = _get_core(skip_stale_check)
+
+    if all_projects and paths:
+        _die("error: pass project paths OR --all, not both")
+    if all_projects:
+        entries = core.registry.list_projects()
+        if not entries:
+            _die("error: no projects registered")
+    else:
+        entries = []
+        for p in paths or []:
+            entries.append(_resolve(core, p))
+        if not entries:
+            _die("error: give at least one project path (or --all)")
+
+    targets = [(e.slug, e.path) for e in entries]
+    pidfile_path = os.path.join(core.cfg.index_root, "watch.pid")
+    wait = STOP_TIMEOUT_DEFAULT if timeout is None else max(0.0, timeout)
+    result = stop_watcher(pidfile_path, timeout=wait)
+    state = result["state"]
+
+    if state == "absent":
+        typer.echo(f"unwatch: no watcher running (pidfile={pidfile_path})")
+        raise typer.Exit(0)
+    if state == "unresolvable":
+        typer.echo(
+            f"unwatch: a live watcher holds {pidfile_path} but its pid is "
+            f"unreadable; stop it manually", err=True)
+        raise typer.Exit(1)
+    if state == "timeout":
+        typer.echo(
+            f"unwatch: sent SIGTERM to pid={result['pid']} but it still "
+            f"holds {pidfile_path} after {wait}s", err=True)
+        raise typer.Exit(1)
+
+    typer.echo(f"unwatch: stopped watcher pid={result['pid']} "
+               f"(pidfile={pidfile_path})")
+    roots = result["roots"]
+    if roots is None:
+        typer.echo("unwatch: its watched projects could not be determined")
+    else:
+        typer.echo(f"unwatch: it was watching: {', '.join(roots)}")
+        if not _covers(roots, targets):
+            typer.echo("unwatch: note: it did not cover every requested "
+                       "project", err=True)
     raise typer.Exit(0)
 
 
