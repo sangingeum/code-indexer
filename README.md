@@ -345,9 +345,10 @@ unload between batches.
 
 ```bash
 uv sync                                  # install deps (.venv)
+uv sync --group watch                    # + watchdog (watcher tests need it)
 uv run code-indexer-mcp                  # run the stdio MCP server
 uv run code-indexer list-projects        # one-shot CLI (no daemon)
-uv run pytest                            # unit + concurrency tests
+uv run pytest tests/ -q -W error         # full suite, warn-clean (CI runs this)
 # (old dev/audit scripts under scripts/ were removed with the rename; the
 # live e2e coverage now lives in tests/, scripts/live_smoke.py in vector-memory)
 ```
