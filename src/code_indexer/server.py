@@ -1,112 +1,106 @@
-"""FastMCP server: thin tool adapters over code_indexer.core (design ruling §3).
+"""FastMCP server: a thin wrapper over the ``code-indexer`` CLI.
 
-Each tool handler is a <=10-line adapter calling exactly one core op; the
-core owns registry, indexer, manifest, embedder, store, and locks. Agents
-never touch index internals — semantic_search triggers the staleness check /
-incremental indexing transparently via the core (req 1).
+Every MCP tool is an adapter over exactly one CLI subcommand. The tool builds
+that subcommand's argv and runs it (subprocess), returning the CLI's own
+output — so the MCP surface and the CLI can never diverge: same code path,
+same formatting, same foreground semantics, one implementation.
 
-The filesystem watcher is NOT part of the default path (design ruling: it
-dies with a one-shot process and adds no value in the MCP lifecycle);
-staleness is enforced by the core's STALE_TTL probe on search/status.
+Consequences of the wrapper model (deliberate, matching the CLI):
+
+- **Foreground everywhere.** The CLI's ``add-project`` / ``reindex-project``
+  run the index pass in the foreground; so do the tools here — the call
+  returns when indexing finishes. No background threads, no hidden work.
+- **No duplicated logic.** This module owns no registry/index/store access;
+  it only builds argv and relays output.
+- **No ``watch`` tool.** A watcher makes no sense inside a long-lived MCP
+  server, and the CLI already refuses to be both; ``watch``/``unwatch`` are
+  CLI-only.
+
+The CLI is resolved as: ``$CODE_INDEXER_BIN`` if set, else the
+``code-indexer`` executable on ``PATH``, else ``python -m code_indexer.cli``.
+The subprocess inherits the server's environment (``INDEX_ROOT``,
+``OLLAMA_URL``, ``QDRANT_URL``, ``EMBED_MODEL``, ...).
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import os
-import threading
-import time
-from typing import Any
+import shutil
+import subprocess
+import sys
 
 from mcp.server.fastmcp import FastMCP
 
-from .core import MIGRATION_HINT, Core
-
 logger = logging.getLogger("code-indexer")
 
-CORE = Core()
 mcp = FastMCP("code-indexer")
+
+
+def _cli_argv(argv: list[str]) -> list[str]:
+    """The command line for one CLI invocation (resolved lazily)."""
+    override = os.environ.get("CODE_INDEXER_BIN")
+    if override:
+        return [override, *argv]
+    exe = shutil.which("code-indexer")
+    if exe:
+        return [exe, *argv]
+    return [sys.executable, "-m", "code_indexer.cli", *argv]
+
+
+def _run_cli(argv: list[str]) -> str:
+    """Run one ``code-indexer`` subcommand and return its combined output.
+
+    stdout and stderr are both relayed, so the CLI's own error messages
+    (``error: ...``) reach the caller. A nonzero exit with no output is
+    reported explicitly rather than silently.
+    """
+    cmd = _cli_argv(argv)
+    logger.debug("mcp -> %s", cmd)
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False,
+                          env=os.environ.copy())
+    out = (proc.stdout + proc.stderr).strip()
+    if proc.returncode != 0:
+        return out or f"error: command failed with exit code {proc.returncode}"
+    return out or "ok"
 
 
 @mcp.tool()
 def lookup_project(path: str) -> str:
-    """Check whether a project directory is registered, and report its
-    collection name and index summary (path, slug, name, idx_<slug>,
-    state, files, chunks, last_indexed). Does NOT register or index.
-    """
-    raw = os.path.abspath(os.path.expanduser(path))
-    entry = CORE.registry.get_by_path(raw)
-    if entry is None:
-        real = os.path.realpath(raw)
-        if real != raw:
-            entry = CORE.registry.get_by_path(real)
-    if entry is None:
-        return f"not registered: {raw}"
-    collection = f"idx_{entry.slug}"
-    name = f" name={entry.name}" if entry.name else ""
-    return f"registered:{name} {CORE.status_summary(entry)} collection={collection}"
+    """Check whether a project directory is registered — no side effects
+    (does NOT register or index). Thin wrapper over
+    `code-indexer lookup-project <path>`; one-shot, foreground. Paths are
+    normalized (tilde, relative, trailing slash, symlink)."""
+    return _run_cli(["lookup-project", path])
 
 
 @mcp.tool()
 def add_project(path: str, name: str | None = None) -> str:
-    """Register an absolute project directory for semantic indexing
-    (idempotent; optional sanitized custom name -> idx_<name>) and start
-    the initial indexing pass in the background.
-    """
-    path = os.path.abspath(os.path.expanduser(path))
-    try:
-        if not os.path.isdir(path):
-            return f"error: path does not exist: {path}"
-        entry = CORE.registry.get_by_path(path)
-        if entry is not None:
-            return f"already registered — index status: {CORE.status_summary(entry)}"
-        entry = CORE.registry.add(path, name=name)
-    except ValueError as exc:
-        return f"error: {exc}"
-    threading.Thread(
-        target=CORE.run_index, args=(entry.slug, entry.path),
-        daemon=True, name=f"index-{entry.slug}").start()
-    return f"registered {entry.path} (slug {entry.slug}); initial indexing started in background"
+    """Register a project directory for semantic indexing (idempotent) and run
+    the initial index pass — FOREGROUND: unlike the old MCP tool, this call
+    blocks until indexing finishes. Wraps
+    `code-indexer add-project <path> [--name NAME]`; optional NAME picks the
+    collection name (`idx_<name>`) instead of the auto hash slug."""
+    argv = ["add-project", path]
+    if name:
+        argv += ["--name", name]
+    return _run_cli(argv)
 
 
 @mcp.tool()
 def remove_project(path: str) -> str:
-    """Deregister a project and DELETE its Qdrant collection + manifest +
-    registry entry entirely."""
-    import glob as _glob
-    import shutil as _shutil
-    path = os.path.abspath(os.path.expanduser(path))
-    entry = CORE.registry.remove(path)
-    if entry is None:
-        return f"error: not registered: {path}"
-    collection = f"idx_{entry.slug}"
-    if CORE.store.collection_exists(collection):
-        CORE.store.drop_collection(collection)
-    # Remove manifest dir and (only when unheld) the lock file. The lock is
-    # flock-based and kernel-released on death, so deleting the file here is
-    # safe from the unlink-while-held footgun only because a removed project
-    # has no active indexers; see locks.py for the general footgun note.
-    for f in _glob.glob(os.path.join(CORE.cfg.index_root, f"{entry.slug}*")):
-        try:
-            os.remove(f)
-        except OSError:
-            pass
-    manifest_dir = os.path.join(CORE.cfg.index_root, entry.slug)
-    if os.path.isdir(manifest_dir):
-        _shutil.rmtree(manifest_dir, ignore_errors=True)
-    CORE._index_state.pop(entry.slug, None)
-    return f"removed {path}: collection {collection} dropped, registry entry deleted"
+    """Deregister a project and DELETE its Qdrant collection, SQLite manifest,
+    and registry entry entirely. Thin wrapper over
+    `code-indexer remove-project <path>`; one-shot, foreground. DESTRUCTIVE."""
+    return _run_cli(["remove-project", path])
 
 
 @mcp.tool()
 def list_projects() -> str:
-    """List registered projects with per-project index summary and staleness."""
-    entries = CORE.registry.list_projects()
-    if not entries:
-        return "no projects registered"
-    return "\n".join(
-        f"- {CORE.status_summary(e)}" for e in entries)
+    """List registered projects with per-project index summary (path, slug,
+    state, files, chunks, last_indexed). Thin wrapper over
+    `code-indexer list-projects`; one-shot, foreground."""
+    return _run_cli(["list-projects"])
 
 
 @mcp.tool()
@@ -116,285 +110,182 @@ def semantic_search(query: str, project: str | None = None, limit: int = 8,
                     language: str | None = None,
                     ranking: str = "vector",
                     format: str = "text") -> str:
-    """Semantic code search across indexed projects. THE hot path.
+    """Semantic code search across indexed projects. Thin wrapper over
+    `code-indexer semantic-search QUERY [--project P] [--limit N]
+    [--file-filter GLOB] [--symbol-type T] [--language L] [--ranking M]
+    [--json]`; one-shot, foreground.
 
-    Automatically runs a staleness check first and incrementally re-indexes
-    changed files. format: 'text' or 'json' (stable field contract: project,
-    file, score, symbol, symbol_type, lang, start_line, end_line, snippet).
-    ranking: 'vector' (pure cosine, default) | 'metadata' (cosine plus small
-    definition/test-path adjustments) | 'hybrid' (weighted-sum fusion of
-    the vector score with lexical token overlap — better for queries containing
-    exact identifiers). symbol_type/language scope the search to one symbol
-    type or language.
+    The staleness probe runs only when the index is actually stale (quietly).
+    `project` accepts a path, slug, or registered custom name; omitted searches
+    every registered project. `ranking`: 'vector' (pure cosine, default) |
+    'metadata' (definition boost / test-path penalty) | 'hybrid' (cosine fused
+    with lexical token overlap — better for exact-identifier queries).
+    `format`: 'text' or 'json' (the JSON field contract is the CLI's:
+    project, file, score, symbol, symbol_type, lang, start_line, end_line,
+    snippet).
     """
-    return CORE.search_for_display(
-        query, project=project, limit=limit, file_filter=file_filter,
-        symbol_type=symbol_type, language=language, ranking_mode=ranking,
-        fmt=format)
+    argv = ["semantic-search", query, "--limit", str(limit)]
+    if project:
+        argv += ["--project", project]
+    if file_filter:
+        argv += ["--file-filter", file_filter]
+    if symbol_type:
+        argv += ["--symbol-type", symbol_type]
+    if language:
+        argv += ["--language", language]
+    if ranking and ranking != "vector":
+        argv += ["--ranking", ranking]
+    if format == "json":
+        argv += ["--json"]
+    return _run_cli(argv)
 
 
 @mcp.tool()
 def index_status(path: str) -> str:
-    """Check indexing state for a project: idle | indexing | stale | error,
-    plus last-pass progress. Also triggers the staleness check."""
-    path = os.path.abspath(os.path.expanduser(path))
-    entry = CORE.registry.get_by_path(path)
-    if not entry:
-        return f"error: not registered: {path}"
-    refresh = CORE.maybe_refresh(entry.slug, entry.path)
-    st = CORE.state_for(entry.slug)
-    state = st.get("state", "idle")
-    last = st.get("last_result")
-    err = st.get("error")
-    parts = [f"project={path}", f"state={state}"]
-    if last:
-        parts.append(f"last_pass={last}")
-    if err:
-        parts.append(f"error={err}")
-    if refresh.get("state") == "indexing":
-        parts.append("note=incremental pass ran/was held by another process")
-    return " ".join(parts)
+    """Report indexing state for a project: idle | indexing | stale | error,
+    plus last-pass progress. Thin wrapper over
+    `code-indexer index-status <path>`; one-shot, foreground. Informational
+    only — like the CLI, this does NOT trigger a re-index."""
+    return _run_cli(["index-status", path])
 
 
 @mcp.tool()
 def reindex_project(path: str) -> str:
-    """Force a full rebuild of a project's index (chunker/model change,
-    suspected corruption)."""
-    path = os.path.abspath(os.path.expanduser(path))
-    entry = CORE.registry.get_by_path(path)
-    if not entry:
-        return f"error: not registered: {path}"
-    def _force() -> None:
-        CORE.run_index(entry.slug, entry.path, force=True)
-    threading.Thread(target=_force, daemon=True, name=f"reindex-{entry.slug}").start()
-    return f"full reindex queued for {path}"
-
-
-def _fmt_symbol_rows(rows, project_path: str, match_label: bool) -> str:
-    out = []
-    for r in rows:
-        line = (f"- {project_path}::{r.file}:{r.start_line}-{r.end_line} "
-                f"{r.name} ({r.symbol_type}, confidence="
-                f"{'exact' if r.source == 'ast' else 'heuristic'}")
-        if match_label:
-            line += ", match=exact" if not getattr(r, "_substring", False) \
-                else ", match=substring"
-        line += ")"
-        if getattr(r, "signature", None):
-            line += f"  {r.signature}"
-        out.append(line)
-    return "\n".join(out)
+    """Force a full rebuild of a project's index — FOREGROUND: this call blocks
+    until the rebuild finishes (no background thread). Thin wrapper over
+    `code-indexer reindex-project <path>`."""
+    return _run_cli(["reindex-project", path])
 
 
 @mcp.tool()
 def find_symbol(name: str, project: str | None = None,
                 symbol_type: str | None = None) -> str:
     """Look up symbols by name in the manifest symbol index (no semantic
-    search). Exact AST-first, capped substring fallback; symbol_type filters
-    function|method|class|struct|enum|namespace.
-    """
-    entry, err = CORE.resolve_entry(project)
-    if entry is None:
-        return err
-    CORE.maybe_refresh(entry.slug, entry.path)
-    m = CORE.manifest_for(entry.slug)
-    try:
-        rows = m.find_symbols(name, symbol_type=symbol_type, substring=False)
-        match_label = False
-        if not rows:
-            rows = m.find_symbols(name, symbol_type=symbol_type, substring=True)
-            for r in rows:
-                r._substring = True  # type: ignore[attr-defined]
-            match_label = True
-        if not rows:
-            msg = f"no symbols matching {name!r}"
-            if CORE.schema_migrated(entry):
-                msg += "\n" + MIGRATION_HINT
-            return msg
-        return _fmt_symbol_rows(rows, entry.path, match_label)
-    finally:
-        m.close()
+    search): exact AST-first, capped substring fallback. Thin wrapper over
+    `code-indexer find-symbol NAME [--project P] [--symbol-type T]`;
+    one-shot, foreground. `symbol_type`:
+    function|method|class|struct|enum|namespace."""
+    argv = ["find-symbol", name]
+    if project:
+        argv += ["--project", project]
+    if symbol_type:
+        argv += ["--symbol-type", symbol_type]
+    return _run_cli(argv)
 
 
 @mcp.tool()
 def find_symbols(project: str | None = None, symbol_type: str | None = None,
                  file: str | None = None, limit: int = 25,
                  format: str = "text") -> str:
-    """Browse-mode symbol listing (design §2.3 — replaces list-symbols):
-    optional symbol_type / file filters over the manifest symbol index,
-    capped at limit (max 500). format: 'text' or 'json'. Signatures
-    included when stored (schema v3)."""
-    limit = max(1, min(int(limit), 500))
-    entry, err = CORE.resolve_entry(project)
-    if entry is None:
-        return err
-    CORE.maybe_refresh(entry.slug, entry.path)
-    m = CORE.manifest_for(entry.slug)
-    try:
-        rows = m.find_symbols(None, symbol_type=symbol_type,
-                              file=file, limit=limit)
-        if not rows:
-            msg = "no symbols matching the given filters"
-            if CORE.schema_migrated(entry):
-                msg += "\n" + MIGRATION_HINT
-            return msg
-        if format == "json":
-            return json.dumps([
-                {"file": r.file, "name": r.name, "type": r.symbol_type,
-                 "start_line": r.start_line, "end_line": r.end_line,
-                 "signature": r.signature}
-                for r in rows], ensure_ascii=False, indent=2)
-        return _fmt_symbol_rows(rows, entry.path, match_label=False)
-    finally:
-        m.close()
+    """Browse-mode symbol listing: no name, filter the manifest symbol index by
+    type/file, capped at `limit` (default 25). Thin wrapper over
+    `code-indexer find-symbol [--project P] [--symbol-type T] [--file F]
+    [--limit N] [--json]`; one-shot, foreground. Signatures included when
+    stored (schema v3)."""
+    argv = ["find-symbol"]
+    if project:
+        argv += ["--project", project]
+    if symbol_type:
+        argv += ["--symbol-type", symbol_type]
+    if file:
+        argv += ["--file", file]
+    argv += ["--limit", str(limit)]
+    if format == "json":
+        argv += ["--json"]
+    return _run_cli(argv)
 
 
 @mcp.tool()
 def skeleton(project: str | None = None, path_prefix: str | None = None,
              limit: int | None = None, format: str = "text") -> str:
-    """Whole-project or per-subtree structural map from the manifest only
-    (design §2.1): one file per group, one symbol per line with lines and
-    signature. path_prefix restricts to files under a project-relative path.
-    format: 'text' or 'json'."""
-    entry, err = CORE.resolve_entry(project)
-    if entry is None:
-        return err
-    data = CORE.skeleton(entry, prefix=path_prefix, tree_mode=False,
-                         limit=limit, include_signatures=True)
-    text = CORE.format_skeleton(data, format)
-    if CORE.schema_migrated(entry):
-        text += "\n" + MIGRATION_HINT
-    return text
+    """Whole-project or per-subtree structural map from the manifest only: one
+    file per group, one symbol per line with lines and the stored signature.
+    Thin wrapper over `code-indexer skeleton [--project P] [PATH_PREFIX]
+    [--limit N] [--json]`; one-shot, foreground. `path_prefix` restricts to
+    files under a project-relative path."""
+    argv = ["skeleton"]
+    if project:
+        argv += ["--project", project]
+    if path_prefix:
+        argv += [path_prefix]
+    if limit is not None:
+        argv += ["--limit", str(limit)]
+    if format == "json":
+        argv += ["--json"]
+    return _run_cli(argv)
 
 
 @mcp.tool()
 def outline(file: str, project: str | None = None,
             docstrings: bool = False, format: str = "text") -> str:
-    """One file: declarations, signatures, one-line docstrings (design §2.2).
-    file is project-relative (or absolute — the project root prefix is
-    stripped). format: 'text' or 'json'."""
-    entry, err = CORE.resolve_entry(project)
-    if entry is None:
-        return err
-    try:
-        data = CORE.outline(entry, file, include_docstrings=docstrings)
-    except ValueError as exc:
-        return str(exc)
-    text = CORE.format_outline(data, format)
-    if CORE.schema_migrated(entry):
-        text += "\n" + MIGRATION_HINT
-    return text
+    """One file: declarations, signatures, one-line docstrings. Thin wrapper
+    over `code-indexer outline FILE [--project P] [--docstrings] [--json]`;
+    one-shot, foreground. `file` is project-relative (or absolute — the
+    project root prefix is stripped)."""
+    argv = ["outline", file]
+    if project:
+        argv += ["--project", project]
+    if docstrings:
+        argv += ["--docstrings"]
+    if format == "json":
+        argv += ["--json"]
+    return _run_cli(argv)
 
 
 @mcp.tool()
 def find_definition(name: str, project: str | None = None) -> str:
-    """Find where a symbol is declared (exact name match only, no fallback)."""
-    entry, err = CORE.resolve_entry(project)
-    if entry is None:
-        return err
-    CORE.maybe_refresh(entry.slug, entry.path)
-    m = CORE.manifest_for(entry.slug)
-    try:
-        rows = m.find_symbols(name, substring=False)
-        if not rows:
-            msg = f"no exact-match symbols named {name!r}"
-            if CORE.schema_migrated(entry):
-                msg += "\n" + MIGRATION_HINT
-            return msg
-        return _fmt_symbol_rows(rows, entry.path, match_label=False)
-    finally:
-        m.close()
+    """Find where a symbol is declared (exact name match only, no substring
+    fallback). Thin wrapper over
+    `code-indexer find-definition NAME [--project P]`; one-shot, foreground."""
+    argv = ["find-definition", name]
+    if project:
+        argv += ["--project", project]
+    return _run_cli(argv)
 
 
-def _read_range(abs_path: str, start: int, end: int) -> str:
-    with open(abs_path, encoding="utf-8", errors="replace") as f:
-        lines = f.readlines()
-    total = len(lines)
-    start = max(1, start)
-    end = min(total, end)
-    if start > total:
-        return f"error: start_line {start} beyond end of file ({total} lines)"
-    return "\n".join(
-        f"{i:>5}| {lines[i - 1].rstrip()}" for i in range(start, end + 1))
+@mcp.tool()
+def find_references(name: str, project: str | None = None,
+                    relationship: str | None = None, limit: int = 25) -> str:
+    """Find textual references TO a symbol: calls, inherits, includes (all
+    confidence=heuristic — a navigation aid, not static analysis). Thin
+    wrapper over `code-indexer find-references NAME [--project P]
+    [--relationship R] [--limit N]`; one-shot, foreground."""
+    argv = ["find-references", name]
+    if project:
+        argv += ["--project", project]
+    if relationship:
+        argv += ["--relationship", relationship]
+    argv += ["--limit", str(limit)]
+    return _run_cli(argv)
 
 
 @mcp.tool()
 def get_code_context(file: str, project: str | None = None,
                      start_line: int | None = None, end_line: int | None = None,
                      symbol: str | None = None, context_lines: int = 0) -> str:
-    """Retrieve ONLY the relevant source lines instead of reading whole files
-    (by line range, or by symbol with context_lines padding)."""
-    entry, err = CORE.resolve_entry(project)
-    if entry is None:
-        return err
-    rel = file.lstrip("/")
-    abs_path = os.path.normpath(os.path.join(entry.path, rel))
-    if not abs_path.startswith(os.path.normpath(entry.path) + os.sep):
-        return f"error: path outside registered project: {file}"
-    if not os.path.isfile(abs_path):
-        return f"error: file not found: {abs_path}"
-
-    ranges: list[tuple[int, int]] = []
+    """Retrieve ONLY the relevant source lines instead of reading whole files —
+    by line range (`start_line`/`end_line`) or via a symbol, padded by
+    `context_lines`. Thin wrapper over `code-indexer get-code-context FILE
+    [--project P] [--start-line N] [--end-line N] [--symbol S]
+    [--context-lines N]`; one-shot, foreground."""
+    argv = ["get-code-context", file]
+    if project:
+        argv += ["--project", project]
+    if start_line is not None:
+        argv += ["--start-line", str(start_line)]
+    if end_line is not None:
+        argv += ["--end-line", str(end_line)]
     if symbol:
-        CORE.maybe_refresh(entry.slug, entry.path)
-        m = CORE.manifest_for(entry.slug)
-        try:
-            rows = [r for r in m.find_symbols(symbol, substring=False)
-                    if r.file == rel]
-        finally:
-            m.close()
-        if not rows:
-            return f"error: symbol {symbol!r} not indexed in {rel}"
-        for r in rows[:5]:
-            ranges.append((max(1, r.start_line - context_lines),
-                           r.end_line + context_lines))
-    elif start_line is not None:
-        end = end_line if end_line is not None else start_line
-        ranges.append((max(1, start_line - context_lines),
-                       end + context_lines))
-    else:
-        return "error: provide start_line/end_line or symbol"
-
-    blocks = []
-    for s, e in ranges:
-        blocks.append(f"--- {rel}:{s}-{e} ---\n" + _read_range(abs_path, s, e))
-    return "\n".join(blocks)
-
-
-@mcp.tool()
-def find_references(name: str, project: str | None = None,
-                    relationship: str | None = None, limit: int = 25) -> str:
-    """Find textual references TO a symbol: calls, inherits, includes
-    (all confidence=heuristic; navigation aid, not static analysis)."""
-    entry, err = CORE.resolve_entry(project)
-    if entry is None:
-        return err
-    CORE.maybe_refresh(entry.slug, entry.path)
-    m = CORE.manifest_for(entry.slug)
-    try:
-        rows = m.find_refs(name, relationship=relationship, limit=limit)
-        if not rows:
-            return f"no references to {name!r}"
-        known = m.all_symbol_names()
-        lines = [f"references to {name!r} (all confidence=heuristic):"]
-        for r in rows:
-            exact = "exact" if r.target in known else "heuristic"
-            src = f" in {r.src_symbol}" if r.src_symbol else ""
-            lines.append(
-                f"- {entry.path}::{r.file}:{r.line}{src} "
-                f"{r.relationship} {r.target} (target_confidence={exact})")
-        return "\n".join(lines)
-    finally:
-        m.close()
+        argv += ["--symbol", symbol]
+    if context_lines:
+        argv += ["--context-lines", str(context_lines)]
+    return _run_cli(argv)
 
 
 def main() -> None:
+    """Console-script entry point (``code-indexer-mcp``)."""
     from .logsetup import configure_logging
 
     configure_logging(verbose=os.environ.get("VERBOSE", "") not in ("", "0"))
-    logger.info(
-        "code-indexer MCP starting — ollama=%s qdrant=%s model=%s index_root=%s",
-        CORE.cfg.ollama_url, CORE.cfg.qdrant_url, CORE.cfg.embed_model,
-        CORE.cfg.index_root,
-    )
+    logger.info("code-indexer MCP starting (thin wrapper over the CLI)")
     mcp.run(transport="stdio")

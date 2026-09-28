@@ -17,12 +17,17 @@ Semantic code index over Ollama embeddings + Qdrant, exposed as a one-shot CLI
 - `src/code_indexer/` — single package: `cli.py` (typer app), `core.py`
   (Core facade), `config.py`, `indexer.py`, `embedder.py`, `store.py`
   (Qdrant), `registry.py`, `manifest.py`, `locks.py` (per-project flock),
-  `watcher.py` (watch daemon + PidFileLock), `server.py` (MCP).
+  `watcher.py` (watch daemon + PidFileLock), `server.py` (MCP — thin wrapper
+  over the CLI, no logic of its own).
 - `tests/` — pytest; embedder/store stubbed at the Core seam, no network.
 
 ## Architecture principles
 
 - One-shot CLI, no daemon required; `watch` is the optional freshness daemon.
+- The MCP server is a **thin wrapper over the CLI**, not a second
+  implementation: each tool runs the matching `code-indexer` subcommand as a
+  subprocess and relays its output (same code path, same foreground
+  semantics, no hidden threads).
 - Single-instance gates are kernel flocks (pidfile flock for the watcher,
   per-project flock for index passes) — pid/lockfile content is advisory.
 - Self-write suppression: the watcher never indexes its own state root.

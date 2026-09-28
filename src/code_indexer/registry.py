@@ -66,7 +66,7 @@ class Registry:
     def __init__(self, db_path: str):
         self.db_path = db_path
         # check_same_thread=False: the core is used from worker threads
-        # (server background index threads, CLI helper threads). All access
+        # (the CLI watcher loop's per-project passes). All access
         # is short transactions under WAL + busy_timeout, and cross-process
         # writes are serialized by the per-project flock.
         self._conn = sqlite3.connect(db_path, timeout=30, check_same_thread=False)

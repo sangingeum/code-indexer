@@ -1,15 +1,16 @@
 # code-indexer
 
-Semantic code index over Ollama + Qdrant, with **two entry points over the
-same core** (`code_indexer.core`): an MCP stdio server (`code-indexer-mcp`)
-for agent use, and a one-shot CLI (`code-indexer`) for shell/scripts. The MCP
-server keeps an automatic semantic index of one or more local project
-directories in Qdrant, using Ollama (`qwen3-embedding:8b`, 4096-dim) for
-embeddings. Fully LAN-local; no cloud.
+Semantic code index over Ollama + Qdrant, with a one-shot CLI
+(`code-indexer`, typer) and an MCP stdio server (`code-indexer-mcp`) that is a
+**thin wrapper over that same CLI**: every MCP tool builds the argv of the
+matching `code-indexer` subcommand and runs it, relaying its output — one code
+path, so the two surfaces can never diverge. The index maps one or more local
+project directories in Qdrant, using Ollama (`qwen3-embedding:8b`, 4096-dim)
+for embeddings. Fully LAN-local; no cloud.
 
-**Agents never index anything themselves.** They only call `semantic_search`
+**Agents never index anything themselves.** They only call `semantic-search`
 (which transparently runs a staleness check + incremental indexing first) plus
-a few admin tools. Chunks, hashes, and collections are never exposed.
+a few admin subcommands. Chunks, hashes, and collections are never exposed.
 
 ## Installation (CLI)
 
@@ -47,8 +48,9 @@ code-indexer watch --all                            # watch all registered proje
 
 Every subcommand accepts `--skip-stale-check` to skip the staleness probe /
 incremental index pass on that invocation (startup-cost opt-out; there is no
-daemon **on the default path**). CLI subcommands and MCP tools map 1:1 to core
-operations.
+daemon **on the default path**). Every MCP tool is a thin wrapper over the
+matching CLI subcommand — same behavior, same formatting, same foreground
+semantics — so this CLI section doubles as the MCP tool reference.
 
 `find-symbol`, `find-definition`, `find-references`, and `get-code-context`
 accept both `--project X` and `--name X` for the project argument (path,
@@ -182,36 +184,53 @@ embedding, zero Qdrant traffic.
 
 ## Tools (MCP)
 
-| Tool | Description |
-|---|---|
-| `add_project(path, name)` | Register a project directory; creates the Qdrant collection and starts a full initial index in the background. **Idempotent**: re-adding an already-registered path returns the current index status summary (state, files, chunks, last_indexed) and does NOT spawn a re-index — only nonexistent paths error. Optional `name` picks the collection name yourself (`idx_<name>`, sanitized to `[A-Za-z0-9_-]`, 1-64 chars, collision-checked) instead of the auto hash slug. |
-| `lookup_project(path)` | Check registration without side effects: returns one line with path, slug, custom name, Qdrant collection name (`idx_<slug>`), state, files, chunks, last_indexed — or `not registered: <path>`. Normalizes paths (tilde, relative, trailing slash; symlink matched via real path). Use this instead of guessing via `add_project` idempotency. |
-| `remove_project(path)` | Deregister and **delete** the Qdrant collection, SQLite manifest, and registry entry. |
-| `list_projects()` | Registered projects with file/chunk counts, last-indexed time, and state. |
-| `semantic_search(query, project?, limit=8, file_filter?, symbol_type?, language?, ranking?, format?)` | The hot path. Always runs a staleness check first; `project=None` searches all registered projects. `project` accepts a path, a slug, or a registered custom name. Returns file paths, line ranges, symbols, scores, snippets. `ranking`: `vector` (pure cosine, default) \| `metadata` (small definition boost / test-path penalty adjustments) \| `hybrid` (cosine fused with lexical token overlap — better for exact-identifier queries). `symbol_type`/`language` scope results by payload filter. |
-| `index_status(path)` | `idle \| indexing \| error` + last-pass progress. |
-| `reindex_project(path)` | Force a full rebuild. |
-| `find_symbol(name, project?, symbol_type?)` | Look up symbols by name in the manifest symbol index (no semantic search). Exact AST-first, capped substring fallback. `symbol_type`: function\|method\|class\|struct\|enum\|namespace. |
-| `find_symbols(project?, symbol_type?, file?, limit=25, format?)` | Browse mode (no name): filter the manifest symbol index by type/file, capped. Replaces the pruned list-symbols proposal. |
-| `skeleton(project?, path_prefix?, limit?, format?)` | Whole-project or per-subtree structural map from the manifest only (design §2.1): files with symbol lines and signatures. |
-| `outline(file, project?, docstrings?, format?)` | One file: declarations, signatures, optional one-line docstrings (design §2.2). |
-| `find_definition(name, project?)` | Where a symbol is declared (exact name match only, no substring). |
-| `find_references(name, project?, relationship?, limit=25)` | Textual references TO a symbol (all confidence=heuristic). `relationship`: calls\|inherits\|includes\|references. |
-| `get_code_context(file, project?, start_line?, end_line?, symbol?, context_lines?)` | Retrieve ONLY the relevant source lines — by line range (`start_line`+`end_line`) or via a symbol (`symbol`), padded by `context_lines`. |
+The MCP server (`code-indexer-mcp`) is a **thin wrapper over the CLI**: each
+tool below builds the argv of the matching `code-indexer` subcommand and runs
+it, relaying its output (stdout and stderr; a nonzero CLI exit surfaces as the
+CLI's own `error: ...` text). There is no second implementation, so the tool
+set can never drift from the CLI. The CLI is resolved from
+`CODE_INDEXER_BIN`, else `code-indexer` on `PATH`, else
+`python -m code_indexer.cli`; the subprocess inherits the server's environment
+(`INDEX_ROOT`, `OLLAMA_URL`, `QDRANT_URL`, `EMBED_MODEL`, ...).
+
+**Everything runs in the foreground**, exactly like the CLI: `add_project` and
+`reindex_project` block until their index pass finishes (no background
+threads, no hidden work).
+
+| Tool | CLI subcommand | Description |
+|---|---|---|
+| `add_project(path, name?)` | `add-project` | Register a project directory (idempotent) and run the initial index pass **in the foreground**. Re-adding an already-registered path reports its status and does NOT re-index; only nonexistent paths error. Optional `name` picks the collection name (`idx_<name>`, sanitized to `[A-Za-z0-9_-]`, 1-64 chars, collision-checked) instead of the auto hash slug. |
+| `lookup_project(path)` | `lookup-project` | Registration check with no side effects: prints the CLI's one-line status (`registered path=... slug=... state=... files=... chunks=... last_indexed=... collection=idx_<slug>`) or `not registered: <path>`. Normalizes paths (tilde, relative, trailing slash; symlink matched via real path). |
+| `remove_project(path)` | `remove-project` | Deregister and **delete** the Qdrant collection, SQLite manifest, and registry entry. |
+| `list_projects()` | `list-projects` | Registered projects with file/chunk counts, last-indexed time, and state. |
+| `semantic_search(query, project?, limit=8, file_filter?, symbol_type?, language?, ranking?, format?)` | `semantic-search` | The hot path. Runs the staleness check first (only when the index is actually stale, quietly); `project=None` searches all registered projects. Returns file paths, line ranges, symbols, scores, snippets. `ranking`: `vector` (pure cosine, default) \| `metadata` (small definition boost / test-path penalty adjustments) \| `hybrid` (cosine fused with lexical token overlap — better for exact-identifier queries). `symbol_type`/`language` scope results by payload filter; `format='json'` selects the CLI's JSON contract. |
+| `index_status(path)` | `index-status` | `idle \| indexing \| stale \| error` + last-pass progress. Like the CLI, this is **informational only** — it does not trigger a re-index. |
+| `reindex_project(path)` | `reindex-project` | Force a full rebuild, **in the foreground** (blocks until finished). |
+| `find_symbol(name, project?, symbol_type?)` | `find-symbol` | Look up symbols by name in the manifest symbol index (no semantic search). Exact AST-first, capped substring fallback. `symbol_type`: function\|method\|class\|struct\|enum\|namespace. |
+| `find_symbols(project?, symbol_type?, file?, limit=25, format?)` | `find-symbol` (browse) | No name: filter the manifest symbol index by type/file, capped at `limit` (default 25). |
+| `skeleton(project?, path_prefix?, limit?, format?)` | `skeleton` | Whole-project or per-subtree structural map from the manifest only: files with symbol lines and signatures. |
+| `outline(file, project?, docstrings?, format?)` | `outline` | One file: declarations, signatures, optional one-line docstrings. |
+| `find_definition(name, project?)` | `find-definition` | Where a symbol is declared (exact name match only, no substring). |
+| `find_references(name, project?, relationship?, limit=25)` | `find-references` | Textual references TO a symbol (all confidence=heuristic). `relationship`: calls\|inherits\|includes\|references. |
+| `get_code_context(file, project?, start_line?, end_line?, symbol?, context_lines?)` | `get-code-context` | Retrieve ONLY the relevant source lines — by line range (`start_line`+`end_line`) or via a symbol (`symbol`), padded by `context_lines`. |
 
 MCP `project` parameters accept a path, slug, or registered custom name
 (equivalent to the CLI's `--project X` / `--name X`). There is no MCP `watch`
-tool: a watcher makes no sense inside an MCP server that is already
+or `unwatch` tool: a watcher makes no sense inside an MCP server that is
+already
 long-lived — `watch` is CLI-only.
 
 ## How indexing / staleness works
 
-- **First index** (`add_project`) runs on a background thread; the tool
-  returns immediately. Use `index_status` to wait for completion.
-- **Staleness check** (on every `semantic_search` / `index_status`): if the
-  project hasn't been scanned within `STALE_TTL` seconds (default 60), the
-  server re-scans file hashes and incrementally re-indexes only what changed.
-  Answers are never served from a stale index by more than one scan interval.
+- **First index** (`add-project`, and the `add_project` tool) runs in the
+  **foreground**: the command returns when indexing finishes (no background
+  thread). `index-status` reports the current state at any time; add
+  `--refresh` to force a staleness pass.
+- **Staleness check** (on `semantic-search`): if the project hasn't been
+  scanned within `STALE_TTL` seconds (default 60), the command re-scans file
+  hashes and incrementally re-indexes only what changed; `index-status` is
+  informational unless given `--refresh`. Answers are never served from a
+  stale index by more than one scan interval.
 - **Incremental diff**: files are classified `unchanged` / `changed` / `added`
   / `deleted` by **content hash** (sha256 — not mtime, which lies after branch
   switches). Only chunks whose own hash changed get re-embedded; point IDs are
