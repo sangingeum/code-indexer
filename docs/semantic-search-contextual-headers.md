@@ -71,10 +71,30 @@ stay valid. The snippet payload remains raw chunk text.
   manifests) out-scoring code for analysis-shaped queries — a separate
   issue, not addressed here.
 
+## Format guard (`embed_format`)
+
+The manifest now records which embedding-text construction produced the
+stored vectors: the `embed_format` meta key, whose value is defined next to
+`embed_text()` in `code_indexer/embed_text.py`. Each indexing pass compares
+the recorded value with the code's current one; on mismatch — including an
+index whose manifest predates the key — the pass behaves like a full rebuild
+(the chunk-hash cache is cleared and every chunk is re-embedded) and then
+records the new value. Bump the constant in the same change that alters
+`embed_text()`; the constant and the construction must not drift.
+
+**Operational note:** an index built before contextual headers existed holds
+bare-text vectors, so its `semantic-search` quality stays at pre-header
+levels until the vectors are rebuilt. Any indexing pass re-embeds them (the
+missing `embed_format` is itself the mismatch); `reindex-project` forces the
+rebuild immediately.
+
 ## Tests
 
 - `tests/test_embed_text.py` — header format, symbol omission,
   determinism, newline/multibyte preservation.
+- `tests/test_embed_format.py` — the embed_format guard: a fresh manifest
+  records the key, a matching value reuses cached chunks, a mismatch forces a
+  full re-embed and re-records the value.
 - `tests/test_indexer_embed_context.py` — the indexer feeds the embedder
   contextual text (header + chunk), not bare chunk text.
 - Fixed a pre-existing warn-clean violation in `tests/test_watcher.py`

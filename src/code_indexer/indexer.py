@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 from .chunker import Chunk, chunk
 from .config import Config
-from .embed_text import embed_text
+from .embed_text import EMBED_FORMAT, embed_text
 from .embedder import Embedder
 from . import ts_chunker
 from .manifest import Manifest, ManifestFile, RefRow, SymbolRow
@@ -64,13 +64,26 @@ class Indexer:
         scanned_map = {f.path: f for f in scanned}
         old_files = manifest.all_files()
 
+        # Embedding-text format guard: a stored vector is only reusable when it
+        # was built by the same embed_text() construction. A manifest with no
+        # recorded format (pre-guard indexes, or a brand-new project) or a
+        # different one is treated exactly like a full rebuild — the cached
+        # chunk hashes describe vectors of another format, so they must not be
+        # reused. The value is re-recorded at the end of a successful pass.
+        recorded_format = manifest.get_meta("embed_format")
+        format_changed = recorded_format != EMBED_FORMAT
+        rebuild = force_full or format_changed
+        if format_changed and recorded_format is not None:
+            logger.info("embed_format changed (%s -> %s): full re-embed",
+                        recorded_format, EMBED_FORMAT)
+
         added = [p for p in scanned_map if p not in old_files]
         deleted = [p for p in old_files if p not in scanned_map]
         changed = [
             p for p in scanned_map
             if p in old_files and scanned_map[p].content_hash != old_files[p].content_hash
         ]
-        if force_full:
+        if force_full or rebuild:
             changed = list(scanned_map.keys())
             added = []
             deleted = [p for p in old_files if p not in scanned_map]
@@ -78,7 +91,9 @@ class Indexer:
             # records "this vector exists in Qdrant", and Qdrant may have been
             # wiped/reset independently of the manifest (owner reset, collection
             # loss). Stale cache + empty collection = silent index loss. Force
-            # re-embed everything on a full pass.
+            # re-embed everything on a full pass. The same applies when the
+            # embedding-text format changed: cached hashes describe vectors
+            # built by a different construction, so they cannot be reused.
             manifest.set_meta("chunk_hashes", "")
 
         # 1) Purge deleted files (payload-filter delete + manifest rows).
@@ -128,7 +143,7 @@ class Indexer:
 
             for chunk_ in chunks:
                 key = f"{path}|{chunk_.chunk_hash}"
-                if key in seen_hashes and not force_full:
+                if key in seen_hashes and not rebuild:
                     reused += 1
                 else:
                     to_embed.append((path, chunk_))
@@ -190,6 +205,9 @@ class Indexer:
             )
         manifest.mark_scanned(manifest.read_git_branch(project_path))
         manifest.set_meta("last_indexed", str(time.time()))
+        # Record the construction that produced (or refreshed) the vectors in
+        # this pass, so a later construction change is detected as a rebuild.
+        manifest.set_meta("embed_format", EMBED_FORMAT)
 
         # Unchanged files keep their manifest rows; ensure they're recorded
         # (status ok) for accurate file_count.

@@ -14,6 +14,14 @@ from .chunker import Chunk
 
 CONTEXT_HEADER_SEPARATOR = "\n"
 
+# Version of the embedding-text construction above. Bump this whenever
+# embed_text() changes shape (header fields, order, separators) — a stored
+# vector is only valid for vectors built by the same construction, and the
+# indexer records this value in the manifest so an incremental pass can tell
+# which format produced the cached chunk hashes. It lives next to embed_text()
+# deliberately: the constant and the construction must change together.
+EMBED_FORMAT = "contextual-header-v1"
+
 
 def embed_text(file: str, chunk: Chunk) -> str:
     """Chunk text with a contextual header for embedding.

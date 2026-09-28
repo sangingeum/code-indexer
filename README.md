@@ -81,6 +81,20 @@ round trips on multi-language repos. The default call remains identical
 to the pre-round behavior for every existing field; the only change to
 the JSON contract is the addition of the `lang` key.
 
+### Embedding-text format guard
+
+Stored vectors are only comparable when they come from the same
+embedding-text construction. The manifest records that construction in the
+`embed_format` meta key (the value is defined next to `embed_text()` in
+`src/code_indexer/embed_text.py`); an indexing pass whose recorded value
+differs from the code's current one — or that finds none recorded — behaves
+like a full rebuild: the chunk-hash cache is cleared and every chunk is
+re-embedded, then the new value is recorded. Bump the constant in the same
+change that alters `embed_text()`.
+
+Indexes built before contextual headers hold bare-text vectors until a pass
+re-embeds them (any indexing pass does; `reindex-project` forces it now).
+
 #### Supported languages (exhaustive)
 
 The `lang` payload value is derived from the file extension at index time
