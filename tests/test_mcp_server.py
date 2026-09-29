@@ -247,3 +247,85 @@ def test_run_cli_reports_unknown_subcommand_error(tmp_path, monkeypatch):
     out = server.lookup_project("/definitely/not/registered")
     assert out.startswith("not registered: ") or out.startswith("error:")
     assert os.sep in out
+
+
+# ---------------------------------------------------------------------------
+# Tool annotations (audit finding: all four hints must be declared explicitly)
+# ---------------------------------------------------------------------------
+
+# The full expected surface: tool name -> the four hint booleans
+# (readOnlyHint, destructiveHint, idempotentHint, openWorldHint).
+# readOnlyHint is False wherever the wrapped CLI can write — including the
+# staleness-triggered incremental index pass on the query path (see
+# server.py's module docstring); it is True only for the three tools that
+# never run that probe.
+EXPECTED_ANNOTATIONS: dict[str, tuple[bool, bool, bool, bool]] = {
+    "lookup_project": (True, False, True, False),
+    "add_project": (False, False, True, False),
+    "remove_project": (False, True, True, False),
+    "list_projects": (True, False, True, False),
+    "semantic_search": (False, False, True, False),
+    "index_status": (True, False, True, False),
+    "reindex_project": (False, False, True, False),
+    "find_symbol": (False, False, True, False),
+    "find_symbols": (False, False, True, False),
+    "skeleton": (False, False, True, False),
+    "outline": (False, False, True, False),
+    "find_definition": (False, False, True, False),
+    "find_references": (False, False, True, False),
+    "get_code_context": (False, False, True, False),
+}
+
+
+def _list_tools():
+    """Every registered tool (sync registry — works for mcp 1.x)."""
+    return server.mcp._tool_manager.list_tools()
+
+
+def test_every_tool_declares_all_four_annotation_hints():
+    """No tool may leave a hint unset or non-boolean — OpenAI's directory
+    rejects a tool with a missing hint."""
+    tools = _list_tools()
+    assert len(tools) == 14, f"expected 14 tools, got {len(tools)}"
+    for tool in tools:
+        annotations = tool.annotations
+        assert annotations is not None, f"{tool.name}: no annotations"
+        for field in ("readOnlyHint", "destructiveHint", "idempotentHint",
+                      "openWorldHint"):
+            value = getattr(annotations, field)
+            assert isinstance(value, bool), (
+                f"{tool.name}: {field} is {value!r}, not an explicit bool")
+
+
+def test_tool_annotation_values_match_handler_behaviour():
+    """The hint values must match the wrapped CLI semantics."""
+    tools = {t.name: t for t in _list_tools()}
+    assert set(tools) == set(EXPECTED_ANNOTATIONS)
+    for name, expected in EXPECTED_ANNOTATIONS.items():
+        annotations = tools[name].annotations
+        assert annotations is not None, f"{name}: no annotations"
+        got = (annotations.readOnlyHint, annotations.destructiveHint,
+               annotations.idempotentHint, annotations.openWorldHint)
+        assert got == expected, f"{name}: {got} != {expected}"
+
+
+def test_only_remove_project_is_destructive():
+    destructive = [t.name for t in _list_tools()
+                   if t.annotations is not None and t.annotations.destructiveHint]
+    assert destructive == ["remove_project"]
+
+
+def test_list_tools_serializes_annotations():
+    """Smoke check: the list_tools() payload carries the hints on the wire."""
+    import asyncio
+    import json
+
+    tools = asyncio.run(server.mcp.list_tools())
+    assert len(tools) == 14
+    for tool in tools:
+        payload = json.loads(tool.model_dump_json(exclude_none=False))
+        annotations = payload["annotations"]
+        for field in ("readOnlyHint", "destructiveHint", "idempotentHint",
+                      "openWorldHint"):
+            assert isinstance(annotations[field], bool), (
+                f"{tool.name}: {field} missing from serialized payload")
