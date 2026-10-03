@@ -1,7 +1,7 @@
 [project]
 name = "code-indexer"
 version = "0.1.0"
-description = "MCP server: automatic semantic code index (Ollama embeddings + Qdrant) with incremental staleness-checked indexing"
+description = "Semantic code search for agents: one-shot CLI + MCP server over Qdrant + Ollama (Linux)"
 readme = "README.md"
 license = "MIT"
 authors = [
