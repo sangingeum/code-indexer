@@ -53,7 +53,7 @@ The agent workflow (overview → skeleton → search → get-code-context) is in
 - **CLI** (`code-indexer`): every operation, one-shot, foreground; per-project
   flock serializes concurrent passes.
 - **MCP server** (`code-indexer-mcp`): thin wrapper over the same CLI
-  subprocess; 18 tools, all foreground.
+  subprocess; all foreground.
 
 ### CLI ↔ MCP parity
 
