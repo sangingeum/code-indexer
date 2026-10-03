@@ -17,6 +17,9 @@ from .chunker import Chunk, chunk
 from .config import Config
 from .embed_text import EMBED_FORMAT, embed_text
 from .embedder import Embedder
+from .fingerprint import (Fingerprint, current_fingerprint,
+                          fingerprint_mismatches, read_fingerprint,
+                          write_fingerprint)
 from . import ts_chunker
 from .manifest import Manifest, ManifestFile, RefRow, SymbolRow
 from .scanner import ScannedFile, scan_project
@@ -50,10 +53,17 @@ class Indexer:
         self.store = store
 
     def index_project(self, project_path: str, slug: str, manifest: Manifest,
-                      force_full: bool = False) -> IndexResult:
-        """One incremental pass. Caller holds the per-project lock."""
+                      force_full: bool = False,
+                      collection: str | None = None) -> IndexResult:
+        """One incremental pass. Caller holds the per-project lock.
+
+        ``collection`` overrides the target collection name — the swap-based
+        rebuild (fingerprint mismatch) fills idx_<slug>__new and the caller
+        swaps it into place, so search against the old collection stays
+        available until the swap.
+        """
         t0 = time.time()
-        collection = f"idx_{slug}"
+        collection = collection or f"idx_{slug}"
 
         if not self.store.collection_exists(collection):
             self.store.create_collection(collection, self.embedder.dimension())
@@ -76,6 +86,24 @@ class Indexer:
         if format_changed and recorded_format is not None:
             logger.info("embed_format changed (%s -> %s): full re-embed",
                         recorded_format, EMBED_FORMAT)
+        # Fingerprint guard: same principle for model/dim/chunker version.
+        # A legacy manifest without a fingerprint is backfilled with the
+        # current config (with a one-line notice) — no forced reindex, per
+        # the improvement plan.
+        current_fp = current_fingerprint(self.cfg.embed_model,
+                                         self.embedder.dimension())
+        recorded_fp = read_fingerprint(manifest)
+        if recorded_fp is None and (old_files or force_full):
+            logger.info(
+                "manifest has no index fingerprint; backfilling current "
+                "config (%s) — no reindex required", current_fp.describe())
+            write_fingerprint(manifest, current_fp)
+            recorded_fp = current_fp
+        fp_changed = bool(fingerprint_mismatches(recorded_fp, current_fp))
+        if fp_changed:
+            logger.info("index fingerprint changed (%s): full re-embed",
+                        fingerprint_mismatches(recorded_fp, current_fp))
+        rebuild = rebuild or fp_changed
 
         added = [p for p in scanned_map if p not in old_files]
         deleted = [p for p in old_files if p not in scanned_map]
@@ -208,6 +236,7 @@ class Indexer:
         # Record the construction that produced (or refreshed) the vectors in
         # this pass, so a later construction change is detected as a rebuild.
         manifest.set_meta("embed_format", EMBED_FORMAT)
+        write_fingerprint(manifest, current_fp)
 
         # Unchanged files keep their manifest rows; ensure they're recorded
         # (status ok) for accurate file_count.

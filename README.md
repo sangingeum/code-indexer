@@ -103,6 +103,31 @@ change that alters `embed_text()`.
 Indexes built before contextual headers hold bare-text vectors until a pass
 re-embeds them (any indexing pass does; `reindex-project` forces it now).
 
+#### Index fingerprint (schema v4)
+
+Every manifest records the full embedding/chunking configuration that built
+it: `embed_model`, `embed_dim` (probed from the configured model),
+`embed_text_version` (the `embed_format` construction string), and
+`chunker_version` (`CHUNKER_VERSION` in `src/code_indexer/ts_chunker.py`).
+Opening a project compares the recorded fingerprint against the current
+configuration:
+
+- **Match** — queries and passes run normally.
+- **Mismatch** (e.g. `EMBED_MODEL` changed, even to another 4096-dim model) —
+  the project reports `state=needs-reindex` in `index-status`/`list-projects`
+  with a `reason=` detail, and `semantic-search` refuses with
+  `ConfigError: index for <path> was built with ...; run: code-indexer
+  reindex-project <path>` instead of silently querying incompatible vectors.
+  `--skip-stale-check` does **not** bypass this gate.
+- **Legacy manifest** (no fingerprint recorded — anything pre-v4) — treated
+  as unknown, not mismatched: the next indexing pass backfills the current
+  config with a one-line log notice; no forced reindex.
+
+`reindex-project` clears the state by rebuilding into a temporary collection
+(`idx_<slug>__new`) and swapping it in via a collection alias on completion —
+the old index stays searchable until the swap. A crash mid-rebuild leaves the
+`__new` collection behind; the next attempt recreates it.
+
 #### Supported languages (exhaustive)
 
 The `lang` payload value is derived from the file extension at index time
@@ -269,8 +294,8 @@ threads, no hidden work).
 | `remove_project(path)` | `remove-project` | Deregister and **delete** the Qdrant collection, SQLite manifest, and registry entry. |
 | `list_projects()` | `list-projects` | Registered projects with file/chunk counts, last-indexed time, and state. |
 | `semantic_search(query, project?, limit=8, file_filter?, symbol_type?, language?, ranking?, format?)` | `semantic-search` | The hot path. Runs the staleness check first (only when the index is actually stale, quietly); `project=None` searches all registered projects. Returns file paths, line ranges, symbols, scores, snippets. `ranking`: `vector` (pure cosine, default) \| `metadata` (small definition boost / test-path penalty adjustments) \| `hybrid` (cosine fused with lexical token overlap — better for exact-identifier queries). `symbol_type`/`language` scope results by payload filter; `format='json'` selects the CLI's JSON contract. |
-| `index_status(path)` | `index-status` | `idle \| indexing \| never-indexed \| error` + last-pass progress. `never-indexed` marks a registered project whose manifest records no completed pass (an interrupted or killed `add-project`) — the registry entry exists but there is no index. Like the CLI, this is **informational only** — it does not trigger a re-index. |
-| `reindex_project(path)` | `reindex-project` | Force a full rebuild, **in the foreground** (blocks until finished). |
+| `index_status(path)` | `index-status` | `idle \| indexing \| never-indexed \| error \| needs-reindex` + last-pass progress. `never-indexed` marks a registered project whose manifest records no completed pass (an interrupted or killed `add-project`) — the registry entry exists but there is no index. Like the CLI, this is **informational only** — it does not trigger a re-index. `needs-reindex` marks an index built with a different embedding model, dimension, text format, or chunker version than the current configuration (with a `reason=` detail); queries against it fail with a `ConfigError` until `reindex_project` rebuilds. |
+| `reindex_project(path)` | `reindex-project` | Force a full rebuild, **in the foreground** (blocks until finished). The rebuild fills a temporary collection first and swaps it in on completion, so the old index stays searchable until the swap; clears a `needs-reindex` state. |
 | `find_symbol(name, project?, symbol_type?)` | `find-symbol` | Look up symbols by name in the manifest symbol index (no semantic search). Exact AST-first, capped substring fallback. `symbol_type`: function\|method\|class\|struct\|enum\|namespace. |
 | `find_symbols(project?, symbol_type?, file?, limit=25, format?)` | `find-symbol` (browse) | No name: filter the manifest symbol index by type/file, capped at `limit` (default 25). |
 | `skeleton(project?, path_prefix?, limit?, format?)` | `skeleton` | Whole-project or per-subtree structural map from the manifest only: files with symbol lines and signatures. |

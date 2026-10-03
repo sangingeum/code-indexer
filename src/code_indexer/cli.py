@@ -244,13 +244,17 @@ def reindex_project(
     path: str = typer.Argument(..., help="Registered project path."),
     skip_stale_check: bool = SkipOpt,
 ) -> None:
-    """Force a full rebuild of a project's index (runs foreground in the CLI)."""
+    """Force a full rebuild of a project's index (runs foreground in the CLI).
+
+    The rebuild fills a temporary collection first and swaps it in when
+    complete, so search against the old data stays available until the swap.
+    This also clears a needs-reindex state (config/fingerprint mismatch)."""
     core = _get_core(skip_stale_check)
     path = os.path.abspath(os.path.expanduser(path))
     entry = core.registry.get_by_path(path)
     if entry is None:
         _die(f"error: not registered: {path}")
-    _echo_index_result(entry.slug, core.run_index(entry.slug, entry.path, force=True))
+    _echo_index_result(entry.slug, core.reindex_with_swap(entry.slug, entry.path))
 
 
 @app.command()

@@ -126,8 +126,8 @@ def test_v2_to_v3_migration(tmp_path):
     try:
         cols = {r[1] for r in m._conn.execute("PRAGMA table_info(symbols)")}
         assert {"signature", "visibility"} <= cols, "columns not added"
-        # version bumped exactly once (2 -> 3, not futher)
-        assert m.get_meta("schema_version") == SCHEMA_VERSION == "3"
+        # version bumped exactly once (2 -> latest, never regressing)
+        assert m.get_meta("schema_version") == SCHEMA_VERSION == "4"
         # old rows survive with NULL signature/visibility
         rows = m.find_symbols("legacy")
         assert rows and rows[0].signature is None
@@ -135,7 +135,7 @@ def test_v2_to_v3_migration(tmp_path):
         # reopening does not bump again or duplicate the ALTER
         m.close()
         m2 = Manifest(db)
-        assert m2.get_meta("schema_version") == "3"
+        assert m2.get_meta("schema_version") == "4"
         rows2 = m2.find_symbols("legacy")
         assert rows2 and rows2[0].signature is None
     finally:

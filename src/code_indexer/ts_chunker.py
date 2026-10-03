@@ -20,6 +20,13 @@ from .chunker import (Chunk, chunk as fallback_chunk, _guess_symbol,
 
 logger = logging.getLogger("code-indexer.tschunker")
 
+# Version of the chunking behavior (unit types, signature extraction, split
+# rules). Recorded in the manifest fingerprint (see fingerprint.py); bump
+# whenever a change alters which chunks/symbols a file produces, so existing
+# indexes are flagged for reindex instead of silently mixing old and new
+# chunks. Cosmetic changes that never alter output do not need a bump.
+CHUNKER_VERSION = 1
+
 try:
     import tree_sitter_language_pack
     _TS_OK = True

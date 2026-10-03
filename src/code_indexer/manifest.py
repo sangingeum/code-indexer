@@ -1,8 +1,12 @@
-"""Per-project SQLite manifest (design §3; schema v3 adds signatures).
+"""Per-project SQLite manifest (design §3; schema v3 adds signatures, v4 adds
+the index fingerprint).
 
 Schema:
     files(path TEXT PK, content_hash TEXT, size INT, chunk_count INT, status TEXT)
-    meta(key TEXT PK, value TEXT)  # schema_version, last_full_scan, branch, last_indexed
+    meta(key TEXT PK, value TEXT)  # schema_version, last_full_scan, branch,
+                                   # last_indexed, embed_format + v4 fingerprint:
+                                   # embed_model, embed_dim, embed_text_version,
+                                   # chunker_version
     symbols(file, name, symbol_type, start_line, end_line, source)   # v2
     symbols.signature, symbols.visibility                            # v3
     symbol_refs(file, line, src_symbol, relationship, target)        # v2
@@ -20,7 +24,7 @@ from dataclasses import dataclass
 
 logger = logging.getLogger("code-indexer.manifest")
 
-SCHEMA_VERSION = "3"
+SCHEMA_VERSION = "4"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS files (
@@ -54,6 +58,13 @@ CREATE TABLE IF NOT EXISTS symbol_refs (
     PRIMARY KEY (file, line, relationship, target)
 );
 CREATE INDEX IF NOT EXISTS idx_symbol_refs_target ON symbol_refs(target);
+CREATE TABLE IF NOT EXISTS index_errors (
+    file TEXT NOT NULL,
+    chunk_index INTEGER,
+    error TEXT NOT NULL,
+    at REAL NOT NULL,
+    PRIMARY KEY (file, chunk_index)
+);
 """
 
 
@@ -275,6 +286,40 @@ class Manifest:
         self.set_meta("last_full_scan", str(time.time()))
         if branch is not None:
             self.set_meta("branch", branch)
+
+    # -- index errors (resilient indexing: poisoned chunks are recorded,
+    #    not fatal) -------------------------------------------------------
+
+    def record_index_error(self, file: str, chunk_index: int | None,
+                           error: str) -> None:
+        with self._conn:
+            self._conn.execute(
+                "INSERT INTO index_errors(file, chunk_index, error, at) "
+                "VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(file, chunk_index) DO UPDATE SET "
+                "error=excluded.error, at=excluded.at",
+                (file, chunk_index, error, time.time()),
+            )
+
+    def clear_index_errors(self, file: str | None = None) -> None:
+        if file is None:
+            with self._conn:
+                self._conn.execute("DELETE FROM index_errors")
+        else:
+            with self._conn:
+                self._conn.execute(
+                    "DELETE FROM index_errors WHERE file = ?", (file,))
+
+    def last_index_errors(self, limit: int = 3) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT file, chunk_index, error, at FROM index_errors "
+            "ORDER BY at DESC LIMIT ?", (limit,)).fetchall()
+        return [{"file": r[0], "chunk_index": r[1], "error": r[2], "at": r[3]}
+                for r in rows]
+
+    def count_index_errors(self) -> int:
+        return int(self._conn.execute(
+            "SELECT COUNT(*) FROM index_errors").fetchone()[0])
 
     def read_git_branch(self, project_root: str) -> str | None:
         import os

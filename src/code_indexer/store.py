@@ -12,6 +12,11 @@ from typing import Any
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
+    AliasOperations,  # noqa: F401 — re-exported for callers
+    CreateAlias,
+    CreateAliasOperation,
+    DeleteAlias,
+    DeleteAliasOperation,
     Distance,
     FieldCondition,
     Filter,
@@ -55,6 +60,54 @@ class Store:
 
     def drop_collection(self, name: str) -> None:
         self.client.delete_collection(name)
+
+    def physical_name(self, name: str) -> str | None:
+        """Resolve ``name`` (collection or alias) to the physical collection."""
+        try:
+            for alias in self.client.get_aliases().aliases:
+                if alias.alias_name == name:
+                    return alias.collection_name
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            if self.client.collection_exists(name):
+                return name
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+    def _alias_exists(self, alias_name: str) -> bool:
+        try:
+            return any(a.alias_name == alias_name
+                       for a in self.client.get_aliases().aliases)
+        except Exception:  # noqa: BLE001
+            return False
+
+    def swap_collection(self, tmp: str, target: str) -> None:
+        """Point ``target`` at the freshly built ``tmp`` collection via alias.
+
+        ``target`` may be a real collection (first swap: drop it, then create
+        the alias) or already an alias (later swaps: repoint, then drop the
+        previously pointed physical collection). All reads/writes go through
+        ``idx_<slug>``, which is therefore never more than one alias update
+        away from the live data.
+        """
+        old_physical = self.physical_name(target)
+        if old_physical == tmp:
+            return  # tmp already served under the alias; nothing to do
+        if old_physical == target and not self._alias_exists(target):
+            # target is a REAL collection: drop it so the name is free.
+            self.client.delete_collection(target)
+        if self._alias_exists(target):
+            self.client.update_collection_aliases(
+                change_aliases_operations=[DeleteAliasOperation(
+                    delete_alias=DeleteAlias(alias_name=target))])
+        self.client.update_collection_aliases(
+            change_aliases_operations=[CreateAliasOperation(
+                create_alias=CreateAlias(alias_name=target,
+                                         collection_name=tmp))])
+        if old_physical is not None and old_physical != target:
+            self.client.delete_collection(old_physical)
 
     def upsert_points(self, name: str, points: list[PointStruct]) -> int:
         for i in range(0, len(points), self.upsert_batch):

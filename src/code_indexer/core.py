@@ -18,6 +18,9 @@ from typing import Any
 
 from .config import Config, load_config
 from .embedder import Embedder
+from .fingerprint import (ConfigError, current_fingerprint,
+                          fingerprint_mismatches, mismatch_error,
+                          read_fingerprint)
 from .indexer import Indexer
 from .locks import project_lock
 from .manifest import SCHEMA_VERSION, Manifest, SymbolRow
@@ -34,6 +37,12 @@ STALE_TTL_DEFAULT = 60
 # ran). Registry registration alone is not evidence of an indexed project, so
 # this must be distinguishable from a normal idle one.
 NEVER_INDEXED = "never-indexed"
+
+# State for a project whose manifest fingerprint does not match the current
+# configuration (different embed model / dimension / text version / chunker).
+# Queries refuse to run against such an index (ConfigError); reindex-project
+# clears it by rebuilding.
+NEEDS_REINDEX = "needs-reindex"
 
 
 class Core:
@@ -246,9 +255,16 @@ class Core:
         # commits, and the manifest read above already answers it.
         if st in (None, "idle") and last_indexed is None:
             st = NEVER_INDEXED
+        fp = self.fingerprint_status(entry)
+        suffix = ""
+        if last_indexed is not None and not fp["ok"]:
+            st = NEEDS_REINDEX
+            suffix = f" reason={fp['reason']}"
+        if fp["recorded"] is None and last_indexed is not None:
+            suffix += " note=fingerprint backfills on next index pass"
         return (f"path={entry.path} slug={entry.slug} state={st} "
                 f"files={file_count} chunks={chunk_count} "
-                f"last_indexed={last_indexed or 'never'}")
+                f"last_indexed={last_indexed or 'never'}{suffix}")
 
     def schema_migrated(self, entry: ProjectEntry) -> bool:
         """True when this manifest was just upgraded from a pre-symbol schema."""
@@ -257,6 +273,107 @@ class Core:
             return getattr(m, "_migrated_from", SCHEMA_VERSION) not in (None, SCHEMA_VERSION)
         finally:
             m.close()
+
+    # ------------------------------------------------------------------
+    # index fingerprint (v4): mismatch protection
+    # ------------------------------------------------------------------
+
+    def _current_fingerprint_or_none(self):
+        """The running configuration's fingerprint, or None when the embed
+        dimension cannot be probed (Ollama unreachable) — absence of a probe
+        must not turn every offline command into a hard failure, but query
+        paths call this only right before they need the embedder anyway."""
+        try:
+            return current_fingerprint(self.cfg.embed_model,
+                                       self.embedder.dimension())
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("fingerprint probe failed: %s", exc)
+            return None
+
+    def fingerprint_status(self, entry: ProjectEntry) -> dict[str, Any]:
+        """{'ok': bool, 'reason': str|None, 'recorded': str|None}.
+
+        A manifest without a recorded fingerprint (legacy v3) counts as ok:
+        the first indexing pass backfills it without forcing a reindex.
+        """
+        recorded = None
+        mdir = os.path.join(self.cfg.index_root, entry.slug, "manifest.db")
+        if os.path.isfile(mdir):
+            m = Manifest(mdir)
+            try:
+                recorded = read_fingerprint(m)
+            finally:
+                m.close()
+        current = self._current_fingerprint_or_none()
+        if recorded is None:
+            return {"ok": True, "reason": None,
+                    "recorded": None if recorded is None else recorded.describe()}
+        if current is None:
+            # Cannot verify right now; do not block (queries will fail on
+            # their own if the embedder is truly unreachable).
+            return {"ok": True, "reason": None,
+                    "recorded": recorded.describe()}
+        diffs = fingerprint_mismatches(recorded, current)
+        if diffs:
+            return {"ok": False,
+                    "reason": "; ".join(diffs),
+                    "recorded": recorded.describe()}
+        return {"ok": True, "reason": None, "recorded": recorded.describe()}
+
+    def assert_fingerprint_ok(self, entry: ProjectEntry) -> None:
+        """Raise ConfigError when the index predates the current config.
+
+        Query paths call this before spending an embedding round trip on a
+        mismatched index; --skip-stale-check does NOT bypass it (a wrong-model
+        query is wrong regardless of staleness).
+        """
+        status = self.fingerprint_status(entry)
+        if not status["ok"]:
+            current = self._current_fingerprint_or_none()
+            m = self.manifest_for(entry.slug)
+            try:
+                recorded = read_fingerprint(m)
+            finally:
+                m.close()
+            if current is not None and recorded is not None:
+                raise mismatch_error(entry.path, recorded, current)
+            raise ConfigError(
+                f"ConfigError: index for {entry.path} does not match the "
+                f"current configuration ({status['reason']}); "
+                f"run: code-indexer reindex-project {entry.path}")
+
+    def reindex_with_swap(self, slug: str, project_path: str) -> dict[str, Any]:
+        """Full rebuild into idx_<slug>__new, then swap.
+
+        The old collection stays searchable until the rebuild finishes; the
+        swap (drop old, rename new) is the only disruptive moment. A crash
+        mid-rebuild leaves idx_<slug>__new behind — the next attempt reuses/
+        recreates it. Clearing the manifest fingerprint before the pass makes
+        index_project treat the legacy manifest as unknown (backfill) rather
+        than mismatched (rebuild loop).
+        """
+        tmp = f"idx_{slug}__new"
+        with project_lock(self._lock_path(slug)) as acquired:
+            if not acquired:
+                return {"state": "indexing", "detail": "indexing in progress"}
+            self._set_state(slug, state="indexing", error=None)
+            manifest = self.manifest_for(slug)
+            try:
+                if self.store.collection_exists(tmp):
+                    self.store.drop_collection(tmp)
+                result = self.indexer.index_project(
+                    project_path, slug, manifest, force_full=True,
+                    collection=tmp)
+                self.store.swap_collection(tmp, f"idx_{slug}")
+                self._last_scan[slug] = time.monotonic()
+                self._set_state(slug, state="idle", last_result=vars(result))
+                return {"state": "idle", "result": vars(result)}
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("swap rebuild failed for %s", project_path)
+                self._set_state(slug, state="error", error=str(exc))
+                return {"state": "error", "error": str(exc)}
+            finally:
+                manifest.close()
 
     # ------------------------------------------------------------------
     # search
@@ -333,6 +450,10 @@ class Core:
                 raise ValueError("error: no projects registered")
         all_hits: list[dict[str, Any]] = []
         for entry in entries:
+            # Fingerprint gate BEFORE any embedding work: a query against a
+            # wrong-model index is wrong regardless of staleness, and
+            # --skip-stale-check must not bypass it.
+            self.assert_fingerprint_ok(entry)
             if not skip_refresh:
                 self.maybe_refresh(entry.slug, entry.path)
             try:

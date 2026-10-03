@@ -12,6 +12,7 @@ logger = logging.getLogger("code-indexer.embedder")
 
 class Embedder:
     def __init__(self, host: str, model: str, batch_size: int = 48, retries: int = 3):
+        self._host = host
         self.client = ollama.Client(host=host)
         self.model = model
         self.batch_size = batch_size
@@ -20,9 +21,24 @@ class Embedder:
 
     def dimension(self) -> int:
         if self._dim is None:
-            res = self.embed(["dimension probe"])
-            self._dim = len(res[0])
+            # One-shot probe on a throwaway client, closed immediately: the
+            # shared keep-alive pool would otherwise hold a socket open for
+            # the process lifetime (ResourceWarning leaks under -W error).
+            probe = ollama.Client(host=self._host)
+            try:
+                res = probe.embed(model=self.model, input=["dimension probe"])
+            finally:
+                close = getattr(probe, "close", None)
+                if close is not None:
+                    close()
+            self._dim = len(res["embeddings"][0])
         return self._dim
+
+    def close(self) -> None:
+        """Release the Ollama HTTP connection pool (keeps -W error runs clean)."""
+        close = getattr(self.client, "close", None)
+        if close is not None:
+            close()
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         """Embed texts in batches of self.batch_size with retry/backoff."""
