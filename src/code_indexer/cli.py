@@ -47,8 +47,15 @@ def _get_core(skip_stale_check: bool) -> Core:
 
 
 def _die(msg: str) -> NoReturn:
-    typer.echo(msg, err=True)
-    raise typer.Exit(1)
+    """Emit exactly one taxonomy line (output-contract work item).
+
+    Message classification is mechanical: existing strings map onto the
+    shared taxonomy (errors.py classify) so no call site changes content.
+    """
+    from .errors import fail
+    exc = ValueError(msg)
+    fail(exc)
+    raise AssertionError("unreachable")  # pragma: no cover
 
 
 def _resolve(core: Core, project: str | None,
@@ -1029,7 +1036,8 @@ def get_code_context(
     except ValueError as exc:
         _die(str(exc))
     if json_output:
-        typer.echo(json.dumps(data, ensure_ascii=False, indent=2))
+        typer.echo(json.dumps(dict(data, schema=1), ensure_ascii=False,
+                              indent=2))
         return
     for seg in data["segments"]:
         typer.echo(f"--- {data['file']}:{seg['start_line']}-{seg['end_line']} ---")

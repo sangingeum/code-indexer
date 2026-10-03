@@ -249,7 +249,8 @@ def test_json_format_snapshot(rig):
     core, reg, entry = rig
     out = core.search_for_display("query", project=entry.path, fmt="json")
     payload = json.loads(out)
-    assert set(payload) == {"hits", "truncated", "dropped"}
+    assert set(payload) == {"schema", "hits", "truncated", "dropped"}
+    assert payload["schema"] == 1
     # Merged hit carries both symbols.
     top = payload["hits"][0]
     assert top["end_line"] == 6 and "beta" in top["symbol"]

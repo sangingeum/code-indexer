@@ -662,7 +662,8 @@ class Core:
             return "no results"
         if fmt == "json":
             return json.dumps(
-                {"hits": hits, "truncated": dropped > 0, "dropped": dropped},
+                {"schema": 1,
+                 "hits": hits, "truncated": dropped > 0, "dropped": dropped},
                 ensure_ascii=False, indent=2)
         lines: list[str] = []
         if fmt == "compact":
@@ -800,7 +801,8 @@ class Core:
         symbol per line, no prose, no blank lines. `--tree` renders the
         directory-tree projection (per-dir symbol count + dominant language)."""
         if fmt == "json":
-            return json.dumps(data, ensure_ascii=False, indent=2)
+            return json.dumps(dict(data, schema=1), ensure_ascii=False,
+                              indent=2)
         if "dirs" in data:
             lines = [f"{d['dir']}/  ({d['symbols']} symbols, "
                      f"{d['dominant'] or 'no code'})" for d in data["dirs"]]
@@ -1024,7 +1026,8 @@ class Core:
     def format_outline(self, data: dict[str, Any], fmt: str = "text") -> str:
         """Dense outline render (§2.2): one declaration per line."""
         if fmt == "json":
-            return json.dumps(data, ensure_ascii=False, indent=2)
+            return json.dumps(dict(data, schema=1), ensure_ascii=False,
+                              indent=2)
         lines: list[str] = []
         for d in data["declarations"]:
             sig = f"  {d['signature']}" if d.get("signature") else ""
