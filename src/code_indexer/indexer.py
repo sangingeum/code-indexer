@@ -232,6 +232,8 @@ class Indexer:
         pending_symbols: list[tuple[str, list, list]] = []
         # Total chunk count per processed file (for the manifest row).
         file_chunk_counts: dict[str, int] = {}
+        # Approx LOC per processed file (max chunk end_line).
+        file_loc_counts: dict[str, int] = {}
         # Files that had at least one chunk queued for embedding.
         to_embed_files: set[str] = set()
 
@@ -298,10 +300,14 @@ class Indexer:
                     to_embed.append((path, chunk_))
                     to_embed_files.add(path)
             f = scanned_map[path]
-            rows.append(ManifestFile(path, f.content_hash, f.size, len(chunks),
-                                     "ok", getattr(f, "mtime_ns", None),
-                                     getattr(f, "inode", None)))
+            rows.append(ManifestFile(path, f.content_hash, f.size, len(chunks), "ok",
+                                     getattr(f, "mtime_ns", None),
+                                     getattr(f, "inode", None),
+                                     max((c.end_line for c in chunks),
+                                         default=0),
+                                     _lang_from_ext(path)))
             file_chunk_counts[path] = len(chunks)
+            file_loc_counts[path] = max((c.end_line for c in chunks), default=0)
 
         process_paths = added + changed
         concurrency = max(1, self.cfg.embed_concurrency)
@@ -409,7 +415,8 @@ class Indexer:
                     path, f.content_hash, f.size,
                     file_chunk_counts.get(path, 0), "ok",
                     getattr(f, "mtime_ns", None),
-                    getattr(f, "inode", None))])
+                    getattr(f, "inode", None),
+                    file_loc_counts.get(path, 0), _lang_from_ext(path))])
                 files_committed += 1
                 if self.progress_cb is not None:
                     elapsed = max(time.time() - t_embed0, 1e-6)
@@ -437,7 +444,8 @@ class Indexer:
             ManifestFile(path, scanned_map[path].content_hash,
                          scanned_map[path].size, file_chunk_counts.get(path, 0),
                          "ok", getattr(scanned_map[path], "mtime_ns", None),
-                         getattr(scanned_map[path], "inode", None))
+                         getattr(scanned_map[path], "inode", None),
+                         file_loc_counts.get(path, 0), _lang_from_ext(path))
             for path in file_chunk_counts
             if path not in by_file and path not in all_failed]
         if remaining_rows:
@@ -468,7 +476,9 @@ class Indexer:
             ManifestFile(p, scanned_map[p].content_hash, scanned_map[p].size,
                          old_files[p].chunk_count, "ok",
                          getattr(scanned_map[p], "mtime_ns", None),
-                         getattr(scanned_map[p], "inode", None))
+                         getattr(scanned_map[p], "inode", None),
+                         old_files[p].loc or 0,
+                         old_files[p].language or _lang_from_ext(p))
             for p in scanned_map
             if p in old_files and p not in set(added + changed)
         ]

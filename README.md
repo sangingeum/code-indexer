@@ -40,6 +40,10 @@ code-indexer file-outline ...   # alias for outline
 code-indexer find-symbol FileTransferSession [--symbol-type class]
 code-indexer find-definition main
 code-indexer find-references QTimer --relationship calls
+code-indexer overview [--project P] [--path-prefix X] [--max-lines 60] [--json]
+code-indexer find-callers NAME [--project P] [--depth 2] [--max-nodes 40] [--json]
+code-indexer find-callees NAME [--project P] [--depth 2] [--max-nodes 40] [--json]
+code-indexer deps PATH [--project P] [--direction in|out|both] [--depth 2] --format tree|edges|json
 code-indexer get-code-context src/session.hpp --start-line 40 --end-line 80
 code-indexer index-status /path/to/repo
 code-indexer reindex-project /path/to/repo
@@ -90,6 +94,29 @@ sub-tokens alongside the original, so `refreshToken` matches a query for
   down; skips the fingerprint gate, which cannot corrupt a text match).
 
 Each hit carries `match=symbol|lexical|fused` in JSON for provenance.
+
+### Overview: project-level map (navigation)
+
+`code-indexer overview [--project P] [--path-prefix X] [--max-lines 60]
+[--json]` renders a capped project map from **manifest data only** — no
+source parsing at query time (schema v5 adds `files.loc`/`files.language`;
+populate by reindexing once):
+
+- languages: files, approx LOC, share (top 5)
+- directories: top-level dirs with file and symbol counts
+- entry points: `main`/`__main__` symbols, `__main__.py`, pyproject
+  `[project.scripts]`, package.json `bin`/`main`, CMakeLists
+  `add_executable`
+- tests: test files/dirs with a framework hint (pytest/unittest/jest/
+  go test)
+- config/build files present at the root
+- hotspots: top files by **fan-in** (distinct files importing them or
+  referencing their symbols, from the graph tables) and by size
+
+The agent orientation workflow is `overview` (this project map) →
+`skeleton` / `outline` (file structure) → search / `get-code-context`
+(specifics). Overview is CLI-only by design — MCP agents already have
+skeleton/outline/search and the graph tools.
 
 ### Result shaping and token budget (semantic-search)
 

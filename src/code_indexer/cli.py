@@ -19,10 +19,13 @@ import typer
 from .core import NEVER_INDEXED, Core, MIGRATION_HINT
 from .doctor import Check, run_doctor
 from . import graph
+from . import overview as overview_mod
 from .evalharness import (EVAL_MODES, compare_reports, format_eval_report,
                           load_report, run_eval)
 from .manifest import Manifest
 from .registry import ProjectEntry
+
+PROJECT_OPT = typer.Option(None, help="Project path, slug, or name.")
 
 app = typer.Typer(
     name="code-indexer",
@@ -118,12 +121,38 @@ def doctor(
         raise typer.Exit(1)
 
 
+@app.command()
+def overview(
+    project: str = PROJECT_OPT,
+    path_prefix: str = typer.Option(None, "--path-prefix",
+        help="Restrict to paths starting with this prefix."),
+    max_lines: int = typer.Option(60, "--max-lines", help="Output line cap."),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Project-level map from manifest data: languages, directories, entry
+    points, tests, config, hotspots (orientation surface).
+
+    CLI-only by design: this is a rendered orientation text surface; MCP
+    agents already have skeleton/outline/search and the graph tools, so an
+    MCP wrapper adds surface area without new capability.
+    """
+    core = _get_core(False)
+    entry = _resolve(core, project)
+    m = core.manifest_for(entry.slug)
+    try:
+        data = overview_mod.build_overview(m, entry.path,
+                                           path_prefix=path_prefix or "")
+    finally:
+        m.close()
+    if json_output:
+        typer.echo(json.dumps(data))
+    else:
+        typer.echo(overview_mod.format_overview(data, max_lines=max_lines))
+
+
 def _core_entry(project: str | None):
     core = _get_core(False)
     return core, _resolve(core, project)
-
-
-PROJECT_OPT = typer.Option(None, help="Project path, slug, or name.")
 
 
 @app.command()

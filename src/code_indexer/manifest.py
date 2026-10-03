@@ -24,7 +24,7 @@ from dataclasses import dataclass
 
 logger = logging.getLogger("code-indexer.manifest")
 
-SCHEMA_VERSION = "4"
+SCHEMA_VERSION = "5"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS files (
@@ -95,6 +95,8 @@ class ManifestFile:
     status: str
     mtime_ns: int | None = None  # v4: stat fast-path (NULL = legacy row)
     inode: int | None = None
+    loc: int | None = None       # v5: approximate line count from spans
+    language: str | None = None  # v5: extension-derived language name
 
 
 @dataclass
@@ -146,6 +148,12 @@ class Manifest:
                 if col not in file_cols:
                     self._conn.execute(
                         f"ALTER TABLE files ADD COLUMN {col} {decl}")
+            # v5: overview columns (approx LOC from the chunk spans; language
+            # from the extension map). NULL on legacy rows until reindexed.
+            for col, decl in (("loc", "INTEGER"), ("language", "TEXT")):
+                if col not in file_cols:
+                    self._conn.execute(
+                        f"ALTER TABLE files ADD COLUMN {col} {decl}")
             # schema_version must actually advance on old manifests
             # (INSERT OR IGNORE would leave v1 stuck forever).
             old_version = self.get_meta("schema_version")
@@ -165,7 +173,7 @@ class Manifest:
     def all_files(self) -> dict[str, ManifestFile]:
         cur = self._conn.execute(
             "SELECT path, content_hash, size, chunk_count, status, "
-            "mtime_ns, inode FROM files"
+            "mtime_ns, inode, loc, language FROM files"
         )
         return {
             row[0]: ManifestFile(*row)
@@ -182,7 +190,7 @@ class Manifest:
     def get_file(self, path: str) -> ManifestFile | None:
         row = self._conn.execute(
             "SELECT path, content_hash, size, chunk_count, status, "
-            "mtime_ns, inode FROM files WHERE path = ?",
+            "mtime_ns, inode, loc, language FROM files WHERE path = ?",
             (path,),
         ).fetchone()
         return ManifestFile(*row) if row else None
@@ -191,13 +199,14 @@ class Manifest:
         with self._conn:
             self._conn.executemany(
                 "INSERT INTO files(path, content_hash, size, chunk_count, status, "
-                "mtime_ns, inode) VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "mtime_ns, inode, loc, language) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(path) DO UPDATE SET content_hash=excluded.content_hash, "
                 "size=excluded.size, chunk_count=excluded.chunk_count, "
                 "status=excluded.status, mtime_ns=excluded.mtime_ns, "
-                "inode=excluded.inode",
+                "inode=excluded.inode, loc=excluded.loc, "
+                "language=excluded.language",
                 [(r.path, r.content_hash, r.size, r.chunk_count, r.status,
-                  r.mtime_ns, r.inode) for r in rows],
+                  r.mtime_ns, r.inode, r.loc, r.language) for r in rows],
             )
 
     def delete_files(self, paths: list[str]) -> None:
@@ -476,6 +485,19 @@ class Manifest:
                 for r in self._conn.execute(
                     "SELECT file, raw_target, resolved_file, kind, line"
                     " FROM imports LIMIT ?", (limit,))]
+
+    def all_symbols(self) -> list[SymbolRow]:
+        cur = self._conn.execute(
+            "SELECT file, name, symbol_type, start_line, end_line, source,"
+            " signature, visibility FROM symbols ORDER BY file, start_line")
+        return [SymbolRow(*row) for row in cur.fetchall()]
+
+    def callers_of_all(self, limit: int = 5000) -> list[dict]:
+        return [dict(zip(("file", "line", "from_symbol", "to_name",
+                          "relationship", "confidence"), r))
+                for r in self._conn.execute(
+                    "SELECT file, line, from_symbol, to_name, relationship,"
+                    " confidence FROM refs LIMIT ?", (limit,))]
 
     def read_git_branch(self, project_root: str) -> str | None:
         import os
