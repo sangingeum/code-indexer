@@ -437,6 +437,11 @@ def index_status(
             "(privacy; override with --allow-sensitive on add-project)")
     if st.get("error"):
         parts.append(f"error={st['error']}")
+    # Languages mapped to a grammar but without AST references queries
+    # (heuristic/textual refs only) — orientation honesty (CI-25).
+    from .langmatrix import languages_without_ast
+    parts.append("languages_without_ast=[" + ", ".join(
+        languages_without_ast()) + "]")
     # Last 3 recorded embed errors (CI-04 poisoned-chunk reports).
     mdir = os.path.join(core.cfg.index_root, entry.slug, "manifest.db")
     if os.path.isfile(mdir):
