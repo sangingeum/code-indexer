@@ -348,7 +348,7 @@ CLI flags: `--ollama-url`, `--qdrant-url`, `--embed-model`, `--index-root`.
       "command": "uv",
       "args": [
         "--directory", "/path/to/code-indexer",
-        "run", "code-indexer"
+        "run", "code-indexer-mcp"
       ],
       "env": {
         "OLLAMA_URL": "http://192.168.X.X:11434",
@@ -358,6 +358,16 @@ CLI flags: `--ollama-url`, `--qdrant-url`, `--embed-model`, `--index-root`.
   }
 }
 ```
+
+Two things to know about the server process:
+
+- **stdout is reserved for the MCP transport.** All log output goes to stderr;
+  never pipe server stdout into anything that expects log lines.
+- The server exposes **14 tools** (the table below). Tool listing does not
+  require Ollama or Qdrant to be reachable — a stdio `initialize` +
+  `tools/list` handshake succeeds even with both backends down. If installing
+  from a checkout without a `uv` context, point `command` at the installed
+  `code-indexer-mcp` executable directly.
 
 ## Performance note
 
