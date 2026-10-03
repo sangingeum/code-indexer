@@ -20,6 +20,8 @@ _DEFAULTS: dict[str, str] = {
     "max_file_bytes": "1048576",  # skip files > 1MB
     "watch_debounce": "3",      # seconds; `watch` quiet period between passes
     "watch_sweep_interval": "300",  # seconds; periodic full staleness sweep
+    "ollama_timeout": "120",    # seconds; Ollama connect/read timeout
+    "embed_concurrency": "1",   # pipeline parsing while embed is in flight
 }
 
 
@@ -35,6 +37,8 @@ class Config:
     max_file_bytes: int
     watch_debounce: int
     watch_sweep_interval: int
+    ollama_timeout: int = 120
+    embed_concurrency: int = 1
     extra: dict[str, str] = field(default_factory=dict)
 
 
@@ -83,4 +87,6 @@ def load_config(argv: list[str] | None = None) -> Config:
         max_file_bytes=int(cfg["max_file_bytes"]),
         watch_debounce=int(cfg["watch_debounce"]),
         watch_sweep_interval=int(cfg["watch_sweep_interval"]),
+        ollama_timeout=int(cfg["ollama_timeout"]),
+        embed_concurrency=int(cfg["embed_concurrency"]),
     )

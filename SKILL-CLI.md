@@ -205,7 +205,11 @@ slug, or registered custom name) — typer dual option names.
 - Env: `OLLAMA_URL`, `QDRANT_URL`, `EMBED_MODEL`, `INDEX_ROOT`
   (default `~/.code-indexer`), `STALE_TTL`, `WATCH_DEBOUNCE`
   (`watch` quiet period, default 3 s; alias `WATCH_QUIET_PERIOD`),
-  `WATCH_SWEEP_INTERVAL` (periodic full sweep, default 300 s).
+  `WATCH_SWEEP_INTERVAL` (periodic full sweep, default 300 s),
+  `OLLAMA_TIMEOUT` (Ollama connect/read timeout, default 120 s; transient
+  failures retry with exponential backoff + jitter, max 5; fatal errors —
+  e.g. model not found — fail fast with a ConfigError),
+  `EMBED_CONCURRENCY` (default 1; >1 pipelines parsing while embedding).
 
 ## Gotchas
 

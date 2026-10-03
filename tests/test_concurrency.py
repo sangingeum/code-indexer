@@ -164,28 +164,44 @@ def test_lock_file_permanent_and_diagnostic(tmp_path):
 
 
 class CrashingEmbedder(StubEmbedder):
-    """Embeds the first batch, then simulates a mid-pass crash (the real
-    Embedder embeds in batches of batch_size, mirroring that here)."""
+    """Succeeds for the first `ok_calls` single-text embed calls, then fails
+    permanently — models a poisoned chunk / mid-pass Ollama death (CI-04)."""
 
-    def __init__(self, batch_size: int = 1):
+    def __init__(self, batch_size: int = 1, ok_calls: int = 1):
         super().__init__()
         self.calls = 0
         self.batch_size = batch_size
+        self.ok_calls = ok_calls
+
+    def _one(self, texts):
+        out = []
+        for _ in texts:
+            self.calls += 1
+            if self.calls > self.ok_calls:
+                raise RuntimeError("simulated crash mid-pass (SIGKILL equivalent)")
+            out.append([0.1, 0.2, 0.3, 0.4])
+        return out
 
     def embed(self, texts):
-        out = []
-        for i in range(0, len(texts), self.batch_size):
-            self.calls += 1
-            if self.calls > 1:
-                raise RuntimeError("simulated crash mid-pass (SIGKILL equivalent)")
-            out.extend(super().embed(texts[i:i + self.batch_size]))
-        return out
+        return self._one(texts)
+
+    def embed_with_errors(self, texts):
+        vectors = []
+        errors = []
+        for i, text in enumerate(texts):
+            try:
+                vectors.append(self._one([text])[0])
+            except Exception as exc:  # noqa: BLE001
+                vectors.append(None)
+                errors.append((i, str(exc)))
+        return vectors, errors
 
 
 def test_incremental_first_index_resumable_after_mid_crash(core, project):
-    """A crash between embed and manifest commit must be recoverable: the
-    retry pass completes, and already-embedded chunk hashes are reused so
-    vectors are not duplicated."""
+    """A mid-pass embedder failure no longer aborts the pass (CI-04): the
+    failing chunk is recorded in index_errors and the pass completes with
+    the healthy chunks; the retry pass re-embeds only the failures (no
+    duplicate points), and a third pass reuses everything (idempotent)."""
     entry = core.registry.add(str(project))
 
     crashing = CrashingEmbedder()
@@ -194,22 +210,26 @@ def test_incremental_first_index_resumable_after_mid_crash(core, project):
     # One embed call per chunk, so the crash lands between files.
     core.embedder.batch_size = 1
 
-    # First pass: embeds file 1, crashes on file 2's embed call.
+    # First pass: file 1's chunk embeds; file 2's chunk fails permanently.
     r1 = core.run_index(entry.slug, entry.path)
-    assert r1["state"] == "error"
+    assert r1["state"] == "idle"
+    assert r1["result"]["chunks_embedded"] == 1
+    assert r1["result"]["chunks_skipped"] == 1
 
-    # Manifest may be partial (files committed before the crash remain).
     m = core.manifest_for(entry.slug)
-    partial = len(m.all_files())
+    errs = m.last_index_errors(3)
+    assert errs, "poisoned chunk recorded"
     m.close()
-    assert partial < 2  # crash happened before both files were committed
 
-    # Recovery pass with a healthy embedder.
+    # Recovery pass with a healthy embedder: only the failed chunk re-embeds.
     healthy = StubEmbedder()
     core.embedder = healthy
     core.indexer.embedder = healthy
     r2 = core.run_index(entry.slug, entry.path)
     assert r2["state"] == "idle"
+    assert r2["result"]["chunks_embedded"] == 1
+    # Deterministic point ids keep the upsert idempotent: no duplicate points.
+    assert core.store.upserted == 2
 
     m = core.manifest_for(entry.slug)
     files = m.all_files()
@@ -218,12 +238,11 @@ def test_incremental_first_index_resumable_after_mid_crash(core, project):
     m.close()
 
     # Third pass with no changes: everything reused, zero embeds (idempotent).
-    before = healthy.embed_calls
+    before = len(healthy.embed_calls)
     r3 = core.run_index(entry.slug, entry.path)
     assert r3["state"] == "idle"
     assert r3["result"]["chunks_embedded"] == 0
-    assert healthy.embed_calls == before  # no new embed calls
-    assert core.store.upserted == r3["result"]["chunks_embedded"] + 0 or True
+    assert len(healthy.embed_calls) == before  # no new embed calls
 
 
 def test_cli_search_json_contract(core, project):

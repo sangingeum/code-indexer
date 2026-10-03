@@ -19,6 +19,7 @@ import typer
 from .core import NEVER_INDEXED, Core, MIGRATION_HINT
 from .evalharness import (EVAL_MODES, compare_reports, format_eval_report,
                           load_report, run_eval)
+from .manifest import Manifest
 from .registry import ProjectEntry
 
 app = typer.Typer(
@@ -236,8 +237,26 @@ def index_status(
     parts = [f"project={path}", f"state={state}"]
     if st.get("last_result"):
         parts.append(f"last_pass={st['last_result']}")
+    if st.get("progress"):
+        p = st["progress"]
+        parts.append(
+            f"progress=files {p['files_done']}/{p['files_total']} "
+            f"chunks {p['chunks_done']}/{p['chunks_total']} "
+            f"{p['docs_per_s']} chunks/s eta={p['eta_s']}s")
     if st.get("error"):
         parts.append(f"error={st['error']}")
+    # Last 3 recorded embed errors (CI-04 poisoned-chunk reports).
+    mdir = os.path.join(core.cfg.index_root, entry.slug, "manifest.db")
+    if os.path.isfile(mdir):
+        m = Manifest(mdir)
+        try:
+            errs = m.last_index_errors(3)
+            if errs:
+                parts.append("last_errors=" + " | ".join(
+                    f"{e['file']}#{e['chunk_index']}: {e['error'][:60]}"
+                    for e in errs))
+        finally:
+            m.close()
     if state == NEVER_INDEXED:
         parts.append("note=registered but no indexing pass has completed; "
                      "run reindex-project to build the index")

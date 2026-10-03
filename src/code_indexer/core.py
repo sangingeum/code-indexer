@@ -61,7 +61,8 @@ class Core:
         self.skip_stale_check = skip_stale_check
         self.registry = Registry(os.path.join(self.cfg.index_root, "registry.db"))
         self.embedder = Embedder(self.cfg.ollama_url, self.cfg.embed_model,
-                                 batch_size=self.cfg.embed_batch)
+                                 batch_size=self.cfg.embed_batch,
+                                 timeout=self.cfg.ollama_timeout)
         self.store = Store(self.cfg.qdrant_url, upsert_batch=self.cfg.upsert_batch)
         self.indexer = Indexer(self.cfg, self.embedder, self.store)
         # Per-process staleness cache: slug -> last-scan monotonic time.
@@ -137,6 +138,8 @@ class Core:
             if not acquired:
                 return {"state": "indexing", "detail": "indexing in progress"}
             self._set_state(slug, state="indexing", error=None)
+            self.indexer.progress_cb = (
+                lambda info, s=slug: self._set_state(s, progress=info))
             manifest = self.manifest_for(slug)
             try:
                 result = self.indexer.index_project(

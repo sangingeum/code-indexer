@@ -406,6 +406,8 @@ Resolution order: CLI flags > environment variables > defaults.
 | `EMBED_BATCH` | `48` | Texts per Ollama embed request |
 | `UPSERT_BATCH` | `256` | Points per Qdrant upsert |
 | `MAX_FILE_BYTES` | `1048576` | Skip files larger than this |
+| `OLLAMA_TIMEOUT` | `120` | Ollama connect/read timeout (s); retries use exponential backoff + jitter, max 5 |
+| `EMBED_CONCURRENCY` | `1` | >1 pipelines tree-sitter parsing/hashing in a thread pool while the embed call is in flight |
 
 CLI flags: `--ollama-url`, `--qdrant-url`, `--embed-model`, `--index-root`.
 

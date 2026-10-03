@@ -40,6 +40,8 @@ class IndexResult:
     chunks_reused: int
     files_deleted: int
     duration_s: float
+    chunks_skipped: int = 0     # embed failures recorded in index_errors
+    files_committed: int = 0    # manifest rows committed after their upserts
 
 
 def _snippet(text: str, cap: int = 500) -> str:
@@ -47,10 +49,37 @@ def _snippet(text: str, cap: int = 500) -> str:
 
 
 class Indexer:
-    def __init__(self, cfg: Config, embedder: Embedder, store: Store):
+    def __init__(self, cfg: Config, embedder: Embedder, store: Store,
+                 progress_cb=None):
         self.cfg = cfg
         self.embedder = embedder
         self.store = store
+        # progress_cb(info: dict) — called during the embed/commit loop with
+        # {'files_done', 'files_total', 'chunks_done', 'chunks_total',
+        #  'docs_per_s', 'eta_s'} for index-status live progress.
+        self.progress_cb = progress_cb
+
+    def _embed_with_errors_compat(
+            self, texts: list[str],
+    ) -> tuple[list[list[float] | None], list[tuple[int, str]]]:
+        """embed_with_errors with a fallback for plain embed() embedders
+        (test stubs, third-party adapters): on batch failure, retry per text
+        so one poisoned input does not lose the whole batch."""
+        method = getattr(self.embedder, "embed_with_errors", None)
+        if method is not None:
+            return method(texts)
+        try:
+            vectors = self.embedder.embed(texts)
+            return list(vectors), []
+        except Exception as exc:  # noqa: BLE001 — bisect below
+            vecs: list[list[float] | None] = [None] * len(texts)
+            errors: list[tuple[int, str]] = []
+            for i, text in enumerate(texts):
+                try:
+                    vecs[i] = self.embedder.embed([text])[0]
+                except Exception as single_exc:  # noqa: BLE001
+                    errors.append((i, str(single_exc)))
+            return vecs, errors
 
     def index_project(self, project_path: str, slug: str, manifest: Manifest,
                       force_full: bool = False,
@@ -133,9 +162,10 @@ class Indexer:
             logger.info("purged %d deleted files", len(deleted))
 
         # 2) Chunk changed/added files; embed only chunks whose chunk_hash
-        #    is new. Unchanged-chunk hashes are cached in the meta table
-        #    (chunk_hash -> seen) keyed per file+index via the manifest
-        #    chunk table below.
+        #    is new. With EMBED_CONCURRENCY > 1, parse/chunk in a small
+        #    thread pool while the embed call is in flight (tree-sitter
+        #    parsing is CPU-bound in the C extension and file reads are
+        #    IO-bound; the embed HTTP call dominates wall time).
         to_embed: list[tuple[str, Chunk]] = []   # (file, chunk)
         points: list = []
         reused = 0
@@ -145,7 +175,13 @@ class Indexer:
         # Per-file symbol/ref extraction results, applied at step 4 in the
         # same commit as the manifest rows (never ahead of vectors).
         pending_symbols: list[tuple[str, list, list]] = []
-        for path in added + changed:
+        # Total chunk count per processed file (for the manifest row).
+        file_chunk_counts: dict[str, int] = {}
+        # Files that had at least one chunk queued for embedding.
+        to_embed_files: set[str] = set()
+
+        def _process_file(path: str) -> tuple[str, str, list[Chunk], list, list] | None:
+            """Read + chunk + extract symbols/refs for one file (pure)."""
             f = scanned_map[path]
             try:
                 with open(f.abs_path, encoding="utf-8", errors="replace") as fh:
@@ -153,78 +189,174 @@ class Indexer:
                     chunks = _chunk_dispatch(path, file_text)
             except OSError as exc:
                 logger.warning("cannot read %s: %s", path, exc)
-                continue
+                return None
+            syms = ts_chunker.extract_symbols(path, file_text, chunks)
+            refs = ts_chunker.extract_refs(path, file_text)
+            return path, file_text, chunks, syms, refs
 
-            pending_symbols.append((
-                path,
-                ts_chunker.extract_symbols(path, file_text, chunks),
-                ts_chunker.extract_refs(path, file_text),
-            ))
-
-            # Shrinkage: delete surplus chunk indices before upsert (§3/B).
+        def _record_file(path: str, chunks: list[Chunk], syms, refs) -> None:
+            """Apply one parsed file's bookkeeping (main thread only)."""
+            nonlocal reused
+            pending_symbols.append((path, syms, refs))
             old = old_files.get(path)
             if old and old.chunk_count > len(chunks):
                 self.store.purge_file_points(
-                    collection, project_path, path, min_chunk_index=len(chunks)
-                )
-                # If shrinking, also purge same-hash duplicates? No: ids for
-                # kept indices are identical, surplus are purged above.
-
+                    collection, project_path, path, min_chunk_index=len(chunks))
             for chunk_ in chunks:
                 key = f"{path}|{chunk_.chunk_hash}"
                 if key in seen_hashes and not rebuild:
                     reused += 1
                 else:
                     to_embed.append((path, chunk_))
-
-            rows.append(ManifestFile(path, f.content_hash, f.size, len(chunks), "ok",
-                                     getattr(f, "mtime_ns", None),
+                    to_embed_files.add(path)
+            f = scanned_map[path]
+            rows.append(ManifestFile(path, f.content_hash, f.size, len(chunks),
+                                     "ok", getattr(f, "mtime_ns", None),
                                      getattr(f, "inode", None)))
+            file_chunk_counts[path] = len(chunks)
 
-        # 3) Embed in batches (one HTTP round trip per batch).
+        process_paths = added + changed
+        concurrency = max(1, self.cfg.embed_concurrency)
+        if concurrency == 1:
+            for path in process_paths:
+                parsed = _process_file(path)
+                if parsed is not None:
+                    _record_file(parsed[0], parsed[2], parsed[3], parsed[4])
+        else:
+            # Pipeline: parse the next file in the pool while recording the
+            # current one. The embed call itself happens after the loop (one
+            # batched request); the pool hides file-read/parse latency.
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=concurrency) as pool:
+                futures = {pool.submit(_process_file, p): p
+                           for p in process_paths}
+                for future, path in futures.items():
+                    parsed = future.result()
+                    if parsed is not None:
+                        _record_file(parsed[0], parsed[2], parsed[3], parsed[4])
+
+        # 3) Embed with per-text failure isolation (bisect on batch failure);
+        #    commit each file's manifest row + symbols AFTER its points are
+        #    upserted, so a crashed pass resumes where it stopped and a
+        #    poisoned chunk is recorded in index_errors instead of failing
+        #    the whole pass.
         embedded = 0
+        skipped_errors = 0
+        files_committed = 0
+        by_file: dict[str, list[tuple[int, str, Chunk]]] = {}
         if to_embed:
             # Contextual embedding text (path+symbol header + chunk text):
             # raw code chunks alone land in a tight similarity band and NL
             # queries mis-rank them; the header restores file/symbol context.
-            vectors = self.embedder.embed([embed_text(p, c) for p, c in to_embed])
+            vectors, embed_errors = self._embed_with_errors_compat(
+                [embed_text(p, c) for p, c in to_embed])
+            for idx, msg in embed_errors:
+                path, chunk_ = to_embed[idx]
+                manifest.record_index_error(path, chunk_.chunk_index, msg)
+                skipped_errors += 1
+            from qdrant_client.models import PointStruct
             now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-            batch_points = []
-            for (path, chunk_), vec in zip(to_embed, vectors):
-                pid = point_id(project_path, path, chunk_.chunk_index)
-                payload = {
-                    "project": project_path,
-                    "file": path,
-                    "chunk_index": chunk_.chunk_index,
-                    "content_hash": scanned_map[path].content_hash,
-                    "file_hash": scanned_map[path].content_hash[:8],
-                    "chunk_hash": chunk_.chunk_hash,
-                    "symbol": chunk_.symbol,
-                    "symbol_type": chunk_.symbol_type,
-                    "lang": _lang_from_ext(path),
-                    "start_line": chunk_.start_line,
-                    "end_line": chunk_.end_line,
-                    "snippet": _snippet(chunk_.text),
-                    "indexed_at": now,
-                }
-                from qdrant_client.models import PointStruct
-                batch_points.append(PointStruct(id=pid, vector=vec, payload=payload))
-            # Record chunk hashes only AFTER the vectors are actually in
-            # Qdrant: recording up-front means a mid-pass crash leaves the
-            # cache claiming vectors exist that were never upserted (silent
-            # index loss). Post-commit recording keeps first-index resumable
-            # — a retry re-embeds only what never reached the store.
-            for i in range(0, len(batch_points), self.cfg.upsert_batch):
-                self.store.upsert_points(collection, batch_points[i:i + self.cfg.upsert_batch])
-            for (path, chunk_), _vec in zip(to_embed, vectors):
-                self._remember_chunk_hash(manifest, path, chunk_)
-            embedded = len(to_embed)
 
-        # 4) Manifest update in one transaction (symbols/refs included so
-        #    they can never be committed ahead of the vectors).
-        if rows:
-            manifest.upsert_files(rows)
+            def _point(path: str, chunk_: Chunk, vec: list[float]) -> PointStruct:
+                return PointStruct(
+                    id=point_id(project_path, path, chunk_.chunk_index),
+                    vector=vec,
+                    payload={
+                        "project": project_path,
+                        "file": path,
+                        "chunk_index": chunk_.chunk_index,
+                        "content_hash": scanned_map[path].content_hash,
+                        "file_hash": scanned_map[path].content_hash[:8],
+                        "chunk_hash": chunk_.chunk_hash,
+                        "symbol": chunk_.symbol,
+                        "symbol_type": chunk_.symbol_type,
+                        "lang": _lang_from_ext(path),
+                        "start_line": chunk_.start_line,
+                        "end_line": chunk_.end_line,
+                        "snippet": _snippet(chunk_.text),
+                        "indexed_at": now,
+                    })
+
+            # Group to-embed entries by file, upsert per file, then commit
+            # that file's manifest rows — the resumability unit.
+            by_file: dict[str, list[tuple[int, str, Chunk]]] = {}
+            for idx, (path, chunk_) in enumerate(to_embed):
+                if vectors[idx] is None:
+                    continue  # poisoned chunk: recorded, skipped
+                by_file.setdefault(path, []).append((idx, path, chunk_))
+
+            pending_syms = {entry[0]: (entry[1], entry[2])
+                            for entry in pending_symbols}
+            t_embed0 = time.time()
+            files_total = len(by_file)
+            for files_done, (path, entries) in enumerate(by_file.items(), 1):
+                points = [_point(path, chunk_, vectors[idx])
+                          for idx, _p, chunk_ in entries]
+                for i in range(0, len(points), self.cfg.upsert_batch):
+                    self.store.upsert_points(
+                        collection, points[i:i + self.cfg.upsert_batch])
+                for idx, _p, chunk_ in entries:
+                    self._remember_chunk_hash(manifest, path, chunk_)
+                embedded += len(entries)
+                # Commit AFTER the vectors reached the store: a crash before
+                # this line costs a re-embed of this file only; nothing is
+                # claimed that does not exist.
+                if path in pending_syms:
+                    syms, refs = pending_syms.pop(path)
+                    manifest.replace_file_symbols(
+                        path,
+                        [SymbolRow(file=path, name=s["name"],
+                                   symbol_type=s["symbol_type"],
+                                   start_line=s["start_line"],
+                                   end_line=s["end_line"], source=s["source"],
+                                   signature=s.get("signature"),
+                                   visibility=s.get("visibility"))
+                         for s in syms],
+                        [RefRow(file=path, line=r["line"],
+                                src_symbol=r["src_symbol"],
+                                relationship=r["relationship"],
+                                target=r["target"]) for r in refs])
+                f = scanned_map[path]
+                manifest.upsert_files([ManifestFile(
+                    path, f.content_hash, f.size,
+                    file_chunk_counts.get(path, 0), "ok",
+                    getattr(f, "mtime_ns", None),
+                    getattr(f, "inode", None))])
+                files_committed += 1
+                if self.progress_cb is not None:
+                    elapsed = max(time.time() - t_embed0, 1e-6)
+                    rate = embedded / elapsed  # chunks/s
+                    remaining_files = files_total - files_done
+                    eta = (rate and remaining_files *
+                           (file_chunk_counts.get(path, 1) / max(rate, 1e-6))) or 0.0
+                    self.progress_cb({
+                        "files_done": files_done, "files_total": files_total,
+                        "chunks_done": embedded,
+                        "chunks_total": len(to_embed),
+                        "docs_per_s": round(rate, 2), "eta_s": round(eta, 1),
+                        "errors": skipped_errors})
+            if skipped_errors:
+                logger.warning("%d chunk(s) skipped after embed failures "
+                               "(recorded in index_errors)", skipped_errors)
+        # Files with nothing to embed (fully reused) still need their rows — but
+        # NOT files whose chunks all failed to embed: their vectors are not in
+        # the store, so committing them would claim an index that does not
+        # exist. Those stay uncommitted and the next pass re-embeds them.
+        all_failed = {
+            path for path in file_chunk_counts
+            if path not in by_file and path in to_embed_files}
+        remaining_rows = [
+            ManifestFile(path, scanned_map[path].content_hash,
+                         scanned_map[path].size, file_chunk_counts.get(path, 0),
+                         "ok", getattr(scanned_map[path], "mtime_ns", None),
+                         getattr(scanned_map[path], "inode", None))
+            for path in file_chunk_counts
+            if path not in by_file and path not in all_failed]
+        if remaining_rows:
+            manifest.upsert_files(remaining_rows)
         for path, syms, refs in pending_symbols:
+            if path in by_file:
+                continue  # already committed with its vectors
             manifest.replace_file_symbols(
                 path,
                 [SymbolRow(file=path, name=s["name"], symbol_type=s["symbol_type"],
@@ -256,9 +388,10 @@ class Indexer:
             manifest.upsert_files(unchanged_rows)
 
         return IndexResult(
-            files_indexed=len(rows), chunks_embedded=embedded,
+            files_indexed=len(file_chunk_counts), chunks_embedded=embedded,
             chunks_reused=reused, files_deleted=len(deleted),
             duration_s=round(time.time() - t0, 2),
+            chunks_skipped=skipped_errors, files_committed=files_committed,
         )
 
     # -- chunk-hash cache (design §6 step 6) ---------------------------
