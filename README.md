@@ -405,6 +405,9 @@ threads, no hidden work).
 | `outline(file, project?, docstrings?, format?)` | `outline` | One file: declarations, signatures, optional one-line docstrings. |
 | `find_definition(name, project?)` | `find-definition` | Where a symbol is declared (exact name match only, no substring). |
 | `find_references(name, project?, relationship?, limit=25)` | `find-references` | Textual references TO a symbol (all confidence=heuristic). `relationship`: calls\|inherits\|includes\|references. |
+| `find_callers(name, project?, depth=2, max_nodes=40)` | `find-callers` | Who references this symbol — BFS over the AST refs/imports tables (fan-in), cycle-safe, `confidence` markers (`ast` vs `heuristic`). |
+| `find_callees(name, project?, depth=2, max_nodes=40)` | `find-callees` | What this symbol references (fan-out), resolved to defining files when unambiguous. |
+| `deps(path, project?, direction=both, depth=2, max_nodes=60, format=tree)` | `deps` | Import graph around one file: `in` (who imports it) / `out` (what it imports) / `both`, resolved project-relative edges only, `--format tree\|edges\|json`. |
 | `get_code_context(file, project?, start_line?, end_line?, symbol?, context_lines?)` | `get-code-context` | Retrieve ONLY the relevant source lines — by line range (`start_line`+`end_line`) or via a symbol (`symbol`), padded by `context_lines`. |
 
 MCP `project` parameters accept a path, slug, or registered custom name
@@ -536,7 +539,7 @@ Two things to know about the server process:
 
 - **stdout is reserved for the MCP transport.** All log output goes to stderr;
   never pipe server stdout into anything that expects log lines.
-- The server exposes **14 tools** (the table below). Tool listing does not
+- The server exposes **17 tools** (the table below). Tool listing does not
   require Ollama or Qdrant to be reachable — a stdio `initialize` +
   `tools/list` handshake succeeds even with both backends down. If installing
   from a checkout without a `uv` context, point `command` at the installed

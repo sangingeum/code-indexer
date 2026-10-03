@@ -80,6 +80,15 @@ class _FakeManifest:
     def replace_file_symbols(self, *args: Any, **kwargs: Any) -> None:
         pass
 
+    def replace_file_imports(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+    def replace_file_refs(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+    def replace_file_refs_heuristic(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
     def mark_scanned(self, branch: Any) -> None:
         pass
 

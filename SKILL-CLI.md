@@ -57,6 +57,9 @@ code-indexer find-symbol Name [--project P] [--type class]   # exact-first, capp
 code-indexer find-symbol [--project P] [--type class] [--file src/x.py] [--limit 25]   # browse mode (no name)
 code-indexer find-definition Name [--project P]                      # exact match only
 code-indexer find-references Name [--project P] [--relationship calls]  # all confidence=heuristic
+code-indexer find-callers Name [--project P] [--depth 2] [--max-nodes 40]  # fan-in over AST refs/imports (ast vs heuristic confidence)
+code-indexer find-callees Name [--project P] [--depth 2] [--max-nodes 40]  # fan-out
+code-indexer deps PATH [--project P] [--direction in|out|both] [--depth 2] [--format tree|edges|json]  # import graph around a file
 code-indexer get-code-context src/f.hpp --start-line 40 --end-line 80   # or --symbol Foo::bar
 code-indexer index-status /path/repo
 code-indexer doctor [--json]              # health check; exit 1 on any fail

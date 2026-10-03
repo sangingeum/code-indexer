@@ -14,6 +14,7 @@ Fingerprint keys (manifest meta):
     embed_dim           vector dimension (probed from the embedder)
     embed_text_version  EMBED_FORMAT string (e.g. contextual-header-v1)
     chunker_version     CHUNKER_VERSION (bumped when chunking behavior changes)
+    extraction_version  graph_extract.EXTRACTION_VERSION (imports/refs queries)
 """
 
 from __future__ import annotations
@@ -23,11 +24,12 @@ from dataclasses import dataclass
 
 from .embed_text import EMBED_FORMAT
 from .ts_chunker import CHUNKER_VERSION
+from .graph_extract import EXTRACTION_VERSION
 
 logger = logging.getLogger("code-indexer.fingerprint")
 
 FINGERPRINT_KEYS = ("embed_model", "embed_dim", "embed_text_version",
-                    "chunker_version")
+                    "chunker_version", "extraction_version")
 
 
 class ConfigError(Exception):
@@ -44,6 +46,7 @@ class Fingerprint:
     embed_dim: int
     embed_text_version: str
     chunker_version: int
+    extraction_version: int = EXTRACTION_VERSION
 
     def as_items(self) -> list[tuple[str, str]]:
         return [
@@ -51,12 +54,14 @@ class Fingerprint:
             ("embed_dim", str(self.embed_dim)),
             ("embed_text_version", self.embed_text_version),
             ("chunker_version", str(self.chunker_version)),
+            ("extraction_version", str(self.extraction_version)),
         ]
 
     def describe(self) -> str:
         return (f"{self.embed_model}/{self.embed_dim}/"
                 f"etext={self.embed_text_version}/"
-                f"chunker={self.chunker_version}")
+                f"chunker={self.chunker_version}/"
+                f"extr={self.extraction_version}")
 
 
 def current_fingerprint(embed_model: str, embed_dim: int) -> Fingerprint:

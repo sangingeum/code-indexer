@@ -332,7 +332,8 @@ def test_fingerprint_mismatch_warns(env):
         "INSERT INTO meta VALUES ('embed_model','old-model');"
         "INSERT INTO meta VALUES ('embed_dim','4');"
         "INSERT INTO meta VALUES ('embed_text_version','contextual-header-v1');"
-        "INSERT INTO meta VALUES ('chunker_version','1');")
+        "INSERT INTO meta VALUES ('chunker_version','1');"
+        "INSERT INTO meta VALUES ('extraction_version','1');")
     conn.commit()
     conn.close()
     checks = check_fingerprints(cfg, reg, StubEmbedder())

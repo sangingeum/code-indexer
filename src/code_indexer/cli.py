@@ -18,6 +18,7 @@ import typer
 
 from .core import NEVER_INDEXED, Core, MIGRATION_HINT
 from .doctor import Check, run_doctor
+from . import graph
 from .evalharness import (EVAL_MODES, compare_reports, format_eval_report,
                           load_report, run_eval)
 from .manifest import Manifest
@@ -115,6 +116,82 @@ def doctor(
             typer.echo(c.line())
     if any(c.status == "fail" for c in checks):
         raise typer.Exit(1)
+
+
+def _core_entry(project: str | None):
+    core = _get_core(False)
+    return core, _resolve(core, project)
+
+
+PROJECT_OPT = typer.Option(None, help="Project path, slug, or name.")
+
+
+@app.command()
+def find_callers(
+    name: str = typer.Argument(..., help="Symbol name to find callers of."),
+    project: str = PROJECT_OPT,
+    depth: int = typer.Option(2, "--depth", help="Traversal depth."),
+    max_nodes: int = typer.Option(40, "--max-nodes", help="Node cap."),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Who references this symbol (imports + refs, BFS with caps)."""
+    core, entry = _core_entry(project)
+    nodes = graph.find_callers(core, entry.slug, name, depth=depth,
+                               max_nodes=max_nodes)
+    _emit_graph(nodes, json_output)
+
+
+@app.command()
+def find_callees(
+    name: str = typer.Argument(..., help="Symbol name to find callees of."),
+    project: str = PROJECT_OPT,
+    depth: int = typer.Option(2, "--depth", help="Traversal depth."),
+    max_nodes: int = typer.Option(40, "--max-nodes", help="Node cap."),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """What this symbol references (refs, BFS with caps)."""
+    core, entry = _core_entry(project)
+    nodes = graph.find_callees(core, entry.slug, name, depth=depth,
+                               max_nodes=max_nodes)
+    _emit_graph(nodes, json_output)
+
+
+def _emit_graph(nodes, json_output: bool) -> None:
+    if json_output:
+        typer.echo(json.dumps(graph.graph_to_json(nodes)))
+    else:
+        typer.echo(graph.render_tree(nodes))
+
+
+@app.command()
+def deps(
+    path: str = typer.Argument(..., help="Project-relative file path."),
+    project: str = PROJECT_OPT,
+    direction: str = typer.Option("both", "--direction",
+                                  help="in | out | both"),
+    depth: int = typer.Option(2, "--depth"),
+    max_nodes: int = typer.Option(60, "--max-nodes"),
+    graph_format: str = typer.Option("tree", "--format",
+                                     help="tree | edges | json"),
+) -> None:
+    """Import graph around one file (resolved edges only)."""
+    core, entry = _core_entry(project)
+    result = graph.deps_for_file(core, entry.slug, path,
+                                 direction=direction, depth=depth,
+                                 max_nodes=max_nodes)
+    if graph_format == "json":
+        typer.echo(json.dumps(result))
+        return
+    lines: list[str] = []
+    for dir_key in ("in", "out"):
+        levels = result.get(dir_key) or {}
+        if not levels:
+            continue
+        for lvl, files in sorted(levels.items()):
+            for f in files:
+                indent = "  " * (lvl - 1)
+                lines.append(f"{dir_key} L{lvl}: {indent}{f}")
+    typer.echo("\n".join(lines) if lines else "no resolved dependencies")
 
 
 @app.command()

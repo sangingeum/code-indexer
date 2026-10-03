@@ -421,6 +421,68 @@ def find_references(name: str, project: str | None = None,
 @mcp.tool(annotations=ToolAnnotations(
     readOnlyHint=False, destructiveHint=False, idempotentHint=True,
     openWorldHint=False))
+def find_callers(name: str, project: str | None = None, depth: int = 2,
+                 max_nodes: int = 40, json_output: bool = False) -> str:
+    """Who references this symbol — BFS over the AST refs/imports tables
+    (fan-in), depth- and node-capped, cycle-safe. Confidence markers:
+    ast (tree-sitter query) vs heuristic (textual fallback). Thin wrapper
+    over `code-indexer find-callers NAME [--project P] [--depth D]
+    [--max-nodes N] [--json]`; one-shot, foreground.
+
+    readOnlyHint=False: the manifest may be refreshed before the read.
+    destructiveHint=False; idempotentHint=True."""
+    argv = ["find-callers", name, "--depth", str(depth),
+            "--max-nodes", str(max_nodes)]
+    if project:
+        argv += ["--project", project]
+    if json_output:
+        argv += ["--json"]
+    return _run_cli(argv)
+
+
+@mcp.tool(annotations=ToolAnnotations(
+    readOnlyHint=False, destructiveHint=False, idempotentHint=True,
+    openWorldHint=False))
+def find_callees(name: str, project: str | None = None, depth: int = 2,
+                 max_nodes: int = 40, json_output: bool = False) -> str:
+    """What this symbol references — BFS over the refs table (fan-out),
+    resolved to defining files when unambiguous. Thin wrapper over
+    `code-indexer find-callees NAME [--project P] [--depth D]
+    [--max-nodes N] [--json]`; one-shot, foreground.
+
+    readOnlyHint=False; destructiveHint=False; idempotentHint=True."""
+    argv = ["find-callees", name, "--depth", str(depth),
+            "--max-nodes", str(max_nodes)]
+    if project:
+        argv += ["--project", project]
+    if json_output:
+        argv += ["--json"]
+    return _run_cli(argv)
+
+
+@mcp.tool(annotations=ToolAnnotations(
+    readOnlyHint=False, destructiveHint=False, idempotentHint=True,
+    openWorldHint=False))
+def deps(path: str, project: str | None = None,
+         direction: str = "both", depth: int = 2, max_nodes: int = 60,
+         format: str = "tree") -> str:
+    """Import graph around one file: who imports it (`in`) and what it
+    imports (`out`), resolved project-relative edges only. Thin wrapper over
+    `code-indexer deps PATH [--project P] [--direction in|out|both]
+    [--depth D] [--max-nodes N] --format tree|edges|json`; one-shot,
+    foreground.
+
+    readOnlyHint=False; destructiveHint=False; idempotentHint=True."""
+    argv = ["deps", path, "--direction", direction, "--depth", str(depth),
+            "--max-nodes", str(max_nodes), "--format", format]
+    if project:
+        argv += ["--project", project]
+    return _run_cli(argv)
+
+
+@mcp.tool(annotations=ToolAnnotations(
+    readOnlyHint=False, destructiveHint=False, idempotentHint=True,
+    openWorldHint=False))
 def get_code_context(file: str, project: str | None = None,
                      start_line: int | None = None, end_line: int | None = None,
                      symbol: str | None = None, context_lines: int = 0,

@@ -275,6 +275,9 @@ EXPECTED_ANNOTATIONS: dict[str, tuple[bool, bool, bool, bool]] = {
     "outline": (False, False, True, False),
     "find_definition": (False, False, True, False),
     "find_references": (False, False, True, False),
+    "find_callers": (False, False, True, False),
+    "find_callees": (False, False, True, False),
+    "deps": (False, False, True, False),
     "get_code_context": (False, False, True, False),
 }
 
@@ -288,7 +291,7 @@ def test_every_tool_declares_all_four_annotation_hints():
     """No tool may leave a hint unset or non-boolean — OpenAI's directory
     rejects a tool with a missing hint."""
     tools = _list_tools()
-    assert len(tools) == 14, f"expected 14 tools, got {len(tools)}"
+    assert len(tools) == 17, f"expected 17 tools, got {len(tools)}"
     for tool in tools:
         annotations = tool.annotations
         assert annotations is not None, f"{tool.name}: no annotations"
@@ -323,7 +326,7 @@ def test_list_tools_serializes_annotations():
     import json
 
     tools = asyncio.run(server.mcp.list_tools())
-    assert len(tools) == 14
+    assert len(tools) == 17
     for tool in tools:
         payload = json.loads(tool.model_dump_json(exclude_none=False))
         annotations = payload["annotations"]

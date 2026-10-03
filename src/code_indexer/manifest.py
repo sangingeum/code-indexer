@@ -58,6 +58,24 @@ CREATE TABLE IF NOT EXISTS symbol_refs (
     PRIMARY KEY (file, line, relationship, target)
 );
 CREATE INDEX IF NOT EXISTS idx_symbol_refs_target ON symbol_refs(target);
+CREATE TABLE IF NOT EXISTS imports (
+    file TEXT NOT NULL,
+    raw_target TEXT NOT NULL,
+    resolved_file TEXT,          -- best-effort project-relative resolution
+    kind TEXT NOT NULL,          -- import|include|require|use|...
+    line INTEGER NOT NULL,
+    PRIMARY KEY (file, raw_target, line)
+);
+CREATE TABLE IF NOT EXISTS refs (
+    file TEXT NOT NULL,
+    line INTEGER NOT NULL,
+    from_symbol TEXT,            -- NULL when the call site is module-level
+    to_name TEXT NOT NULL,
+    relationship TEXT NOT NULL,  -- call|type|base_class|identifier
+    confidence TEXT NOT NULL,    -- ast | heuristic
+    PRIMARY KEY (file, line, to_name, relationship)
+);
+CREATE INDEX IF NOT EXISTS idx_refs_to_name ON refs(to_name);
 CREATE TABLE IF NOT EXISTS index_errors (
     file TEXT NOT NULL,
     chunk_index INTEGER,
@@ -378,6 +396,86 @@ class Manifest:
         """Populate chunks_fts from (file, chunk_index, content, symbol, path,
         line) rows; idempotent via the empty-table check at the call site."""
         self.fts_add_chunks(chunk_texts)
+
+    def replace_file_imports(self, file: str,
+                             rows: list[tuple[str, str | None, str, int]]
+                             ) -> None:
+        """Replace a file's import rows: (raw_target, resolved_file, kind,
+        line). Called in the same commit family as the symbol rows."""
+        cur = self._conn.cursor()
+        cur.execute("DELETE FROM imports WHERE file = ?", (file,))
+        cur.executemany(
+            "INSERT OR REPLACE INTO imports(file, raw_target, resolved_file,"
+            " kind, line) VALUES (?, ?, ?, ?, ?)",
+            [(file, rt, rf, kind, ln) for (rt, rf, kind, ln) in rows])
+        self._conn.commit()
+
+    def replace_file_refs(self, file: str,
+                          rows: list[tuple[int | None, str, str, str]]
+                          ) -> None:
+        """Replace a file's reference rows: (line, from_symbol, to_name,
+        relationship). Confidence is stamped here: 'ast' — rows produced by
+        tree-sitter queries; the textual fallback stamps 'heuristic'."""
+        cur = self._conn.cursor()
+        cur.execute("DELETE FROM refs WHERE file = ?", (file,))
+        cur.executemany(
+            "INSERT OR REPLACE INTO refs(file, line, from_symbol, to_name,"
+            " relationship, confidence) VALUES (?, ?, ?, ?, ?, 'ast')",
+            [(file, ln, frm, to, rel) for (ln, frm, to, rel) in rows])
+        self._conn.commit()
+
+    def replace_file_refs_heuristic(self, file: str,
+                                    rows: list[tuple[int | None, str, str, str]]
+                                    ) -> None:
+        """Textual-fallback variant of replace_file_refs (confidence=
+        'heuristic'); languages with AST queries never land here."""
+        cur = self._conn.cursor()
+        cur.execute("DELETE FROM refs WHERE file = ?", (file,))
+        cur.executemany(
+            "INSERT OR REPLACE INTO refs(file, line, from_symbol, to_name,"
+            " relationship, confidence) VALUES (?, ?, ?, ?, ?, 'heuristic')",
+            [(file, ln, frm, to, rel) for (ln, frm, to, rel) in rows])
+        self._conn.commit()
+
+    def callers_of(self, name: str, limit: int = 200) -> list[dict]:
+        """Fan-in edges: files/symbols that reference `name`."""
+        return [dict(zip(("file", "line", "from_symbol", "relationship",
+                          "confidence"), r))
+                for r in self._conn.execute(
+                    "SELECT file, line, from_symbol, relationship, confidence"
+                    " FROM refs WHERE to_name = ? ORDER BY file, line"
+                    " LIMIT ?", (name, limit))]
+
+    def callees_of_file_symbol(self, file: str, symbol: str | None,
+                               limit: int = 200) -> list[dict]:
+        """Fan-out edges originating from one symbol (or the whole file when
+        symbol is None)."""
+        if symbol is None:
+            rows = self._conn.execute(
+                "SELECT line, to_name, relationship, confidence FROM refs"
+                " WHERE file = ? ORDER BY line LIMIT ?",
+                (file, limit)).fetchall()
+            return [dict(zip(("line", "to_name", "relationship",
+                              "confidence"), r)) for r in rows]
+        rows = self._conn.execute(
+            "SELECT line, to_name, relationship, confidence FROM refs"
+            " WHERE file = ? AND from_symbol = ? ORDER BY line LIMIT ?",
+            (file, symbol, limit)).fetchall()
+        return [dict(zip(("line", "to_name", "relationship", "confidence"), r))
+                for r in rows]
+
+    def fan_in_counts(self, limit: int = 20) -> list[tuple[str, int]]:
+        """Top N names by reference count (overview hotspots)."""
+        return [(r[0], int(r[1])) for r in self._conn.execute(
+            "SELECT to_name, COUNT(*) AS n FROM refs GROUP BY to_name"
+            " ORDER BY n DESC, to_name LIMIT ?", (limit,))]
+
+    def import_rows(self, limit: int = 5000) -> list[dict]:
+        return [dict(zip(("file", "raw_target", "resolved_file", "kind",
+                          "line"), r))
+                for r in self._conn.execute(
+                    "SELECT file, raw_target, resolved_file, kind, line"
+                    " FROM imports LIMIT ?", (limit,))]
 
     def read_git_branch(self, project_root: str) -> str | None:
         import os

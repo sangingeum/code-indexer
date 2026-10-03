@@ -23,6 +23,7 @@ from .fingerprint import (Fingerprint, current_fingerprint,
 from . import ts_chunker
 from .manifest import Manifest, ManifestFile, RefRow, SymbolRow
 from .scanner import ScannedFile, scan_project
+from . import graph_extract
 from .sensitive import SensitiveReport, file_is_sensitive
 from .store import Store, point_id
 
@@ -262,6 +263,33 @@ class Indexer:
             manifest.fts_add_chunks([
                 (path, c.chunk_index, c.text, c.symbol or "", path,
                  c.start_line) for c in chunks])
+            # Graph extraction (graph work item): AST imports/references for
+            # query languages, textual fallback otherwise — replace-by-file.
+            abs_path = os.path.join(project_path, path)
+            try:
+                with open(abs_path, encoding="utf-8", errors="replace") as fh:
+                    ftext = fh.read()
+            except OSError:
+                ftext = ""
+            if ftext:
+                lang = _lang_from_ext(path)
+                imports, refs = graph_extract.extract_graph(
+                    path, ftext, lang)
+                textual_fallback = False
+                if not imports and not refs and \
+                        lang not in graph_extract.LANGUAGES_WITH_AST:
+                    imports, refs = graph_extract.extract_graph_textual(
+                        path, ftext)
+                    textual_fallback = True
+                resolutions = graph_extract.resolve_imports(
+                    project_path, path, lang, [i[0] for i in imports])
+                manifest.replace_file_imports(path, [
+                    (rt, resolutions.get(rt), kind, ln)
+                    for (rt, _r, kind, ln) in imports])
+                if textual_fallback:
+                    manifest.replace_file_refs_heuristic(path, refs)
+                else:
+                    manifest.replace_file_refs(path, refs)
             for chunk_ in chunks:
                 key = f"{path}|{chunk_.chunk_hash}"
                 if key in seen_hashes and not rebuild:
