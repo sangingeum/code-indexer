@@ -9,3 +9,4 @@ test-index/
 *.db-shm
 *.lock
 logs/runs/
+!uv.lock
