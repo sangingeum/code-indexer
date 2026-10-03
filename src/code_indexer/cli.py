@@ -230,6 +230,21 @@ def semantic_search(
     ranking: str = typer.Option("vector", "--ranking",
         help="Ranking mode: vector (default) | metadata | hybrid."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
+    per_file: int = typer.Option(0, "--per-file",
+        help="Max hits per file (0 = no generic per-file cap; the pure-data "
+             "share cap always applies)."),
+    max_chars: int = typer.Option(None, "--max-chars",
+        help="Output budget in characters: lowest-ranked hits are trimmed."),
+    max_tokens: int = typer.Option(None, "--max-tokens",
+        help="Output budget in approximate tokens (chars/4)."),
+    context_lines: int = typer.Option(
+        0, "--context-lines",
+        help="Lines of snippet shown per hit in text mode (0 = default 200-char "
+             "snippets; compact mode is unaffected)."),
+    output_format: str = typer.Option(
+        "text", "--format",
+        help="Output format: text (verbose, default) | compact (one line per "
+             "hit: path:start-end  symbol  score) | json."),
     skip_stale_check: bool = SkipOpt,
     refresh: bool = RefreshOpt,
     fresh: bool = FreshOpt,
@@ -243,7 +258,12 @@ def semantic_search(
     (weighted sum, fused = vector_score + 0.25 * lexical). In every mode
     pure-data chunks (.json/.yaml/.toml) are down-weighted and capped to at
     most 40% of the top-k window, so data files cannot crowd code out of it
-    (waived when the query names a data format)."""
+    (waived when the query names a data format). Same-file overlapping/adjacent
+    hits are merged into their union range; --per-file diversifies across
+    files; --max-chars/--max-tokens trim the lowest-ranked hits (one trailing
+    dropped-count line in text/compact output). Multi-project searches fuse
+    per-collection lists with Reciprocal Rank Fusion instead of comparing raw
+    cross-collection cosine."""
     core = _get_core(skip_stale_check)
     forced = refresh or fresh
     if project:
@@ -254,10 +274,12 @@ def semantic_search(
     else:
         for e in core.registry.list_projects():
             core.maybe_refresh(e.slug, e.path, force=forced)
+    fmt = "json" if json_output else output_format
     typer.echo(core.search_for_display(
         query, project=project, limit=limit, file_filter=file_filter,
         symbol_type=symbol_type, language=language, ranking_mode=ranking,
-        fmt="json" if json_output else "text", skip_refresh=True))
+        fmt=fmt, skip_refresh=True, per_file=per_file, max_chars=max_chars,
+        max_tokens=max_tokens, context_lines=context_lines))
 
 
 @app.command(name="index-status")

@@ -149,7 +149,8 @@ def run_eval(core: "Core", project: str, queries_path: str | Path,
     for q in queries:
         t0 = time.perf_counter()
         hits = core.search(q.query, project=project, limit=max(limit, max(ks)),
-                           ranking_mode=ranking_mode, skip_refresh=skip_refresh)
+                           ranking_mode=ranking_mode, skip_refresh=skip_refresh,
+                           merge=False)["hits"]
         latency = time.perf_counter() - t0
         rank: int | None = None
         for i, hit in enumerate(hits, 1):

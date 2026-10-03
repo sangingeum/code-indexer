@@ -439,12 +439,24 @@ class Core:
                symbol_type: str | None = None,
                language: str | None = None,
                ranking_mode: str = "vector",
-               skip_refresh: bool = False) -> list[dict[str, Any]]:
+               skip_refresh: bool = False,
+               per_file: int = 0,
+               max_chars: int | None = None,
+               max_tokens: int | None = None,
+               merge: bool = True) -> dict[str, Any]:
         """Semantic search across one or all registered projects.
 
         Runs the staleness probe per project first (unless skipped). Raises
         ValueError with a user-facing message on resolution/search errors —
         the adapters turn that into their error surface.
+
+        Result shaping (token-budget work item): same-file overlapping/adjacent
+        hits are merged, at most ``per_file`` hits per file are kept (0 = no
+        generic cap), and ``max_chars``/``max_tokens`` trim the lowest-ranked
+        hits. Returns {'hits': [...], 'dropped': int} so adapters can report
+        trimming. Multi-project (project=None) fuses per-collection lists with
+        Reciprocal Rank Fusion — raw cosine is not comparable across
+        collections.
         """
         if project:
             entry, err = self.resolve_entry(project)
@@ -455,7 +467,7 @@ class Core:
             entries = self.registry.list_projects()
             if not entries:
                 raise ValueError("error: no projects registered")
-        all_hits: list[dict[str, Any]] = []
+        per_project: dict[str, list[dict[str, Any]]] = {}
         for entry in entries:
             # Fingerprint gate BEFORE any embedding work: a query against a
             # wrong-model index is wrong regardless of staleness, and
@@ -464,36 +476,88 @@ class Core:
             if not skip_refresh:
                 self.maybe_refresh(entry.slug, entry.path)
             try:
-                all_hits.extend(self.search_one(
+                per_project[entry.path] = self.search_one(
                     entry, query, limit, file_filter,
                     symbol_type=symbol_type, language=language,
-                    ranking_mode=ranking_mode))
+                    ranking_mode=ranking_mode)
             except Exception as exc:  # noqa: BLE001
                 logger.exception("search failed for %s", entry.path)
                 raise ValueError(f"error: search failed on {entry.path}: {exc}") from exc
-        all_hits.sort(key=lambda h: h["score"], reverse=True)
-        # Multi-project results can re-mix data-file chunks across projects, so
-        # re-apply the share cap on the merged, sorted pool before truncating.
-        all_hits = ranking.cap_data_file_share(
-            all_hits, max(1, limit), ranking.query_tokens(query))
-        return all_hits[:max(1, limit)]
 
-    def format_hits(self, hits: list[dict[str, Any]], fmt: str = "text") -> str:
-        """Format search hits as text lines or JSON (stable field contract)."""
+        if len(per_project) == 1:
+            all_hits = next(iter(per_project.values()))
+            all_hits.sort(key=lambda h: h["score"], reverse=True)
+            # Single project: scores are comparable; keep the share cap.
+            all_hits = ranking.cap_data_file_share(
+                all_hits, max(1, limit), ranking.query_tokens(query))
+        else:
+            # Multi-project: raw cosine is not comparable across collections —
+            # fuse per-project rank lists with RRF, then re-apply the data-file
+            # share cap on the fused window.
+            all_hits = ranking.rrf_fuse(per_project, limit * 3)
+            all_hits = ranking.cap_data_file_share(
+                all_hits, max(1, limit), ranking.query_tokens(query))
+
+        # Result shaping: merge overlapping/adjacent same-file hits, generic
+        # per-file cap, budget trim (lowest-ranked dropped first).
+        if merge:
+            all_hits = ranking.merge_overlapping(all_hits)
+        all_hits = ranking.cap_per_file(all_hits, per_file)
+        all_hits = ranking.truncate_snippets(all_hits, max_chars, max_tokens)
+        all_hits, dropped = ranking.trim_to_budget(
+            all_hits, max_chars=max_chars, max_tokens=max_tokens)
+        return {"hits": all_hits[:max(1, limit)], "dropped": dropped}
+
+    def format_hits(self, hits: list[dict[str, Any]], fmt: str = "text",
+                dropped: int = 0, context_lines: int = 0) -> str:
+        """Format search hits (stable field contract).
+
+        ``text`` — the original verbose two-line-per-hit render (default;
+        kept for compatibility with existing agent workflows).
+        ``compact`` — one line per hit: ``path:start-end  symbol  score``;
+        the token-budget agent loop (search compact -> get-code-context).
+        ``json`` — the JSON contract.
+        ``dropped`` > 0 appends one trailing truncation line in text/compact
+        mode (the documented exception to single-line stderr reporting).
+        ``context_lines`` expands each hit's snippet window by padding the
+        snippet with surrounding lines up to N (0 = location+symbol only in
+        compact; the snippet itself already carries the source window).
+        """
         if not hits:
             return "no results"
         if fmt == "json":
-            return json.dumps(hits, ensure_ascii=False, indent=2)
-        lines = ["search results (score desc):"]
-        for h in hits:
-            sym = f" ({h['symbol']}" if h["symbol"] else ""
-            if sym:
-                sym += f", {h['symbol_type']})" if h.get("symbol_type") else ")"
+            return json.dumps(
+                {"hits": hits, "truncated": dropped > 0, "dropped": dropped},
+                ensure_ascii=False, indent=2)
+        lines: list[str] = []
+        if fmt == "compact":
+            for h in hits:
+                sym = h.get("symbol") or "-"
+                lines.append(
+                    f"{h['project']}::{h['file']}:{h['start_line']}-"
+                    f"{h['end_line']}  {sym}  {h['score']:.4f}")
+        else:
+            lines.append("search results (score desc):")
+            for h in hits:
+                sym = f" ({h['symbol']}" if h["symbol"] else ""
+                if sym:
+                    sym += f", {h['symbol_type']})" if h.get("symbol_type") else ")"
+                lines.append(
+                    f"- [{h['score']:.4f}] {h['project']}::{h['file']}"
+                    f":{h['start_line']}-{h['end_line']}{sym}"
+                )
+                snippet = h.get("snippet") or ""
+                if context_lines:
+                    # Show the leading context_lines lines of the snippet
+                    # (the snippet carries chunk text; expand up to N lines).
+                    shown = "\n".join(snippet.splitlines()[:context_lines])
+                else:
+                    shown = snippet[:200]
+                lines.append(f"    {shown}")
+        if dropped:
             lines.append(
-                f"- [{h['score']:.4f}] {h['project']}::{h['file']}"
-                f":{h['start_line']}-{h['end_line']}{sym}"
-            )
-            lines.append(f"    {h['snippet'][:200]}")
+                f"({dropped} lower-ranked hit(s) dropped by the output budget; "
+                f"raise --max-chars/--max-tokens to see more)")
         return "\n".join(lines)
 
     def search_for_display(self, query: str, project: str | None = None,
@@ -502,16 +566,22 @@ class Core:
                            language: str | None = None,
                            ranking_mode: str = "vector",
                            fmt: str = "text",
-                           skip_refresh: bool = False) -> str:
+                           skip_refresh: bool = False,
+                           per_file: int = 0,
+                           max_chars: int | None = None,
+                           max_tokens: int | None = None,
+                           context_lines: int = 0) -> str:
         try:
-            hits = self.search(query, project=project, limit=limit,
+            result = self.search(query, project=project, limit=limit,
                                file_filter=file_filter,
                                symbol_type=symbol_type, language=language,
                                ranking_mode=ranking_mode,
-                               skip_refresh=skip_refresh)
+                               skip_refresh=skip_refresh, per_file=per_file,
+                               max_chars=max_chars, max_tokens=max_tokens)
         except ValueError as exc:
             return str(exc)
-        return self.format_hits(hits, fmt)
+        return self.format_hits(result["hits"], fmt, dropped=result["dropped"],
+                                context_lines=context_lines)
 
     # ------------------------------------------------------------------
     # token reduction: skeleton / outline (subcommand design §2.1/§2.2)

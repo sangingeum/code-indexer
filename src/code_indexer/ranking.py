@@ -235,3 +235,150 @@ def cap_data_file_share(hits: list[dict[str, Any]], limit: int,
         else:
             head.append(hit)
     return head + overflow
+
+
+# ---------------------------------------------------------------------------
+# result shaping (token-budget work item): merge, per-file caps, budgets, RRF
+# ---------------------------------------------------------------------------
+
+def merge_overlapping(hits: list[dict[str, Any]],
+                      adjacency_gap: int = 2
+                      ) -> list[dict[str, Any]]:
+    """Merge overlapping/adjacent hits from the same file into one.
+
+    Ranges that overlap or sit within ``adjacency_gap`` lines of each other
+    collapse into their union; the best score wins, and the merged hit lists
+    all contributing symbols. Deterministic: same-file groups are merged in
+    score order, output re-sorted by score.
+    """
+    by_file: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    others: list[dict[str, Any]] = []
+    for hit in hits:
+        key = (hit.get("project") or "", hit.get("file") or "")
+        if hit.get("start_line") is None or hit.get("end_line") is None:
+            others.append(hit)
+            continue
+        by_file.setdefault(key, []).append(hit)
+    merged: list[dict[str, Any]] = []
+    for key in by_file:
+        group = sorted(by_file[key],
+                       key=lambda h: (-h["score"], h["start_line"]))
+        current: dict[str, Any] | None = None
+        for hit in group:
+            if current is None:
+                current = dict(hit)
+                continue
+            if hit["start_line"] <= current["end_line"] + adjacency_gap + 1:
+                current["end_line"] = max(current["end_line"],
+                                          hit["end_line"])
+                current["start_line"] = min(current["start_line"],
+                                            hit["start_line"])
+                for field in ("symbol", "symbol_type"):
+                    extra = hit.get(field)
+                    if extra and extra != current.get(field):
+                        symbols = [current.get(field), extra]
+                        current[field] = ", ".join(s for s in symbols if s)
+                current["merged_count"] = current.get("merged_count", 1) + 1
+            else:
+                merged.append(current)
+                current = dict(hit)
+        if current is not None:
+            merged.append(current)
+    out = merged + others
+    out.sort(key=lambda h: h["score"], reverse=True)
+    return out
+
+
+def cap_per_file(hits: list[dict[str, Any]], per_file: int) -> list[dict[str, Any]]:
+    """Keep at most ``per_file`` hits per file (score-ordered input).
+
+    Diversifies the result across files; the data-file share cap above stays
+    independent of this generic cap. ``per_file <= 0`` disables the cap.
+    """
+    if per_file <= 0:
+        return hits
+    seen: dict[tuple[str, str], int] = {}
+    kept: list[dict[str, Any]] = []
+    for hit in hits:
+        key = (hit.get("project") or "", hit.get("file") or "")
+        n = seen.get(key, 0)
+        if n < per_file:
+            seen[key] = n + 1
+            kept.append(hit)
+        # Overflowing same-file hits are dropped outright: the caller
+        # over-fetched, so nothing competitive is lost that another file's
+        # hit should not replace.
+    return kept
+
+
+def trim_to_budget(hits: list[dict[str, Any]],
+                   max_chars: int | None = None,
+                   max_tokens: int | None = None,
+                   header_overhead: int = 80) -> tuple[list[dict[str, Any]], int]:
+    """Trim lowest-ranked hits until the output fits the budget.
+
+    A hit costs its snippet (capped by ``max_chars`` inside format layer) plus
+    ``header_overhead`` chars of location/symbol header. ``max_tokens`` is
+    converted at 4 chars/token. Returns ``(kept_hits, dropped_count)``. The
+    budget is never exceeded by more than one hit's header (the last hit is
+    admitted if ANY budget remains, and a hit that alone exceeds the budget
+    is still kept when it is the only candidate — an empty result is worse).
+    """
+    if max_chars is None and max_tokens is None:
+        return hits, 0
+    budget: int = max_chars if max_chars is not None else (max_tokens or 0) * 4
+    kept: list[dict[str, Any]] = []
+    used = 0
+    dropped = 0
+    for hit in hits:
+        cost = header_overhead + min(len(hit.get("snippet") or ""), 500)
+        if used + cost > budget and kept:
+            dropped += 1
+            continue
+        kept.append(hit)
+        used += cost
+    return kept, dropped
+
+
+def truncate_snippets(hits: list[dict[str, Any]], max_chars: int | None,
+                      max_tokens: int | None) -> list[dict[str, Any]]:
+    """Cap each hit's snippet so the whole set can fit the budget."""
+    if max_chars is None and max_tokens is None:
+        return hits
+    budget: int = max_chars if max_chars is not None else (max_tokens or 0) * 4
+    # Leave room for headers: roughly half the budget for snippets, min 100.
+    snippet_cap = max(100, budget // max(1, len(hits)) - 80)
+    out = []
+    for hit in hits:
+        h = dict(hit)
+        h["snippet"] = (h.get("snippet") or "")[:snippet_cap]
+        out.append(h)
+    return out
+
+
+def rrf_fuse(per_project: dict[str, list[dict[str, Any]]], limit: int,
+             k: int = 60) -> list[dict[str, Any]]:
+    """Reciprocal Rank Fusion across per-project result lists.
+
+    Cross-collection cosine scores are NOT comparable (different model runs,
+    different content pools); RRF compares ranks instead. A hit's fused score
+    is sum(1 / (k + rank)) over the lists it appears in; the original score is
+    kept as vector_score for display. Ties break by (file, start_line).
+    """
+    fused: dict[tuple, dict[str, Any]] = {}
+    for project, hits in per_project.items():
+        for rank, hit in enumerate(hits, 1):
+            key = (project, hit.get("file"), hit.get("start_line"))
+            entry = fused.get(key)
+            if entry is None:
+                entry = dict(hit)
+                entry["vector_score"] = hit.get("score")
+                entry["rrf_score"] = 0.0
+                entry["rank_positions"] = []
+                fused[key] = entry
+            entry["rrf_score"] += 1.0 / (k + rank)
+            entry["rank_positions"].append(rank)
+    out = list(fused.values())
+    out.sort(key=lambda h: (-h["rrf_score"], h.get("file") or "",
+                            h.get("start_line") or 0))
+    return out[:max(1, limit)]

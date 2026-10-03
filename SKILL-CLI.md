@@ -48,7 +48,7 @@ uv run code-indexer <cmd>   # or installed console script
 code-indexer add-project /path/repo [--name myproj] [--allow-sensitive]   # register + initial index (foreground in CLI)
 code-indexer lookup-project /path/repo                # registration check, no side effects
 code-indexer list-projects
-code-indexer semantic-search "query" [--project P] [--limit 8] [--file-filter '*.py'] [--symbol-type class] [--language python] [--ranking vector|metadata|hybrid] [--json]
+code-indexer semantic-search "query" [--project P] [--limit 8] [--file-filter '*.py'] [--symbol-type class] [--language python] [--ranking vector|metadata|hybrid] [--per-file N] [--max-chars N | --max-tokens N] [--format text|compact|json] [--json]
 code-indexer skeleton [--project P | --name P] [PATH_PREFIX] [--tree] [--no-signatures] [--limit N] [--json]
 code-indexer map ...      # alias for skeleton
 code-indexer outline [--project P | --name P] FILE [--docstrings] [--json]
@@ -90,6 +90,15 @@ code-indexer unwatch --all [--timeout 10] # stop it for every registered project
   queries; they stay searchable, and the mitigation is waived when the
   query names a data format. `--symbol-type` and `--language` scope
   the search by payload filters without extra round trips.
+  Result shaping: same-file overlapping/adjacent hits merge into their
+  union range (best score, symbols listed together); `--per-file N` caps
+  hits per file; `--max-chars`/`--max-tokens` trim lowest-ranked hits to a
+  budget (trailing dropped-count line, `truncated`/`dropped` in JSON);
+  `--format compact` prints one line per hit
+  (`path:start-end  symbol  score`) — prefer compact + get-code-context
+  for agent loops (855 B vs 2.2 KB measured). Multi-project searches fuse
+  per-collection ranks with Reciprocal Rank Fusion (`rrf_score`,
+  `vector_score` keeps the original cosine).
   **`--language` values (exhaustive)** — the stored `lang` payload, derived
   from the file extension at index time; filter matches it exactly:
   - AST-parsed via tree-sitter (structured chunks with symbol names):

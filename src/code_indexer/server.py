@@ -179,7 +179,8 @@ def semantic_search(query: str, project: str | None = None, limit: int = 8,
                     symbol_type: str | None = None,
                     language: str | None = None,
                     ranking: str = "vector",
-                    format: str = "text", fresh: bool = False) -> str:
+                    format: str = "text", fresh: bool = False,
+                    per_file: int = 0, max_tokens: int | None = None) -> str:
     """Semantic code search across indexed projects. Thin wrapper over
     `code-indexer semantic-search QUERY [--project P] [--limit N]
     [--file-filter GLOB] [--symbol-type T] [--language L] [--ranking M]
@@ -190,9 +191,12 @@ def semantic_search(query: str, project: str | None = None, limit: int = 8,
     every registered project. `ranking`: 'vector' (pure cosine, default) |
     'metadata' (definition boost / test-path penalty) | 'hybrid' (cosine fused
     with lexical token overlap — better for exact-identifier queries).
-    `format`: 'text' or 'json' (the JSON field contract is the CLI's:
-    project, file, score, symbol, symbol_type, lang, start_line, end_line,
-    snippet).
+    `format`: 'text' (verbose), 'compact' (one line per hit:
+    path:start-end  symbol  score — the token-budget default for agents), or
+    'json' (the JSON contract: {"hits": [...], "truncated": bool,
+    "dropped": int}). `per_file` caps hits per file (0 = no generic cap);
+    `max_tokens` trims the lowest-ranked hits to an approximate token budget
+    (chars/4). Multi-project searches fuse per-collection lists with RRF.
 
     readOnlyHint=False: a stale index triggers `Core.maybe_refresh`, an
     incremental re-embed that writes the derived index. destructiveHint=False
@@ -200,6 +204,10 @@ def semantic_search(query: str, project: str | None = None, limit: int = 8,
     argv = ["semantic-search", query, "--limit", str(limit)]
     if fresh:
         argv += ["--fresh"]
+    if per_file:
+        argv += ["--per-file", str(per_file)]
+    if max_tokens is not None:
+        argv += ["--max-tokens", str(max_tokens)]
     if project:
         argv += ["--project", project]
     if file_filter:
@@ -212,6 +220,8 @@ def semantic_search(query: str, project: str | None = None, limit: int = 8,
         argv += ["--ranking", ranking]
     if format == "json":
         argv += ["--json"]
+    elif format == "compact":
+        argv += ["--format", "compact"]
     return _run_cli(argv)
 
 

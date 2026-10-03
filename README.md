@@ -66,6 +66,34 @@ semantics — so this CLI section doubles as the MCP tool reference.
 accept both `--project X` and `--name X` for the project argument (path,
 slug, or registered custom name).
 
+### Result shaping and token budget (semantic-search)
+
+`semantic-search` shapes its result list to control output size:
+
+- **Same-file merge**: overlapping/adjacent hits from one file (gap ≤ 2
+  lines) collapse into their union range — best score wins, contributing
+  symbols are listed together, `merged_count` records how many hits merged.
+- **Per-file cap**: `--per-file N` keeps at most N hits per file (default 0 =
+  no generic cap; the pure-data share cap always applies independently).
+- **Budget**: `--max-chars N` / `--max-tokens N` (approx chars/4) trim the
+  lowest-ranked hits and cap snippet length. When anything was dropped, one
+  trailing line reports the count in text/compact mode, and JSON carries
+  `truncated: true, dropped: N` (the JSON envelope is
+  `{"hits": [...], "truncated", "dropped"}`). The budget is never exceeded by
+  more than one hit's header.
+- **Formats**: `--format text` (verbose, default — unchanged), `--format
+  compact` (one line per hit: `path:start-end  symbol  score`), or `--json`.
+  For agent loops prefer **compact** + `get-code-context` for what you need
+  (e.g. `--format compact --max-tokens 300` measured 855 B vs the 2.2 KB
+  text default on this repository). Flipping the default format is an
+  eval-gated decision — the current default is kept for workflow
+  compatibility.
+- **Multi-project fusion**: searching all projects (no `--project`) fuses
+  per-collection rank lists with Reciprocal Rank Fusion instead of comparing
+  raw cosine across collections (scores are not comparable between
+  collections; ranks are). `rrf_score` replaces `score` for ordering on
+  multi-project searches, with the original cosine kept as `vector_score`.
+
 ### Sensitive-content exclusion (privacy)
 
 By default, indexing skips secret-bearing files at two layers, and the skip
