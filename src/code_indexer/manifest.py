@@ -344,6 +344,41 @@ class Manifest:
         return int(self._conn.execute(
             "SELECT COUNT(*) FROM index_errors").fetchone()[0])
 
+    # -- FTS5 lexical index (hybrid retrieval) ---------------------------
+
+    def fts(self):
+        """FTS wrapper over this manifest's connection (same transaction
+        scope as the manifest writes — no drift)."""
+        from .fts import FtsIndex
+        return FtsIndex(self._conn)
+
+    def fts_add_chunks(self, rows: list[tuple[str, int, str, str, str, int]]) -> None:
+        """Insert chunk text into chunks_fts (call inside the same commit as
+        the manifest rows). Rows are (file, chunk_index, content, symbol,
+        path, start_line)."""
+        if rows:
+            self.fts().add_chunks(rows)
+
+    def fts_purge_file(self, file: str) -> None:
+        try:
+            self.fts().purge_file(file)
+        except Exception as exc:  # noqa: BLE001 — table may not exist yet
+            logger.debug("fts purge skipped for %s: %s", file, exc)
+
+    def fts_search(self, query: str, limit: int = 30) -> list[dict]:
+        return self.fts().search(query, limit)
+
+    def fts_backfill_needed(self) -> bool:
+        """True when chunks exist in the manifest but chunks_fts is empty
+        (legacy manifest): the caller backfills migration-style, idempotent."""
+        total = sum(f.chunk_count for f in self.all_files().values())
+        return self.fts().needs_backfill(total)
+
+    def fts_backfill(self, chunk_texts: list[tuple[str, int, str, str, str, int]]) -> None:
+        """Populate chunks_fts from (file, chunk_index, content, symbol, path,
+        line) rows; idempotent via the empty-table check at the call site."""
+        self.fts_add_chunks(chunk_texts)
+
     def read_git_branch(self, project_root: str) -> str | None:
         import os
         head = os.path.join(project_root, ".git", "HEAD")

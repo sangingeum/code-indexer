@@ -252,6 +252,11 @@ def semantic_search(
              "heuristic reranker is opt-in pending an eval win."),
     no_rerank: bool = typer.Option(
         False, "--no-rerank", help="Explicitly disable reranking."),
+    search_mode: str = typer.Option(
+        "hybrid", "--mode",
+        help="Retrieval mode: hybrid (dense + lexical RRF fusion, default — "
+             "eval win: recall@1 +0.17, MRR +0.12, 7 improved / 0 regressed) | "
+             "dense (embeddings only) | lexical (FTS5 bm25, no Ollama call)."),
     skip_stale_check: bool = SkipOpt,
     refresh: bool = RefreshOpt,
     fresh: bool = FreshOpt,
@@ -288,7 +293,7 @@ def semantic_search(
         symbol_type=symbol_type, language=language, ranking_mode=ranking,
         fmt=fmt, skip_refresh=True, per_file=per_file, max_chars=max_chars,
         max_tokens=max_tokens, context_lines=context_lines,
-        rerank=rerank_mode))
+        rerank=rerank_mode, mode=search_mode))
 
 
 @app.command(name="index-status")

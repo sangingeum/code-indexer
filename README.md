@@ -66,6 +66,31 @@ semantics — so this CLI section doubles as the MCP tool reference.
 accept both `--project X` and `--name X` for the project argument (path,
 slug, or registered custom name).
 
+### Hybrid retrieval (FTS5 lexical + dense RRF fusion)
+
+Every manifest carries a `chunks_fts` FTS5 virtual table (content, symbol,
+path) maintained in the same transaction family as the manifest writes — no
+drift; deleted files are purged, re-processed files are replace-by-file, and
+legacy manifests backfill migration-style on the next pass. Content is
+pre-tokenized: camelCase/snake_case identifiers are split into lowercased
+sub-tokens alongside the original, so `refreshToken` matches a query for
+`refresh token`.
+
+`semantic-search --mode` selects the retrieval pipeline:
+
+- **hybrid (default)** — dense + lexical fused with Reciprocal Rank Fusion
+  (k=60). Eval on this repository's 42-query set: recall@1 0.4048 → 0.5714
+  (+0.17), MRR 0.5760 → 0.6986 (+0.12), nDCG@10 +0.099, 7 queries improved
+  (all exact-identifier) and 0 regressed — the gate passed and hybrid became
+  the default. Lexical bm25 ranks with symbol > path > content column
+  weights; identifier-shaped queries additionally pin exact `find_symbol`
+  matches first, labelled `match=symbol`.
+- **dense** — embeddings only (the pre-hybrid pipeline).
+- **lexical** — FTS5 bm25 only, no Ollama round trip (works with backends
+  down; skips the fingerprint gate, which cannot corrupt a text match).
+
+Each hit carries `match=symbol|lexical|fused` in JSON for provenance.
+
 ### Result shaping and token budget (semantic-search)
 
 `semantic-search` shapes its result list to control output size:

@@ -166,6 +166,27 @@ class Indexer:
                         fingerprint_mismatches(recorded_fp, current_fp))
         rebuild = rebuild or fp_changed
 
+        # Legacy-manifest FTS backfill (migration-style, idempotent): a
+        # manifest with indexed chunks but an empty chunks_fts is populated
+        # from disk once; later passes maintain it incrementally.
+        if manifest.fts_backfill_needed():
+            logger.info("backfilling FTS lexical index (legacy manifest)")
+            backfill_rows: list[tuple[str, str, str, str, str, int]] = []
+            for p in list(manifest.all_files()):
+                mf = manifest.get_file(p)
+                abs_p = os.path.join(project_path, p)
+                if mf is None:
+                    continue
+                try:
+                    with open(abs_p, encoding="utf-8", errors="replace") as fh:
+                        ftext = fh.read()
+                except OSError:
+                    continue
+                for c in _chunk_dispatch(p, ftext):
+                    backfill_rows.append((p, c.chunk_index, c.text,
+                                          c.symbol or "", p, c.start_line))
+            manifest.fts_backfill(backfill_rows)
+
         added = [p for p in scanned_map if p not in old_files]
         deleted = [p for p in old_files if p not in scanned_map]
         changed = [
@@ -190,6 +211,8 @@ class Indexer:
             self.store.purge_file_points(collection, project_path, path)
         if deleted:
             manifest.delete_files(deleted)
+            for path in deleted:
+                manifest.fts_purge_file(path)
             logger.info("purged %d deleted files", len(deleted))
 
         # 2) Chunk changed/added files; embed only chunks whose chunk_hash
@@ -233,6 +256,12 @@ class Indexer:
             if old and old.chunk_count > len(chunks):
                 self.store.purge_file_points(
                     collection, project_path, path, min_chunk_index=len(chunks))
+            # FTS rows for every chunk of a (re)processed file — written in
+            # the same manifest transaction family as the row commit, so the
+            # lexical index never drifts from the manifest.
+            manifest.fts_add_chunks([
+                (path, c.chunk_index, c.text, c.symbol or "", path,
+                 c.start_line) for c in chunks])
             for chunk_ in chunks:
                 key = f"{path}|{chunk_.chunk_hash}"
                 if key in seen_hashes and not rebuild:

@@ -62,6 +62,15 @@ class _FakeManifest:
     def stat_map(self) -> dict:
         return {}
 
+    def fts_backfill_needed(self) -> bool:
+        return False
+
+    def fts_add_chunks(self, rows) -> None:
+        pass
+
+    def fts_purge_file(self, file) -> None:
+        pass
+
     def set_meta(self, key: str, value: str) -> None:
         pass
 

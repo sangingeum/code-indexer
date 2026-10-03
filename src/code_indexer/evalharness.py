@@ -37,10 +37,9 @@ if TYPE_CHECKING:
     from .core import Core
 
 # Ranking modes accepted by ``eval``. ``hybrid`` here names the retrieval
-# pipeline (dense + lexical); until the lexical index lands, both values run
-# the dense path — the flag is accepted now so eval runs stay comparable
-# across the transition.
-EVAL_MODES = ("dense", "hybrid")
+# pipeline (dense + lexical); the lexical index landed, so the values map
+ # to distinct pipelines now.
+EVAL_MODES = ("dense", "lexical", "hybrid")
 
 DEFAULT_KS = (1, 3, 5, 10)
 
@@ -151,7 +150,8 @@ def run_eval(core: "Core", project: str, queries_path: str | Path,
         t0 = time.perf_counter()
         hits = core.search(q.query, project=project, limit=max(limit, max(ks)),
                            ranking_mode=ranking_mode, skip_refresh=skip_refresh,
-                           merge=False, rerank=rerank)["hits"]
+                           merge=False, rerank=rerank,
+                           mode=mode)["hits"]
         latency = time.perf_counter() - t0
         rank: int | None = None
         for i, hit in enumerate(hits, 1):

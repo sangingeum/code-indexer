@@ -181,7 +181,8 @@ def semantic_search(query: str, project: str | None = None, limit: int = 8,
                     ranking: str = "vector",
                     format: str = "text", fresh: bool = False,
                     per_file: int = 0, max_tokens: int | None = None,
-                    rerank: str | None = None) -> str:
+                    rerank: str | None = None,
+                    mode: str = "hybrid") -> str:
     """Semantic code search across indexed projects. Thin wrapper over
     `code-indexer semantic-search QUERY [--project P] [--limit N]
     [--file-filter GLOB] [--symbol-type T] [--language L] [--ranking M]
@@ -198,7 +199,10 @@ def semantic_search(query: str, project: str | None = None, limit: int = 8,
     "dropped": int}). `per_file` caps hits per file (0 = no generic cap);
     `max_tokens` trims the lowest-ranked hits to an approximate token budget
     (chars/4). `rerank`: 'heuristic' (opt-in token-overlap reranker) or None.
-    Multi-project searches fuse per-collection lists with RRF.
+    `mode`: 'hybrid' (dense + lexical RRF fusion, default — eval
+    win over dense: recall@1 +0.17, MRR +0.12) | 'dense' | 'lexical'
+    (FTS5 bm25, no Ollama call). Multi-project searches fuse
+    per-collection lists with RRF.
 
     readOnlyHint=False: a stale index triggers `Core.maybe_refresh`, an
     incremental re-embed that writes the derived index. destructiveHint=False
@@ -222,6 +226,8 @@ def semantic_search(query: str, project: str | None = None, limit: int = 8,
         argv += ["--ranking", ranking]
     if rerank:
         argv += ["--rerank", rerank]
+    if mode != "dense":
+        argv += ["--mode", mode]
     if format == "json":
         argv += ["--json"]
     elif format == "compact":

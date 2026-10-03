@@ -13,6 +13,7 @@ import fnmatch
 import json
 import logging
 import os
+import re
 import time
 from typing import Any
 
@@ -452,6 +453,7 @@ class Core:
                language: str | None = None,
                ranking_mode: str = "vector",
                skip_refresh: bool = False,
+               mode: str = "dense",
                per_file: int = 0,
                max_chars: int | None = None,
                max_tokens: int | None = None,
@@ -470,7 +472,13 @@ class Core:
         trimming. Multi-project (project=None) fuses per-collection lists with
         Reciprocal Rank Fusion — raw cosine is not comparable across
         collections.
+
+        ``mode``: 'dense' (default, embeddings only), 'lexical' (FTS5 bm25
+        only — no Ollama round trip), or 'hybrid' (dense + lexical fused with
+        RRF). The default stays dense pending an eval win for hybrid.
         """
+        if mode not in ("dense", "lexical", "hybrid"):
+            raise ValueError(f"error: unknown search mode: {mode}")
         if project:
             entry, err = self.resolve_entry(project)
             if entry is None:
@@ -481,21 +489,36 @@ class Core:
             if not entries:
                 raise ValueError("error: no projects registered")
         per_project: dict[str, list[dict[str, Any]]] = {}
+        lexical_only = mode == "lexical"
+        hybrid = mode == "hybrid"
         for entry in entries:
             # Fingerprint gate BEFORE any embedding work: a query against a
             # wrong-model index is wrong regardless of staleness, and
-            # --skip-stale-check must not bypass it.
-            self.assert_fingerprint_ok(entry)
+            # --skip-stale-check must not bypass it. Pure-lexical mode needs
+            # no Ollama round trip, so the gate (which needs the dim probe)
+            # is skipped there — a stale fingerprint cannot corrupt a bm25
+            # text match.
+            if not lexical_only:
+                self.assert_fingerprint_ok(entry)
             if not skip_refresh:
                 self.maybe_refresh(entry.slug, entry.path)
+            if lexical_only:
+                per_project[entry.path] = self._lexical_hits(entry, query,
+                                                             limit, rerank)
+                continue
             try:
-                per_project[entry.path] = self.search_one(
+                dense_hits = self.search_one(
                     entry, query, limit, file_filter,
                     symbol_type=symbol_type, language=language,
                     ranking_mode=ranking_mode, rerank=rerank)
             except Exception as exc:  # noqa: BLE001
                 logger.exception("search failed for %s", entry.path)
                 raise ValueError(f"error: search failed on {entry.path}: {exc}") from exc
+            if hybrid:
+                per_project[entry.path] = self._fuse_lexical_dense(
+                    entry, query, dense_hits, limit)
+            else:
+                per_project[entry.path] = dense_hits
 
         if len(per_project) == 1:
             all_hits = next(iter(per_project.values()))
@@ -520,6 +543,87 @@ class Core:
         all_hits, dropped = ranking.trim_to_budget(
             all_hits, max_chars=max_chars, max_tokens=max_tokens)
         return {"hits": all_hits[:max(1, limit)], "dropped": dropped}
+
+    # ------------------------------------------------------------------
+    # lexical / hybrid retrieval (FTS5 + RRF)
+    # ------------------------------------------------------------------
+
+    def _lexical_hits(self, entry: ProjectEntry, query: str, limit: int,
+                      rerank: str | None = None) -> list[dict[str, Any]]:
+        """bm25-ranked hits from the manifest's FTS table, mapped to the hit
+        contract (file, line range via the manifest symbols, score=rank)."""
+        m = self.manifest_for(entry.slug)
+        try:
+            fts_rows = m.fts_search(query, limit * 3)
+            out: list[dict[str, Any]] = []
+            for rank, row in enumerate(fts_rows, 1):
+                file = row["file"]
+                sym_rows = m.symbols_for_file(file)
+                sym = row.get("symbol")
+                # Anchor the hit at the matching symbol's range when the FTS
+                # symbol column names one, else the file head.
+                start, end = 1, max(1, max(
+                    (r.end_line for r in sym_rows), default=1))
+                named = [r for r in sym_rows
+                         if sym and sym.split(", ")[0] in r.name]
+                if named:
+                    start, end = named[0].start_line, named[0].end_line
+                    symbol = named[0].name
+                    symbol_type = named[0].symbol_type
+                else:
+                    symbol = None
+                    symbol_type = None
+                out.append({
+                    "project": entry.path,
+                    "file": file,
+                    "score": round(1.0 / (60 + rank), 6),  # RRF-style score
+                    "symbol": symbol,
+                    "symbol_type": symbol_type,
+                    "lang": _lang_from_path(file),
+                    "start_line": start,
+                    "end_line": end,
+                    "snippet": (f"lexical match: {file}"
+                                + (f" ({symbol})" if symbol else "")),
+                    "match": "lexical",
+                })
+        finally:
+            m.close()
+        if rerank and rerank != "none":
+            from .reranker import select_reranker
+            out = select_reranker(rerank).rerank(out, query)
+        return out
+
+    def _fuse_lexical_dense(self, entry: ProjectEntry, query: str,
+                            dense_hits: list[dict[str, Any]],
+                            limit: int) -> list[dict[str, Any]]:
+        """RRF-fuse the FTS bm25 ranking with the dense ranking (k=60).
+
+        Exact-symbol shortcut: an identifier-shaped query also runs
+        find_symbol and pins exact matches first, labelled match=symbol.
+        """
+        lexical = self._lexical_hits(entry, query, limit)
+        fused = ranking.rrf_fuse({"dense": dense_hits, "lexical": lexical},
+                                 limit * 3)
+        fused = [dict(h, match=h.get("match") or "fused") for h in fused]
+        ident = query.strip()
+        if re.fullmatch(r"[A-Za-z_][\w:.]*", ident):
+            m = self.manifest_for(entry.slug)
+            try:
+                exact = [r for r in m.find_symbols(ident, substring=False)]
+            finally:
+                m.close()
+            if exact:
+                pinned = [{
+                    "project": entry.path, "file": r.file,
+                    "score": 2.0, "symbol": r.name,
+                    "symbol_type": r.symbol_type,
+                    "lang": _lang_from_path(r.file),
+                    "start_line": r.start_line, "end_line": r.end_line,
+                    "snippet": f"exact symbol match: {r.name}",
+                    "match": "symbol",
+                } for r in exact[:3]]
+                fused = pinned + fused
+        return fused
 
     def format_hits(self, hits: list[dict[str, Any]], fmt: str = "text",
                 dropped: int = 0, context_lines: int = 0) -> str:
@@ -584,7 +688,8 @@ class Core:
                            max_chars: int | None = None,
                            max_tokens: int | None = None,
                            context_lines: int = 0,
-                           rerank: str | None = None) -> str:
+                           rerank: str | None = None,
+                           mode: str = "dense") -> str:
         try:
             result = self.search(query, project=project, limit=limit,
                                file_filter=file_filter,
@@ -592,7 +697,7 @@ class Core:
                                ranking_mode=ranking_mode,
                                skip_refresh=skip_refresh, per_file=per_file,
                                max_chars=max_chars, max_tokens=max_tokens,
-                               rerank=rerank)
+                               rerank=rerank, mode=mode)
         except ValueError as exc:
             return str(exc)
         return self.format_hits(result["hits"], fmt, dropped=result["dropped"],
