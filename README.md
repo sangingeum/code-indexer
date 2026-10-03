@@ -83,7 +83,11 @@ MCP options are a subset of CLI flags; the MCP tool schemas (see
 accepts — e.g. `semantic_search` exposes `project`, `limit`, `file_filter`,
 `symbol_type`, `language`, `ranking`, `format`, `fresh`, `per_file`,
 `max_tokens`, `rerank`, `mode`. There is no MCP `watch`/`unwatch`: a watcher
-makes no sense inside an already long-lived server.
+makes no sense inside an already long-lived server. The server resolves the
+CLI from `CODE_INDEXER_BIN`, else `code-indexer` on `PATH`, else
+`python -m code_indexer.cli`; `CODE_INDEXER_BIN` is the only env var the
+server process reads itself — all other configuration flows through the
+CLI subprocess's inherited environment.
 
 ## Index states
 

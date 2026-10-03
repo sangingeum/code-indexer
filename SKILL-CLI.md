@@ -253,7 +253,7 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
   signature/visibility columns on old manifests);
   `--skip-stale-check` does not bypass the needs-reindex gate;
   `remove-project` is destructive; `watch` is the background freshness
-  daemon; `unwatch` is the reverse of `watch` (see below).
+  daemon; `unwatch` is the reverse of `watch` (details in "watch details").
 - **doctor** — installation health check, one line per check
   (`ok|warn|fail <name>: <detail>`, exit 1 on any fail; warnings do not
   fail). Covers runtime versions, Ollama (reachable/model/dimension probe),
