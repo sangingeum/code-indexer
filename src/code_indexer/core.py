@@ -25,6 +25,7 @@ from .indexer import Indexer
 from .locks import project_lock
 from .manifest import SCHEMA_VERSION, Manifest, SymbolRow
 from . import ranking
+from . import ts_chunker
 from .registry import ProjectEntry, Registry
 from .store import Store
 
@@ -416,6 +417,9 @@ class Core:
                 "start_line": p.get("start_line"),
                 "end_line": p.get("end_line"),
                 "snippet": (p.get("snippet") or "")[:500],
+                # CI-03: staleness provenance for get_code_context.
+                "file_hash": p.get("file_hash"),
+                "indexed_at": p.get("indexed_at"),
             })
         qtokens = ranking.query_tokens(query)
         if ranking_mode == "metadata":
@@ -512,7 +516,7 @@ class Core:
 
     def skeleton(self, entry: ProjectEntry, prefix: str | None = None,
                  tree_mode: bool = False, limit: int | None = None,
-                 include_signatures: bool = True) -> dict[str, Any]:
+                 include_signatures: bool = True, fresh: bool = False) -> dict[str, Any]:
         """Whole-project or per-subtree structural map (design §2.1).
 
         Manifest only — files joined with symbols ordered by start_line.
@@ -520,7 +524,7 @@ class Core:
         and the caller emits MIGRATION_HINT when a migration just happened).
         """
         if not self.skip_stale_check:
-            self.maybe_refresh(entry.slug, entry.path)
+            self.maybe_refresh(entry.slug, entry.path, force=fresh)
         m = self.manifest_for(entry.slug)
         try:
             files, symbols = m.symbols_with_files()
@@ -607,7 +611,7 @@ class Core:
         return "\n".join(lines) if lines else "(no files)"
 
     def outline(self, entry: ProjectEntry, file: str,
-                include_docstrings: bool = False) -> dict[str, Any]:
+                include_docstrings: bool = False, fresh: bool = False) -> dict[str, Any]:
         """One file: declarations, signatures, optional docstrings (§2.2).
 
         FILE is relative to the project root (manifest path space); absolute
@@ -623,7 +627,7 @@ class Core:
         if rel.startswith(".."):
             raise ValueError(f"error: path outside registered project: {file}")
         if not self.skip_stale_check:
-            self.maybe_refresh(entry.slug, entry.path)
+            self.maybe_refresh(entry.slug, entry.path, force=fresh)
         m = self.manifest_for(entry.slug)
         try:
             rows = m.symbols_for_file(rel)
@@ -682,6 +686,129 @@ class Core:
             return m.get_file(rel) is not None
         finally:
             m.close()
+
+    # ------------------------------------------------------------------
+    # stale-safe line ranges (CI-03)
+    # ------------------------------------------------------------------
+
+    def file_changed_since_index(self, entry: ProjectEntry, rel: str) -> bool:
+        """True when the live file's content hash differs from the manifest.
+
+        The stat fast-path (size/mtime_ns/inode) short-circuits the common
+        unchanged case without hashing; PARANOID_HASH=1 disables it.
+        """
+        m = self.manifest_for(entry.slug)
+        try:
+            row = m.get_file(rel)
+        finally:
+            m.close()
+        if row is None:
+            return False  # unknown to the manifest; nothing to compare
+        abs_path = os.path.join(entry.path, rel)
+        try:
+            st = os.stat(abs_path)
+        except OSError:
+            return True  # unreadable/missing -> treat as changed
+        if (row.mtime_ns is not None and row.inode is not None
+                and os.environ.get("PARANOID_HASH") not in ("1", "true")
+                and (st.st_size, st.st_mtime_ns, st.st_ino)
+                == (row.size, row.mtime_ns, row.inode)):
+            return False
+        import hashlib
+        h = hashlib.sha256()
+        try:
+            with open(abs_path, "rb") as f:
+                for block in iter(lambda: f.read(65536), b""):
+                    h.update(block)
+        except OSError:
+            return True
+        return "sha256:" + h.hexdigest() != row.content_hash
+
+    def code_context(self, entry: ProjectEntry, file: str,
+                     start_line: int | None = None,
+                     end_line: int | None = None,
+                     symbol: str | None = None,
+                     context_lines: int = 0) -> dict[str, Any]:
+        """Stale-safe get_code_context (CI-03).
+
+        Symbol mode: when the file changed since indexing, re-resolve the
+        symbol against the LIVE file with tree-sitter and return fresh line
+        ranges (stale stays false — the answer is current). Line mode: the
+        requested lines are returned as-is with ``stale: true`` so the
+        caller knows the numbers may be shifted.
+        """
+        rel = file.lstrip("/")
+        abs_path = os.path.normpath(os.path.join(entry.path, rel))
+        if not abs_path.startswith(os.path.normpath(entry.path) + os.sep):
+            raise ValueError(f"error: path outside registered project: {file}")
+        if not os.path.isfile(abs_path):
+            raise ValueError(f"error: file not found: {abs_path}")
+
+        changed = self.file_changed_since_index(entry, rel)
+        ranges: list[tuple[int, int]] = []
+        re_resolved = False
+        if symbol:
+            if changed:
+                # Re-resolve against the live file; the manifest rows are
+                # stale by definition here.
+                with open(abs_path, encoding="utf-8", errors="replace") as f:
+                    live_text = f.read()
+                live_chunks = ts_chunker.chunk_text(rel, live_text)
+                fresh_rows = [
+                    c for c in live_chunks
+                    if c.symbol == symbol or
+                    (c.symbol and c.symbol.endswith("." + symbol))]
+                if fresh_rows:
+                    ranges = [(max(1, c.start_line - context_lines),
+                               c.end_line + context_lines)
+                              for c in fresh_rows[:5]]
+                    re_resolved = True
+            if not ranges:
+                core_manifest = self.manifest_for(entry.slug)
+                try:
+                    rows = [r for r in core_manifest.find_symbols(
+                        symbol, substring=False) if r.file == rel]
+                finally:
+                    core_manifest.close()
+                if not rows:
+                    raise ValueError(
+                        f"error: symbol {symbol!r} not indexed in {rel}")
+                ranges = [(max(1, r.start_line - context_lines),
+                           r.end_line + context_lines) for r in rows[:5]]
+        elif start_line is not None:
+            end = end_line if end_line is not None else start_line
+            ranges.append((max(1, start_line - context_lines),
+                           end + context_lines))
+        else:
+            raise ValueError(
+                "error: provide --start-line/--end-line or --symbol")
+
+        with open(abs_path, encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+        total = len(lines)
+        segments = []
+        for s, e in ranges:
+            if s > total:
+                segments.append({"start_line": s, "end_line": e,
+                                 "error": f"start_line {s} beyond end of "
+                                          f"file ({total} lines)"})
+                continue
+            s2, e2 = max(1, s), min(total, e)
+            segments.append({
+                "start_line": s, "end_line": e,
+                "lines": [f"{i:>5}| {lines[i - 1].rstrip()}"
+                          for i in range(s2, e2 + 1)],
+            })
+        stale = changed and not re_resolved
+        if stale:
+            logger.warning(
+                "file changed since last index; line numbers may be shifted")
+        return {
+            "file": rel,
+            "stale": stale,
+            "re_resolved": re_resolved,
+            "segments": segments,
+        }
 
     def format_outline(self, data: dict[str, Any], fmt: str = "text") -> str:
         """Dense outline render (§2.2): one declaration per line."""

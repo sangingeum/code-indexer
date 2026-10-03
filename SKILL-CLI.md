@@ -189,7 +189,13 @@ slug, or registered custom name) — typer dual option names.
   may serve slightly stale results). Default behavior: search/status trigger
   a re-scan if STALE_TTL (60 s) elapsed; concurrent invocations serialize via
   a per-project flock — exactly one index pass runs, others print
-  "<slug>: indexing in progress".
+  "<slug>: indexing in progress". `--fresh` forces the scan now (ignore
+  STALE_TTL for this call).
+- `get-code-context` checks the live file hash against the manifest:
+  `--symbol` mode re-resolves the symbol on the live file; line-range mode on
+  a changed file returns the requested lines plus a one-line `Warning: ...`
+  on stderr (exit 0) and `stale: true` in JSON. Search hits carry `file_hash`
+  and `indexed_at`.
 - Workflow: `semantic-search` -> `find-symbol`/`find-definition` ->
   `get-code-context --symbol`. Never read whole files.
 - First index of a big repo is slow (~1.2 docs/s GPU-hosted); check

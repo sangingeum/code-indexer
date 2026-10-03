@@ -75,6 +75,8 @@ class ManifestFile:
     size: int
     chunk_count: int
     status: str
+    mtime_ns: int | None = None  # v4: stat fast-path (NULL = legacy row)
+    inode: int | None = None
 
 
 @dataclass
@@ -117,6 +119,15 @@ class Manifest:
                 if col not in existing_cols:
                     self._conn.execute(
                         f"ALTER TABLE symbols ADD COLUMN {col} TEXT")
+            # v4: stat fast-path columns on files (size/mtime_ns/inode from
+            # the last completed pass; NULL on legacy rows -> full hash).
+            file_cols = {
+                r[1] for r in self._conn.execute("PRAGMA table_info(files)")
+            }
+            for col, decl in (("mtime_ns", "INTEGER"), ("inode", "INTEGER")):
+                if col not in file_cols:
+                    self._conn.execute(
+                        f"ALTER TABLE files ADD COLUMN {col} {decl}")
             # schema_version must actually advance on old manifests
             # (INSERT OR IGNORE would leave v1 stuck forever).
             old_version = self.get_meta("schema_version")
@@ -135,16 +146,25 @@ class Manifest:
 
     def all_files(self) -> dict[str, ManifestFile]:
         cur = self._conn.execute(
-            "SELECT path, content_hash, size, chunk_count, status FROM files"
+            "SELECT path, content_hash, size, chunk_count, status, "
+            "mtime_ns, inode FROM files"
         )
         return {
             row[0]: ManifestFile(*row)
             for row in cur.fetchall()
         }
 
+    def stat_map(self) -> dict[str, tuple[int, int, int, str]]:
+        """path -> (size, mtime_ns, inode, content_hash) for the fast-path."""
+        cur = self._conn.execute(
+            "SELECT path, size, mtime_ns, inode, content_hash FROM files "
+            "WHERE mtime_ns IS NOT NULL AND inode IS NOT NULL")
+        return {r[0]: (r[1], r[2], r[3], r[4]) for r in cur.fetchall()}
+
     def get_file(self, path: str) -> ManifestFile | None:
         row = self._conn.execute(
-            "SELECT path, content_hash, size, chunk_count, status FROM files WHERE path = ?",
+            "SELECT path, content_hash, size, chunk_count, status, "
+            "mtime_ns, inode FROM files WHERE path = ?",
             (path,),
         ).fetchone()
         return ManifestFile(*row) if row else None
@@ -152,11 +172,14 @@ class Manifest:
     def upsert_files(self, rows: list[ManifestFile]) -> None:
         with self._conn:
             self._conn.executemany(
-                "INSERT INTO files(path, content_hash, size, chunk_count, status) "
-                "VALUES (?, ?, ?, ?, ?) "
+                "INSERT INTO files(path, content_hash, size, chunk_count, status, "
+                "mtime_ns, inode) VALUES (?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(path) DO UPDATE SET content_hash=excluded.content_hash, "
-                "size=excluded.size, chunk_count=excluded.chunk_count, status=excluded.status",
-                [(r.path, r.content_hash, r.size, r.chunk_count, r.status) for r in rows],
+                "size=excluded.size, chunk_count=excluded.chunk_count, "
+                "status=excluded.status, mtime_ns=excluded.mtime_ns, "
+                "inode=excluded.inode",
+                [(r.path, r.content_hash, r.size, r.chunk_count, r.status,
+                  r.mtime_ns, r.inode) for r in rows],
             )
 
     def delete_files(self, paths: list[str]) -> None:

@@ -42,6 +42,8 @@ class ScannedFile:
     abs_path: str
     size: int
     content_hash: str
+    mtime_ns: int | None = None  # stat fast-path bookkeeping
+    inode: int | None = None
 
 
 def _load_ignore_spec(dirpath: str) -> pathspec.PathSpec:
@@ -88,7 +90,19 @@ def _looks_utf8ish(path: str) -> bool:
         return False
 
 
-def scan_project(root: str, max_file_bytes: int = 1_048_576) -> list[ScannedFile]:
+def scan_project(root: str, max_file_bytes: int = 1_048_576,
+                 previous: dict[str, tuple[int, int, int, str]] | None = None
+                 ) -> list[ScannedFile]:
+    """Walk ``root`` and return ScannedFile rows.
+
+    ``previous`` maps path -> (size, mtime_ns, inode, content_hash) from the
+    last completed pass. When a file's stat triple matches exactly, its
+    recorded content hash is reused instead of re-reading/hashing the file
+    (the CI-03 stat fast-path; env PARANOID_HASH=1 disables it for
+    filesystems/tools that preserve mtime, e.g. ``rsync -t``/``cp -p``).
+    """
+    previous = previous if previous is not None and \
+        os.environ.get("PARANOID_HASH") not in ("1", "true") else {}
     """Walk *root* and return kept files with sha256 content hashes.
 
     Honors nested .gitignore/.codeindexignore with per-directory pathspec
@@ -147,10 +161,19 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576) -> list[ScannedFile
             if not _looks_utf8ish(abs_path):
                 logger.debug("skip (non-utf8): %s", rel_path)
                 continue
+            # Stat fast-path: (size, mtime_ns, inode) unchanged since the
+            # last pass -> trust the recorded hash without re-reading.
+            prev = previous.get(rel_path)
+            if prev is not None and (st.st_size, st.st_mtime_ns,
+                                     st.st_ino) == prev[:3]:
+                results.append(ScannedFile(rel_path, abs_path, st.st_size,
+                                           prev[3], st.st_mtime_ns, st.st_ino))
+                continue
             sha = _hash_file(abs_path)
             if sha is None:
                 continue
-            results.append(ScannedFile(rel_path, abs_path, st.st_size, sha))
+            results.append(ScannedFile(rel_path, abs_path, st.st_size, sha,
+                                       st.st_mtime_ns, st.st_ino))
 
     return results
 

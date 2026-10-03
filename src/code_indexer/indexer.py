@@ -69,7 +69,8 @@ class Indexer:
             self.store.create_collection(collection, self.embedder.dimension())
 
         scanned: list[ScannedFile] = scan_project(
-            project_path, max_file_bytes=self.cfg.max_file_bytes
+            project_path, max_file_bytes=self.cfg.max_file_bytes,
+            previous=manifest.stat_map(),
         )
         scanned_map = {f.path: f for f in scanned}
         old_files = manifest.all_files()
@@ -176,7 +177,9 @@ class Indexer:
                 else:
                     to_embed.append((path, chunk_))
 
-            rows.append(ManifestFile(path, f.content_hash, f.size, len(chunks), "ok"))
+            rows.append(ManifestFile(path, f.content_hash, f.size, len(chunks), "ok",
+                                     getattr(f, "mtime_ns", None),
+                                     getattr(f, "inode", None)))
 
         # 3) Embed in batches (one HTTP round trip per batch).
         embedded = 0
@@ -194,6 +197,7 @@ class Indexer:
                     "file": path,
                     "chunk_index": chunk_.chunk_index,
                     "content_hash": scanned_map[path].content_hash,
+                    "file_hash": scanned_map[path].content_hash[:8],
                     "chunk_hash": chunk_.chunk_hash,
                     "symbol": chunk_.symbol,
                     "symbol_type": chunk_.symbol_type,
@@ -242,7 +246,9 @@ class Indexer:
         # (status ok) for accurate file_count.
         unchanged_rows = [
             ManifestFile(p, scanned_map[p].content_hash, scanned_map[p].size,
-                         old_files[p].chunk_count, "ok")
+                         old_files[p].chunk_count, "ok",
+                         getattr(scanned_map[p], "mtime_ns", None),
+                         getattr(scanned_map[p], "inode", None))
             for p in scanned_map
             if p in old_files and p not in set(added + changed)
         ]

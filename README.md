@@ -51,7 +51,12 @@ code-indexer unwatch --all [--timeout 10]           # stop it for all registered
 ```
 
 Every subcommand accepts `--skip-stale-check` to skip the staleness probe /
-incremental index pass on that invocation (startup-cost opt-out; there is no
+incremental index pass on that invocation, and `--fresh` to force the scan
+**now** (ignore `STALE_TTL` for this call). The staleness scan uses a stat
+fast-path: files whose `(size, mtime_ns, inode)` match the manifest are
+treated as unchanged without re-hashing; set `PARANOID_HASH=1` to disable the
+fast-path (for filesystems/tools that preserve mtime, e.g. `rsync -t`,
+`cp -p`) and force full content hashes. There is no
 daemon **on the default path**). Every MCP tool is a thin wrapper over the
 matching CLI subcommand — same behavior, same formatting, same foreground
 semantics — so this CLI section doubles as the MCP tool reference.
@@ -325,7 +330,18 @@ long-lived — `watch` is CLI-only.
   scanned within `STALE_TTL` seconds (default 60), the command re-scans file
   hashes and incrementally re-indexes only what changed; `index-status` is
   informational unless given `--refresh`. Answers are never served from a
-  stale index by more than one scan interval.
+  stale index by more than one scan interval. The scan uses a stat fast-path
+  (`size, mtime_ns, inode` match ⇒ no re-hash; `PARANOID_HASH=1` disables it).
+- **Stale-safe line ranges** (`get-code-context`): search hits carry
+  `file_hash` (short 8-hex) and `indexed_at`. Before serving a line range,
+  the current file hash is compared with the manifest. If the file changed
+  since indexing: in `--symbol` mode the symbol is re-resolved against the
+  live file with tree-sitter and fresh lines are returned (JSON field
+  `re_resolved: true`); in line-range mode the requested lines are returned
+  as-is with one `Warning: file changed since last index; line numbers may be
+  shifted` line on stderr (exit code stays 0) and `stale: true` in JSON
+  output. This warning line is the documented exception to "stderr empty on
+  success".
 - **Incremental diff**: files are classified `unchanged` / `changed` / `added`
   / `deleted` by **content hash** (sha256 — not mtime, which lies after branch
   switches). Only chunks whose own hash changed get re-embedded; point IDs are

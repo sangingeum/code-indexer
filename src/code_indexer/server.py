@@ -173,7 +173,7 @@ def semantic_search(query: str, project: str | None = None, limit: int = 8,
                     symbol_type: str | None = None,
                     language: str | None = None,
                     ranking: str = "vector",
-                    format: str = "text") -> str:
+                    format: str = "text", fresh: bool = False) -> str:
     """Semantic code search across indexed projects. Thin wrapper over
     `code-indexer semantic-search QUERY [--project P] [--limit N]
     [--file-filter GLOB] [--symbol-type T] [--language L] [--ranking M]
@@ -192,6 +192,8 @@ def semantic_search(query: str, project: str | None = None, limit: int = 8,
     incremental re-embed that writes the derived index. destructiveHint=False
     (content-identical rebuild, source untouched). idempotentHint=True."""
     argv = ["semantic-search", query, "--limit", str(limit)]
+    if fresh:
+        argv += ["--fresh"]
     if project:
         argv += ["--project", project]
     if file_filter:
@@ -239,7 +241,8 @@ def reindex_project(path: str) -> str:
     readOnlyHint=False, destructiveHint=False, idempotentHint=True,
     openWorldHint=False))
 def find_symbol(name: str, project: str | None = None,
-                symbol_type: str | None = None) -> str:
+                symbol_type: str | None = None,
+                fresh: bool = False) -> str:
     """Look up symbols by name in the manifest symbol index (no semantic
     search): exact AST-first, capped substring fallback. Thin wrapper over
     `code-indexer find-symbol NAME [--project P] [--symbol-type T]`;
@@ -250,6 +253,8 @@ def find_symbol(name: str, project: str | None = None,
     manifest read, so a stale index is incrementally re-indexed (writes).
     destructiveHint=False; idempotentHint=True."""
     argv = ["find-symbol", name]
+    if fresh:
+        argv += ["--fresh"]
     if project:
         argv += ["--project", project]
     if symbol_type:
@@ -262,7 +267,7 @@ def find_symbol(name: str, project: str | None = None,
     openWorldHint=False))
 def find_symbols(project: str | None = None, symbol_type: str | None = None,
                  file: str | None = None, limit: int = 25,
-                 format: str = "text") -> str:
+                 format: str = "text", fresh: bool = False) -> str:
     """Browse-mode symbol listing: no name, filter the manifest symbol index by
     type/file, capped at `limit` (default 25). Thin wrapper over
     `code-indexer find-symbol [--project P] [--symbol-type T] [--file F]
@@ -273,6 +278,8 @@ def find_symbols(project: str | None = None, symbol_type: str | None = None,
     calls `Core.maybe_refresh` (a stale index is incrementally re-indexed).
     destructiveHint=False; idempotentHint=True."""
     argv = ["find-symbol"]
+    if fresh:
+        argv += ["--fresh"]
     if project:
         argv += ["--project", project]
     if symbol_type:
@@ -289,7 +296,8 @@ def find_symbols(project: str | None = None, symbol_type: str | None = None,
     readOnlyHint=False, destructiveHint=False, idempotentHint=True,
     openWorldHint=False))
 def skeleton(project: str | None = None, path_prefix: str | None = None,
-             limit: int | None = None, format: str = "text") -> str:
+             limit: int | None = None, format: str = "text",
+             fresh: bool = False) -> str:
     """Whole-project or per-subtree structural map from the manifest only: one
     file per group, one symbol per line with lines and the stored signature.
     Thin wrapper over `code-indexer skeleton [--project P] [PATH_PREFIX]
@@ -300,6 +308,8 @@ def skeleton(project: str | None = None, path_prefix: str | None = None,
     stale index is incrementally re-indexed (writes). destructiveHint=False;
     idempotentHint=True."""
     argv = ["skeleton"]
+    if fresh:
+        argv += ["--fresh"]
     if project:
         argv += ["--project", project]
     if path_prefix:
@@ -315,7 +325,8 @@ def skeleton(project: str | None = None, path_prefix: str | None = None,
     readOnlyHint=False, destructiveHint=False, idempotentHint=True,
     openWorldHint=False))
 def outline(file: str, project: str | None = None,
-            docstrings: bool = False, format: str = "text") -> str:
+            docstrings: bool = False, format: str = "text",
+            fresh: bool = False) -> str:
     """One file: declarations, signatures, one-line docstrings. Thin wrapper
     over `code-indexer outline FILE [--project P] [--docstrings] [--json]`;
     one-shot, foreground. `file` is project-relative (or absolute — the
@@ -325,6 +336,8 @@ def outline(file: str, project: str | None = None,
     stale index is incrementally re-indexed (writes). destructiveHint=False;
     idempotentHint=True."""
     argv = ["outline", file]
+    if fresh:
+        argv += ["--fresh"]
     if project:
         argv += ["--project", project]
     if docstrings:
@@ -337,7 +350,8 @@ def outline(file: str, project: str | None = None,
 @mcp.tool(annotations=ToolAnnotations(
     readOnlyHint=False, destructiveHint=False, idempotentHint=True,
     openWorldHint=False))
-def find_definition(name: str, project: str | None = None) -> str:
+def find_definition(name: str, project: str | None = None,
+                    fresh: bool = False) -> str:
     """Find where a symbol is declared (exact name match only, no substring
     fallback). Thin wrapper over
     `code-indexer find-definition NAME [--project P]`; one-shot, foreground.
@@ -346,6 +360,8 @@ def find_definition(name: str, project: str | None = None) -> str:
     manifest read, so a stale index is incrementally re-indexed (writes).
     destructiveHint=False; idempotentHint=True."""
     argv = ["find-definition", name]
+    if fresh:
+        argv += ["--fresh"]
     if project:
         argv += ["--project", project]
     return _run_cli(argv)
@@ -355,7 +371,8 @@ def find_definition(name: str, project: str | None = None) -> str:
     readOnlyHint=False, destructiveHint=False, idempotentHint=True,
     openWorldHint=False))
 def find_references(name: str, project: str | None = None,
-                    relationship: str | None = None, limit: int = 25) -> str:
+                    relationship: str | None = None, limit: int = 25,
+                    fresh: bool = False) -> str:
     """Find textual references TO a symbol: calls, inherits, includes (all
     confidence=heuristic — a navigation aid, not static analysis). Thin
     wrapper over `code-indexer find-references NAME [--project P]
@@ -365,6 +382,8 @@ def find_references(name: str, project: str | None = None,
     manifest read, so a stale index is incrementally re-indexed (writes).
     destructiveHint=False; idempotentHint=True."""
     argv = ["find-references", name]
+    if fresh:
+        argv += ["--fresh"]
     if project:
         argv += ["--project", project]
     if relationship:
@@ -378,18 +397,24 @@ def find_references(name: str, project: str | None = None,
     openWorldHint=False))
 def get_code_context(file: str, project: str | None = None,
                      start_line: int | None = None, end_line: int | None = None,
-                     symbol: str | None = None, context_lines: int = 0) -> str:
+                     symbol: str | None = None, context_lines: int = 0,
+                     fresh: bool = False) -> str:
     """Retrieve ONLY the relevant source lines instead of reading whole files —
     by line range (`start_line`/`end_line`) or via a symbol, padded by
-    `context_lines`. Thin wrapper over `code-indexer get-code-context FILE
-    [--project P] [--start-line N] [--end-line N] [--symbol S]
-    [--context-lines N]`; one-shot, foreground.
+    `context_lines`. Stale-safe: when the file changed since indexing,
+    symbol mode re-resolves against the live file; line mode returns the
+    requested lines with one stderr warning and exit 0. `fresh` ignores
+    STALE_TTL for this call. Thin wrapper over `code-indexer get-code-context
+    FILE [--project P] [--start-line N] [--end-line N] [--symbol S]
+    [--context-lines N] [--fresh]`; one-shot, foreground.
 
     readOnlyHint=False: the `--symbol` branch calls `Core.maybe_refresh`, so a
     stale index is incrementally re-indexed (writes); the line-range branch
     does not. The tool can write, so the hint is false. destructiveHint=False;
     idempotentHint=True."""
     argv = ["get-code-context", file]
+    if fresh:
+        argv += ["--fresh"]
     if project:
         argv += ["--project", project]
     if start_line is not None:

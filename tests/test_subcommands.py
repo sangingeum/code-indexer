@@ -240,7 +240,7 @@ def core(cfg, project):
     reg = Registry(os.path.join(cfg.index_root, "registry.db"))
     entry = reg.add(project, name="subproj")
     core = Core(cfg)
-    core.maybe_refresh = lambda slug, path: {"state": "fresh"}
+    core.maybe_refresh = lambda slug, path, force=False: {"state": "fresh"}
     # Index into the slug-keyed manifest the core will read.
     m = core.manifest_for(entry.slug)
     try:
@@ -392,7 +392,7 @@ def test_find_symbol_browse_mode_with_filters(core):
 def test_skip_stale_check_short_circuit(cfg, project):
     core = Core(cfg, skip_stale_check=True)
     calls = []
-    core.maybe_refresh = lambda slug, path: calls.append(1) or {"state": "fresh"}
+    core.maybe_refresh = lambda slug, path, force=False: calls.append(1) or {"state": "fresh"}
     reg = Registry(os.path.join(cfg.index_root, "registry.db"))
     entry = reg.add(project, name="sc")
     core.skeleton(entry)
@@ -414,7 +414,7 @@ def test_skeleton_wal_concurrent_index(cfg, project):
     reg = Registry(os.path.join(cfg.index_root, "registry.db"))
     entry = reg.add(project, name="wal")
     c = Core(cfg)
-    c.maybe_refresh = lambda slug, path: {"state": "fresh"}
+    c.maybe_refresh = lambda slug, path, force=False: {"state": "fresh"}
 
     writer = Indexer(cfg, StubEmbedder(), StubStore())
     stop = threading.Event()
@@ -463,7 +463,7 @@ def test_pre_v3_manifest_hint_on_skeleton(tmp_path, project):
     reg = Registry(os.path.join(cfg.index_root, "registry.db"))
     entry = reg.add(project, name="prev3")
     c = Core(cfg)
-    c.maybe_refresh = lambda slug, path: {"state": "fresh"}
+    c.maybe_refresh = lambda slug, path, force=False: {"state": "fresh"}
     data = c.skeleton(entry)
     text = c.format_skeleton(data, "text") + "\n" + MIGRATION_HINT
     assert "reindex_project" in text  # hint present, no crash

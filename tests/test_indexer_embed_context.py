@@ -59,6 +59,9 @@ class _FakeManifest:
     def get_meta(self, key: str) -> str:
         return ""
 
+    def stat_map(self) -> dict:
+        return {}
+
     def set_meta(self, key: str, value: str) -> None:
         pass
 
@@ -89,7 +92,7 @@ def test_indexer_embeds_contextual_text(tmp_path, monkeypatch):
     import code_indexer.indexer as ix
 
     monkeypatch.setattr(ix, "scan_project",
-                        lambda p, max_file_bytes=None: [
+                        lambda p, max_file_bytes=None, previous=None: [
                             type("S", (), {"path": "a.py", "content_hash": "h1",
                                            "size": 16,
                                            "abs_path": str(tmp_path / "a.py")})()])

@@ -77,6 +77,10 @@ RefreshOpt = typer.Option(
     False, "--refresh",
     help="Force a fresh staleness pass on this query (runs an incremental "
          "index now; default is to index only when actually stale, quietly).")
+FreshOpt = typer.Option(
+    False, "--fresh",
+    help="Ignore STALE_TTL for this call: run the hash scan now (equivalent "
+         "to --refresh; named for the MCP fresh parameter).")
 
 
 @app.command()
@@ -181,9 +185,11 @@ def semantic_search(
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
     skip_stale_check: bool = SkipOpt,
     refresh: bool = RefreshOpt,
+    fresh: bool = FreshOpt,
 ) -> None:
     """Semantic code search. The staleness pass runs only when the index is
-    actually stale (quietly); --refresh forces it now, --skip-stale-check
+    actually stale (quietly); --refresh/--fresh force it now (ignoring
+    STALE_TTL), --skip-stale-check
     skips the probe entirely. --ranking metadata applies small metadata
     score adjustments (definition boost, test-path penalty); --ranking
     hybrid fuses the vector score with a lexical token-overlap score
@@ -192,14 +198,15 @@ def semantic_search(
     most 40% of the top-k window, so data files cannot crowd code out of it
     (waived when the query names a data format)."""
     core = _get_core(skip_stale_check)
+    forced = refresh or fresh
     if project:
         entry, err = core.resolve_entry(project)
         if entry is None:
             _die(err)
-        core.maybe_refresh(entry.slug, entry.path, force=refresh)
+        core.maybe_refresh(entry.slug, entry.path, force=forced)
     else:
         for e in core.registry.list_projects():
-            core.maybe_refresh(e.slug, e.path, force=refresh)
+            core.maybe_refresh(e.slug, e.path, force=forced)
     typer.echo(core.search_for_display(
         query, project=project, limit=limit, file_filter=file_filter,
         symbol_type=symbol_type, language=language, ranking_mode=ranking,
@@ -621,6 +628,7 @@ def skeleton(
         None, help="Cap symbol lines per file (ignored in --tree mode)."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
     skip_stale_check: bool = SkipOpt,
+    fresh: bool = FreshOpt,
 ) -> None:
     """Whole-project or per-subtree structural map from the manifest only
     (design §2.1): files with their symbol lines, one symbol per line,
@@ -638,7 +646,7 @@ def skeleton(
             path_prefix = apath[len(root) + 1:]
     data = core.skeleton(entry, prefix=path_prefix, tree_mode=tree_mode,
                          limit=limit,
-                         include_signatures=not no_signatures)
+                         include_signatures=not no_signatures, fresh=fresh)
     text = core.format_skeleton(data, "json" if json_output else "text")
     if core.schema_migrated(entry):
         text += "\n" + MIGRATION_HINT
@@ -658,12 +666,14 @@ def outline(
         help="Add one docstring line under each declaration (bounded read)."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
     skip_stale_check: bool = SkipOpt,
+    fresh: bool = FreshOpt,
 ) -> None:
     """One file: declarations, signatures, one-line docstrings (design §2.2)."""
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
     try:
-        data = core.outline(entry, file, include_docstrings=docstrings)
+        data = core.outline(entry, file, include_docstrings=docstrings,
+                            fresh=fresh)
     except ValueError as exc:
         _die(str(exc))
     text = core.format_outline(data, "json" if json_output else "text")
@@ -689,6 +699,7 @@ def find_symbol(
     limit: int = typer.Option(25, help="Max rows (browse-mode cap)."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
     skip_stale_check: bool = SkipOpt,
+    fresh: bool = FreshOpt,
 ) -> None:
     """Look up symbols by name in the manifest symbol index (no semantic
     search). Exact AST-first, capped substring fallback. With NAME omitted,
@@ -696,7 +707,7 @@ def find_symbol(
     Output gains the schema-v3 signature when stored."""
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
-    core.maybe_refresh(entry.slug, entry.path)
+    core.maybe_refresh(entry.slug, entry.path, force=fresh)
     m = core.manifest_for(entry.slug)
     try:
         if name:
@@ -746,11 +757,12 @@ def find_definition(
         None, "--project", "--name",
         help="Project path, slug, or name (--project X or --name X)."),
     skip_stale_check: bool = SkipOpt,
+    fresh: bool = FreshOpt,
 ) -> None:
     """Find where a symbol is declared (exact name match only)."""
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
-    core.maybe_refresh(entry.slug, entry.path)
+    core.maybe_refresh(entry.slug, entry.path, force=fresh)
     m = core.manifest_for(entry.slug)
     try:
         rows = m.find_symbols(name, substring=False)
@@ -778,49 +790,38 @@ def get_code_context(
     end_line: int = typer.Option(None, help="End line."),
     symbol: str = typer.Option(None, help="Resolve range(s) via this symbol."),
     context_lines: int = typer.Option(0, help="Pad each range by N lines."),
+    json_output: bool = typer.Option(False, "--json", help="JSON output (carries stale/re_resolved)."),
     skip_stale_check: bool = SkipOpt,
+    fresh: bool = FreshOpt,
 ) -> None:
-    """Retrieve ONLY the relevant source lines instead of whole files."""
+    """Retrieve ONLY the relevant source lines instead of whole files.
+
+    Stale-safe: when the file changed since indexing, symbol mode re-resolves
+    the symbol against the live file (fresh lines); line mode returns the
+    requested lines but emits one stderr warning line ('Warning: file changed
+    since last index; line numbers may be shifted') and sets stale=true in
+    JSON — the documented exception to stderr-empty-on-success (exit stays 0).
+    --fresh/--refresh ignores STALE_TTL and runs the hash scan now."""
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
-    rel = file.lstrip("/")
-    abs_path = os.path.normpath(os.path.join(entry.path, rel))
-    if not abs_path.startswith(os.path.normpath(entry.path) + os.sep):
-        _die(f"error: path outside registered project: {file}")
-    if not os.path.isfile(abs_path):
-        _die(f"error: file not found: {abs_path}")
-
-    ranges: list[tuple[int, int]] = []
-    if symbol:
-        core.maybe_refresh(entry.slug, entry.path)
-        m = core.manifest_for(entry.slug)
-        try:
-            rows = [r for r in m.find_symbols(symbol, substring=False)
-                    if r.file == rel]
-        finally:
-            m.close()
-        if not rows:
-            _die(f"error: symbol {symbol!r} not indexed in {rel}")
-        for r in rows[:5]:
-            ranges.append((max(1, r.start_line - context_lines),
-                           r.end_line + context_lines))
-    elif start_line is not None:
-        end = end_line if end_line is not None else start_line
-        ranges.append((max(1, start_line - context_lines), end + context_lines))
-    else:
-        _die("error: provide --start-line/--end-line or --symbol")
-
-    with open(abs_path, encoding="utf-8", errors="replace") as f:
-        lines = f.readlines()
-    total = len(lines)
-    for s, e in ranges:
-        typer.echo(f"--- {rel}:{s}-{e} ---")
-        s2, e2 = max(1, s), min(total, e)
-        if s > total:
-            typer.echo(f"error: start_line {s} beyond end of file ({total} lines)")
+    if fresh:
+        core.maybe_refresh(entry.slug, entry.path, force=True)
+    try:
+        data = core.code_context(
+            entry, file, start_line=start_line, end_line=end_line,
+            symbol=symbol, context_lines=context_lines)
+    except ValueError as exc:
+        _die(str(exc))
+    if json_output:
+        typer.echo(json.dumps(data, ensure_ascii=False, indent=2))
+        return
+    for seg in data["segments"]:
+        typer.echo(f"--- {data['file']}:{seg['start_line']}-{seg['end_line']} ---")
+        if seg.get("error"):
+            typer.echo(seg["error"])
             continue
-        for i in range(s2, e2 + 1):
-            typer.echo(f"{i:>5}| {lines[i - 1].rstrip()}")
+        for line in seg["lines"]:
+            typer.echo(line)
 
 
 @app.command(name="find-references")
@@ -832,11 +833,12 @@ def find_references(
     relationship: str = typer.Option(None, help="calls|inherits|includes|references"),
     limit: int = typer.Option(25, help="Max rows."),
     skip_stale_check: bool = SkipOpt,
+    fresh: bool = FreshOpt,
 ) -> None:
     """Find textual references TO a symbol (all confidence=heuristic)."""
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
-    core.maybe_refresh(entry.slug, entry.path)
+    core.maybe_refresh(entry.slug, entry.path, force=fresh)
     m = core.manifest_for(entry.slug)
     try:
         rows = m.find_refs(name, relationship=relationship, limit=limit)
