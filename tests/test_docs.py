@@ -20,13 +20,12 @@ Every failure prints the exact mismatch so the fix is mechanical.
 
 from __future__ import annotations
 
-import os
 import re
 import tomllib
 from pathlib import Path
 
+import click
 import pytest
-import typer
 from typer.main import get_command as typer_get_command
 
 REPO = Path(__file__).resolve().parent.parent
