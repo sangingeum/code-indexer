@@ -120,7 +120,6 @@ def symbols_in_ranges(text: str, path: str,
                       ranges: list[tuple[int, int]]) -> list[dict]:
     """Parse with tree-sitter and return symbols overlapping the ranges."""
     from . import ts_chunker
-    lang = _lang_of(path)
     try:
         chunks = ts_chunker.chunk_text(path, text)
         syms = ts_chunker.extract_symbols(path, text, chunks)
