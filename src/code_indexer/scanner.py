@@ -35,6 +35,16 @@ BINARY_EXTENSIONS = {
 
 _GITIGNORE_CACHE: dict[str, pathspec.PathSpec] = {}
 
+# Built-in ignore defaults: lockfiles, minified bundles, generated code.
+# Deliberately conservative — anything that is reviewable source stays
+# indexed (the data-file ranking mitigation handles .json/.yaml/.toml).
+_BUILTIN_IGNORE_LINES = [
+    "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "poetry.lock",
+    "Cargo.lock", "go.sum", "Gemfile.lock", "composer.lock", "uv.lock",
+    "*.lock", "*.min.js", "*.min.css", "*.map",
+    "*.pb.go", "*_pb2.py", "*_generated.*",
+]
+
 
 @dataclass
 class ScannedFile:
@@ -47,11 +57,22 @@ class ScannedFile:
 
 
 def _load_ignore_spec(dirpath: str) -> pathspec.PathSpec:
-    """Build a PathSpec from a directory's .gitignore + .codeindexignore."""
+    """Build a PathSpec from a directory's .gitignore + .codeindexignore,
+    plus the built-in generated/lockfile defaults.
+
+    Built-in defaults (index-time skip, privacy work item overlap note: the
+    ranking layer separately down-weights data-file CHUNKS — these globs skip
+    whole generated/lock files that carry no reviewable code at all, so both
+    layers are complementary, not duplicates):
+        package-lock.json, yarn.lock, pnpm-lock.yaml, poetry.lock,
+        Cargo.lock, go.sum, Gemfile.lock, composer.lock, uv.lock,
+        *.min.js, *.min.css, *.map, *.pb.go, *_pb2.py, *_generated.*,
+        *.lock
+    """
     cached = _GITIGNORE_CACHE.get(dirpath)
     if cached is not None:
         return cached
-    lines: list[str] = []
+    lines: list[str] = list(_BUILTIN_IGNORE_LINES)
     for name in (".gitignore", ".codeindexignore"):
         p = os.path.join(dirpath, name)
         if os.path.isfile(p):

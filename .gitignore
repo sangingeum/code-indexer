@@ -8,4 +8,4 @@ test-index/
 *.db-wal
 *.db-shm
 *.lock
-logs/
+logs/runs/

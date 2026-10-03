@@ -6,6 +6,14 @@ helper BELOW test-helper chunks whose identifiers merely resemble the query
 words. Prepending a small header (project-relative path + symbol) gives the
 embedder the missing context and measurably lifts the relevant chunk into
 the top ranks (see scripts/ diagnostic evidence, 2026-09-23 round).
+
+v2 HISTORY (eval-gated, reverted): a richer header (qualified symbol/type,
+signature line, first docstring line) was evaluated against this
+repository's 42-query set and REGRESSED overall — MRR 0.6136 -> 0.5883,
+nDCG@10 0.6848 -> 0.6553, recall@10 0.9048 -> 0.8571 (9 queries regressed
+vs 6 improved). Per the retrieval-quality gate, the header stays at v1;
+keep the candidate in history (git) for a re-run with a different cap or
+query mix. Do not re-bump without an eval win.
 """
 
 from __future__ import annotations

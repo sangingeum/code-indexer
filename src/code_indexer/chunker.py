@@ -8,12 +8,22 @@ is a drop-in behind the same seam (optional milestone M4). Chunk size cap
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from dataclasses import dataclass
 
 CHUNK_CHAR_CAP = 1000
 WINDOW_LINES = 80
 OVERLAP_LINES = 10
+
+
+def chunk_max_chars() -> int:
+    """CHUNK_MAX_CHARS override (default stays 1000; 1500/2000 are eval
+    candidates, not defaults)."""
+    try:
+        return max(200, int(os.environ.get("CHUNK_MAX_CHARS", CHUNK_CHAR_CAP)))
+    except ValueError:
+        return CHUNK_CHAR_CAP
 
 _SYMBOL_PATTERNS = [
     re.compile(r"^\s*(async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)"),
