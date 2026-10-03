@@ -164,12 +164,12 @@ zero re-parsing. Signatures/visibility are extracted at index time (schema
 v3); pre-v3 manifests are migrated automatically (old rows keep NULL
 signature/visibility and `reindex-project` fills them).
 
-## watch (optional, opt-in)
+## watch
 
 `code-indexer watch [PATH...] | --all [--duration T] [--background]` runs a
 long-lived **event-based** watcher: project roots are watched recursively
-with Linux inotify (the `watchdog` Observer library, opt-in `watch`
-dependency-group — the MCP server and one-shot commands never import it).
+with Linux inotify (the `watchdog` Observer library — a main dependency;
+only `code-indexer watch` imports it).
 A file event schedules an incremental pass after a quiet period of
 `WATCH_DEBOUNCE` seconds (default 3 — the old poll tick is now the
 debounce; the env alias `WATCH_QUIET_PERIOD` is accepted and wins). A
@@ -180,10 +180,12 @@ embedding, zero Qdrant traffic.
 - **Self-heal sweep**: a full staleness pass for every watched project runs
   every `WATCH_SWEEP_INTERVAL` seconds (default **300 s**) even with zero
   events, healing anything inotify missed.
-- **Degradation**: without watchdog installed, or if inotify watch
-  descriptors are exhausted (OSError scheduling the recursive watches), the
-  watcher falls back to quiet-period polling (one hash scan per project per
-  quiet tick) — correctness is never lost, only latency.
+- **Degradation**: if inotify watch descriptors are exhausted (OSError
+  scheduling the recursive watches), the watcher falls back to
+  quiet-period polling (one hash scan per project per quiet tick) —
+  correctness is never lost, only latency. (Watchdog itself is a main
+  dependency, so the "not installed" fallback no longer occurs in
+  practice.)
 - **Self-write suppression**: events under the index root, `.git` paths,
   and editor temp files (`.swp`, `~`, `.tmp`, ...) are filtered; the
   watcher's own manifest/registry writes never trigger a pass.
@@ -371,8 +373,7 @@ unload between batches.
 ## Development
 
 ```bash
-uv sync                                  # install deps (.venv)
-uv sync --group watch                    # + watchdog (watcher tests need it)
+uv sync                                  # install deps (.venv, incl. watchdog)
 uv run code-indexer-mcp                  # run the stdio MCP server
 uv run code-indexer list-projects        # one-shot CLI (no daemon)
 uv run pytest tests/ -q -W error         # full suite, warn-clean (CI runs this)

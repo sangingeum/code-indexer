@@ -9,8 +9,11 @@ Semantic code index over Ollama embeddings + Qdrant, exposed as a one-shot CLI
 - Run from source: `uv run code-indexer <command>`.
 - Installed CLI on this host: `~/.local/bin/code-indexer` (uv tool; reinstall
   with `uv tool install --force .` after merged changes to test live).
-- Watchdog is an opt-in dependency-group (`uv sync --group watch`); only the
-  `watch` subcommand imports it (lazy import + polling fallback).
+- Watchdog is a **main dependency** (moved out of the former opt-in `watch`
+  dependency-group: its polling fallback was a silent CPU hog). Only the
+  `watch` subcommand imports it (lazy import, fallback kept for robustness).
+- Python pinned to 3.12 (`.python-version` + `requires-python`) so uv.lock
+  resolves a single branch (no per-Python qdrant-client/numpy forks).
 
 ## Layout
 

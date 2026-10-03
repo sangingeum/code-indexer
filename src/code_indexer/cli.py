@@ -271,8 +271,8 @@ def watch(
 ) -> None:
     """Optional long-lived watcher: inotify-based re-index daemon.
 
-    Linux inotify via the watchdog Observer library (opt-in `watch`
-    dependency-group): the project roots are watched recursively and file
+    Linux inotify via the watchdog Observer library (a main dependency): the
+    project roots are watched recursively and file
     events schedule an incremental pass after a quiet period of
     WATCH_DEBOUNCE seconds (alias WATCH_QUIET_PERIOD, default 3 — the old
     poll tick is now the debounce). A burst of events coalesces into at

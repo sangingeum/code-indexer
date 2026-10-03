@@ -6,10 +6,11 @@ Design ruling for the ``watch`` subcommand:
   root watches with automatic watch-tree maintenance (new subdirs get
   watched as they appear; moved/deleted dirs have their watches reaped).
   Raw inotify would mean hand-rolling watch-descriptor bookkeeping for zero
-  benefit in this Linux-only household. watchdog lives in the opt-in
-  ``watch`` dependency-group, NOT in runtime deps: the MCP server and every
-  one-shot CLI command never import it — only ``code-indexer watch`` does
-  (lazy import with a fallback to quiet-interval polling).
+  benefit in this Linux-only household. watchdog is a main runtime dependency
+  (moved out of the former opt-in ``watch`` dependency-group after its
+  polling fallback burned constant CPU as a silent degradation mode): only
+  ``code-indexer watch`` imports it (lazy import with a fallback to
+  quiet-interval polling that effectively never triggers now).
 
 - **Quiet period = the old poll tick.``watch_debounce`` (default 3 s) is
   reinterpreted as the *debounce/quiet period*: an event burst must stay
@@ -379,8 +380,7 @@ class WatchEngine:
             from watchdog.observers import Observer
         except ImportError:
             self.echo(
-                "watch: watchdog not installed — polling fallback "
-                "(install with: uv sync --group watch)")
+                "watch: watchdog not installed — polling fallback")
             return False
 
         engine = self
