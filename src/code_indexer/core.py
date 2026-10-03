@@ -63,13 +63,23 @@ class Core:
         self.registry = Registry(os.path.join(self.cfg.index_root, "registry.db"))
         self.embedder = Embedder(self.cfg.ollama_url, self.cfg.embed_model,
                                  batch_size=self.cfg.embed_batch,
-                                 timeout=self.cfg.ollama_timeout)
+                                 timeout=self.cfg.ollama_timeout,
+                                 cache=self._embed_cache())
         self.store = Store(self.cfg.qdrant_url, upsert_batch=self.cfg.upsert_batch)
         self.indexer = Indexer(self.cfg, self.embedder, self.store)
         # Per-process staleness cache: slug -> last-scan monotonic time.
         self._last_scan: dict[str, float] = {}
         # Indexing state per slug (state, error, last_result) for status.
         self._index_state: dict[str, dict[str, Any]] = {}
+
+    @staticmethod
+    def _embed_cache():
+        """Content-addressed embedding cache shared by all embed calls
+        (CI-14); disabled when EMBED_CACHE=0."""
+        if os.environ.get("EMBED_CACHE", "1") in ("0", "false"):
+            return None
+        from .embed_cache import EmbedCache
+        return EmbedCache(load_config().index_root)
 
     # ------------------------------------------------------------------
     # paths / manifests / state
@@ -407,7 +417,15 @@ class Core:
         out of the window. The pool is over-fetched so the mitigation has
         candidates to promote."""
         collection = f"idx_{entry.slug}"
-        vector = self.embedder.embed([query])[0]
+        # Query-side embedding (CI-14): the instruction prefix applies ONLY
+        # here; document embeddings stay raw. The cache key is the exact
+        # text, so instructed and raw embeddings never collide. Embedder
+        # duck-typing: stubs without query_instruction_text embed verbatim.
+        qtext = query
+        qtext_fn = getattr(self.embedder, "query_instruction_text", None)
+        if qtext_fn is not None:
+            qtext = qtext_fn(query)
+        vector = self.embedder.embed([qtext])[0]
         # Over-fetch: re-ranking (and the data-file cap) operates on a wider
         # pool; the final truncate back to `limit` happens in search().
         fetch = max(limit * 3, 24)

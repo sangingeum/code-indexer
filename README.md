@@ -506,6 +506,9 @@ Resolution order: CLI flags > environment variables > defaults.
 | `MAX_FILE_BYTES` | `1048576` | Skip files larger than this |
 | `OLLAMA_TIMEOUT` | `120` | Ollama connect/read timeout (s); retries use exponential backoff + jitter, max 5 |
 | `EMBED_CONCURRENCY` | `1` | >1 pipelines tree-sitter parsing/hashing in a thread pool while the embed call is in flight |
+| `QUERY_INSTRUCTION` | plan instruction text | Query-side embedding instruction (`Instruct: …\nQuery: …`); documents are never instructed. Eval win (recall@1 +0.048, MRR +0.040, 9↑/5↓); set empty to disable. Safe to toggle without reindexing |
+| `EMBED_CACHE` | `1` | Content-addressed embedding cache (`INDEX_ROOT/embed_cache.db`, key sha256(text)+model+dim+format, float16 payload); `0` disables. Re-indexing unchanged content makes 0 Ollama calls |
+| `EMBED_CACHE_MAX_GB` | `2` | Cache size cap; LRU eviction by last_used |
 
 CLI flags: `--ollama-url`, `--qdrant-url`, `--embed-model`, `--index-root`.
 

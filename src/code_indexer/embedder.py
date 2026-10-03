@@ -13,11 +13,14 @@ Resilience (robustness work item):
 from __future__ import annotations
 
 import logging
+import os
 import random
 import time
 
 import ollama
 
+from .embed_text import EMBED_FORMAT
+from .embed_cache import cache_key
 from .fingerprint import ConfigError
 
 logger = logging.getLogger("code-indexer.embedder")
@@ -34,13 +37,39 @@ _FATAL_MARKERS = ("not found", "does not exist", "no such model",
 
 class Embedder:
     def __init__(self, host: str, model: str, batch_size: int = 48,
-                 retries: int = DEFAULT_RETRIES, timeout: int = DEFAULT_TIMEOUT):
+                 retries: int = DEFAULT_RETRIES, timeout: int = DEFAULT_TIMEOUT,
+                 cache=None):
         self._host = host
         self.client = ollama.Client(host=host, timeout=timeout)
         self.model = model
         self.batch_size = batch_size
         self.retries = retries
         self._dim: int | None = None
+        # Content-addressed cache (CI-14): consulted before Ollama; keyed on
+        # the exact text + model + dim + embed-text version.
+        self.cache = cache
+        # Query instruction (CI-14, eval-gated WIN): applied ONLY to
+        # query-side embeddings via query_instruction_text(); document
+        # embeddings are never instructed. Eval on this repo's 42-query set:
+        # recall@1 +0.048, MRR +0.040, 9 improved / 5 regressed — the
+        # default comes from the plan's instruction text. Set
+        # QUERY_INSTRUCTION="" to disable (cache keys include the full
+        # instructed text, so toggling is safe without reindexing).
+        self.query_instruction = os.environ.get(
+            "QUERY_INSTRUCTION",
+            "Given a natural language question or identifier, retrieve "
+            "relevant source code")
+
+    def query_instruction_text(self, query: str) -> str:
+        """Query-side embedding text: instruction prefix when configured.
+
+        ``Instruct: <task>\nQuery: <text>`` per the qwen3-embedding model
+        card; document embeddings stay raw (the indexer embeds chunk text
+        directly). Cache keys include the instruction via the text itself.
+        """
+        if self.query_instruction:
+            return f"Instruct: {self.query_instruction}\nQuery: {query}"
+        return query
 
     def dimension(self) -> int:
         if self._dim is None:
@@ -113,7 +142,42 @@ class Embedder:
             f"Ollama embed failed after {self.retries} retries") from last_exc
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        """Embed texts in batches of self.batch_size with retry/backoff."""
+        """Embed texts in batches of self.batch_size with retry/backoff.
+
+        Cache-first (CI-14): each text is looked up by
+        sha256(text)+model+dim+embed_text_version before Ollama; misses are
+        embedded and stored. Documents and instructed queries share the same
+        mechanism — the key IS the text, so an instructed query never collides
+        with a raw document embedding.
+        """
+        out: list[list[float] | None] = [None] * len(texts)
+        misses: list[tuple[int, str]] = []
+        if self.cache is not None:
+            if self._dim is None:
+                # Cache keys need the dim; probe once before lookups.
+                self._dim = len(self._embed_misses(["dimension probe"])[0])
+            for i, text in enumerate(texts):
+                cached = self.cache.get(cache_key(
+                    text, self.model, self._dim or 0, EMBED_FORMAT))
+                if cached is not None:
+                    out[i] = cached
+                else:
+                    misses.append((i, text))
+        else:
+            misses = list(enumerate(texts))
+        if misses:
+            fetched = self._embed_misses([t for _i, t in misses])
+            for (i, text), vec in zip(misses, fetched):
+                out[i] = vec
+                if self.cache is not None and self._dim is not None:
+                    self.cache.put(cache_key(
+                        text, self.model, self._dim, EMBED_FORMAT), vec)
+        # Misses embedded in-order; failures would have raised inside
+        # _embed_batch (retryable→RuntimeError, fatal→ConfigError), so every
+        # slot is filled on return.
+        return [v if v is not None else [] for v in out]
+
+    def _embed_misses(self, texts: list[str]) -> list[list[float]]:
         out: list[list[float]] = []
         for i in range(0, len(texts), self.batch_size):
             batch = texts[i:i + self.batch_size]

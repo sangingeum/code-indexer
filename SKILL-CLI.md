@@ -231,7 +231,13 @@ slug, or registered custom name) — typer dual option names.
   `OLLAMA_TIMEOUT` (Ollama connect/read timeout, default 120 s; transient
   failures retry with exponential backoff + jitter, max 5; fatal errors —
   e.g. model not found — fail fast with a ConfigError),
-  `EMBED_CONCURRENCY` (default 1; >1 pipelines parsing while embedding).
+  `EMBED_CONCURRENCY` (default 1; >1 pipelines parsing while embedding),
+  `QUERY_INSTRUCTION` (query-side embedding instruction, ON by default
+  after an eval win; `QUERY_INSTRUCTION=""` disables; documents are never
+  instructed — toggling needs no reindex),
+  `EMBED_CACHE` (`1` = content-addressed embedding cache at
+  `<INDEX_ROOT>/embed_cache.db`; unchanged chunks/queries skip Ollama),
+  `EMBED_CACHE_MAX_GB` (default 2; LRU eviction by last_used).
 
 ## Gotchas
 
