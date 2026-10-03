@@ -14,13 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      # `requires-python` allows 3.13, but the locked dependency set does not
-      # install-and-run there: for >=3.13 the lock resolves qdrant-client
-      # 1.12.1, which fails at client construction with the locked httpx
-      # ("Client.__init__() got an unexpected keyword argument
-      # 'check_compatibility'"). Add 3.13 once qdrant-client/numpy allow it.
+      # Pinned to the single supported Python (requires-python = ">=3.12,<3.13").
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.12"]
     steps:
       - uses: actions/checkout@v4
 
@@ -30,7 +26,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv sync --group watch
+        run: uv sync
 
       - name: Run tests
         run: uv run pytest tests/ -q -W error
