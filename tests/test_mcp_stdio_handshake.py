@@ -1,7 +1,7 @@
 """Live stdio handshake smoke test (CI-01): the real MCP server process.
 
 Launches ``code-indexer-mcp`` as a subprocess, performs the JSON-RPC
-``initialize`` + ``tools/list`` handshake over stdio, and asserts the 17
+``initialize`` + ``tools/list`` handshake over stdio, and asserts the 18
 documented tools are present with stdout reserved for the MCP transport
 (non-MCP lines would break the protocol). No Ollama/Qdrant traffic: the
 handshake path never touches the backends, so the test passes with them
@@ -23,7 +23,7 @@ DOCUMENTED_TOOLS = frozenset({
     "semantic_search", "index_status", "reindex_project", "find_symbol",
     "find_symbols", "skeleton", "outline", "find_definition",
     "find_references", "find_callers", "find_callees", "deps",
-    "get_code_context",
+    "changed_symbols", "get_code_context",
 })
 
 

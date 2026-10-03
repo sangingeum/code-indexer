@@ -20,6 +20,7 @@ from .core import NEVER_INDEXED, Core, MIGRATION_HINT
 from .doctor import run_doctor
 from . import graph
 from . import overview as overview_mod
+from . import changed as changed_mod
 from .evalharness import (EVAL_MODES, compare_reports, format_eval_report,
                           load_report, run_eval)
 from .manifest import Manifest
@@ -155,6 +156,48 @@ def overview(
         typer.echo(json.dumps(data))
     else:
         typer.echo(overview_mod.format_overview(data, max_lines=max_lines))
+
+
+@app.command()
+def changed_symbols(
+    project: str = PROJECT_OPT,
+    base: str = typer.Option("HEAD", "--base", help="Diff base ref."),
+    head: str = typer.Option(None, "--head",
+                             help="Diff head ref (default: working tree)."),
+    staged: bool = typer.Option(False, "--staged",
+                                help="Diff staged changes only."),
+    include_untracked: bool = typer.Option(
+        False, "--include-untracked", help="Also report untracked files."),
+    impact: bool = typer.Option(False, "--impact",
+        help="Attach callers + candidate tests for changed symbols."),
+    depth: int = typer.Option(1, "--depth", help="Impact traversal depth."),
+    max_nodes: int = typer.Option(40, "--max-nodes", help="Impact node cap."),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """What changed in symbols: parse NEW/OLD contents from the git diff
+    (never trusts the possibly-stale manifest). Post-edit read-only loop:
+    run this, then search/get-code-context only for what actually changed."""
+    core = _get_core(False)
+    entry = _resolve(core, project)
+    try:
+        changed = changed_mod.changed_symbols(
+            entry.path, base=base, head=head, staged=staged,
+            include_untracked=include_untracked)
+    except changed_mod.NotAGitRepo as exc:
+        _die(f"error: {exc}")
+        return
+    if impact:
+        impact_data = changed_mod.impact(core, entry.slug, changed,
+                                         depth=depth, max_nodes=max_nodes)
+    else:
+        impact_data = None
+    if json_output:
+        payload = dict(changed, schema=1)
+        if impact_data is not None:
+            payload["impact"] = impact_data
+        typer.echo(json.dumps(payload))
+        return
+    typer.echo(changed_mod.render(changed, impact_data))
 
 
 def _core_entry(project: str | None):

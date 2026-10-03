@@ -41,6 +41,7 @@ code-indexer find-symbol FileTransferSession [--symbol-type class]
 code-indexer find-definition main
 code-indexer find-references QTimer --relationship calls
 code-indexer overview [--project P] [--path-prefix X] [--max-lines 60] [--json]
+code-indexer changed-symbols [--project P] [--base HEAD] [--staged] [--impact] [--json]
 code-indexer find-callers NAME [--project P] [--depth 2] [--max-nodes 40] [--json]
 code-indexer find-callees NAME [--project P] [--depth 2] [--max-nodes 40] [--json]
 code-indexer deps PATH [--project P] [--direction in|out|both] [--depth 2] --format tree|edges|json
@@ -117,6 +118,22 @@ The agent orientation workflow is `overview` (this project map) →
 `skeleton` / `outline` (file structure) → search / `get-code-context`
 (specifics). Overview is CLI-only by design — MCP agents already have
 skeleton/outline/search and the graph tools.
+
+### Changed-symbols: the post-edit read-only loop
+
+`code-indexer changed-symbols [--project P] [--base HEAD] [--head REF]
+[--staged] [--include-untracked] [--impact] [--json]` maps a git diff
+(`git diff -U0 --no-color -M`) onto symbols by parsing the NEW and OLD
+contents with tree-sitter — **it never trusts the possibly-stale manifest**,
+and it works without an index for the pure symbol view. Classification:
+added | modified | removed | renamed(file, via git -M); non-code/binary
+files group under `other files:`; syntax-error files fall back to raw line
+ranges (tree-sitter's error-tolerant parse usually still names symbols).
+With `--impact`, modified/removed symbols gain their direct callers (from
+the graph tables, confidence-labelled) and candidate test files
+(name-stem heuristics: `foo.py` → `test_foo.py`, `foo_test.py`,
+`foo_test.go`, `foo.spec.ts`, matched against indexed basenames). Also
+available as the MCP `changed_symbols` tool (readOnly).
 
 ### Result shaping and token budget (semantic-search)
 
@@ -566,7 +583,7 @@ Two things to know about the server process:
 
 - **stdout is reserved for the MCP transport.** All log output goes to stderr;
   never pipe server stdout into anything that expects log lines.
-- The server exposes **17 tools** (the table below). Tool listing does not
+- The server exposes **18 tools** (the table below). Tool listing does not
   require Ollama or Qdrant to be reachable — a stdio `initialize` +
   `tools/list` handshake succeeds even with both backends down. If installing
   from a checkout without a `uv` context, point `command` at the installed

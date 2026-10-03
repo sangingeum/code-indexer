@@ -481,6 +481,48 @@ def deps(path: str, project: str | None = None,
 
 
 @mcp.tool(annotations=ToolAnnotations(
+    readOnlyHint=True, destructiveHint=False, idempotentHint=True,
+    openWorldHint=False))
+def changed_symbols(project: str | None = None, base: str = "HEAD",
+                    head: str | None = None, staged: bool = False,
+                    include_untracked: bool = False, impact: bool = False,
+                    depth: int = 1, max_nodes: int = 40,
+                    json_output: bool = False) -> str:
+    """What changed in symbols since a git ref: parses NEW/OLD contents
+    directly (never trusts the possibly-stale manifest), classifies
+    added|modified|removed|renamed, groups non-code under 'other files'.
+    `impact: true` attaches direct callers (from the graph tables) and
+    candidate test files. The post-edit read-only-what-changed loop: run
+    this after edits, then search/get-code-context only for what changed.
+    Thin wrapper over `code-indexer changed-symbols [--project P] [--base R]
+    [--head R] [--staged] [--include-untracked] [--impact] [--json]`;
+    one-shot, foreground.
+
+    readOnlyHint=True (git reads + live file parses only);
+    destructiveHint=False; idempotentHint=True."""
+    argv = ["changed-symbols"]
+    if project:
+        argv += ["--project", project]
+    if base != "HEAD":
+        argv += ["--base", base]
+    if head:
+        argv += ["--head", head]
+    if staged:
+        argv.append("--staged")
+    if include_untracked:
+        argv.append("--include-untracked")
+    if impact:
+        argv.append("--impact")
+    if depth != 1:
+        argv += ["--depth", str(depth)]
+    if max_nodes != 40:
+        argv += ["--max-nodes", str(max_nodes)]
+    if json_output:
+        argv.append("--json")
+    return _run_cli(argv)
+
+
+@mcp.tool(annotations=ToolAnnotations(
     readOnlyHint=False, destructiveHint=False, idempotentHint=True,
     openWorldHint=False))
 def get_code_context(file: str, project: str | None = None,
