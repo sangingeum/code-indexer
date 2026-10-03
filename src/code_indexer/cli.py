@@ -121,6 +121,11 @@ def doctor(
 def add_project(
     path: str = typer.Argument(..., help="Absolute project directory to register."),
     name: str = typer.Option(None, help="Custom collection name (idx_<name>)."),
+    allow_sensitive: bool = typer.Option(
+        False, "--allow-sensitive",
+        help="Index secret-bearing files too (.env*, keys, credentials*, and "
+             "files whose content matches high-confidence secret patterns). "
+             "Stored per project; the default skips them."),
     skip_stale_check: bool = SkipOpt,
 ) -> None:
     """Register a project directory for semantic indexing (idempotent) and
@@ -143,6 +148,14 @@ def add_project(
     except ValueError as exc:
         _die(f"error: {exc}")
     typer.echo(f"registered {entry.path} (slug {entry.slug})")
+    if allow_sensitive:
+        m = core.manifest_for(entry.slug)
+        try:
+            m.set_meta("allow_sensitive", "1")
+        finally:
+            m.close()
+        typer.echo("note: --allow-sensitive set — secret-bearing files will "
+                   "be indexed for this project")
     _echo_index_result(entry.slug, core.run_index(entry.slug, entry.path))
 
 
@@ -276,6 +289,10 @@ def index_status(
             f"progress=files {p['files_done']}/{p['files_total']} "
             f"chunks {p['chunks_done']}/{p['chunks_total']} "
             f"{p['docs_per_s']} chunks/s eta={p['eta_s']}s")
+    if st.get("last_result") and st["last_result"].get("sensitive_skipped"):
+        parts.append(
+            f"sensitive={st['last_result']['sensitive_skipped']} files skipped "
+            "(privacy; override with --allow-sensitive on add-project)")
     if st.get("error"):
         parts.append(f"error={st['error']}")
     # Last 3 recorded embed errors (CI-04 poisoned-chunk reports).

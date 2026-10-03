@@ -23,6 +23,7 @@ from .fingerprint import (Fingerprint, current_fingerprint,
 from . import ts_chunker
 from .manifest import Manifest, ManifestFile, RefRow, SymbolRow
 from .scanner import ScannedFile, scan_project
+from .sensitive import SensitiveReport, file_is_sensitive
 from .store import Store, point_id
 
 
@@ -42,6 +43,7 @@ class IndexResult:
     duration_s: float
     chunks_skipped: int = 0     # embed failures recorded in index_errors
     files_committed: int = 0    # manifest rows committed after their upserts
+    sensitive_skipped: int = 0  # secret-bearing files excluded (privacy)
 
 
 def _snippet(text: str, cap: int = 500) -> str:
@@ -103,6 +105,35 @@ class Indexer:
         )
         scanned_map = {f.path: f for f in scanned}
         old_files = manifest.all_files()
+
+        # Sensitive-content exclusion (privacy work item): the override is
+        # stored in the manifest by add-project --allow-sensitive and honored
+        # on every later pass; without it, secret-bearing files (by filename
+        # glob or high-confidence content pattern) never reach the index.
+        # Skipped files are treated as deliberately absent (not "deleted") so
+        # their removal from the store is silent and repeat passes are stable.
+        allow_sensitive = manifest.get_meta("allow_sensitive") == "1"
+        sensitive_report = SensitiveReport()
+        if not allow_sensitive:
+            kept: dict[str, ScannedFile] = {}
+            for path, f in scanned_map.items():
+                try:
+                    with open(f.abs_path, encoding="utf-8",
+                              errors="replace") as fh:
+                        text = fh.read(65536 * 4)
+                except OSError:
+                    kept[path] = f
+                    continue
+                verdict = file_is_sensitive(path, text)
+                if verdict == "filename":
+                    sensitive_report.files_by_name += 1
+                    sensitive_report.skipped_names.append(path)
+                elif verdict == "content":
+                    sensitive_report.files_by_content += 1
+                    sensitive_report.skipped_content.append(path)
+                else:
+                    kept[path] = f
+            scanned_map = kept
 
         # Embedding-text format guard: a stored vector is only reusable when it
         # was built by the same embed_text() construction. A manifest with no
@@ -392,6 +423,7 @@ class Indexer:
             chunks_reused=reused, files_deleted=len(deleted),
             duration_s=round(time.time() - t0, 2),
             chunks_skipped=skipped_errors, files_committed=files_committed,
+            sensitive_skipped=sensitive_report.total,
         )
 
     # -- chunk-hash cache (design §6 step 6) ---------------------------

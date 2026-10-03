@@ -45,7 +45,7 @@ startup failures.
 
 ```bash
 uv run code-indexer <cmd>   # or installed console script
-code-indexer add-project /path/repo [--name myproj]   # register + initial index (foreground in CLI)
+code-indexer add-project /path/repo [--name myproj] [--allow-sensitive]   # register + initial index (foreground in CLI)
 code-indexer lookup-project /path/repo                # registration check, no side effects
 code-indexer list-projects
 code-indexer semantic-search "query" [--project P] [--limit 8] [--file-filter '*.py'] [--symbol-type class] [--language python] [--ranking vector|metadata|hybrid] [--json]
@@ -72,7 +72,11 @@ code-indexer unwatch --all [--timeout 10] # stop it for every registered project
 
 - **add-project / lookup-project / list-projects** — registry management.
   `add-project` registers a repo and runs the initial index (foreground);
-  `lookup-project` is a side-effect-free registration check.
+  `lookup-project` is a side-effect-free registration check. Sensitive
+  files (.env*, keys, credentials*, and files matching high-confidence
+  secret content patterns) are skipped by default and counted in
+  index-status; `--allow-sensitive` stores the per-project override to
+  index them too.
 - **semantic-search** — natural-language search over indexed chunks.
   Best when you know *what the code does*, not what it's called. Follow up
   with `find-definition`/`get-code-context` for the precise lines.

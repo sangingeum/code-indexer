@@ -66,6 +66,29 @@ semantics — so this CLI section doubles as the MCP tool reference.
 accept both `--project X` and `--name X` for the project argument (path,
 slug, or registered custom name).
 
+### Sensitive-content exclusion (privacy)
+
+By default, indexing skips secret-bearing files at two layers, and the skip
+is counted in `index-status` (`sensitive=N files skipped ...`) rather than
+silent:
+
+- **Filename globs** (built-in, applied in addition to
+  `.gitignore`/`.codeindexignore`): `.env*`, `*.pem`, `*.key`, `id_rsa*`,
+  `*.p12`, `*.kdbx`, `credentials*`, `secrets*.json|yaml|yml|toml`,
+  `*.tfstate`.
+- **Content scan**: files whose text carries a high-confidence secret
+  pattern are skipped whole — AWS access keys (`AKIA…`), PEM private-key
+  blocks, GitHub tokens (`gh[pousr]_…`), JWT-like triples, Slack tokens
+  (`xox[baprs]-…`). Whole-file skipping is deliberate: chunking a
+  secret-bearing file would still leak its surrounding context.
+
+Override per project: `code-indexer add-project /path --allow-sensitive`
+stores the choice in the project manifest and applies to all later passes
+(including `reindex-project`). Revoking the override (by clearing
+`allow_sensitive` in the manifest) makes the next pass purge previously
+indexed secret files. Never enable it on a project whose secrets you are not
+willing to have embedded in the local index.
+
 ### doctor (health check)
 
 `code-indexer doctor [--json]` verifies the installation end to end and

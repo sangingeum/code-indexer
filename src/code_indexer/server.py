@@ -122,12 +122,16 @@ def lookup_project(path: str) -> str:
 @mcp.tool(annotations=ToolAnnotations(
     readOnlyHint=False, destructiveHint=False, idempotentHint=True,
     openWorldHint=False))
-def add_project(path: str, name: str | None = None) -> str:
+def add_project(path: str, name: str | None = None,
+                allow_sensitive: bool = False) -> str:
     """Register a project directory for semantic indexing (idempotent) and run
     the initial index pass — FOREGROUND: unlike the old MCP tool, this call
     blocks until indexing finishes. Wraps
-    `code-indexer add-project <path> [--name NAME]`; optional NAME picks the
-    collection name (`idx_<name>`) instead of the auto hash slug.
+    `code-indexer add-project <path> [--name NAME] [--allow-sensitive]`;
+    optional NAME picks the collection name (`idx_<name>`) instead of the
+    auto hash slug. Secret-bearing files (.env*, keys, credentials*, and
+    files matching high-confidence secret content patterns) are skipped by
+    default; allow_sensitive=True indexes them too (stored per project).
 
     readOnlyHint=False: registers and indexes (writes). destructiveHint=False
     (adds, never deletes). idempotentHint=True: re-adding a registered path is
@@ -135,6 +139,8 @@ def add_project(path: str, name: str | None = None) -> str:
     argv = ["add-project", path]
     if name:
         argv += ["--name", name]
+    if allow_sensitive:
+        argv += ["--allow-sensitive"]
     return _run_cli(argv)
 
 
