@@ -204,7 +204,7 @@ def test_model_change_config_error_and_reindex_fixes_it(rig):
     summary_after = core2.status_summary(entry)
     assert "needs-reindex" not in summary_after
     # search works again
-    hits = core2.search("x", project=entry.path, skip_refresh=True)
+    hits = core2.search("x", project=entry.path, skip_refresh=True)["hits"]
     assert isinstance(hits, list)
     # the swap: the live name is an alias to the temp build, old dropped
     assert store.aliases.get(f"idx_{entry.slug}") == f"idx_{entry.slug}__new"
