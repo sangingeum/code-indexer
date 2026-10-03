@@ -11,7 +11,6 @@ import hashlib
 import json
 import os
 import shutil
-import struct
 import sys
 import tempfile
 
@@ -69,7 +68,6 @@ class _FakeStore:
 
     def search(self, name: str, vector: list[float], limit: int = 8,
                file_filter=None, symbol_type=None, language=None):
-        from types import SimpleNamespace
         pts = self.points.get(name, [])
         ranked = sorted(pts, key=lambda p: p.score, reverse=True)
         return ranked[:limit]

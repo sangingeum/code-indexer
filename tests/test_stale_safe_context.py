@@ -9,9 +9,7 @@ exit 0; --fresh bypasses STALE_TTL. All offline (stub seams).
 from __future__ import annotations
 
 import os
-import shutil
 import sys
-import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 

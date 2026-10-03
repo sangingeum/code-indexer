@@ -17,7 +17,7 @@ from typing import Any, NoReturn
 import typer
 
 from .core import NEVER_INDEXED, Core, MIGRATION_HINT
-from .doctor import Check, run_doctor
+from .doctor import run_doctor
 from . import graph
 from . import overview as overview_mod
 from .evalharness import (EVAL_MODES, compare_reports, format_eval_report,

@@ -11,7 +11,6 @@ from __future__ import annotations
 import os
 import shutil
 import sys
-import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -216,7 +215,6 @@ def test_revoked_override_purges_previous_secret_chunks(rig):
 
 
 def test_cli_add_project_allow_sensitive(tmp_path, monkeypatch):
-    import code_indexer.cli as cli
     project = tmp_path / "proj"
     project.mkdir()
     (project / ".env").write_text("A=1\n")
@@ -263,7 +261,6 @@ def test_cli_add_project_allow_sensitive(tmp_path, monkeypatch):
 
 
 def test_index_status_reports_sensitive_count(rig, monkeypatch):
-    import code_indexer.cli as cli
     core, reg, entry, store = rig
     core.run_index(entry.slug, entry.path)
     cli._core = core

@@ -18,10 +18,9 @@ Empirical facts baked into the fixtures (audit §6):
 
 from __future__ import annotations
 
-import os
 
 from . import ts_chunker
-from .graph_extract import LANGUAGES_WITH_AST, resolve_imports
+from .graph_extract import LANGUAGES_WITH_AST
 
 # Fixture snippets per EXT_LANG language name (tree-sitter pack names).
 _FIXTURES: dict[str, str] = {

@@ -168,7 +168,7 @@ def test_debounce_coalesces_burst(core, project):
 
 def test_events_under_index_root_and_git_are_filtered(core, project, tmp_path):
     """Self-writes (index root) and .git paths never dirty a project."""
-    entry = core.registry.add(str(project))
+    core.registry.add(str(project))
     engine = _make_engine(core, project)
     engine.start_events()
     observer = engine._observer
@@ -226,7 +226,7 @@ def test_moved_directory_events_dirty_project(core, project):
 def test_background_daemonizes_and_writes_pidfile(core, project, monkeypatch, tmp_path):
     """--background double-forks; the parent returns after the daemon's
     handshake; the pidfile holds the daemon pid and is flock-held."""
-    entry = core.registry.add(str(project))
+    core.registry.add(str(project))
     _patch_core(monkeypatch, core)
     pidfile = tmp_path / "watch.pid"
     log = tmp_path / "watch.log"
@@ -292,7 +292,7 @@ def test_pidfile_read_pid_garbage(tmp_path):
 def test_background_sigterm_cleans_pidfile_and_lock(core, project):
     """SIGTERM to a --background watcher exits 0, removes the pidfile, and
     leaves no live flock on it."""
-    entry = core.registry.add(str(project))
+    core.registry.add(str(project))
     env = dict(os.environ)
     env["INDEX_ROOT"] = core.cfg.index_root
     env["PYTHONPATH"] = "src"
@@ -351,7 +351,7 @@ def test_background_sigterm_cleans_pidfile_and_lock(core, project):
 
 def test_watch_background_honors_duration_exit_zero(core, project, monkeypatch):
     """--background --duration T: parent exits 0, daemon exits 0 after T."""
-    entry = core.registry.add(str(project))
+    core.registry.add(str(project))
     _patch_core(monkeypatch, core)
     result = runner.invoke(
         app, ["watch", str(project), "--background", "--duration", "2"])
@@ -410,7 +410,6 @@ def test_second_background_with_matching_target_exits_zero(
         core, project, monkeypatch):
     """A second --background for an already-watched project is idempotent:
     exit 0 with a clear already-running message (never "failed to start")."""
-    import code_indexer.cli as cli
     from code_indexer import watcher as watcher_mod
 
     entry = core.registry.add(str(project))
@@ -443,7 +442,6 @@ def test_second_background_with_matching_target_exits_zero(
 def test_second_background_wording_never_says_failed_to_start(
         core, project, monkeypatch):
     """The already-running message is the distinct, friendly wording."""
-    import code_indexer.cli as cli
     from code_indexer import watcher as watcher_mod
 
     core.registry.add(str(project))
@@ -516,10 +514,9 @@ def test_lost_race_reports_already_running_not_failed(
     """Lock lost between the parent pre-check and the daemon's flock: the
     parent reports the already-running case cleanly (exit 0 when covered),
     never "failed to start"."""
-    import code_indexer.cli as cli
     from code_indexer import watcher as watcher_mod
 
-    entry = core.registry.add(str(project))
+    core.registry.add(str(project))
     _patch_core(monkeypatch, core)
     pidfile = os.path.join(core.cfg.index_root, "watch.pid")
     holder = _Holder(pidfile, [str(project)])

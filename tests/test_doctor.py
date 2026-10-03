@@ -264,8 +264,7 @@ def test_index_root_unwritable_fails(env):
 
 def test_sqlite_integrity_happy_and_corrupt(env):
     cfg, reg = env
-    import sqlite3
-    reg_path = os.path.join(cfg.index_root, "registry.db")
+    os.path.join(cfg.index_root, "registry.db")
     checks = check_sqlite(cfg)
     assert all(c.status == "ok" for c in checks)
 

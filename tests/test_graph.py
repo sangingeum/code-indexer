@@ -18,7 +18,6 @@ import code_indexer.cli as cli  # noqa: E402
 from code_indexer.cli import app  # noqa: E402
 from code_indexer.config import Config  # noqa: E402
 from code_indexer.core import Core  # noqa: E402
-from code_indexer import graph  # noqa: E402
 from code_indexer.graph_extract import (  # noqa: E402
     extract_graph, extract_graph_textual, resolve_imports)
 

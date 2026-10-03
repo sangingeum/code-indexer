@@ -83,7 +83,7 @@ def _patch_core(monkeypatch, core):
 
 def test_watch_exits_after_duration(core, project, monkeypatch):
     """--duration T bounds the watcher's life; exit code 0."""
-    entry = core.registry.add(str(project))
+    core.registry.add(str(project))
     _patch_core(monkeypatch, core)
     t0 = time.monotonic()
     result = runner.invoke(app, ["watch", str(project), "--duration", "2"])

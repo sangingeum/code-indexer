@@ -20,9 +20,8 @@ import pytest  # noqa: E402
 from code_indexer.config import Config  # noqa: E402
 from code_indexer.core import Core  # noqa: E402
 from code_indexer.fingerprint import (ConfigError, Fingerprint,  # noqa: E402
-                                      current_fingerprint,
                                       fingerprint_mismatches,
-                                      read_fingerprint, write_fingerprint)
+                                      read_fingerprint)
 from code_indexer.manifest import Manifest  # noqa: E402
 from code_indexer.registry import Registry  # noqa: E402
 

@@ -9,7 +9,6 @@ on search/status, guarded by the per-project flock.
 
 from __future__ import annotations
 
-import fnmatch
 import json
 import logging
 import os

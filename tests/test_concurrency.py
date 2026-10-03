@@ -15,8 +15,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
-import sys
 import threading
 import time
 
@@ -25,7 +23,6 @@ import pytest
 from code_indexer.config import Config
 from code_indexer.core import Core
 from code_indexer.locks import project_lock
-from code_indexer.manifest import Manifest
 
 
 class StubEmbedder:
@@ -136,6 +133,52 @@ def test_four_parallel_cli_searches_run_exactly_one_pass(core, project):
     assert len(idle) == 1, f"expected exactly one pass, got {len(idle)}: {results}"
     assert len(held) == 3
     assert all("indexing in progress" in r["detail"] for r in held)
+
+
+def test_two_indexers_one_searcher(core, project):
+    """Two processes index concurrently while a third searches: exactly one
+    index pass runs, the other reports 'indexing in progress', and the
+    searcher never observes a torn state (it either sees the old index or
+    waits for the new one — the per-project lock serializes writes)."""
+    entry = core.registry.add(str(project))
+    first = core.run_index(entry.slug, entry.path)
+    assert first["state"] == "idle"
+
+    (project / "more.py").write_text("def more():\n    pass\n")
+
+    cores = [_stub_core(core.cfg) for _ in range(3)]
+    results: list[tuple[str, str]] = []
+    lock = threading.Lock()
+
+    def index_worker(c: Core) -> None:
+        r = c.run_index(entry.slug, entry.path)
+        with lock:
+            results.append(("index", r["state"]))
+
+    def search_worker(c: Core) -> None:
+        out = c.search_for_display("more", project=str(project),
+                                   fmt="compact")
+        with lock:
+            results.append(("search", out))
+
+    threads = [
+        threading.Thread(target=index_worker, args=(cores[0],)),
+        threading.Thread(target=index_worker, args=(cores[1],)),
+        threading.Thread(target=search_worker, args=(cores[2],)),
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    index_states = [state for kind, state in results if kind == "index"]
+    # Exactly one of the two indexers performed the pass.
+    assert index_states.count("idle") == 1, results
+    assert index_states.count("indexing") == 1, results
+    # The searcher completed without an error surface.
+    search_outs = [state for kind, state in results if kind == "search"]
+    assert len(search_outs) == 1
+    assert not search_outs[0].startswith("InternalError"), search_outs
 
 
 def test_flock_reports_indexing_in_progress(tmp_path):

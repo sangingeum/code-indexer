@@ -39,3 +39,22 @@ build-backend = "uv_build"
 dev = [
     "pytest>=8.0",
 ]
+
+[tool.pytest.ini_options]
+# Default runs exclude live-backend tests; `pytest -m live` runs them.
+addopts = "-m 'not live'"
+markers = [
+    "live: needs real Ollama/Qdrant backends (deselected by default)",
+]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+# Curated gate: correctness rules only for now (the full style set is a
+# later cleanup); kept green by the suite + this CI step.
+select = ["F", "E9"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests import after sys.path setup by design.
+"tests/*" = ["E402"]

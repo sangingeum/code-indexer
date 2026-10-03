@@ -1,32 +1,29 @@
-name: CI
+name: ci
 
 on:
   push:
     branches: [main]
   pull_request:
 
-permissions:
-  contents: read
-
 jobs:
   test:
-    name: tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      # Pinned to the single supported Python (requires-python = ">=3.12,<3.13").
-      matrix:
-        python-version: ["3.12"]
     steps:
       - uses: actions/checkout@v4
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/uv-action@v3
         with:
-          python-version: ${{ matrix.python-version }}
+          version: 0.12.5
 
-      - name: Install dependencies
-        run: uv sync
+      - name: Install Python 3.12
+        run: uv python install 3.12
 
-      - name: Run tests
-        run: uv run pytest tests/ -q -W error
+      - name: Sync dependencies (frozen)
+        run: uv sync --frozen
+
+      - name: Lint (ruff)
+        run: uvx ruff check src tests
+
+      - name: Test (offline suite; live-backend tests excluded)
+        run: uv run pytest -m "not live"

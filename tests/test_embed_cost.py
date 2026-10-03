@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import os
 import sys
-import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -107,7 +106,7 @@ def test_embed_uses_cache_no_second_ollama_call(tmp_path):
     e = CountingEmbedder(cache=cache)
     e._dim = 4
     texts = ["same text", "other text"]
-    v1 = e.embed(texts)
+    e.embed(texts)
     assert e.calls >= 1
     before = e.calls
     v2 = e.embed(texts)

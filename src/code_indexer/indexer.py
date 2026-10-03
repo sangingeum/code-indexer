@@ -7,17 +7,16 @@ back to mtime (§7/F).
 
 from __future__ import annotations
 
-import fnmatch
 import logging
 import os
 import time
 from dataclasses import dataclass
 
-from .chunker import Chunk, chunk
+from .chunker import Chunk
 from .config import Config
 from .embed_text import EMBED_FORMAT, embed_text
 from .embedder import Embedder
-from .fingerprint import (Fingerprint, current_fingerprint,
+from .fingerprint import (current_fingerprint,
                           fingerprint_mismatches, read_fingerprint,
                           write_fingerprint)
 from . import ts_chunker
@@ -74,7 +73,7 @@ class Indexer:
         try:
             vectors = self.embedder.embed(texts)
             return list(vectors), []
-        except Exception as exc:  # noqa: BLE001 — bisect below
+        except Exception:  # noqa: BLE001 — bisect below
             vecs: list[list[float] | None] = [None] * len(texts)
             errors: list[tuple[int, str]] = []
             for i, text in enumerate(texts):

@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import hashlib
 from typing import Any
 
 
-from code_indexer.chunker import Chunk
-from code_indexer.embed_text import embed_text
 from code_indexer.indexer import Indexer
 from code_indexer.config import load_config
 
