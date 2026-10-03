@@ -43,6 +43,7 @@ code-indexer find-references QTimer --relationship calls
 code-indexer get-code-context src/session.hpp --start-line 40 --end-line 80
 code-indexer index-status /path/to/repo
 code-indexer reindex-project /path/to/repo
+code-indexer doctor [--json]
 code-indexer remove-project /path/to/repo
 code-indexer watch /path/to/repo [--duration 300] [--background]   # optional inotify watcher
 code-indexer watch --all                            # watch all registered projects
@@ -64,6 +65,27 @@ semantics — so this CLI section doubles as the MCP tool reference.
 `find-symbol`, `find-definition`, `find-references`, and `get-code-context`
 accept both `--project X` and `--name X` for the project argument (path,
 slug, or registered custom name).
+
+### doctor (health check)
+
+`code-indexer doctor [--json]` verifies the installation end to end and
+prints one line per check — `ok|warn|fail <name>: <detail>` — exiting 1 when
+any check FAILS (warnings do not fail). Checks: Python version; uv on PATH;
+Ollama reachable (`GET /api/tags`), configured model present, embedding
+dimension probe; Qdrant reachable, server version, qdrant-client vs server
+compatibility (warn-level: major versions should match and the minor delta
+must not exceed 1), collection list vs registry (missing projects FAIL,
+`idx_*` collections with no registry entry WARN as orphans — e.g. leftover
+rebuild temps), collection dims vs the live dimension probe; INDEX_ROOT
+writable and free disk (warn < 1 GiB); SQLite `PRAGMA integrity_check` on
+the registry and every manifest; watch pidfile liveness (stale pidfile
+warns, suggests `unwatch`) and lock-file holding (held locks are OK — an
+index pass is simply running); per-project index fingerprint status
+(`needs-reindex` details from the fingerprint guard). `--json` emits
+`{"checks": [{status, name, detail}...], "healthy": bool}`. Dev/ops surface:
+deliberately CLI-only, no MCP tool — agents use `index-status` for
+per-project state. Network calls go only to the configured Ollama/Qdrant
+URLs.
 
 ### Ranking diversification (semantic-search)
 

@@ -59,6 +59,7 @@ code-indexer find-definition Name [--project P]                      # exact mat
 code-indexer find-references Name [--project P] [--relationship calls]  # all confidence=heuristic
 code-indexer get-code-context src/f.hpp --start-line 40 --end-line 80   # or --symbol Foo::bar
 code-indexer index-status /path/repo
+code-indexer doctor [--json]              # health check; exit 1 on any fail
 code-indexer reindex-project /path/repo   # full rebuild, foreground
 code-indexer remove-project /path/repo    # DESTRUCTIVE: drops collection + manifest + registry entry
 code-indexer watch /path/repo [--duration 300] [--background]   # optional inotify re-index daemon
@@ -129,7 +130,7 @@ code-indexer unwatch --all [--timeout 10] # stop it for every registered project
   (`--start-line/--end-line`) or the lines around a symbol
   (`--symbol Foo::bar`). Never read whole files; this answers "show me the
   code" questions.
-- **index-status / reindex-project / remove-project / watch / unwatch** — index
+- **index-status / doctor / reindex-project / remove-project / watch / unwatch** — index
   lifecycle. Reports `idle | indexing | never-indexed | error | needs-reindex`:
   `never-indexed` is a registered project whose manifest has no completed
   pass (an interrupted/killed `add-project`) — no index exists yet, so do not
@@ -143,6 +144,14 @@ code-indexer unwatch --all [--timeout 10] # stop it for every registered project
   `remove-project` is
   destructive; `watch` is the background freshness daemon; `unwatch` is the
   reverse of `watch` (see below).
+- **doctor** — installation health check, one line per check
+  (`ok|warn|fail <name>: <detail>`, exit 1 on any fail; warnings do not
+  fail). Covers runtime versions, Ollama (reachable/model/dimension probe),
+  Qdrant (reachable/version/client-vs-server compatibility, collections vs
+  registry, dims), INDEX_ROOT writability + disk, SQLite integrity, watch
+  pidfile + locks, and per-project fingerprint status. Dev/ops surface —
+  CLI-only, no MCP tool; agents use index-status instead. Run it when
+  searches misbehave or after changing OLLAMA_URL/QDRANT_URL/EMBED_MODEL.
 
 ## Token reduction (schema v3)
 

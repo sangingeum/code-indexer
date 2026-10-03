@@ -17,6 +17,7 @@ from typing import Any, NoReturn
 import typer
 
 from .core import NEVER_INDEXED, Core, MIGRATION_HINT
+from .doctor import Check, run_doctor
 from .evalharness import (EVAL_MODES, compare_reports, format_eval_report,
                           load_report, run_eval)
 from .manifest import Manifest
@@ -82,6 +83,38 @@ FreshOpt = typer.Option(
     False, "--fresh",
     help="Ignore STALE_TTL for this call: run the hash scan now (equivalent "
          "to --refresh; named for the MCP fresh parameter).")
+
+
+@app.command()
+def doctor(
+    json_output: bool = typer.Option(False, "--json", help="JSON output."),
+    skip_stale_check: bool = SkipOpt,
+) -> None:
+    """Health-check the installation: runtime versions, Ollama (reachable /
+    model present / dimension probe), Qdrant (reachable / version / client
+    compatibility / collections vs registry / dims), INDEX_ROOT writability
+    and free disk, SQLite integrity of registry + manifests, watch pidfile
+    and lock liveness, and per-project fingerprint status. One line per
+    check: ok|warn|fail <name>: <detail>. Exit 1 when any check fails
+    (warnings do not fail). Dev/ops surface: deliberately CLI-only, no MCP
+    tool — agents use index-status for per-project state. Network calls go
+    only to the configured Ollama/Qdrant URLs."""
+    core = _get_core(skip_stale_check)
+    # Reuse the core embedder's own Ollama client when it carries one (keeps
+    # doctor on the same configured URL and lets test stubs inject).
+    client = getattr(core.embedder, "client", None)
+    checks = run_doctor(core.cfg, core.registry, core.embedder, core.store,
+                        ollama_client=client)
+    if json_output:
+        typer.echo(json.dumps(
+            {"checks": [c.to_dict() for c in checks],
+             "healthy": not any(c.status == "fail" for c in checks)},
+            ensure_ascii=False, indent=2))
+    else:
+        for c in checks:
+            typer.echo(c.line())
+    if any(c.status == "fail" for c in checks):
+        raise typer.Exit(1)
 
 
 @app.command()
