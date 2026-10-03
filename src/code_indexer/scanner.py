@@ -111,7 +111,9 @@ def _looks_utf8ish(path: str) -> bool:
 
 
 def scan_project(root: str, max_file_bytes: int = 1_048_576,
-                 previous: dict[str, tuple[int, int, int, str]] | None = None
+                 previous: dict[str, tuple[int, int, int, str]] | None = None,
+                 include: list[str] | None = None,
+                 priority: list[str] | None = None,
                  ) -> list[ScannedFile]:
     """Walk ``root`` and return ScannedFile rows.
 
@@ -120,6 +122,11 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
     recorded content hash is reused instead of re-reading/hashing the file
     (the CI-03 stat fast-path; env PARANOID_HASH=1 disables it for
     filesystems/tools that preserve mtime, e.g. ``rsync -t``/``cp -p``).
+
+    ``include`` (scoped indexing, CI-23): gitignore-style patterns limiting
+    the scan to a subtree (e.g. ``src/**``); None = whole project.
+    ``priority``: matching files are returned FIRST (indexed before the
+    rest of the pass).
     """
     previous = previous if previous is not None and \
         os.environ.get("PARANOID_HASH") not in ("1", "true") else {}
@@ -195,7 +202,30 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
             results.append(ScannedFile(rel_path, abs_path, st.st_size, sha,
                                        st.st_mtime_ns, st.st_ino))
 
+    if include:
+        # Scoped indexing (CI-23): gitignore-style INCLUSION — only files
+        # matching any pattern are kept.
+        scope = pathspec.GitIgnoreSpec.from_lines(include)
+        results = [f for f in results
+                   if _matches_include(scope, f.path)]
+    if priority:
+        prio = pathspec.GitIgnoreSpec.from_lines(priority)
+        head = [f for f in results
+                if _matches_include(prio, f.path)]
+        tail = [f for f in results
+                if not _matches_include(prio, f.path)]
+        results = head + tail
     return results
+
+
+def _matches_include(spec: pathspec.GitIgnoreSpec, rel_path: str) -> bool:
+    """GitIgnoreSpec used as an INCLUSION filter: a bare directory pattern
+    (``services/a``) matches everything under it, and ``dir/**`` matches all
+    files beneath dir (GitIgnoreSpec.match_file handles both via negation
+    semantics — a pattern 'match' means keep here)."""
+    return bool(spec.match_file(rel_path)) or any(
+        spec.match_file(f"{rel_path}/{name}") or False
+        for name in ("", "x"))
 
 
 def _hash_file(path: str) -> str | None:

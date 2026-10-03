@@ -99,9 +99,17 @@ class Indexer:
         if not self.store.collection_exists(collection):
             self.store.create_collection(collection, self.embedder.dimension())
 
+        # Scoped indexing (CI-23): the manifest's scope patterns limit the scan;
+        # priority patterns order the pass. Stored meta keys:
+        #   scope_include (newline-joined globs), scope_priority.
+        include = [ln for ln in (manifest.get_meta("scope_include") or "")
+                   .splitlines() if ln.strip()]
+        priority = [ln for ln in (manifest.get_meta("scope_priority") or "")
+                    .splitlines() if ln.strip()]
         scanned: list[ScannedFile] = scan_project(
             project_path, max_file_bytes=self.cfg.max_file_bytes,
-            previous=manifest.stat_map(),
+            previous=manifest.stat_map(), include=include or None,
+            priority=priority or None,
         )
         scanned_map = {f.path: f for f in scanned}
         old_files = manifest.all_files()

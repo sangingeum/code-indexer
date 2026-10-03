@@ -80,7 +80,7 @@ def _setup(tmp_path, monkeypatch):
 
     monkeypatch.setattr(
         ix, "scan_project",
-        lambda p, max_file_bytes=None, previous=None: [
+        lambda p, max_file_bytes=None, previous=None, include=None, priority=None: [
             _scanned("a.py", str(src), holder[0])])
 
     manifest = Manifest(str(tmp_path / "manifest.db"))

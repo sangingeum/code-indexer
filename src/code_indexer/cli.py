@@ -10,11 +10,14 @@ flock (concurrent invocations serialize; exactly one indexer pass runs).
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from typing import Any, NoReturn
 
 import typer
+
+logger = logging.getLogger("code-indexer.cli")
 
 from .core import NEVER_INDEXED, Core, MIGRATION_HINT
 from .doctor import run_doctor
@@ -282,6 +285,14 @@ def add_project(
         help="Index secret-bearing files too (.env*, keys, credentials*, and "
              "files whose content matches high-confidence secret patterns). "
              "Stored per project; the default skips them."),
+    include: list[str] = typer.Option(
+        None, "--include",
+        help="Scoped indexing: only index paths matching these "
+             "gitignore-style globs, e.g. 'src/**' (repeatable; stored in "
+             "the manifest)."),
+    priority: list[str] = typer.Option(
+        None, "--priority",
+        help="Globs indexed FIRST within the pass (repeatable)."),
     skip_stale_check: bool = SkipOpt,
 ) -> None:
     """Register a project directory for semantic indexing (idempotent) and
@@ -312,6 +323,43 @@ def add_project(
             m.close()
         typer.echo("note: --allow-sensitive set — secret-bearing files will "
                    "be indexed for this project")
+    if include or priority:
+        m = core.manifest_for(entry.slug)
+        try:
+            if include:
+                m.set_meta("scope_include", "\n".join(include))
+            if priority:
+                m.set_meta("scope_priority", "\n".join(priority))
+        finally:
+            m.close()
+        typer.echo(f"note: scoped indexing — include={', '.join(include or [])}"
+                   + (f"; priority={', '.join(priority or [])}"
+                      if priority else ""))
+    _echo_index_result(entry.slug, core.run_index(entry.slug, entry.path))
+
+
+@app.command()
+def index_more(
+    path: str = typer.Argument(..., help="Registered project path."),
+    subpath: str = typer.Argument(..., help="Subtree to add to the scope."),
+    skip_stale_check: bool = SkipOpt,
+) -> None:
+    """Extend a project's indexed scope with another subtree (CI-23).
+
+    The new glob is appended to the manifest's scope_include and an
+    incremental pass indexes the newly-covered files."""
+    core = _get_core(skip_stale_check)
+    entry = _resolve(core, path)
+    m = core.manifest_for(entry.slug)
+    try:
+        current = [ln for ln in (m.get_meta("scope_include") or "")
+                   .splitlines() if ln.strip()]
+        if subpath not in current:
+            current.append(subpath)
+            m.set_meta("scope_include", "\n".join(current))
+    finally:
+        m.close()
+    typer.echo(f"scope extended: {', '.join(current)}")
     _echo_index_result(entry.slug, core.run_index(entry.slug, entry.path))
 
 
@@ -450,6 +498,20 @@ def semantic_search(
         fmt=fmt, skip_refresh=True, per_file=per_file, max_chars=max_chars,
         max_tokens=max_tokens, context_lines=context_lines,
         rerank=rerank_mode, mode=search_mode))
+    # Scoped indexing note (CI-23): when the index covers only part of the
+    # project, say so instead of letting out-of-scope paths look empty.
+    entry = core.resolve_entry(project)[0] if project else None
+    if entry is not None:
+        m = core.manifest_for(entry.slug)
+        try:
+            scope = [ln for ln in (m.get_meta("scope_include") or "")
+                     .splitlines() if ln.strip()]
+        finally:
+            m.close()
+        if scope:
+            typer.echo(f"note: this index is scoped to {', '.join(scope)} — "
+                       "paths outside it are not indexed (index-more extends "
+                       "the scope)", err=True)
 
 
 @app.command(name="index-status")
@@ -492,6 +554,31 @@ def index_status(
     from .langmatrix import languages_without_ast
     parts.append("languages_without_ast=[" + ", ".join(
         languages_without_ast()) + "]")
+    # Scoped-indexing coverage (CI-23): per top-level dir, indexed or not.
+    try:
+        m = Manifest(os.path.join(core.cfg.index_root, entry.slug,
+                                  "manifest.db"))
+        try:
+            scope = [ln for ln in (m.get_meta("scope_include") or "")
+                     .splitlines() if ln.strip()]
+            if scope:
+                indexed_dirs = {p.split("/", 1)[0]
+                                for p in m.all_files() if "/" in p}
+                import pathspec as _ps
+                spec = _ps.GitIgnoreSpec.from_lines(scope)
+                from .scanner import _matches_include
+                covered = {d for d in indexed_dirs
+                           if _matches_include(spec, d)}
+                on_disk = {f.name for f in os.scandir(entry.path)
+                           if f.is_dir() and not f.name.startswith(".")}
+                not_indexed = sorted(on_disk - covered)
+                parts.append(f"scope={', '.join(scope)}")
+                if not_indexed:
+                    parts.append("not indexed: " + ", ".join(not_indexed[:6]))
+        finally:
+            m.close()
+    except Exception as exc:  # noqa: BLE001 — status must never fail
+        logger.debug("scope coverage skipped: %s", exc)
     # Last 3 recorded embed errors (CI-04 poisoned-chunk reports).
     mdir = os.path.join(core.cfg.index_root, entry.slug, "manifest.db")
     if os.path.isfile(mdir):
