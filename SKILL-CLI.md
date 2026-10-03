@@ -14,6 +14,57 @@ One-shot typer CLI over `code_indexer.core`. Binary: `code-indexer`; package
 - All semantic code navigation against registered repos: search, symbols,
   refs, line-ranged source context — from shell, scripts, or in-conversation.
 
+## Decision tree (agent workflow)
+
+```
+Need to understand a repo?
+├─ First contact / orientation
+│   └─ code-indexer overview --project P        # languages, dirs, entry
+│                                                # points, hotspots (capped)
+│   └─ code-indexer skeleton --project P [PATH] # symbol map of the repo
+│                                                # or one subtree
+├─ Know the area, want structure of one file
+│   └─ code-indexer outline FILE --project P    # declarations + signatures
+│   └─ code-indexer find-symbol NAME            # locate a known symbol
+├─ Need actual source
+│   └─ code-indexer get-code-context FILE --start-line N --end-line M
+│       (or --symbol Foo.bar)                   # ONLY the relevant lines —
+│                                                # never read whole files
+├─ Conceptual question, names UNKNOWN
+│   └─ code-indexer semantic-search "how does X work?" \
+│        --project P --format compact --limit 8
+│   (default mode hybrid; rerank/heuristic is opt-in)
+└─ After edits
+    └─ code-indexer changed-symbols --project P [--impact]
+        # read what changed before searching anything
+```
+
+**When NOT to use code-indexer:**
+
+- Exact string/regex search → use `rg`/`grep`. Semantic search is for
+  meaning ("where do we validate tokens?"), not for literal text.
+- Listing files → `fd`/`ls`. The index is not a filesystem replacement.
+- git history/blame → `git log`/`git blame`. changed-symbols reads the
+  working diff, not history.
+- Huge mechanical refactors → do them with edit tools; re-index afterwards
+  (the watcher does it automatically).
+
+**Token-saving defaults:** prefer `--format compact` for search output (one
+line per hit), keep `--limit 8`, and cap long result sets with
+`--max-tokens 400`. Read source only via `get-code-context` with explicit
+line ranges or `--symbol`. Take `overview --max-lines 40` before any deep
+dive on an unfamiliar repo.
+
+**State meanings:** `stale: true` on a hit means the file changed after the
+index pass — line numbers may have shifted; the CLI still returns the live
+lines (with a stderr Warning in line mode). `needs-reindex` (index-status)
+means the index configuration changed (model, format, chunker) — queries
+against it fail with ConfigError until a reindex rebuilds it.
+
+**Never run `reindex-project` unless explicitly told to** — it is a full
+re-embed (minutes of Ollama time). The watcher keeps indexes fresh
+incrementally; `needs-reindex` states are resolved by the owner's call.
+
 ## Automatic indexing (watch daemon — standard setup)
 
 Projects are indexed **automatically** via the inotify watcher:
@@ -60,6 +111,8 @@ code-indexer find-references Name [--project P] [--relationship calls]  # all co
 code-indexer find-callers Name [--project P] [--depth 2] [--max-nodes 40]  # fan-in over AST refs/imports (ast vs heuristic confidence)
 code-indexer find-callees Name [--project P] [--depth 2] [--max-nodes 40]  # fan-out
 code-indexer deps PATH [--project P] [--direction in|out|both] [--depth 2] [--format tree|edges|json]  # import graph around a file
+code-indexer changed-symbols [--project P] [--base HEAD] [--staged] [--impact] [--json]  # post-edit diff -> symbols (see decision tree)
+code-indexer add-project PATH --include 'src/**'  # scoped indexing (repeatable; index-more extends)
 code-indexer get-code-context src/f.hpp --start-line 40 --end-line 80   # or --symbol Foo::bar
 code-indexer overview [--project P] [--path-prefix X] [--max-lines 60] [--json]
 code-indexer find-callers NAME [--project P]   # graph navigation (see below)
