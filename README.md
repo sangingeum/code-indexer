@@ -164,6 +164,35 @@ zero re-parsing. Signatures/visibility are extracted at index time (schema
 v3); pre-v3 manifests are migrated automatically (old rows keep NULL
 signature/visibility and `reindex-project` fills them).
 
+### Retrieval evaluation harness (`eval` / `eval-compare`)
+
+`code-indexer eval --project P --queries eval/queries.jsonl [--k 1,3,5,10]
+[--mode dense|hybrid] [--json] [--out runs/<name>.json]` runs a labeled
+query set against a project's index and reports recall@k, MRR, nDCG@10,
+mean/p95 latency, and approximate output size (chars/4 ≈ tokens). A hit is
+correct when the file matches and (no symbol named, or the symbol matches,
+or the line range overlaps the labeled symbol). `eval-compare runs/a.json
+runs/b.json` prints a metric delta table plus a per-query win/loss list —
+the workflow is change → eval → compare → paste the table in the PR.
+
+This is the retrieval-quality gate: no change to chunking, embedding text,
+fusion, or ranking merges without a before/after eval table.
+
+Notes:
+
+- **CLI-only by design** — a dev tool for the maintainer's quality gate, not
+  an agent surface; it is deliberately not exposed as an MCP tool.
+- The `hybrid` mode value is accepted for forward compatibility but currently
+  aliases the dense pipeline; the lexical (FTS5) index is not built yet.
+- `eval/queries.jsonl` format: one JSON object per line
+  `{"id", "query", "relevant": [{"file", "symbol"?}], "tags"}`. The committed
+  seed set (42 queries: conceptual / exact-identifier / filename /
+  how-does-x-work) targets this repository itself; run it with
+  `uv run code-indexer eval --project . --queries eval/queries.jsonl`.
+- Deterministic for a fixed index; latency is reported per query but excluded
+  from ranking metrics. Tests run fully offline against fake embedder/store
+  seams (no Ollama/Qdrant required).
+
 ## watch
 
 `code-indexer watch [PATH...] | --all [--duration T] [--background]` runs a

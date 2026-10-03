@@ -1,0 +1,42 @@
+{"id": "q-concept-01", "query": "how does semantic search decide which chunks to show first", "relevant": [{"file": "src/code_indexer/ranking.py", "symbol": "metadata_rerank"}, {"file": "src/code_indexer/core.py", "symbol": "search_one"}], "tags": ["conceptual"]}
+{"id": "q-concept-02", "query": "where does the incremental index pass decide which files changed", "relevant": [{"file": "src/code_indexer/indexer.py", "symbol": "index"}], "tags": ["conceptual"]}
+{"id": "q-concept-03", "query": "how does the tool keep two index processes from running at once", "relevant": [{"file": "src/code_indexer/locks.py", "symbol": "project_lock"}, {"file": "src/code_indexer/indexer.py"}], "tags": ["conceptual"]}
+{"id": "q-concept-04", "query": "where is the per-project manifest database opened and migrated", "relevant": [{"file": "src/code_indexer/manifest.py", "symbol": "__init__"}], "tags": ["conceptual"]}
+{"id": "q-concept-05", "query": "how are chunk vectors written to the vector database", "relevant": [{"file": "src/code_indexer/store.py", "symbol": "upsert"}, {"file": "src/code_indexer/store.py"}], "tags": ["conceptual"]}
+{"id": "q-concept-06", "query": "how does the staleness check decide whether to rescan before answering a query", "relevant": [{"file": "src/code_indexer/core.py", "symbol": "maybe_refresh"}], "tags": ["conceptual"]}
+{"id": "q-concept-07", "query": "how does the watcher trigger reindexing when files change", "relevant": [{"file": "src/code_indexer/watcher.py"}], "tags": ["conceptual"]}
+{"id": "q-concept-08", "query": "how does the query embed text get built with file and symbol context", "relevant": [{"file": "src/code_indexer/embed_text.py", "symbol": "embed_text"}], "tags": ["conceptual"]}
+{"id": "q-concept-09", "query": "how does the tree-sitter chunker split a big function that exceeds the size cap", "relevant": [{"file": "src/code_indexer/ts_chunker.py"}], "tags": ["conceptual"]}
+{"id": "q-concept-10", "query": "how does the scanner decide a file is binary and skip it", "relevant": [{"file": "src/code_indexer/scanner.py", "symbol": "_is_binary"}, {"file": "src/code_indexer/scanner.py", "symbol": "_looks_utf8ish"}], "tags": ["conceptual"]}
+{"id": "q-concept-11", "query": "where does pure data chunk downweighting happen so json files do not crowd results", "relevant": [{"file": "src/code_indexer/ranking.py", "symbol": "downweight_data_files"}], "tags": ["conceptual"]}
+{"id": "q-concept-12", "query": "how does the mcp server run the cli as a subprocess", "relevant": [{"file": "src/code_indexer/server.py", "symbol": "_run_cli"}], "tags": ["conceptual"]}
+{"id": "q-ident-01", "query": "maybe_refresh", "relevant": [{"file": "src/code_indexer/core.py", "symbol": "maybe_refresh"}], "tags": ["exact-identifier"]}
+{"id": "q-ident-02", "query": "downweight_data_files", "relevant": [{"file": "src/code_indexer/ranking.py", "symbol": "downweight_data_files"}], "tags": ["exact-identifier"]}
+{"id": "q-ident-03", "query": "cap_data_file_share", "relevant": [{"file": "src/code_indexer/ranking.py", "symbol": "cap_data_file_share"}], "tags": ["exact-identifier"]}
+{"id": "q-ident-04", "query": "point_id", "relevant": [{"file": "src/code_indexer/store.py", "symbol": "point_id"}], "tags": ["exact-identifier"]}
+{"id": "q-ident-05", "query": "scan_project", "relevant": [{"file": "src/code_indexer/scanner.py", "symbol": "scan_project"}], "tags": ["exact-identifier"]}
+{"id": "q-ident-06", "query": "replace_file_symbols", "relevant": [{"file": "src/code_indexer/manifest.py", "symbol": "replace_file_symbols"}], "tags": ["exact-identifier"]}
+{"id": "q-ident-07", "query": "resolve_entry", "relevant": [{"file": "src/code_indexer/core.py", "symbol": "resolve_entry"}], "tags": ["exact-identifier"]}
+{"id": "q-ident-08", "query": "EMBED_FORMAT", "relevant": [{"file": "src/code_indexer/embed_text.py"}], "tags": ["exact-identifier"]}
+{"id": "q-ident-09", "query": "regex_visibility", "relevant": [{"file": "src/code_indexer/chunker.py", "symbol": "regex_visibility"}], "tags": ["exact-identifier"]}
+{"id": "q-ident-10", "query": "hybrid_fuse", "relevant": [{"file": "src/code_indexer/ranking.py", "symbol": "hybrid_fuse"}], "tags": ["exact-identifier"]}
+{"id": "q-ident-11", "query": "symbols_for_file", "relevant": [{"file": "src/code_indexer/manifest.py", "symbol": "symbols_for_file"}], "tags": ["exact-identifier"]}
+{"id": "q-ident-12", "query": "probe_watcher_holder", "relevant": [{"file": "src/code_indexer/watcher.py", "symbol": "probe_watcher_holder"}], "tags": ["exact-identifier"]}
+{"id": "q-file-01", "query": "ranking.py", "relevant": [{"file": "src/code_indexer/ranking.py"}], "tags": ["filename"]}
+{"id": "q-file-02", "query": "manifest.py symbol table", "relevant": [{"file": "src/code_indexer/manifest.py"}], "tags": ["filename"]}
+{"id": "q-file-03", "query": "embedder.py retry batching", "relevant": [{"file": "src/code_indexer/embedder.py", "symbol": "_embed_batch"}], "tags": ["filename"]}
+{"id": "q-file-04", "query": "ts_chunker.py", "relevant": [{"file": "src/code_indexer/ts_chunker.py"}], "tags": ["filename"]}
+{"id": "q-file-05", "query": "watcher.py inotify", "relevant": [{"file": "src/code_indexer/watcher.py"}], "tags": ["filename"]}
+{"id": "q-file-06", "query": "registry.py project registration", "relevant": [{"file": "src/code_indexer/registry.py"}], "tags": ["filename"]}
+{"id": "q-how-01", "query": "how does the visibility rule decide a python function is private", "relevant": [{"file": "src/code_indexer/ts_chunker.py", "symbol": "_visibility_from_name"}], "tags": ["how-does-x-work"]}
+{"id": "q-how-02", "query": "how does the lexical score for a query against a hit get computed", "relevant": [{"file": "src/code_indexer/ranking.py", "symbol": "lexical_score"}], "tags": ["how-does-x-work"]}
+{"id": "q-how-03", "query": "how does skeleton build its one line per symbol output", "relevant": [{"file": "src/code_indexer/core.py", "symbol": "skeleton"}, {"file": "src/code_indexer/core.py"}], "tags": ["how-does-x-work"]}
+{"id": "q-how-04", "query": "how does the watcher quiet period coalesce bursts of file events", "relevant": [{"file": "src/code_indexer/watcher.py"}], "tags": ["how-does-x-work"]}
+{"id": "q-how-05", "query": "how does the cli get code context for a line range", "relevant": [{"file": "src/code_indexer/cli.py", "symbol": "get_code_context"}], "tags": ["how-does-x-work"]}
+{"id": "q-how-06", "query": "how are deterministic point ids derived from project file and chunk", "relevant": [{"file": "src/code_indexer/store.py", "symbol": "point_id"}], "tags": ["how-does-x-work"]}
+{"id": "q-how-07", "query": "how does the manifest cache chunk hashes between index passes", "relevant": [{"file": "src/code_indexer/indexer.py"}], "tags": ["how-does-x-work"]}
+{"id": "q-how-08", "query": "how does the config load environment variables into the settings object", "relevant": [{"file": "src/code_indexer/config.py", "symbol": "load_config"}], "tags": ["how-does-x-work"]}
+{"id": "q-how-09", "query": "how does the evaluator measure recall against labeled queries", "relevant": [{"file": "src/code_indexer/evalharness.py", "symbol": "run_eval"}], "tags": ["how-does-x-work"]}
+{"id": "q-how-10", "query": "how does the server map each mcp tool to its cli subcommand", "relevant": [{"file": "src/code_indexer/server.py"}], "tags": ["how-does-x-work"]}
+{"id": "q-how-11", "query": "how does the chunker guess a symbol name with a regex when no ast is available", "relevant": [{"file": "src/code_indexer/chunker.py", "symbol": "_guess_symbol"}], "tags": ["how-does-x-work"]}
+{"id": "q-how-12", "query": "how does the registry resolve a project from path slug or custom name", "relevant": [{"file": "src/code_indexer/registry.py"}, {"file": "src/code_indexer/core.py", "symbol": "resolve_entry"}], "tags": ["how-does-x-work"]}

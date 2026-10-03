@@ -17,6 +17,8 @@ from typing import Any, NoReturn
 import typer
 
 from .core import NEVER_INDEXED, Core, MIGRATION_HINT
+from .evalharness import (EVAL_MODES, compare_reports, format_eval_report,
+                          load_report, run_eval)
 from .registry import ProjectEntry
 
 app = typer.Typer(
@@ -862,6 +864,71 @@ def _main(
 def main() -> None:
     """Console-script entry point (``code-indexer``)."""
     app()
+
+
+# ---------------------------------------------------------------------------
+# eval harness (retrieval-quality gate): CLI-only dev utility, no MCP surface
+# ---------------------------------------------------------------------------
+
+def _parse_ks(raw: str) -> list[int]:
+    try:
+        ks = sorted({int(part) for part in raw.split(",") if part.strip()})
+    except ValueError:
+        _die("error: --k must be a comma-separated list of integers, e.g. 1,3,5,10")
+    if not ks or any(k < 1 for k in ks):
+        _die("error: --k values must be positive integers")
+    return ks
+
+
+@app.command(name="eval")
+def eval_command(
+    project: str = typer.Option(..., help="Project path, slug, or name."),
+    queries: str = typer.Option(..., help="Path to queries.jsonl."),
+    k: str = typer.Option("1,3,5,10", "--k",
+        help="Comma-separated k values for recall@k."),
+    mode: str = typer.Option("dense", help=f"Eval mode: {EVAL_MODES}."),
+    out: str = typer.Option(None, "--out", help="Write the JSON report to this path."),
+    skip_stale_check: bool = SkipOpt,
+) -> None:
+    """Run a labeled query set against a project's index and report ranking
+    metrics (recall@k, MRR, nDCG@10, latency, approx output tokens). Dev
+    utility for retrieval-quality gates; deliberately CLI-only (no MCP
+    surface). The 'hybrid' mode is accepted for forward compatibility but
+    currently aliases the dense pipeline (the lexical index is not built
+    yet)."""
+    core = _get_core(skip_stale_check)
+    ks = _parse_ks(k)
+    if mode not in EVAL_MODES:
+        _die(f"error: unknown eval mode {mode!r} (expected one of {EVAL_MODES})")
+    try:
+        report = run_eval(core, project, queries, ks=ks, mode=mode)
+    except ValueError as exc:
+        _die(str(exc))
+    if out:
+        out_path = os.path.abspath(out)
+        os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+        with open(out_path, "w", encoding="utf-8") as fh:
+            json.dump(report, fh, ensure_ascii=False, indent=2)
+            fh.write("\n")
+        typer.echo(f"wrote {out_path}", err=True)
+    typer.echo(format_eval_report(report))
+
+
+@app.command(name="eval-compare")
+def eval_compare(
+    a: str = typer.Argument(..., help="Baseline report path (JSON)."),
+    b: str = typer.Argument(..., help="Candidate report path (JSON)."),
+) -> None:
+    """Compare two eval reports: metric delta table + per-query win/loss.
+    b is the candidate, a the baseline."""
+    for path in (a, b):
+        if not os.path.isfile(path):
+            _die(f"error: not found: {path}")
+    try:
+        ra, rb = load_report(a), load_report(b)
+    except json.JSONDecodeError as exc:
+        _die(f"error: bad report JSON: {exc}")
+    typer.echo(compare_reports(ra, rb))
 
 
 if __name__ == "__main__":
