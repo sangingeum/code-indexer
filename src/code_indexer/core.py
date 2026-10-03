@@ -387,12 +387,18 @@ class Core:
                    file_filter: str | None,
                    symbol_type: str | None = None,
                    language: str | None = None,
-                   ranking_mode: str = "vector") -> list[dict[str, Any]]:
+                   ranking_mode: str = "vector",
+                   rerank: str | None = None) -> list[dict[str, Any]]:
         """One project's search. `ranking_mode` selects the query-time
         ranking on the candidate pool: 'vector' (default, pure cosine),
         'metadata' (cosine + metadata adjustments), 'hybrid'
         (weighted-sum fusion of the vector score with lexical token
         overlap).
+
+        ``rerank`` ('heuristic' | 'none' | None = off) applies a final
+        re-scoring pass over the top RERANK_POOL candidates after the mode
+        pipeline and the data-file mitigation — see reranker.py. Deterministic
+        for fixed input.
 
         On top of the selected mode, every result set passes through the
         data-file mitigation (pure-data json/yaml/toml chunks are down-weighted
@@ -432,7 +438,13 @@ class Core:
         elif ranking_mode != "vector":
             raise ValueError(f"error: unknown ranking mode: {ranking_mode}")
         out = ranking.downweight_data_files(out, qtokens)
-        return ranking.cap_data_file_share(out, limit, qtokens)
+        out = ranking.cap_data_file_share(out, limit, qtokens)
+        if rerank:
+            from .reranker import RERANK_POOL, select_reranker
+            reranker = select_reranker(rerank)
+            head = reranker.rerank(out[:RERANK_POOL], query)
+            out = head + out[RERANK_POOL:]
+        return out
 
     def search(self, query: str, project: str | None = None, limit: int = 8,
                file_filter: str | None = None,
@@ -443,7 +455,8 @@ class Core:
                per_file: int = 0,
                max_chars: int | None = None,
                max_tokens: int | None = None,
-               merge: bool = True) -> dict[str, Any]:
+               merge: bool = True,
+               rerank: str | None = None) -> dict[str, Any]:
         """Semantic search across one or all registered projects.
 
         Runs the staleness probe per project first (unless skipped). Raises
@@ -479,7 +492,7 @@ class Core:
                 per_project[entry.path] = self.search_one(
                     entry, query, limit, file_filter,
                     symbol_type=symbol_type, language=language,
-                    ranking_mode=ranking_mode)
+                    ranking_mode=ranking_mode, rerank=rerank)
             except Exception as exc:  # noqa: BLE001
                 logger.exception("search failed for %s", entry.path)
                 raise ValueError(f"error: search failed on {entry.path}: {exc}") from exc
@@ -570,14 +583,16 @@ class Core:
                            per_file: int = 0,
                            max_chars: int | None = None,
                            max_tokens: int | None = None,
-                           context_lines: int = 0) -> str:
+                           context_lines: int = 0,
+                           rerank: str | None = None) -> str:
         try:
             result = self.search(query, project=project, limit=limit,
                                file_filter=file_filter,
                                symbol_type=symbol_type, language=language,
                                ranking_mode=ranking_mode,
                                skip_refresh=skip_refresh, per_file=per_file,
-                               max_chars=max_chars, max_tokens=max_tokens)
+                               max_chars=max_chars, max_tokens=max_tokens,
+                               rerank=rerank)
         except ValueError as exc:
             return str(exc)
         return self.format_hits(result["hits"], fmt, dropped=result["dropped"],

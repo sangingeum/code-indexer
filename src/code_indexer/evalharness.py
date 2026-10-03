@@ -130,7 +130,8 @@ def _hit_correct(core: "Core", entry: Any, hit: dict[str, Any],
 
 def run_eval(core: "Core", project: str, queries_path: str | Path,
              ks: list[int] = list(DEFAULT_KS), mode: str = "dense",
-             limit: int = 10, skip_refresh: bool = True) -> dict[str, Any]:
+             limit: int = 10, skip_refresh: bool = True,
+             rerank: str | None = None) -> dict[str, Any]:
     """Run every query through Core.search and aggregate the metrics.
 
     ``skip_refresh`` defaults to True: the eval measures ranking, not the
@@ -150,7 +151,7 @@ def run_eval(core: "Core", project: str, queries_path: str | Path,
         t0 = time.perf_counter()
         hits = core.search(q.query, project=project, limit=max(limit, max(ks)),
                            ranking_mode=ranking_mode, skip_refresh=skip_refresh,
-                           merge=False)["hits"]
+                           merge=False, rerank=rerank)["hits"]
         latency = time.perf_counter() - t0
         rank: int | None = None
         for i, hit in enumerate(hits, 1):
@@ -180,7 +181,7 @@ def run_eval(core: "Core", project: str, queries_path: str | Path,
     p95_idx = max(0, math.ceil(0.95 * len(latencies)) - 1)
     return {
         "project": entry.path,
-        "mode": mode,
+        "mode": mode + (f"+rerank-{rerank}" if rerank else ""),
         "queries": n,
         "metrics": {
             **per_k,

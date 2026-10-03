@@ -245,6 +245,13 @@ def semantic_search(
         "text", "--format",
         help="Output format: text (verbose, default) | compact (one line per "
              "hit: path:start-end  symbol  score) | json."),
+    rerank: str = typer.Option(
+        None, "--rerank",
+        help="Rerank mode: heuristic (token-overlap boosts, path penalties, "
+             "repeat-file diversification) | none. Default none — the "
+             "heuristic reranker is opt-in pending an eval win."),
+    no_rerank: bool = typer.Option(
+        False, "--no-rerank", help="Explicitly disable reranking."),
     skip_stale_check: bool = SkipOpt,
     refresh: bool = RefreshOpt,
     fresh: bool = FreshOpt,
@@ -275,11 +282,13 @@ def semantic_search(
         for e in core.registry.list_projects():
             core.maybe_refresh(e.slug, e.path, force=forced)
     fmt = "json" if json_output else output_format
+    rerank_mode = "none" if no_rerank else rerank
     typer.echo(core.search_for_display(
         query, project=project, limit=limit, file_filter=file_filter,
         symbol_type=symbol_type, language=language, ranking_mode=ranking,
         fmt=fmt, skip_refresh=True, per_file=per_file, max_chars=max_chars,
-        max_tokens=max_tokens, context_lines=context_lines))
+        max_tokens=max_tokens, context_lines=context_lines,
+        rerank=rerank_mode))
 
 
 @app.command(name="index-status")
@@ -984,6 +993,8 @@ def eval_command(
     k: str = typer.Option("1,3,5,10", "--k",
         help="Comma-separated k values for recall@k."),
     mode: str = typer.Option("dense", help=f"Eval mode: {EVAL_MODES}."),
+    rerank: str = typer.Option(
+        None, "--rerank", help="Rerank mode: heuristic | none (default off)."),
     out: str = typer.Option(None, "--out", help="Write the JSON report to this path."),
     skip_stale_check: bool = SkipOpt,
 ) -> None:
@@ -998,7 +1009,7 @@ def eval_command(
     if mode not in EVAL_MODES:
         _die(f"error: unknown eval mode {mode!r} (expected one of {EVAL_MODES})")
     try:
-        report = run_eval(core, project, queries, ks=ks, mode=mode)
+        report = run_eval(core, project, queries, ks=ks, mode=mode, rerank=rerank)
     except ValueError as exc:
         _die(str(exc))
     if out:
