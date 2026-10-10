@@ -99,6 +99,11 @@ startup failures.
 Global flags: every command accepts `--skip-stale-check` (skip the staleness
 probe / incremental index pass); every project-scoped read/search command
 also accepts `--fresh` (force the hash scan now, ignoring STALE_TTL).
+The skip flag only changes behavior where that probe is on the command's
+path — `semantic-search`, `skeleton`, `outline`, `find-symbol`,
+`find-definition`, `find-references`, `get-code-context`, and
+`index-status --refresh`. On every other command it is accepted and
+ignored: no probe is on that path.
 
 ```bash
 uv run code-indexer <cmd>   # or installed console script
@@ -316,7 +321,8 @@ argument instead of a flag.
 ## Key rules
 
 - `--skip-stale-check` skips the staleness probe / incremental pass (fast,
-  may serve slightly stale results). Default behavior: search/status trigger
+  may serve slightly stale results). Accepted by every command; a no-op
+  where the command's path never runs the probe (see "Global flags"). Default behavior: search/status trigger
   a re-scan if STALE_TTL (60 s) elapsed; concurrent invocations serialize via
   a per-project flock — exactly one index pass runs, others print
   "<slug>: indexing in progress". `--fresh` forces the scan now (ignore

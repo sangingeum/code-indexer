@@ -139,6 +139,7 @@ def overview(
         help="Restrict to paths starting with this prefix."),
     max_lines: int = typer.Option(60, "--max-lines", help="Output line cap."),
     json_output: bool = typer.Option(False, "--json"),
+    skip_stale_check: bool = SkipOpt,
 ) -> None:
     """Project-level map from manifest data: languages, directories, entry
     points, tests, config, hotspots (orientation surface).
@@ -147,7 +148,7 @@ def overview(
     agents already have skeleton/outline/search and the graph tools, so an
     MCP wrapper adds surface area without new capability.
     """
-    core = _get_core(False)
+    core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
     m = core.manifest_for(entry.slug)
     try:
@@ -176,11 +177,12 @@ def changed_symbols(
     depth: int = typer.Option(1, "--depth", help="Impact traversal depth."),
     max_nodes: int = typer.Option(40, "--max-nodes", help="Impact node cap."),
     json_output: bool = typer.Option(False, "--json"),
+    skip_stale_check: bool = SkipOpt,
 ) -> None:
     """What changed in symbols: parse NEW/OLD contents from the git diff
     (never trusts the possibly-stale manifest). Post-edit read-only loop:
     run this, then search/get-code-context only for what actually changed."""
-    core = _get_core(False)
+    core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
     try:
         changed = changed_mod.changed_symbols(
@@ -203,8 +205,8 @@ def changed_symbols(
     typer.echo(changed_mod.render(changed, impact_data))
 
 
-def _core_entry(project: str | None):
-    core = _get_core(False)
+def _core_entry(project: str | None, skip_stale_check: bool = False):
+    core = _get_core(skip_stale_check)
     return core, _resolve(core, project)
 
 
@@ -215,9 +217,10 @@ def find_callers(
     depth: int = typer.Option(2, "--depth", help="Traversal depth."),
     max_nodes: int = typer.Option(40, "--max-nodes", help="Node cap."),
     json_output: bool = typer.Option(False, "--json"),
+    skip_stale_check: bool = SkipOpt,
 ) -> None:
     """Who references this symbol (imports + refs, BFS with caps)."""
-    core, entry = _core_entry(project)
+    core, entry = _core_entry(project, skip_stale_check)
     nodes = graph.find_callers(core, entry.slug, name, depth=depth,
                                max_nodes=max_nodes)
     _emit_graph(nodes, json_output)
@@ -230,9 +233,10 @@ def find_callees(
     depth: int = typer.Option(2, "--depth", help="Traversal depth."),
     max_nodes: int = typer.Option(40, "--max-nodes", help="Node cap."),
     json_output: bool = typer.Option(False, "--json"),
+    skip_stale_check: bool = SkipOpt,
 ) -> None:
     """What this symbol references (refs, BFS with caps)."""
-    core, entry = _core_entry(project)
+    core, entry = _core_entry(project, skip_stale_check)
     nodes = graph.find_callees(core, entry.slug, name, depth=depth,
                                max_nodes=max_nodes)
     _emit_graph(nodes, json_output)
@@ -255,9 +259,10 @@ def deps(
     max_nodes: int = typer.Option(60, "--max-nodes"),
     graph_format: str = typer.Option("tree", "--format",
                                      help="tree | edges | json"),
+    skip_stale_check: bool = SkipOpt,
 ) -> None:
     """Import graph around one file (resolved edges only)."""
-    core, entry = _core_entry(project)
+    core, entry = _core_entry(project, skip_stale_check)
     result = graph.deps_for_file(core, entry.slug, path,
                                  direction=direction, depth=depth,
                                  max_nodes=max_nodes)
@@ -1290,9 +1295,11 @@ def eval_command(
 def eval_compare(
     a: str = typer.Argument(..., help="Baseline report path (JSON)."),
     b: str = typer.Argument(..., help="Candidate report path (JSON)."),
+    skip_stale_check: bool = SkipOpt,
 ) -> None:
     """Compare two eval reports: metric delta table + per-query win/loss.
-    b is the candidate, a the baseline."""
+    b is the candidate, a the baseline. --skip-stale-check is accepted and
+    ignored: this utility reads report files, never an index."""
     for path in (a, b):
         if not os.path.isfile(path):
             _die(f"error: not found: {path}")
