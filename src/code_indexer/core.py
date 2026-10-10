@@ -772,6 +772,92 @@ class Core:
                                 context_lines=context_lines)
 
     # ------------------------------------------------------------------
+    # reference surfaces (find-references): the union of BOTH ref stores
+    # ------------------------------------------------------------------
+
+    # Reported relationship filter -> (symbol_refs relationships, refs
+    # relationships). The two stores use different spellings for the same
+    # idea (symbol_refs 'calls' vs refs 'call'), so the filter is expressed
+    # once here rather than leaking either spelling to the CLI.
+    _REFERENCE_FILTERS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+        "calls": (("calls",), ("call",)),
+        "includes": (("includes",), ()),
+        "inherits": ((), ("base_class",)),
+        "references": ((), ("type", "identifier")),
+    }
+
+    def find_references(self, entry: ProjectEntry, name: str,
+                        relationship: str | None = None,
+                        limit: int = 25) -> list[dict[str, Any]]:
+        """Every reference TO ``name``, unioned across BOTH reference stores.
+
+        The index keeps two reference tables with different writers and
+        different row shapes, and each query surface historically read only
+        one of them:
+
+        - ``symbol_refs`` — invocation targets from the regex ref extractor
+          (``calls``, ``includes``), the captured name reduced to its
+          trailing segment (``A::b`` / ``a->b`` / ``a.b`` all become ``b``).
+          Written for every language.
+        - ``refs`` — tree-sitter rows (``call``/``type``/``base_class``,
+          confidence ``ast``) for LANGUAGES_WITH_AST, and the textual
+          identifier scan (``identifier``, confidence ``heuristic``) for
+          every other language, where comments and strings DO match.
+
+        A name that is referenced but never invoked as ``name(`` appears only
+        in ``refs``, so reading ``symbol_refs`` alone reported "no
+        references" while rows existed. This method reads both and labels
+        each row with the store and confidence it actually carries.
+
+        ``relationship`` filters the *reported* vocabulary
+        (calls|includes|inherits|references); ``None`` returns every row.
+        Rows come back sorted by (file, line, relationship), capped at
+        ``limit``.
+        """
+        if (relationship is not None
+                and relationship not in self._REFERENCE_FILTERS):
+            raise ValueError(
+                f"error: unknown relationship: {relationship} "
+                "(expected calls|includes|inherits|references)")
+        sr_rels: tuple[str, ...] | None = None
+        r_rels: tuple[str, ...] | None = None
+        if relationship is not None:
+            sr_rels, r_rels = self._REFERENCE_FILTERS[relationship]
+        out: list[dict[str, Any]] = []
+        m = self.manifest_for(entry.slug)
+        try:
+            for rel in (sr_rels if sr_rels is not None
+                        else ("calls", "includes")):
+                for r in m.find_refs(name, relationship=rel, limit=limit):
+                    out.append({
+                        "file": r.file, "line": r.line,
+                        "from_symbol": r.src_symbol, "target": r.target,
+                        "relationship": r.relationship,
+                        "store": "symbol_refs", "confidence": "heuristic",
+                    })
+            if r_rels is None or r_rels:
+                for r in m.refs_to(name, relationships=r_rels or None,
+                                   limit=limit):
+                    out.append({
+                        "file": r["file"], "line": r["line"],
+                        "from_symbol": r["from_symbol"], "target": name,
+                        "relationship": r["relationship"],
+                        "store": "refs", "confidence": r["confidence"],
+                    })
+        finally:
+            m.close()
+        out.sort(key=lambda d: (d["file"], d["line"], d["relationship"]))
+        return out[:limit]
+
+    def all_symbol_names(self, entry: ProjectEntry) -> set[str]:
+        """Names with a definition row (for exact-vs-heuristic labelling)."""
+        m = self.manifest_for(entry.slug)
+        try:
+            return m.all_symbol_names()
+        finally:
+            m.close()
+
+    # ------------------------------------------------------------------
     # token reduction: skeleton / outline (subcommand design §2.1/§2.2)
     # ------------------------------------------------------------------
 

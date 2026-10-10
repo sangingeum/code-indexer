@@ -1,6 +1,44 @@
 # Changelog
 
-## [Unreleased] — 2026-10-03 documentation repair round
+## [Unreleased] — agent-report round (issues #5, #6, #7)
+
+Three reported defects, fixed at the query/manifest seam; no index rebuild is
+needed (all three are query-time or listing-time changes).
+
+- **whole-project search no longer dies on one unresolvable project**
+  (c5341bb, issue #6). One registered project whose collection is gone
+  aborted every project-less `semantic-search` with a single trailing error
+  line and zero hits. Per-project failures are now isolated: the project is
+  skipped with a loud warning naming it, the remaining projects' hits are
+  returned, and the run reports the skipped count. If no project answers the
+  run still errors. The fingerprint (`needs-reindex`) gate stays fatal and
+  deliberately sits outside the skip path — a wrong-model index answers wrong
+  silently. `list-projects` fetches ONE collection listing (physical
+  collections + aliases) and reports a project that has completed a pass but
+  whose collection is gone as `state=error collection=missing` instead of a
+  healthy `idle`. The live end-to-end test now deregisters what it registers
+  (it leaked one registration per live run).
+- **`--skip-stale-check` is accepted everywhere, as documented** (efebc91,
+  issue #7 second defect). `find-callers`, `find-callees`, `deps`,
+  `overview` and `changed-symbols` did not accept it while SKILL-CLI.md
+  claimed every command does; all five now take it and route it into the
+  Core, and `eval-compare` accepts it as a no-op so the claim is literally
+  true. SKILL-CLI.md states exactly where the flag changes behavior.
+- **`find-references` and `find-callers` stop under-reporting** (issues #5,
+  #7 main claim). `find-references` now reads the UNION of both reference
+  stores (`symbol_refs`: invocation targets `calls`/`includes`;
+  `refs`: AST `call`/`type`/`base_class` plus the textual `identifier`
+  fallback for languages without an AST query, C# included), labelling every
+  row with the store and confidence it carries, and a bare "no references" is
+  printed only when both stores are empty. `find-callers` accepts a dotted
+  `Type.Member` subject (qualifier resolved against the symbol rows, fan-in
+  matched on the trailing member name, receiver reported per hit), and when
+  the subject has no definition row (properties/fields are not extracted as
+  symbols) it seeds from the `refs` rows and says so on `note:` lines instead
+  of printing a bare `no results`. SKILL-CLI.md and the command docstrings
+  document which store answers what and that the graph is textual/unbound.
+  Follow-up recommended but NOT done here: a tree-sitter C# references query
+  and/or unifying the two reference tables (see the round report).
 
 Documentation-only corrections (no behavior changes); docs drift now guarded
 by `tests/test_docs.py` (runs in CI via `pytest -m "not live"`).

@@ -126,9 +126,9 @@ code-indexer file-outline ...   # alias for outline
 code-indexer find-symbol Name [--project P | --name P] [--type class]   # exact-first, capped substring fallback
 code-indexer find-symbol [--project P | --name P] [--type class] [--file src/x.py] [--substring] [--limit 25]   # browse mode (no name)
 code-indexer find-definition Name [--project P | --name P]              # exact match only
-code-indexer find-references Name [--project P | --name P] [--relationship calls|inherits|includes|references] [--limit 25]   # all confidence=heuristic
-code-indexer find-callers Name [--project P] [--depth 2] [--max-nodes 40] [--json]   # fan-in over AST refs/imports (ast vs heuristic confidence)
-code-indexer find-callees Name [--project P] [--depth 2] [--max-nodes 40] [--json]   # fan-out
+code-indexer find-references Name [--project P | --name P] [--relationship calls|includes|inherits|references] [--limit 25]   # UNION of both reference stores; every row labelled store= and confidence=
+code-indexer find-callers Name [--project P] [--depth 2] [--max-nodes 40] [--json]   # fan-in over the refs table (ast vs heuristic); accepts a dotted Type.Member subject
+code-indexer find-callees Name [--project P] [--depth 2] [--max-nodes 40] [--json]   # fan-out over the refs table
 code-indexer deps PATH [--project P] [--direction in|out|both] [--depth 2] [--max-nodes 60] [--format tree|edges|json]   # import graph around a file
 
 # reading
@@ -232,9 +232,38 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
   includes the persisted signature. `--type` is an alias of
   `--symbol-type` (both accepted).
 - **find-definition** — exact-name definition location only.
-- **find-references** — all references to a symbol, optionally filtered by
-  `--relationship` (calls|inherits|includes|references). Confidence is
-  heuristic.
+- **find-references** — all references TO a symbol, read as the UNION of the
+  index's two reference stores, with every row labelled `store=` (which table
+  answered) and `confidence=` (how the row was extracted). The two stores:
+  `symbol_refs` holds invocation targets only (`calls`, `includes`), the
+  captured name reduced to its trailing segment (`A::b`/`a->b`/`a.b` all
+  become `b`), and is written for every language; `refs` holds tree-sitter
+  rows (`call`/`type`/`base_class`, confidence `ast`) for
+  `python`/`typescript`/`tsx`/`javascript`/`c`/`cpp`/`go`, plus a textual
+  identifier scan (`identifier`, confidence `heuristic`) for EVERY other
+  language — C# included — where comments and strings DO match, so those rows
+  are heuristic and may be false positives. A name that is referenced but
+  never invoked as `name(` appears only in `refs`; both stores are therefore
+  read, and a bare `no references to X` is printed only when BOTH are empty.
+  `--relationship` filters the reported vocabulary
+  (`calls`|`includes`|`inherits`|`references`; `inherits` selects the
+  `base_class` rows, `references` the non-call rows). This answers a
+  different question than `find-callers`, from a different store.
+- **find-callers / find-callees / deps** — graph traversal over `refs` and
+  the import graph. `find-callers` walks fan-in edges, `find-callees` fan-out,
+  `deps` the resolved import edges around one file; all are BFS with depth and
+  node caps, cycle-safe. The graph is TEXTUAL AND UNBOUND by design: no
+  compiler resolution, names are matched as text, so a heuristic `identifier`
+  row is a navigation aid, not a resolved call. `find-callers NAME` accepts a
+  dotted subject (`Type.Member`): the qualifier is resolved against the symbol
+  rows, the fan-in is matched on the trailing member name, and the receiver is
+  reported on each hit (`receiver=Type`) so a shared member name is not
+  misread as another type's. Symbol extraction covers
+  `method`|`class`|`function`|`enum`|`interface`|`struct` only, so properties
+  and fields have NO definition row: when the subject has no definition,
+  `find-callers` seeds the BFS from the `refs` rows and says so plainly on its
+  `note:` lines instead of printing a bare `no results` (which would read as
+  "nothing calls this").
 - **get-code-context** — the only way to read actual source: a line range
   (`--start-line/--end-line`) or the lines around a symbol
   (`--symbol Foo::bar`), optionally padded with `--context-lines N`. Never

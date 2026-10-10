@@ -316,6 +316,34 @@ class Manifest:
         args.append(limit)
         return [RefRow(*row) for row in self._conn.execute(sql, args).fetchall()]
 
+    def refs_to(self, name: str,
+                relationships: tuple[str, ...] | None = None,
+                limit: int = 25) -> list[dict]:
+        """Reference rows TARGETING ``name`` from the ``refs`` table.
+
+        This is the second of the index's two reference stores — the one
+        ``find_refs`` (symbol_refs) does NOT read. `refs` is written by the
+        tree-sitter query path (relationship call|type|base_class,
+        confidence 'ast') for languages in LANGUAGES_WITH_AST, and by the
+        textual identifier scan (relationship 'identifier', confidence
+        'heuristic') for every OTHER language; there, comments and strings
+        match too, so those rows are heuristic. `find-references` unions this
+        with `find_refs` so a name that is referenced but never invoked is
+        not invisible.
+        """
+        sql = ("SELECT file, line, from_symbol, relationship, confidence "
+               "FROM refs WHERE to_name = ?")
+        args: list = [name]
+        if relationships:
+            sql += (" AND relationship IN ("
+                    + ",".join("?" * len(relationships)) + ")")
+            args.extend(relationships)
+        sql += " ORDER BY file, line LIMIT ?"
+        args.append(limit)
+        return [dict(zip(("file", "line", "from_symbol", "relationship",
+                          "confidence"), r))
+                for r in self._conn.execute(sql, args).fetchall()]
+
     # -- meta ----------------------------------------------------------
 
     def get_meta(self, key: str) -> str | None:

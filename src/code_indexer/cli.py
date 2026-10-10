@@ -221,9 +221,9 @@ def find_callers(
 ) -> None:
     """Who references this symbol (imports + refs, BFS with caps)."""
     core, entry = _core_entry(project, skip_stale_check)
-    nodes = graph.find_callers(core, entry.slug, name, depth=depth,
-                               max_nodes=max_nodes)
-    _emit_graph(nodes, json_output)
+    nodes, notes = graph.find_callers(core, entry.slug, name, depth=depth,
+                                      max_nodes=max_nodes)
+    _emit_graph(nodes, json_output, notes=notes)
 
 
 @app.command()
@@ -242,11 +242,28 @@ def find_callees(
     _emit_graph(nodes, json_output)
 
 
-def _emit_graph(nodes, json_output: bool) -> None:
+def _emit_graph(nodes, json_output: bool,
+                notes: list[str] | tuple[str, ...] = ()) -> None:
+    """Render a graph result; `notes` explain an empty or near-empty answer so
+    it is never a bare `no results` (an empty caller list must not read as
+    "nothing calls this")."""
     if json_output:
-        typer.echo(json.dumps(graph.graph_to_json(nodes)))
-    else:
+        payload = graph.graph_to_json(nodes)
+        if notes:
+            payload["notes"] = list(notes)
+        typer.echo(json.dumps(payload))
+        return
+    if not nodes:
+        # Nothing at all: keep the legacy shape but never bare — the notes
+        # carry the explanation on stdout.
         typer.echo(graph.render_tree(nodes))
+        for note in notes:
+            typer.echo(f"note: {note}")
+        return
+    typer.echo(graph.render_tree(nodes))
+    # Notes stay off stdout (result-only contract) when rows were printed.
+    for note in notes:
+        typer.echo(f"note: {note}", err=True)
 
 
 @app.command()
@@ -1199,30 +1216,52 @@ def find_references(
     project: str = typer.Option(
         None, "--project", "--name",
         help="Project path, slug, or name (--project X or --name X)."),
-    relationship: str = typer.Option(None, help="calls|inherits|includes|references"),
+    relationship: str = typer.Option(
+        None, help="calls|includes|inherits|references — a filter over the "
+                   "relationship each row actually carries."),
     limit: int = typer.Option(25, help="Max rows."),
     skip_stale_check: bool = SkipOpt,
     fresh: bool = FreshOpt,
 ) -> None:
-    """Find textual references TO a symbol (all confidence=heuristic)."""
+    """Find references TO a symbol: the UNION of the index's two reference
+    stores. Rows from `symbol_refs` (invocation targets only: `calls`,
+    `includes`; every language; the captured name reduced to its trailing
+    segment) and from `refs` (tree-sitter `call`/`type`/`base_class` rows,
+    confidence `ast`, for python/typescript/tsx/javascript/c/cpp/go, plus the
+    textual `identifier` fallback, confidence `heuristic`, for every other
+    language — C# included, where comments and strings DO match) are both
+    references to the name and are both printed. Each row is labelled with the
+    store and confidence it came from, so a heuristic identifier hit is never
+    mistaken for a resolved call. A bare `no references to X` is printed only
+    when BOTH stores are empty.
+
+    This answers a DIFFERENT question than `find-callers`, which walks the
+    `refs` table alone (fan-in from reference rows). The reference graph is
+    textual and unbound by design: there is no compiler resolution, names are
+    matched as text."""
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
     core.maybe_refresh(entry.slug, entry.path, force=fresh)
-    m = core.manifest_for(entry.slug)
     try:
-        rows = m.find_refs(name, relationship=relationship, limit=limit)
-        if not rows:
-            typer.echo(f"no references to {name!r}")
-            return
-        known = m.all_symbol_names()
-        typer.echo(f"references to {name!r} (all confidence=heuristic):")
-        for r in rows:
-            exact = "exact" if r.target in known else "heuristic"
-            src = f" in {r.src_symbol}" if r.src_symbol else ""
-            typer.echo(f"- {entry.path}::{r.file}:{r.line}{src} "
-                       f"{r.relationship} {r.target} (target_confidence={exact})")
-    finally:
-        m.close()
+        rows = core.find_references(entry, name, relationship=relationship,
+                                    limit=limit)
+    except ValueError as exc:
+        _die(str(exc))
+        return
+    if not rows:
+        typer.echo(f"no references to {name!r}")
+        return
+    known = core.all_symbol_names(entry)
+    typer.echo(f"references to {name!r} (store=which table answered, "
+               "confidence=how the row was extracted, target_confidence= "
+               "whether the name has a definition row):")
+    for r in rows:
+        exact = "exact" if r["target"] in known else "heuristic"
+        src = f" in {r['from_symbol']}" if r["from_symbol"] else ""
+        typer.echo(f"- {entry.path}::{r['file']}:{r['line']}{src} "
+                   f"{r['relationship']} {r['target']} "
+                   f"(store={r['store']}, confidence={r['confidence']}, "
+                   f"target_confidence={exact})")
 
 
 @app.callback()

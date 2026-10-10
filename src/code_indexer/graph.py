@@ -21,11 +21,15 @@ class GraphNode:
     relationship: str
     confidence: str
     children: list["GraphNode"] = field(default_factory=list)
+    # Receiver (the qualifier of a dotted Type.Member subject) so a hit for a
+    # shared member name is not misread as belonging to another type.
+    receiver: str | None = None
 
     def label(self) -> str:
         loc = f"{self.file}:{self.line}" if self.line else self.file
         sym = f" {self.symbol}" if self.symbol else ""
-        return f"{loc}{sym} [{self.relationship}/{self.confidence}]"
+        recv = f" (receiver={self.receiver})" if self.receiver else ""
+        return f"{loc}{sym} [{self.relationship}/{self.confidence}]{recv}"
 
 
 def _manifest_for(core, slug: str) -> Manifest:
@@ -74,37 +78,96 @@ def _definer_of(m: Manifest, name: str) -> str | None:
 
 
 def find_callers(core, slug: str, name: str, depth: int = 2,
-                 max_nodes: int = 40) -> list[GraphNode]:
-    """BFS over fan-in edges rooted at every definition of `name`."""
+                 max_nodes: int = 40) -> tuple[list[GraphNode], list[str]]:
+    """BFS over fan-in edges for the subject ``name``.
+
+    The subject may be dotted (``Type.Member``): the qualifier is resolved
+    against the symbol rows and the fan-in edges are matched on the trailing
+    member name, with the receiver reported on every hit so a hit for a
+    shared member name is not misread as belonging to another type.
+
+    Symbol extraction covers method|class|function|enum|interface|struct
+    only — properties and fields have NO definition row. When the subject has
+    no definition, the BFS is seeded from the reference rows in the ``refs``
+    table instead of returning an empty tree, and ``notes`` says so: an empty
+    caller list must never read as "nothing calls this".
+
+    Returns ``(nodes, notes)``; ``notes`` are plain-language lines for the
+    caller to print.
+    """
     m = _manifest_for(core, slug)
+    notes: list[str] = []
     try:
+        qualifier: str | None = None
+        member = name
+        if "." in name:
+            qualifier, member = name.rsplit(".", 1)
+        if qualifier:
+            q_rows = m.find_symbols(qualifier, substring=False)
+            if q_rows:
+                defs = ", ".join(f"{r.file}:{r.start_line}"
+                                 for r in q_rows[:3])
+                notes.append(
+                    f"subject {name!r}: qualifier {qualifier!r} resolved "
+                    f"({defs}); fan-in matched on member {member!r}, receiver "
+                    "reported on each hit")
+                target = member
+            else:
+                # Unknown qualifier: fall back to the whole dotted name.
+                notes.append(
+                    f"subject {name!r}: qualifier {qualifier!r} has no symbol "
+                    "row; treating the whole name as the subject")
+                qualifier = None
+                target = name
+        else:
+            target = member
         roots = [GraphNode(file=r.file, symbol=r.name, line=r.start_line,
                            relationship="definition", confidence="ast")
-                 for r in m.find_symbols(name, substring=False)]
+                 for r in m.find_symbols(target, substring=False)]
+        if not roots:
+            # No definition row: seed from the reference rows this command
+            # reads, and say plainly that the index holds no definition.
+            ref_rows = m.callers_of(target)
+            notes.append(
+                f"the index holds no definition for {target!r} (symbols cover "
+                "method|class|function|enum|interface|struct; properties and "
+                "fields are not extracted); seeding from reference rows in "
+                "the refs table instead of reporting none")
+            seeds = [GraphNode(file=r["file"], symbol=r["from_symbol"],
+                               line=r["line"], relationship=r["relationship"],
+                               confidence=r["confidence"], receiver=qualifier)
+                     for r in ref_rows]
+            if not seeds:
+                notes.append(f"no reference rows for {target!r} either — "
+                             "nothing in this index mentions it")
+            return seeds, notes
         seen: set[tuple[str, str | None]] = {
             (n.file, n.symbol) for n in roots}
         frontier = list(roots)
         result: list[GraphNode] = list(roots)
         count = len(result)
-        for _level in range(max(0, depth)):
+        for level in range(max(0, depth)):
             next_frontier: list[GraphNode] = []
             for node in frontier:
-                # A caller references the symbol NAME; its parent edge target
-                # is the symbol, not the definition site.
-                target = node.symbol or os.path.basename(node.file)
+                # Level 0 targets the subject itself (or the member of a
+                # dotted subject); deeper levels target the node's own symbol,
+                # because a caller references the symbol NAME.
+                tgt = target if level == 0 else (
+                    node.symbol or os.path.basename(node.file))
                 for (file, line, frm, rel, conf) in _expand_callers(
-                        core, m, target):
+                        core, m, tgt):
                     key = (file, frm)
                     if key in seen or count >= max_nodes:
                         continue
                     seen.add(key)
                     count += 1
                     child = GraphNode(file=file, symbol=frm, line=line,
-                                      relationship=rel, confidence=conf)
+                                      relationship=rel, confidence=conf,
+                                      receiver=qualifier)
                     node.children.append(child)
                     next_frontier.append(child)
             frontier = next_frontier
-        return result
+        return result, notes
     finally:
         m.close()
 
@@ -160,6 +223,7 @@ def graph_to_json(nodes: list[GraphNode]) -> dict:
         return {
             "file": n.file, "symbol": n.symbol, "line": n.line,
             "relationship": n.relationship, "confidence": n.confidence,
+            "receiver": n.receiver,
             "children": [node_dict(c) for c in n.children],
         }
 
