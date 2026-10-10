@@ -85,7 +85,12 @@ def read_fingerprint(manifest) -> Fingerprint | None:
             embed_model=str(values["embed_model"]),
             embed_dim=int(values["embed_dim"]),  # type: ignore[arg-type]
             embed_text_version=str(values["embed_text_version"]),
-            chunker_version=int(values["chunker_version"]))  # type: ignore[arg-type]
+            chunker_version=int(values["chunker_version"]),  # type: ignore[arg-type]
+            # The extraction version MUST be read back: dropping it defaulted
+            # to the CURRENT EXTRACTION_VERSION, so bumping the queries/refs
+            # extraction could never flag an existing index as needing a
+            # rebuild.
+            extraction_version=int(values["extraction_version"]))  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
 

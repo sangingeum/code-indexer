@@ -22,6 +22,7 @@ from code_indexer.core import Core  # noqa: E402
 from code_indexer.fingerprint import (ConfigError, Fingerprint,  # noqa: E402
                                       fingerprint_mismatches,
                                       read_fingerprint)
+from code_indexer.graph_extract import EXTRACTION_VERSION  # noqa: E402
 from code_indexer.manifest import Manifest  # noqa: E402
 from code_indexer.registry import Registry  # noqa: E402
 
@@ -172,9 +173,29 @@ def test_fingerprint_recorded_after_a_pass(rig):
         assert fp.embed_model == "stub-model"
         assert fp.embed_dim == 4
         assert fp.chunker_version >= 1
+        # The extraction version round-trips, so bumping it flags a rebuild.
+        assert fp.extraction_version == EXTRACTION_VERSION
     finally:
         m.close()
     assert core.fingerprint_status(entry)["ok"]
+
+
+def test_recorded_extraction_version_is_read_back_and_flags_a_rebuild(tmp_path):
+    m = Manifest(str(tmp_path / "m.db"))
+    try:
+        for key, value in (("embed_model", "stub"), ("embed_dim", "4"),
+                           ("embed_text_version", "contextual-header-v1"),
+                           ("chunker_version", "1"),
+                           ("extraction_version", "1")):
+            m.set_meta(key, value)
+        fp = read_fingerprint(m)
+        assert fp is not None and fp.extraction_version == 1
+        # An index extracted by the previous version is a mismatch.
+        assert fingerprint_mismatches(
+            fp, Fingerprint("stub", 4, "contextual-header-v1", 1)
+        ) == [f"extraction_version: 1 -> {EXTRACTION_VERSION}"]
+    finally:
+        m.close()
 
 
 def test_model_change_config_error_and_reindex_fixes_it(rig):
