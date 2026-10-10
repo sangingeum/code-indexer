@@ -61,6 +61,19 @@ class Store:
     def drop_collection(self, name: str) -> None:
         self.client.delete_collection(name)
 
+    def list_collections(self) -> set[str]:
+        """Every collection AND alias name in one listing (two Qdrant calls).
+
+        `list-projects` uses this to spot a registered project whose
+        collection is gone (a dead registration) without a per-project
+        network round trip. Aliases count: after a swap rebuild the slug is
+        served as an alias (`swap_collection`), so omitting them would mark
+        live projects missing.
+        """
+        names = {c.name for c in self.client.get_collections().collections}
+        names |= {a.alias_name for a in self.client.get_aliases().aliases}
+        return names
+
     def physical_name(self, name: str) -> str | None:
         """Resolve ``name`` (collection or alias) to the physical collection."""
         try:

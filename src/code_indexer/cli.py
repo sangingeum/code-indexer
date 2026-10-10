@@ -393,14 +393,24 @@ def remove_project(
 
 @app.command(name="list-projects")
 def list_projects(skip_stale_check: bool = SkipOpt) -> None:
-    """List registered projects with per-project index summary."""
+    """List registered projects with per-project index summary.
+
+    One collection listing (physical collections + aliases) is fetched once
+    so a registered project whose collection is gone is reported as
+    `state=error collection=missing` instead of a healthy `idle` — no
+    per-project network round trip."""
     core = _get_core(skip_stale_check)
     entries = core.registry.list_projects()
     if not entries:
         typer.echo("no projects registered")
         return
+    try:
+        collections: set[str] | None = core.store.list_collections()
+    except Exception as exc:  # noqa: BLE001 — a dead store must not kill the listing
+        logger.debug("collection listing unavailable: %s", exc)
+        collections = None
     for e in entries:
-        typer.echo(f"- {core.status_summary(e)}")
+        typer.echo(f"- {core.status_summary(e, collections=collections)}")
 
 
 @app.command(name="lookup-project")

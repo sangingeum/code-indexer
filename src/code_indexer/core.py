@@ -246,8 +246,19 @@ class Core:
             return None, f"error: project not registered: {project}"
         return entry, ""
 
-    def status_summary(self, entry: ProjectEntry) -> str:
-        """Human-readable per-project summary (path, slug, counts, times)."""
+    def status_summary(self, entry: ProjectEntry,
+                       collections: set[str] | None = None) -> str:
+        """Human-readable per-project summary (path, slug, counts, times).
+
+        ``collections`` is an optional shared listing of the names that
+        exist in the store (physical collections + aliases, from
+        ``Store.list_collections``). When given and this project's
+        collection is absent, the project is reported as ``state=error``
+        with a ``collection=missing`` marker instead of a healthy ``idle`` —
+        a dead registration must be visible without running a search that
+        would fail. ``None`` means the caller did not ask, so no per-project
+        network probe is made here.
+        """
         file_count = chunk_count = 0
         last_indexed = None
         mdir = os.path.join(self.cfg.index_root, entry.slug, "manifest.db")
@@ -276,6 +287,16 @@ class Core:
             suffix = f" reason={fp['reason']}"
         if fp["recorded"] is None and last_indexed is not None:
             suffix += " note=fingerprint backfills on next index pass"
+        # Dead registration: a project that HAS a completed pass (state idle)
+        # but whose collection is gone — the manifest looks healthy while the
+        # store has nothing for it (e.g. the index root was cleaned under
+        # it). Surface it as an error so an operator sees it without a
+        # search that would otherwise fail per project. A never-indexed
+        # project legitimately has no collection yet and keeps its own state.
+        if (collections is not None and st == "idle"
+                and f"idx_{entry.slug}" not in collections):
+            st = "error"
+            suffix += " collection=missing"
         return (f"path={entry.path} slug={entry.slug} state={st} "
                 f"files={file_count} chunks={chunk_count} "
                 f"last_indexed={last_indexed or 'never'}{suffix}")
@@ -506,6 +527,11 @@ class Core:
             if not entries:
                 raise ValueError("error: no projects registered")
         per_project: dict[str, list[dict[str, Any]]] = {}
+        # Projects whose store could not answer (e.g. a registered project
+        # whose collection is missing). One dead registration must not kill
+        # the whole search: it is skipped, named in a warning, and reported
+        # in the result so the caller can say how many were skipped.
+        skipped: list[dict[str, str]] = []
         lexical_only = mode == "lexical"
         hybrid = mode == "hybrid"
         for entry in entries:
@@ -515,27 +541,47 @@ class Core:
             # no Ollama round trip, so the gate (which needs the dim probe)
             # is skipped there — a stale fingerprint cannot corrupt a bm25
             # text match.
+            #
+            # FATAL BY DESIGN, and deliberately OUTSIDE the per-project
+            # try/except below: a wrong-model index answers wrong SILENTLY,
+            # which is worse than a loud failure. A needs-reindex project
+            # aborts the whole run; it must never be folded into the
+            # skipped-with-a-warning path. Do not "fix" this into silence.
             if not lexical_only:
                 self.assert_fingerprint_ok(entry)
             if not skip_refresh:
                 self.maybe_refresh(entry.slug, entry.path)
-            if lexical_only:
-                per_project[entry.path] = self._lexical_hits(entry, query,
-                                                             limit, rerank)
-                continue
             try:
+                if lexical_only:
+                    per_project[entry.path] = self._lexical_hits(
+                        entry, query, limit, rerank)
+                    continue
                 dense_hits = self.search_one(
                     entry, query, limit, file_filter,
                     symbol_type=symbol_type, language=language,
                     ranking_mode=ranking_mode, rerank=rerank)
-            except Exception as exc:  # noqa: BLE001
-                logger.exception("search failed for %s", entry.path)
-                raise ValueError(f"error: search failed on {entry.path}: {exc}") from exc
-            if hybrid:
-                per_project[entry.path] = self._fuse_lexical_dense(
-                    entry, query, dense_hits, limit)
-            else:
-                per_project[entry.path] = dense_hits
+                if hybrid:
+                    per_project[entry.path] = self._fuse_lexical_dense(
+                        entry, query, dense_hits, limit)
+                else:
+                    per_project[entry.path] = dense_hits
+            except Exception as exc:  # noqa: BLE001 — never fatal per project
+                logger.warning(
+                    "search: skipping %s — its index could not answer: %s",
+                    entry.path, exc)
+                skipped.append({"project": entry.path, "reason": str(exc)})
+        if skipped:
+            logger.warning(
+                "search: %d of %d project(s) skipped: %s", len(skipped),
+                len(entries), ", ".join(s["project"] for s in skipped))
+        if not per_project:
+            # Nothing answered at all — every project failed. This is a real
+            # failure, not an empty success: there is no partial result to
+            # return, so error out rather than printing "no results".
+            detail = "; ".join(f"{s['project']}: {s['reason']}"
+                               for s in skipped)
+            raise ValueError(
+                f"error: search failed on every project ({detail})")
 
         if len(per_project) == 1:
             all_hits = next(iter(per_project.values()))
@@ -559,7 +605,11 @@ class Core:
         all_hits = ranking.truncate_snippets(all_hits, max_chars, max_tokens)
         all_hits, dropped = ranking.trim_to_budget(
             all_hits, max_chars=max_chars, max_tokens=max_tokens)
-        return {"hits": all_hits[:max(1, limit)], "dropped": dropped}
+        # "skipped" names the projects whose store could not answer (see the
+        # per-project isolation above); the hit contract in format_hits JSON
+        # is unchanged — this rides on the Core result dict only.
+        return {"hits": all_hits[:max(1, limit)], "dropped": dropped,
+                "skipped": skipped}
 
     # ------------------------------------------------------------------
     # lexical / hybrid retrieval (FTS5 + RRF)
