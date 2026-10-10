@@ -38,6 +38,13 @@ unified rows.
   union note is gone from SKILL-CLI.md. (6) the textual scan's comment rule is
   stated precisely: lines BEGINNING with `#`/`//`/`*`/`--` are skipped, while
   trailing comments and strings match.
+- **`read_fingerprint` dropped `extraction_version` (found while running this
+  round's rebuild).** The recorded fingerprint was rebuilt from four of its
+  five recorded keys, so `extraction_version` silently fell back to the
+  *current* value on every read and an extraction change could never mark an
+  index stale. Fixed — the `EXTRACTION_VERSION` bump above now actually flips
+  every existing index to `needs-reindex` — and pinned by a read-back
+  round-trip test.
 
 ## [Unreleased] — agent-report round (issues #5, #6, #7)
 
