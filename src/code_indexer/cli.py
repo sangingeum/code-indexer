@@ -219,7 +219,21 @@ def find_callers(
     json_output: bool = typer.Option(False, "--json"),
     skip_stale_check: bool = SkipOpt,
 ) -> None:
-    """Who references this symbol (imports + refs, BFS with caps)."""
+    """Who references this symbol: fan-in BFS over the `refs` table
+    (tree-sitter `call`/`type`/`base_class` rows, confidence `ast`, for
+    python/typescript/tsx/javascript/c/cpp/go, plus the textual `identifier`
+    fallback, confidence `heuristic`, for every other language — C# included —
+    where comments and strings DO match) and import-based edges. The graph is
+    TEXTUAL AND UNBOUND by design: names are matched as text, there is no
+    compiler resolution, so a heuristic row is a navigation aid, not a
+    resolved call. NAME may be dotted (`Type.Member`): the qualifier resolves
+    against the symbol rows, the fan-in is matched on the trailing member
+    name, and `receiver=Type` is printed on each hit. When the name has no
+    definition row (symbols cover
+    method|class|function|enum|interface|struct; properties and fields are not
+    extracted), the search seeds from the `refs` rows and says so on `note:`
+    lines instead of printing a bare `no results`. For the union of BOTH
+    reference stores use `find-references`."""
     core, entry = _core_entry(project, skip_stale_check)
     nodes, notes = graph.find_callers(core, entry.slug, name, depth=depth,
                                       max_nodes=max_nodes)
@@ -235,7 +249,10 @@ def find_callees(
     json_output: bool = typer.Option(False, "--json"),
     skip_stale_check: bool = SkipOpt,
 ) -> None:
-    """What this symbol references (refs, BFS with caps)."""
+    """What this symbol references: fan-out BFS over the `refs` table
+    (same store and confidence rules as `find-callers`; the graph is textual
+    and unbound by design). For references TO a symbol across both stores use
+    `find-references`."""
     core, entry = _core_entry(project, skip_stale_check)
     nodes = graph.find_callees(core, entry.slug, name, depth=depth,
                                max_nodes=max_nodes)
