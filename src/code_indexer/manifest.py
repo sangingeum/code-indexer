@@ -1,5 +1,5 @@
 """Per-project SQLite manifest (design §3; schema v3 adds signatures, v4 adds
-the index fingerprint).
+the index fingerprint, v6 unifies the reference stores).
 
 Schema:
     files(path TEXT PK, content_hash TEXT, size INT, chunk_count INT, status TEXT)
@@ -9,7 +9,16 @@ Schema:
                                    # chunker_version
     symbols(file, name, symbol_type, start_line, end_line, source)   # v2
     symbols.signature, symbols.visibility                            # v3
-    symbol_refs(file, line, src_symbol, relationship, target)        # v2
+    refs(file, line, from_symbol, to_name, relationship, confidence,
+         receiver)                                                   # v6
+
+The ``refs`` table is the ONE reference store (v6): one writer
+(``graph_extract``), one row shape, one honest relationship and confidence
+per row. The former ``symbol_refs`` table is dropped on migration; the
+``receiver`` column carries the receiver expression of a member access as
+written (plain identifier or NULL). Rows are re-extracted on the next pass —
+the EXTRACTION_VERSION bump flags every existing index needs-reindex, so a
+migrated manifest is never queried as if it were complete.
 
 Opened in WAL mode. All writes are short transactions — safe under the
 per-project lock discipline; WAL allows concurrent readers during indexing.
@@ -24,7 +33,7 @@ from dataclasses import dataclass
 
 logger = logging.getLogger("code-indexer.manifest")
 
-SCHEMA_VERSION = "5"
+SCHEMA_VERSION = "6"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS files (
@@ -49,15 +58,6 @@ CREATE TABLE IF NOT EXISTS symbols (
 );
 CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);
 CREATE INDEX IF NOT EXISTS idx_symbols_file_start ON symbols(file, start_line);
-CREATE TABLE IF NOT EXISTS symbol_refs (
-    file TEXT NOT NULL,
-    line INTEGER NOT NULL,
-    src_symbol TEXT,
-    relationship TEXT NOT NULL,
-    target TEXT NOT NULL,
-    PRIMARY KEY (file, line, relationship, target)
-);
-CREATE INDEX IF NOT EXISTS idx_symbol_refs_target ON symbol_refs(target);
 CREATE TABLE IF NOT EXISTS imports (
     file TEXT NOT NULL,
     raw_target TEXT NOT NULL,
@@ -69,10 +69,11 @@ CREATE TABLE IF NOT EXISTS imports (
 CREATE TABLE IF NOT EXISTS refs (
     file TEXT NOT NULL,
     line INTEGER NOT NULL,
-    from_symbol TEXT,            -- NULL when the call site is module-level
+    from_symbol TEXT,            -- NULL when the reference is module-level
     to_name TEXT NOT NULL,
-    relationship TEXT NOT NULL,  -- call|type|base_class|identifier
+    relationship TEXT NOT NULL,  -- call|type|base_class|member|includes|identifier
     confidence TEXT NOT NULL,    -- ast | heuristic
+    receiver TEXT,               -- member-access receiver as written, else NULL
     PRIMARY KEY (file, line, to_name, relationship)
 );
 CREATE INDEX IF NOT EXISTS idx_refs_to_name ON refs(to_name);
@@ -113,11 +114,19 @@ class SymbolRow:
 
 @dataclass
 class RefRow:
+    """One row of the unified ``refs`` table (v6).
+
+    ``relationship`` is the stored vocabulary (call|type|base_class|member|
+    includes|identifier); ``confidence`` is 'ast' or 'heuristic'; ``receiver``
+    is the member-access receiver as written, or NULL.
+    """
     file: str
     line: int
-    src_symbol: str | None
-    relationship: str  # calls | inherits | includes | references
-    target: str
+    from_symbol: str | None
+    to_name: str
+    relationship: str
+    confidence: str
+    receiver: str | None = None
 
 
 class Manifest:
@@ -154,6 +163,18 @@ class Manifest:
                 if col not in file_cols:
                     self._conn.execute(
                         f"ALTER TABLE files ADD COLUMN {col} {decl}")
+            # v6: ONE reference store. Add the receiver column to refs and
+            # drop the retired symbol_refs table. This is a real migration,
+            # not a half-populated idle: the EXTRACTION_VERSION bump flips the
+            # index fingerprint, so every existing index reports
+            # needs-reindex (and refuses queries) until a rebuild re-extracts
+            # the unified rows.
+            ref_cols = {
+                r[1] for r in self._conn.execute("PRAGMA table_info(refs)")
+            }
+            if ref_cols and "receiver" not in ref_cols:
+                self._conn.execute("ALTER TABLE refs ADD COLUMN receiver TEXT")
+            self._conn.execute("DROP TABLE IF EXISTS symbol_refs")
             # schema_version must actually advance on old manifests
             # (INSERT OR IGNORE would leave v1 stuck forever).
             old_version = self.get_meta("schema_version")
@@ -219,14 +240,13 @@ class Manifest:
                 "DELETE FROM symbols WHERE file = ?", [(p,) for p in paths]
             )
             self._conn.executemany(
-                "DELETE FROM symbol_refs WHERE file = ?", [(p,) for p in paths]
+                "DELETE FROM refs WHERE file = ?", [(p,) for p in paths]
             )
 
     # -- symbols / refs --------------------------------------------------
 
-    def replace_file_symbols(self, file: str, symbols: list[SymbolRow],
-                             refs: list[RefRow]) -> None:
-        """Atomically replace a file's symbol and ref rows.
+    def replace_file_symbols(self, file: str, symbols: list[SymbolRow]) -> None:
+        """Atomically replace a file's symbol rows.
 
         Delete-before-insert keyed by file: chunk ordering shifts make blind
         upserts duplicate rows. Must be called in the same pass that commits
@@ -234,7 +254,6 @@ class Manifest:
         """
         with self._conn:
             self._conn.execute("DELETE FROM symbols WHERE file = ?", (file,))
-            self._conn.execute("DELETE FROM symbol_refs WHERE file = ?", (file,))
             self._conn.executemany(
                 "INSERT OR REPLACE INTO symbols(file, name, symbol_type, "
                 "start_line, end_line, source, signature, visibility) "
@@ -242,12 +261,6 @@ class Manifest:
                 [(s.file, s.name, s.symbol_type, s.start_line, s.end_line,
                   s.source, s.signature, s.visibility)
                  for s in symbols],
-            )
-            self._conn.executemany(
-                "INSERT OR REPLACE INTO symbol_refs(file, line, src_symbol, "
-                "relationship, target) VALUES (?, ?, ?, ?, ?)",
-                [(r.file, r.line, r.src_symbol, r.relationship, r.target)
-                 for r in refs],
             )
 
     _SYMBOL_COLS = ("SELECT file, name, symbol_type, start_line, end_line, "
@@ -287,8 +300,8 @@ class Manifest:
         """All files + all symbols for the skeleton projection (design §2.1).
 
         Both from one connection: under WAL a concurrent writer can't tear
-        the pair apart (replace_file_symbols is atomic per file, and each
-        SELECT is a point-in-time snapshot).
+        the pair apart (each replace* is atomic per file, and each SELECT is
+        a point-in-time snapshot).
         """
         files = self.all_files()
         syms = [SymbolRow(*row) for row in self._conn.execute(
@@ -304,10 +317,17 @@ class Manifest:
     def all_symbol_names(self) -> set[str]:
         return {r[0] for r in self._conn.execute("SELECT DISTINCT name FROM symbols")}
 
+    # -- the single reference store (v6) --------------------------------
+
+    _REF_COLS = ("SELECT file, line, from_symbol, to_name, relationship, "
+                 "confidence, receiver FROM refs")
+
     def find_refs(self, target: str, relationship: str | None = None,
                   limit: int = 25) -> list[RefRow]:
-        sql = ("SELECT file, line, src_symbol, relationship, target "
-               "FROM symbol_refs WHERE target = ?")
+        """Reference rows TARGETING ``target``, optionally filtered by the
+        stored ``relationship`` (exact value: call|type|base_class|member|
+        includes|identifier)."""
+        sql = self._REF_COLS + " WHERE to_name = ?"
         args: list = [target]
         if relationship:
             sql += " AND relationship = ?"
@@ -319,29 +339,19 @@ class Manifest:
     def refs_to(self, name: str,
                 relationships: tuple[str, ...] | None = None,
                 limit: int = 25) -> list[dict]:
-        """Reference rows TARGETING ``name`` from the ``refs`` table.
-
-        This is the second of the index's two reference stores — the one
-        ``find_refs`` (symbol_refs) does NOT read. `refs` is written by the
-        tree-sitter query path (relationship call|type|base_class,
-        confidence 'ast') for languages in LANGUAGES_WITH_AST, and by the
-        textual identifier scan (relationship 'identifier', confidence
-        'heuristic') for every OTHER language; there, comments and strings
-        match too, so those rows are heuristic. `find-references` unions this
-        with `find_refs` so a name that is referenced but never invoked is
-        not invisible.
-        """
-        sql = ("SELECT file, line, from_symbol, relationship, confidence "
-               "FROM refs WHERE to_name = ?")
+        """Reference rows TARGETING ``name`` as dictionaries, optionally
+        filtered to a set of stored relationships."""
+        sql = self._REF_COLS + " WHERE to_name = ?"
         args: list = [name]
         if relationships:
             sql += (" AND relationship IN ("
                     + ",".join("?" * len(relationships)) + ")")
             args.extend(relationships)
-        sql += " ORDER BY file, line LIMIT ?"
+        sql += " ORDER BY file, line, relationship LIMIT ?"
         args.append(limit)
-        return [dict(zip(("file", "line", "from_symbol", "relationship",
-                          "confidence"), r))
+        keys = ("file", "line", "from_symbol", "to_name", "relationship",
+                "confidence", "receiver")
+        return [dict(zip(keys, r))
                 for r in self._conn.execute(sql, args).fetchall()]
 
     # -- meta ----------------------------------------------------------
@@ -448,40 +458,33 @@ class Manifest:
         self._conn.commit()
 
     def replace_file_refs(self, file: str,
-                          rows: list[tuple[int | None, str, str, str]]
-                          ) -> None:
-        """Replace a file's reference rows: (line, from_symbol, to_name,
-        relationship). Confidence is stamped here: 'ast' — rows produced by
-        tree-sitter queries; the textual fallback stamps 'heuristic'."""
-        cur = self._conn.cursor()
-        cur.execute("DELETE FROM refs WHERE file = ?", (file,))
-        cur.executemany(
-            "INSERT OR REPLACE INTO refs(file, line, from_symbol, to_name,"
-            " relationship, confidence) VALUES (?, ?, ?, ?, ?, 'ast')",
-            [(file, ln, frm, to, rel) for (ln, frm, to, rel) in rows])
-        self._conn.commit()
+                          rows: list[tuple[int | None, str | None, str, str,
+                                           str | None]],
+                          confidence: str) -> None:
+        """Replace a file's reference rows — the ONE reference writer.
 
-    def replace_file_refs_heuristic(self, file: str,
-                                    rows: list[tuple[int | None, str, str, str]]
-                                    ) -> None:
-        """Textual-fallback variant of replace_file_refs (confidence=
-        'heuristic'); languages with AST queries never land here."""
+        Rows are (line, from_symbol, to_name, relationship, receiver).
+        ``confidence`` is stamped here for the whole file: 'ast' when the rows
+        came from a tree-sitter query, 'heuristic' for the textual fallback.
+        """
         cur = self._conn.cursor()
         cur.execute("DELETE FROM refs WHERE file = ?", (file,))
         cur.executemany(
             "INSERT OR REPLACE INTO refs(file, line, from_symbol, to_name,"
-            " relationship, confidence) VALUES (?, ?, ?, ?, ?, 'heuristic')",
-            [(file, ln, frm, to, rel) for (ln, frm, to, rel) in rows])
+            " relationship, confidence, receiver)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [(file, ln, frm, to, rel, confidence, recv)
+             for (ln, frm, to, rel, recv) in rows])
         self._conn.commit()
 
     def callers_of(self, name: str, limit: int = 200) -> list[dict]:
         """Fan-in edges: files/symbols that reference `name`."""
         return [dict(zip(("file", "line", "from_symbol", "relationship",
-                          "confidence"), r))
+                          "confidence", "receiver"), r))
                 for r in self._conn.execute(
-                    "SELECT file, line, from_symbol, relationship, confidence"
-                    " FROM refs WHERE to_name = ? ORDER BY file, line"
-                    " LIMIT ?", (name, limit))]
+                    "SELECT file, line, from_symbol, relationship, confidence,"
+                    " receiver FROM refs WHERE to_name = ?"
+                    " ORDER BY file, line LIMIT ?", (name, limit))]
 
     def callees_of_file_symbol(self, file: str, symbol: str | None,
                                limit: int = 200) -> list[dict]:
@@ -489,17 +492,17 @@ class Manifest:
         symbol is None)."""
         if symbol is None:
             rows = self._conn.execute(
-                "SELECT line, to_name, relationship, confidence FROM refs"
-                " WHERE file = ? ORDER BY line LIMIT ?",
+                "SELECT line, to_name, relationship, confidence, receiver"
+                " FROM refs WHERE file = ? ORDER BY line LIMIT ?",
                 (file, limit)).fetchall()
-            return [dict(zip(("line", "to_name", "relationship",
-                              "confidence"), r)) for r in rows]
+            keys = ("line", "to_name", "relationship", "confidence", "receiver")
+            return [dict(zip(keys, r)) for r in rows]
         rows = self._conn.execute(
-            "SELECT line, to_name, relationship, confidence FROM refs"
-            " WHERE file = ? AND from_symbol = ? ORDER BY line LIMIT ?",
-            (file, symbol, limit)).fetchall()
-        return [dict(zip(("line", "to_name", "relationship", "confidence"), r))
-                for r in rows]
+            "SELECT line, to_name, relationship, confidence, receiver"
+            " FROM refs WHERE file = ? AND from_symbol = ? ORDER BY line"
+            " LIMIT ?", (file, symbol, limit)).fetchall()
+        keys = ("line", "to_name", "relationship", "confidence", "receiver")
+        return [dict(zip(keys, r)) for r in rows]
 
     def fan_in_counts(self, limit: int = 20) -> list[tuple[str, int]]:
         """Top N names by reference count (overview hotspots)."""

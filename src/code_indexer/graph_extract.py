@@ -2,11 +2,30 @@
 
 Per-language tree-sitter queries live in ``queries/<lang>/references.scm``.
 Languages with a solid grammar + query get ``confidence='ast'`` rows:
-python, typescript/tsx, javascript, c, cpp, go (LANGUAGES_WITH_AST).
+python, typescript/tsx, javascript, c, cpp, go, csharp (LANGUAGES_WITH_AST).
 Everything else falls back to a textual scan stamped
 ``confidence='heuristic'`` — comments/strings DO count there; the
 false-positive test pins that AST extraction does NOT match names that only
 appear in comments/strings.
+
+One reference shape, one writer
+-------------------------------
+A reference row is ``(line, from_symbol, to_name, relationship, receiver)``
+and lands in the single ``refs`` manifest table. The relationship
+vocabulary is fixed here and documented once:
+
+- ``call``       — an invocation (AST) or ``name(`` in the textual scan.
+- ``type``       — a name used in a type position (AST).
+- ``base_class`` — a base class / interface in an inheritance list (AST).
+- ``member``     — a member access read, e.g. C# ``a.OughtRoleBindings`` (AST).
+- ``includes``   — an include/import directive (AST ``#include``; textual
+                   import/include lines).
+- ``identifier`` — any identifier in the textual scan.
+
+``receiver`` is the receiver expression of a member access AS WRITTEN, and
+only when it is a plain identifier (``ArmorResolution.Classify`` →
+``receiver='ArmorResolution'``); it is NULL otherwise. No type resolution is
+attempted — the column means exactly "the receiver expression as written".
 
 Import resolution is best-effort, documented per language:
 - python: relative imports resolved against the file's package; absolute
@@ -16,6 +35,9 @@ Import resolution is best-effort, documented per language:
 - c/cpp: quoted includes relative to the file's directory; angled (system)
   includes unresolved.
 - go: go.mod module path prefix stripped, then package-dir mapping.
+- csharp: ``using`` directives are recorded as imports but left unresolved
+  (namespace-to-file mapping needs project context the indexer does not
+  build); documented like the other languages, never guessed.
 - java/kotlin etc.: no AST query yet — textual fallback only.
 
 Extraction version: bump EXTRACTION_VERSION when the queries or resolution
@@ -31,10 +53,10 @@ import re
 # Languages with AST queries (confidence='ast'). Keys are
 # tree-sitter-language-pack names. Everything else is textual fallback.
 LANGUAGES_WITH_AST = frozenset(
-    {"python", "typescript", "tsx", "javascript", "c", "cpp", "go"})
+    {"python", "typescript", "tsx", "javascript", "c", "cpp", "go", "csharp"})
 
 # Bumped when queries/resolution change which rows are produced.
-EXTRACTION_VERSION = 1
+EXTRACTION_VERSION = 2
 
 _INDEX_EXTS = (".ts", ".tsx", ".js", ".jsx")
 
@@ -73,12 +95,12 @@ def _load_query(lang: str):
 
 def extract_graph(path: str, text: str, lang: str
                   ) -> tuple[list[tuple[str, str | None, str, int]],
-                             list[tuple[int, str | None, str, str]]]:
+                             list[tuple[int, str | None, str, str, str | None]]]:
     """Extract (imports, refs) rows for one file (AST path).
 
     imports: (raw_target, resolved_file=None, kind, line) — resolution needs
     project context and happens in resolve_imports.
-    refs: (line, from_symbol, to_name, relationship).
+    refs: (line, from_symbol, to_name, relationship, receiver).
     Returns ([], []) when the language has no usable AST query (the caller
     then uses extract_graph_textual).
     """
@@ -90,7 +112,7 @@ def extract_graph(path: str, text: str, lang: str
     tree = parser.parse(data)
 
     imports: list[tuple[str, str | None, str, int]] = []
-    refs: list[tuple[int, str | None, str, str]] = []
+    refs: list[tuple[int, str | None, str, str, str | None]] = []
 
     # Enclosing declaration names: span list, later spans win on ties.
     decl_spans: list[tuple[int, int, str]] = []
@@ -129,33 +151,67 @@ def extract_graph(path: str, text: str, lang: str
             imports.append((text_val.strip("'\""), None, "import", row + 1))
         elif capture == "import.require-source":
             imports.append((text_val.strip("'\""), None, "require", row + 1))
-        elif capture == "ref.call":
-            refs.append((row + 1, frm, text_val, "call"))
+        elif capture == "ref.call" or capture == "ref.call_plain":
+            refs.append((row + 1, frm, text_val, "call", None))
+        elif capture == "ref.member":
+            refs.append(_member_ref(node, data, row, frm))
         elif capture == "ref.type":
-            refs.append((row + 1, frm, text_val, "type"))
+            refs.append((row + 1, frm, text_val, "type", None))
         elif capture == "ref.base_class":
-            refs.append((row + 1, frm, text_val, "base_class"))
-    return _dedupe_imports(imports), _dedupe_refs(refs)
+            refs.append((row + 1, frm, text_val, "base_class", None))
+        elif capture == "ref.include":
+            refs.append((row + 1, frm, text_val.strip("'\""), "includes", None))
+    return (_dedupe_imports(imports),
+            _dedupe_refs([r for r in refs if r[2]]))
+
+
+def _member_ref(node, data: bytes, row: int, frm: str | None
+                ) -> tuple[int, str | None, str, str, str | None]:
+    """One member-access row: (line, from_symbol, name, relationship, receiver).
+
+    ``node`` is a ``member_access_expression`` (C#). The relationship is
+    ``call`` when the access is the function of an invocation
+    (``ArmorResolution.Classify(...)``) and ``member`` when it is a plain read
+    (``a.OughtRoleBindings``). The receiver is the object expression's text
+    only when that expression is a plain identifier, else NULL.
+    """
+    name_node = node.child_by_field_name("name")
+    member = _node_text(name_node, data) if name_node is not None else ""
+    obj = node.child_by_field_name("expression")
+    receiver = (_node_text(obj, data)
+                if obj is not None and obj.type == "identifier" else None)
+    parent = node.parent
+    is_call = (parent is not None
+               and parent.type == "invocation_expression"
+               and parent.child_by_field_name("function") == node)
+    return (row + 1, frm, member, "call" if is_call else "member", receiver)
 
 
 def extract_graph_textual(path: str, text: str
                           ) -> tuple[list[tuple[str, str | None, str, int]],
-                                     list[tuple[int, str | None, str, str]]]:
+                                     list[tuple[int, str | None, str, str, str | None]]]:
     """Fallback for languages without AST queries: import-line pattern plus
-    an identifier scan outside obvious comment leads. Comments/strings DO
-    count here — the documented heuristic limitation."""
+    an identifier scan outside obvious comment leads. Lines beginning with
+    ``#``, ``//``, ``*`` or ``--`` are skipped entirely; trailing comments and
+    strings DO count here — the documented heuristic limitation.
+
+    An import/include line yields both an import row and an ``includes``
+    reference row, so ``find-references --relationship includes`` still sees
+    it without a second writer.
+    """
     imports: list[tuple[str, str | None, str, int]] = []
-    refs: list[tuple[int, str | None, str, str]] = []
+    refs: list[tuple[int, str | None, str, str, str | None]] = []
     for i, line in enumerate(text.splitlines(), 1):
         if _COMMENT_LINE_RE.match(line):
             continue
         m = re.match(r"\s*(?:import|require|use)\s+(.+)", line)
         if m:
-            imports.append((m.group(1).strip().strip("'\""), None,
-                            "import", i))
+            target = m.group(1).strip().strip("'\"")
+            imports.append((target, None, "import", i))
+            refs.append((i, None, target, "includes", None))
             continue
         for ident in _IDENT_RE.findall(line):
-            refs.append((i, None, ident, "identifier"))
+            refs.append((i, None, ident, "identifier", None))
     return _dedupe_imports(imports), _dedupe_refs(refs)
 
 

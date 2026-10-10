@@ -1,5 +1,44 @@
 # Changelog
 
+## [Unreleased] — one reference store, a C# AST query, precision pass (#8)
+
+The two reference tables became one, C# stopped being textual-only, and the
+precision debt issue #8 recorded was paid. **This round needs a rebuild**:
+`EXTRACTION_VERSION` is bumped, so every existing index reports
+`needs-reindex` and refuses queries until `reindex-project` re-extracts the
+unified rows.
+
+- **one reference store, one writer (schema v6).** `symbol_refs` is gone;
+  `refs` is the single reference table with a single writer (`graph_extract`),
+  one row shape and one honest `relationship`/`confidence` per row, plus a
+  `receiver` column (the member-access receiver as written, plain identifier
+  or NULL). A call is stored once, so the union's duplicate-line symptom
+  dissolves. Relationship vocabulary: `call`|`type`|`base_class`|`member`|
+  `includes`|`identifier`. Rows are written at the commit phase, after the
+  file's vectors, so a crash never claims references that are not there.
+  `find-references` reads the one store and labels each row with the
+  confidence it carries; `--relationship` still spans
+  `calls`|`includes`|`inherits`|`references`.
+- **a tree-sitter C# references query** (`queries/csharp/references.scm`).
+  C# joins the AST languages, so a property/field READ through a member
+  access (`a.OughtRoleBindings`) is a real reference row with
+  `confidence=ast` instead of nothing, and a qualified static call
+  (`ArmorResolution.Classify`) is a caller row; both record the receiver
+  expression as written when it is a plain identifier. Names appearing only
+  in comments or strings do not match. C# `using` directives are recorded as
+  imports, left unresolved (documented, never guessed).
+- **precision pass (issue #8).** (1) `find-callers` no longer asserts a
+  receiver it never resolved: the subject is reported once on the `note:`
+  lines and `receiver=` appears on a direct hit only, and only when the store
+  holds one for that row. (2) `semantic-search --format json` carries
+  `skipped`/`skipped_count` (plus a trailing line in text/compact), so a
+  consumer can tell the result is partial. (3) SKILL-CLI.md names the exact
+  `--fresh` command set. (4) `tests/test_flag_contract.py`'s description now
+  matches its parametrisation and covers `changed-symbols`. (5) the two-store
+  union note is gone from SKILL-CLI.md. (6) the textual scan's comment rule is
+  stated precisely: lines BEGINNING with `#`/`//`/`*`/`--` are skipped, while
+  trailing comments and strings match.
+
 ## [Unreleased] — agent-report round (issues #5, #6, #7)
 
 Three reported defects, fixed at the query/manifest seam; no index rebuild is

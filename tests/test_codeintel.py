@@ -165,7 +165,7 @@ def test_refs_one_representation(indexer, project):
     try:
         includes = m.find_refs("transfer/session.hpp", relationship="includes")
         assert includes, "include edge missing"
-        calls = m.find_refs("start", relationship="calls")
+        calls = m.find_refs("start", relationship="call")
         assert any(r.file == "src/main.cpp" and r.line == 4 for r in calls)
     finally:
         m.close()

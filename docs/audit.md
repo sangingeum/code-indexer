@@ -100,7 +100,9 @@ languages; each was parsed with a representative snippet
 (tree-sitter-language-pack 1.18.0, tree-sitter 0.26.0). References/imports
 are ALWAYS the regex pass in `ts_chunker.extract_refs` (textual, unbound,
 `confidence=heuristic` for every language — there are no per-language
-`.scm` queries).
+`.scm` queries). *(Superseded: schema v6 unifies the reference stores and
+adds per-language AST queries, C# included; `ts_chunker.extract_refs` is
+retired. See CHANGELOG and SKILL-CLI.md.)*
 
 | lang | AST chunking | symbols | signature | visibility | references |
 |---|---|---|---|---|---|

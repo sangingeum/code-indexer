@@ -3,6 +3,11 @@
 Status: design (no implementation). Author: solomon, refining the owner's
 proposal in `docs-token-reduction-plan.md`. Target: grace (Python/uv).
 
+*Superseded in one respect: the manifest tables named below have since
+evolved — schema v6 has ONE reference store, `refs`, replacing `symbol_refs`
+(and the `deps` import graph reads the `imports` table). Kept as design
+history.*
+
 ## 0. Design principles
 
 1. **Reuse stores first.** The schema-v2 manifest already has `symbols`

@@ -9,7 +9,7 @@ supported language gets from the pipeline:
 | bash | sh | yes | no | no | no | none | unresolved (no resolver) | grammar present but symbol extraction is weak |
 | c | c | yes | yes | yes | yes | ast | quoted includes relative to the file; angled unresolved | — |
 | cpp | cpp | yes | yes | yes | yes | ast | quoted includes relative to the file; angled unresolved | — |
-| csharp | cs | yes | yes | yes | yes | none | unresolved (no resolver) | — |
+| csharp | cs | yes | yes | yes | yes | ast | unresolved (no resolver) | — |
 | go | go | yes | yes | yes | yes | ast | go.mod module prefix, then package dir | — |
 | java | java | yes | yes | yes | yes | none | unresolved (no resolver) | — |
 | javascript | js | yes | yes | yes | yes | ast | relative + index augmentation; packages unresolved | — |
@@ -35,3 +35,4 @@ Legend:
 - Unsupported languages fall back cleanly to the window chunker and
   still index/search; index-status reports them via
   languages_without_ast().
+

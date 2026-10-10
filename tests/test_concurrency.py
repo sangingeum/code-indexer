@@ -296,8 +296,10 @@ def test_cli_search_json_contract(core, project):
     if out.startswith("error") or out == "no results":
         pytest.fail(f"unexpected search output: {out!r}")
     payload = json.loads(out)
-    assert set(payload) == {"schema", "hits", "truncated", "dropped"}
+    assert set(payload) == {"schema", "hits", "truncated", "dropped",
+                            "skipped", "skipped_count"}
     assert payload["schema"] == 1
+    assert payload["skipped"] == [] and payload["skipped_count"] == 0
     hits = payload["hits"]
     assert hits, "expected at least one hit"
     assert {"project", "file", "score", "symbol", "symbol_type",

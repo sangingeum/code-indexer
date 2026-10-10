@@ -3,6 +3,10 @@
 Implements design §6. The content-hash diff (never mtime) is what makes
 incremental indexing correct across branch switches — do not "optimize"
 back to mtime (§7/F).
+
+Reference rows have ONE writer (``graph_extract``) and land in the single
+``refs`` manifest table at the commit phase, in the same transaction family
+as the symbol rows — never ahead of the vectors.
 """
 
 from __future__ import annotations
@@ -20,7 +24,7 @@ from .fingerprint import (current_fingerprint,
                           fingerprint_mismatches, read_fingerprint,
                           write_fingerprint)
 from . import ts_chunker
-from .manifest import Manifest, ManifestFile, RefRow, SymbolRow
+from .manifest import Manifest, ManifestFile, SymbolRow
 from .scanner import ScannedFile, scan_project
 from . import graph_extract
 from .sensitive import SensitiveReport, file_is_sensitive
@@ -30,6 +34,7 @@ from .store import Store, point_id
 def _chunk_dispatch(path: str, text: str) -> list[Chunk]:
     """Chunker seam (design §5): tree-sitter AST when supported, else fallback."""
     return ts_chunker.chunk_text(path, text)
+
 
 logger = logging.getLogger("code-indexer.indexer")
 
@@ -234,9 +239,10 @@ class Indexer:
         seen_hashes = self._load_chunk_hashes(manifest)
 
         rows: list[ManifestFile] = []
-        # Per-file symbol/ref extraction results, applied at step 4 in the
-        # same commit as the manifest rows (never ahead of vectors).
-        pending_symbols: list[tuple[str, list, list]] = []
+        # Per-file symbol/reference/import extraction results, applied at the
+        # commit phase (step 3/4) in the same commit family as the manifest
+        # rows — never ahead of vectors.
+        pending_meta: dict[str, tuple[list, list, list, str]] = {}
         # Total chunk count per processed file (for the manifest row).
         file_chunk_counts: dict[str, int] = {}
         # Approx LOC per processed file (max chunk end_line).
@@ -244,8 +250,8 @@ class Indexer:
         # Files that had at least one chunk queued for embedding.
         to_embed_files: set[str] = set()
 
-        def _process_file(path: str) -> tuple[str, str, list[Chunk], list, list] | None:
-            """Read + chunk + extract symbols/refs for one file (pure)."""
+        def _process_file(path: str) -> tuple[str, str, list[Chunk], list] | None:
+            """Read + chunk + extract symbols for one file (pure)."""
             f = scanned_map[path]
             try:
                 with open(f.abs_path, encoding="utf-8", errors="replace") as fh:
@@ -255,13 +261,30 @@ class Indexer:
                 logger.warning("cannot read %s: %s", path, exc)
                 return None
             syms = ts_chunker.extract_symbols(path, file_text, chunks)
-            refs = ts_chunker.extract_refs(path, file_text)
-            return path, file_text, chunks, syms, refs
+            return path, file_text, chunks, syms
 
-        def _record_file(path: str, chunks: list[Chunk], syms, refs) -> None:
+        def _record_file(path: str, file_text: str, chunks: list[Chunk],
+                         syms) -> None:
             """Apply one parsed file's bookkeeping (main thread only)."""
             nonlocal reused
-            pending_symbols.append((path, syms, refs))
+            # ONE reference writer (v6): tree-sitter queries give confidence
+            # 'ast'; every other language takes the textual scan, stamped
+            # 'heuristic'. Rows are held until the commit phase so a crash
+            # never claims references for a file whose vectors are absent.
+            lang = _lang_from_ext(path)
+            if lang in graph_extract.LANGUAGES_WITH_AST:
+                imports, refs = graph_extract.extract_graph(
+                    path, file_text, lang)
+                confidence = "ast"
+            else:
+                imports, refs = graph_extract.extract_graph_textual(
+                    path, file_text)
+                confidence = "heuristic"
+            resolutions = graph_extract.resolve_imports(
+                project_path, path, lang, [i[0] for i in imports])
+            import_rows = [(rt, resolutions.get(rt), kind, ln)
+                           for (rt, _r, kind, ln) in imports]
+            pending_meta[path] = (syms, refs, import_rows, confidence)
             old = old_files.get(path)
             if old and old.chunk_count > len(chunks):
                 self.store.purge_file_points(
@@ -272,33 +295,6 @@ class Indexer:
             manifest.fts_add_chunks([
                 (path, c.chunk_index, c.text, c.symbol or "", path,
                  c.start_line) for c in chunks])
-            # Graph extraction (graph work item): AST imports/references for
-            # query languages, textual fallback otherwise — replace-by-file.
-            abs_path = os.path.join(project_path, path)
-            try:
-                with open(abs_path, encoding="utf-8", errors="replace") as fh:
-                    ftext = fh.read()
-            except OSError:
-                ftext = ""
-            if ftext:
-                lang = _lang_from_ext(path)
-                imports, refs = graph_extract.extract_graph(
-                    path, ftext, lang)
-                textual_fallback = False
-                if not imports and not refs and \
-                        lang not in graph_extract.LANGUAGES_WITH_AST:
-                    imports, refs = graph_extract.extract_graph_textual(
-                        path, ftext)
-                    textual_fallback = True
-                resolutions = graph_extract.resolve_imports(
-                    project_path, path, lang, [i[0] for i in imports])
-                manifest.replace_file_imports(path, [
-                    (rt, resolutions.get(rt), kind, ln)
-                    for (rt, _r, kind, ln) in imports])
-                if textual_fallback:
-                    manifest.replace_file_refs_heuristic(path, refs)
-                else:
-                    manifest.replace_file_refs(path, refs)
             for chunk_ in chunks:
                 key = f"{path}|{chunk_.chunk_hash}"
                 if key in seen_hashes and not rebuild:
@@ -316,13 +312,35 @@ class Indexer:
             file_chunk_counts[path] = len(chunks)
             file_loc_counts[path] = max((c.end_line for c in chunks), default=0)
 
+        def _commit_metadata(path: str) -> None:
+            """Write a file's symbols, references and imports in ONE place.
+
+            Called only after the file's vectors are in the store (or when the
+            file had nothing to embed), so a crash never leaves reference rows
+            claiming a file whose points are absent.
+            """
+            meta = pending_meta.pop(path, None)
+            if meta is None:
+                return
+            syms, refs, import_rows, confidence = meta
+            manifest.replace_file_symbols(
+                path,
+                [SymbolRow(file=path, name=s["name"],
+                           symbol_type=s["symbol_type"],
+                           start_line=s["start_line"],
+                           end_line=s["end_line"], source=s["source"],
+                           signature=s.get("signature"),
+                           visibility=s.get("visibility")) for s in syms])
+            manifest.replace_file_refs(path, refs, confidence)
+            manifest.replace_file_imports(path, import_rows)
+
         process_paths = added + changed
         concurrency = max(1, self.cfg.embed_concurrency)
         if concurrency == 1:
             for path in process_paths:
                 parsed = _process_file(path)
                 if parsed is not None:
-                    _record_file(parsed[0], parsed[2], parsed[3], parsed[4])
+                    _record_file(parsed[0], parsed[1], parsed[2], parsed[3])
         else:
             # Pipeline: parse the next file in the pool while recording the
             # current one. The embed call itself happens after the loop (one
@@ -334,7 +352,7 @@ class Indexer:
                 for future, path in futures.items():
                     parsed = future.result()
                     if parsed is not None:
-                        _record_file(parsed[0], parsed[2], parsed[3], parsed[4])
+                        _record_file(parsed[0], parsed[1], parsed[2], parsed[3])
 
         # 3) Embed with per-text failure isolation (bisect on batch failure);
         #    commit each file's manifest row + symbols AFTER its points are
@@ -386,8 +404,6 @@ class Indexer:
                     continue  # poisoned chunk: recorded, skipped
                 by_file.setdefault(path, []).append((idx, path, chunk_))
 
-            pending_syms = {entry[0]: (entry[1], entry[2])
-                            for entry in pending_symbols}
             t_embed0 = time.time()
             files_total = len(by_file)
             for files_done, (path, entries) in enumerate(by_file.items(), 1):
@@ -402,21 +418,8 @@ class Indexer:
                 # Commit AFTER the vectors reached the store: a crash before
                 # this line costs a re-embed of this file only; nothing is
                 # claimed that does not exist.
-                if path in pending_syms:
-                    syms, refs = pending_syms.pop(path)
-                    manifest.replace_file_symbols(
-                        path,
-                        [SymbolRow(file=path, name=s["name"],
-                                   symbol_type=s["symbol_type"],
-                                   start_line=s["start_line"],
-                                   end_line=s["end_line"], source=s["source"],
-                                   signature=s.get("signature"),
-                                   visibility=s.get("visibility"))
-                         for s in syms],
-                        [RefRow(file=path, line=r["line"],
-                                src_symbol=r["src_symbol"],
-                                relationship=r["relationship"],
-                                target=r["target"]) for r in refs])
+                if path in pending_meta:
+                    _commit_metadata(path)
                 f = scanned_map[path]
                 manifest.upsert_files([ManifestFile(
                     path, f.content_hash, f.size,
@@ -457,19 +460,10 @@ class Indexer:
             if path not in by_file and path not in all_failed]
         if remaining_rows:
             manifest.upsert_files(remaining_rows)
-        for path, syms, refs in pending_symbols:
+        for path in list(pending_meta):
             if path in by_file:
                 continue  # already committed with its vectors
-            manifest.replace_file_symbols(
-                path,
-                [SymbolRow(file=path, name=s["name"], symbol_type=s["symbol_type"],
-                           start_line=s["start_line"], end_line=s["end_line"],
-                           source=s["source"], signature=s.get("signature"),
-                           visibility=s.get("visibility")) for s in syms],
-                [RefRow(file=path, line=r["line"], src_symbol=r["src_symbol"],
-                        relationship=r["relationship"], target=r["target"])
-                 for r in refs],
-            )
+            _commit_metadata(path)
         manifest.mark_scanned(manifest.read_git_branch(project_path))
         manifest.set_meta("last_indexed", str(time.time()))
         # Record the construction that produced (or refreshed) the vectors in

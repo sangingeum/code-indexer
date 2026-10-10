@@ -1,16 +1,20 @@
-"""Reference/caller honesty: the two reference stores and the caller subject.
+"""Reference/caller honesty against the SINGLE reference store (schema v6).
 
-The index keeps TWO reference tables with different writers and consumers —
-`symbol_refs` (invocation targets: calls/includes, every language) and `refs`
-(AST call/type/base_class rows plus the textual `identifier` fallback). The
-regressions pinned here:
+The index kept two reference tables with different writers and row shapes
+(``symbol_refs`` and ``refs``); v6 collapses them into one ``refs`` table with
+one writer (``graph_extract``), one honest relationship and confidence per
+row, and a ``receiver`` column holding the member-access receiver as written.
+The contract pinned here:
 
-- `find-references` must read BOTH stores, so a name that is referenced but
-  never invoked as `name(` is not reported as "no references";
-- a bare "no references" appears only when both stores are empty;
-- `find-callers` accepts a dotted `Type.Member` subject and reports the
-  receiver, and seeds from `refs` (with a plain explanation) when the index
-  holds no definition row for the name.
+- ``find-references`` reports every reference to a name from that one store,
+  labelled with the confidence the row actually carries; a bare
+  ``no references`` appears only when the store has none;
+- ``--relationship`` spans the documented vocabulary (calls|includes|
+  inherits|references) mapped onto the stored relationships;
+- ``find-callers`` accepts a dotted ``Type.Member`` subject, reports the
+  subject once on the ``note:`` lines, and stamps a receiver on a direct hit
+  only when the store actually holds one — never on transitive nodes;
+- with no definition row, the BFS seeds from the reference rows and says so.
 
 Offline and manifest-only: no Ollama, no Qdrant, no index pass.
 """
@@ -30,10 +34,13 @@ from code_indexer import graph  # noqa: E402
 from code_indexer.cli import app  # noqa: E402
 from code_indexer.config import Config  # noqa: E402
 from code_indexer.core import Core  # noqa: E402
-from code_indexer.manifest import RefRow, SymbolRow  # noqa: E402
+from code_indexer.manifest import SymbolRow  # noqa: E402
 from code_indexer.registry import Registry  # noqa: E402
 
 runner = CliRunner()
+
+_RECEIVER_NOTE = ("receiver is shown on a direct hit only when the store "
+                  "holds one")
 
 
 @pytest.fixture()
@@ -65,66 +72,66 @@ def _walk(nodes):
 
 
 # ---------------------------------------------------------------------------
-# find-references: the union of both stores
+# find-references: the single store
 # ---------------------------------------------------------------------------
 
-def test_references_reads_the_refs_table_too(rig):
-    """A name only in `refs` (never a call target) is still reported."""
+def test_references_reads_the_single_store(rig):
+    """A member read that is never a call target is still reported."""
     core, entry, m = rig
-    m.replace_file_refs_heuristic(
+    m.replace_file_refs(
         "Vivarium.Sim/Psychology/SelfDiscrepancy.cs",
-        [(42, "Apply", "OughtRoleBindings", "identifier")])
-    # The other store genuinely has nothing for this name: that is exactly
-    # the old under-report (find-references read symbol_refs alone).
-    assert m.find_refs("OughtRoleBindings") == []
+        [(42, "Apply", "OughtRoleBindings", "member", "pawn")], "ast")
     rows = core.find_references(entry, "OughtRoleBindings")
     assert len(rows) == 1, rows
     row = rows[0]
-    assert row["store"] == "refs"
-    assert row["confidence"] == "heuristic"
-    assert row["relationship"] == "identifier"
+    assert row["confidence"] == "ast"
+    assert row["relationship"] == "member"
+    assert row["receiver"] == "pawn"
     assert (row["file"], row["line"], row["from_symbol"]) == (
         "Vivarium.Sim/Psychology/SelfDiscrepancy.cs", 42, "Apply")
 
 
-def test_references_unions_both_stores_with_labels(rig):
+def test_references_labelled_with_the_confidence_they_carry(rig):
     core, entry, m = rig
-    # refs: an AST call row (python is in LANGUAGES_WITH_AST).
-    m.replace_file_refs("a.py", [(3, "run", "ping", "call")])
-    # symbol_refs: the regex invocation-target row for the same call.
-    m.replace_file_symbols("a.py", [], [RefRow("a.py", 3, None, "calls", "ping")])
+    m.replace_file_refs("a.py", [(3, "run", "ping", "call", None)], "ast")
+    m.replace_file_refs("b.rs", [(5, None, "ping", "identifier", None)],
+                        "heuristic")
     rows = core.find_references(entry, "ping")
-    by_store = {r["store"]: r for r in rows}
-    assert set(by_store) == {"refs", "symbol_refs"}, rows
-    assert by_store["refs"]["relationship"] == "call"
-    assert by_store["refs"]["confidence"] == "ast"
-    assert by_store["symbol_refs"]["relationship"] == "calls"
-    assert by_store["symbol_refs"]["confidence"] == "heuristic"
+    assert {r["confidence"] for r in rows} == {"ast", "heuristic"}, rows
+    assert {r["relationship"] for r in rows} == {"call", "identifier"}
 
 
-def test_relationship_filter_spans_both_vocabularies(rig):
+def test_relationship_filter_spans_the_vocabulary(rig):
     core, entry, m = rig
-    m.replace_file_refs("a.py", [(3, "run", "ping", "call")])
-    m.replace_file_symbols("a.py", [], [RefRow("a.py", 3, None, "calls", "ping")])
+    m.replace_file_refs("a.py", [
+        (3, "run", "ping", "call", None),
+        (4, "run", "Widget", "base_class", None),
+        (5, "run", "Thing", "type", None),
+        (6, "run", "prop", "member", None)], "ast")
     calls = core.find_references(entry, "ping", relationship="calls")
-    assert {r["store"] for r in calls} == {"refs", "symbol_refs"}, calls
-    # 'references' selects the non-call rows (type/identifier); only call rows
-    # exist here, so it is legitimately empty.
-    assert core.find_references(entry, "ping", relationship="references") == []
+    assert [r["relationship"] for r in calls] == ["call"]
+    inherits = core.find_references(entry, "Widget", relationship="inherits")
+    assert [r["relationship"] for r in inherits] == ["base_class"]
+    refs_type = core.find_references(entry, "Thing", relationship="references")
+    assert [r["relationship"] for r in refs_type] == ["type"]
+    refs_member = core.find_references(entry, "prop",
+                                       relationship="references")
+    assert [r["relationship"] for r in refs_member] == ["member"]
     with pytest.raises(ValueError, match="unknown relationship"):
         core.find_references(entry, "ping", relationship="bogus")
 
 
-def test_cli_prints_no_references_only_when_both_stores_are_empty(rig,
-                                                                 monkeypatch):
+def test_cli_prints_no_references_only_when_the_store_is_empty(rig,
+                                                               monkeypatch):
     core, entry, m = rig
-    m.replace_file_refs_heuristic("a.py", [(1, None, "widget", "identifier")])
+    m.replace_file_refs("a.py", [(1, None, "widget", "identifier", None)],
+                        "heuristic")
     monkeypatch.setattr(cli, "_get_core", lambda skip: core)
     hit = runner.invoke(app, ["find-references", "widget",
                               "--project", entry.path])
     assert hit.exit_code == 0, hit.output
     assert "no references" not in hit.output
-    assert "store=refs" in hit.output
+    assert "confidence=heuristic" in hit.output
     miss = runner.invoke(app, ["find-references", "nothing_here",
                                "--project", entry.path])
     assert miss.exit_code == 0, miss.output
@@ -132,38 +139,53 @@ def test_cli_prints_no_references_only_when_both_stores_are_empty(rig,
 
 
 # ---------------------------------------------------------------------------
-# find-callers: a dotted subject, and the no-definition case
+# find-callers: a dotted subject, and the receiver honesty rule
 # ---------------------------------------------------------------------------
 
-def test_find_callers_resolves_a_dotted_subject(rig):
+def test_find_callers_dotted_subject_reports_the_store_receiver(rig):
     core, entry, m = rig
     m.replace_file_symbols(
         "Vivarium.Sim/Psychology/LegitimacyDynamics.cs",
         [SymbolRow("Vivarium.Sim/Psychology/LegitimacyDynamics.cs",
-                   "LegitimacySurface", "class", 153, 174, "ast")], [])
-    m.replace_file_refs_heuristic(
+                   "LegitimacySurface", "class", 153, 174, "ast")])
+    # The store holds a receiver for this direct member read.
+    m.replace_file_refs(
         "Vivarium.Sim/Psychology/SelfDiscrepancy.cs",
-        [(42, "Apply", "OughtRoleBindings", "identifier")])
+        [(42, "Apply", "OughtRoleBindings", "member", "surface")], "ast")
     nodes, notes = graph.find_callers(
         core, entry.slug, "LegitimacySurface.OughtRoleBindings")
     assert nodes, "a dotted subject must resolve, not fail closed"
-    # The root is the qualifier's definition; every fan-in hit carries the
-    # receiver so a shared member name is not misread as another type's.
     hits = [n for n in _walk(nodes) if n.relationship != "definition"]
     assert hits, [n.label() for n in _walk(nodes)]
-    assert all(n.receiver == "LegitimacySurface" for n in hits)
+    # The receiver comes from the STORE (the row's own receiver), never from
+    # the query's qualifier.
+    assert all(n.receiver == "surface" for n in hits)
     assert any("qualifier 'LegitimacySurface' resolved" in s for s in notes)
 
 
-def test_find_callers_seeds_from_refs_when_there_is_no_definition(rig):
+def test_find_callers_never_stamps_a_receiver_the_store_lacks(rig):
     core, entry, m = rig
-    m.replace_file_refs_heuristic(
+    m.replace_file_symbols("a.py", [SymbolRow("a.py", "Surface", "class",
+                                              1, 9, "ast")])
+    # The row carries no receiver: nothing may be asserted for it.
+    m.replace_file_refs("b.py", [(4, "run", "Classify", "call", None)], "ast")
+    nodes, notes = graph.find_callers(core, entry.slug, "Surface.Classify")
+    hits = [n for n in _walk(nodes) if n.relationship != "definition"]
+    assert hits, [n.label() for n in _walk(nodes)]
+    assert all(n.receiver is None for n in hits)
+    assert any(_RECEIVER_NOTE in s for s in notes)
+
+
+def test_find_callers_seeds_from_reference_rows_without_a_definition(rig):
+    core, entry, m = rig
+    m.replace_file_refs(
         "Vivarium.Sim/Psychology/SelfDiscrepancy.cs",
-        [(42, "Apply", "OughtRoleBindings", "identifier")])
+        [(42, "Apply", "OughtRoleBindings", "member", "pawn")], "ast")
     assert m.find_symbols("OughtRoleBindings", substring=False) == []
     nodes, notes = graph.find_callers(core, entry.slug, "OughtRoleBindings")
-    assert nodes, "must not print a bare 'no results' when refs has rows"
+    assert nodes, "must not print a bare 'no results' when rows exist"
     assert nodes[0].file == "Vivarium.Sim/Psychology/SelfDiscrepancy.cs"
+    assert nodes[0].receiver == "pawn"
     assert notes and any("holds no definition" in s for s in notes)
 
 
@@ -175,9 +197,10 @@ def test_find_callers_explains_a_truly_unknown_name(rig):
 
 
 def test_find_callers_cli_prints_the_note_not_a_bare_no_results(rig,
-                                                                monkeypatch):
+                                                               monkeypatch):
     core, entry, m = rig
-    m.replace_file_refs_heuristic("a.py", [(7, None, "ghost", "identifier")])
+    m.replace_file_refs("a.py", [(7, None, "ghost", "identifier", None)],
+                        "heuristic")
     monkeypatch.setattr(cli, "_get_core", lambda skip: core)
     result = runner.invoke(app, ["find-callers", "ghost",
                                  "--project", entry.path])

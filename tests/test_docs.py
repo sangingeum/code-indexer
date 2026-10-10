@@ -197,19 +197,33 @@ def test_documented_flags_exist_in_cli():
     assert not bad, "\n".join(bad)
 
 
-def test_global_flags_line_is_accurate():
-    """--skip-stale-check and --fresh must exist wherever the docs claim them."""
+def test_global_flags_paragraph_names_the_fresh_set():
+    """The 'Global flags:' paragraph must name every command that really
+    accepts --fresh — and must not claim it universally (it is absent on
+    find-callers/find-callees/deps/overview/changed-symbols)."""
     text = _skill_text()
-    m = re.search(r"^Global flags:.*$", text, re.M)
-    assert m, "SKILL-CLI.md lost the 'Global flags:' line"
-    line = m.group(0)
-    m2 = re.search(r"^also accepts `--fresh`.*$", text, re.M)
-    assert m2, "SKILL-CLI.md lost the '--fresh' global-flag sentence"
-    full = line + "\n" + m2.group(0)
-    assert "--skip-stale-check" in full and "--fresh" in full
-    sample = _commands()["semantic-search"]
-    real = _command_flags(sample)
-    assert "--skip-stale-check" in real and "--fresh" in real
+    m = re.search(r"^Global flags:.*?(?=\n\n)", text, re.M | re.S)
+    assert m, "SKILL-CLI.md lost the 'Global flags:' paragraph"
+    para = m.group(0)
+    assert "--skip-stale-check" in para
+    cmds = _commands()
+    fresh = sorted(n for n, c in cmds.items()
+                   if "--fresh" in _command_flags(c))
+    # `map` and `file-outline` are hidden dual names of skeleton/outline: the
+    # same command, so the paragraph names the canonical spelling only.
+    aliases = {"map", "file-outline"}
+    fresh = [n for n in fresh if n not in aliases]
+    assert fresh == ["find-definition", "find-references", "find-symbol",
+                     "get-code-context", "outline", "semantic-search",
+                     "skeleton"], fresh
+    for name in fresh:
+        assert f"`{name}`" in para, (
+            f"{name} accepts --fresh but the Global flags paragraph omits it")
+    for name in ("find-callers", "find-callees", "deps", "overview",
+                 "changed-symbols"):
+        assert f"`{name}`" in para, name
+    assert "every project-scoped read/search command also accepts" not in para
+    assert "--fresh" in para
 
 
 # ---------------------------------------------------------------------------

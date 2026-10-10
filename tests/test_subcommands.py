@@ -127,15 +127,23 @@ def test_v2_to_v3_migration(tmp_path):
         cols = {r[1] for r in m._conn.execute("PRAGMA table_info(symbols)")}
         assert {"signature", "visibility"} <= cols, "columns not added"
         # version bumped exactly once (2 -> latest, never regressing)
-        assert m.get_meta("schema_version") == SCHEMA_VERSION == "5"
+        assert m.get_meta("schema_version") == SCHEMA_VERSION == "6"
         # old rows survive with NULL signature/visibility
         rows = m.find_symbols("legacy")
         assert rows and rows[0].signature is None
         assert rows[0].visibility is None
+        # v6: ONE reference store. symbol_refs is gone and refs carries
+        # the receiver column; the EXTRACTION_VERSION bump (not this ALTER)
+        # is what flags the index needs-reindex.
+        tables = {r[0] for r in m._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        assert "symbol_refs" not in tables
+        ref_cols = {r[1] for r in m._conn.execute("PRAGMA table_info(refs)")}
+        assert "receiver" in ref_cols
         # reopening does not bump again or duplicate the ALTER
         m.close()
         m2 = Manifest(db)
-        assert m2.get_meta("schema_version") == "5"
+        assert m2.get_meta("schema_version") == "6"
         rows2 = m2.find_symbols("legacy")
         assert rows2 and rows2[0].signature is None
     finally:

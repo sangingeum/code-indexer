@@ -130,7 +130,7 @@ def rig():
 def test_fingerprint_roundtrip_and_mismatch_detection():
     fp = Fingerprint("m", 4096, "contextual-header-v1", 1)
     assert fp.describe() == (
-        "m/4096/etext=contextual-header-v1/chunker=1/extr=1")
+        "m/4096/etext=contextual-header-v1/chunker=1/extr=2")
     assert fingerprint_mismatches(fp, fp) == []
     other = Fingerprint("other", 4096, "contextual-header-v1", 1)
     diffs = fingerprint_mismatches(fp, other)
@@ -140,8 +140,8 @@ def test_fingerprint_roundtrip_and_mismatch_detection():
     assert same_dim_other_model  # the CI-02 core case: 4096-dim vs 4096-dim
     graph_bump = fingerprint_mismatches(
         fp, Fingerprint("m", 4096, "contextual-header-v1", 1,
-                        extraction_version=2))
-    assert graph_bump == ["extraction_version: 1 -> 2"]
+                        extraction_version=3))
+    assert graph_bump == ["extraction_version: 2 -> 3"]
 
 
 def test_read_fingerprint_tolerates_blank_and_partial(tmp_path):

@@ -1,8 +1,14 @@
 """Graph queries: find-callers / find-callees / deps (graph work item).
 
-Walks the manifest refs/imports tables breadth-first with depth and node
-caps. Cycle-safe: visited set keyed on (file, symbol). Output is an indented
-compact tree; JSON carries the edges.
+Walks the manifest's single reference store (``refs``) and the imports table
+breadth-first with depth and node caps. Cycle-safe: visited set keyed on
+(file, symbol). Output is an indented compact tree; JSON carries the edges.
+
+A node's ``receiver`` is the receiver expression of the reference AS WRITTEN
+(a plain identifier on a member access, else NULL). It is taken from the
+stored row — never inferred from the query — and is reported only on the
+DIRECT hits of the subject (the level-0 fan-in/fan-out edges); transitive
+nodes carry no receiver, because the store holds none for them.
 """
 
 from __future__ import annotations
@@ -21,8 +27,8 @@ class GraphNode:
     relationship: str
     confidence: str
     children: list["GraphNode"] = field(default_factory=list)
-    # Receiver (the qualifier of a dotted Type.Member subject) so a hit for a
-    # shared member name is not misread as belonging to another type.
+    # Receiver of a member-access reference as written, when the store holds
+    # one for THIS edge; NULL on definition roots and transitive nodes.
     receiver: str | None = None
 
     def label(self) -> str:
@@ -37,21 +43,23 @@ def _manifest_for(core, slug: str) -> Manifest:
 
 
 def _expand_callers(core, m: Manifest, name: str
-                    ) -> list[tuple[str, int | None, str | None, str, str]]:
-    """(file, line, from_symbol, relationship, confidence) — the edges INTO
-    `name` (by target symbol name, matching either a direct ref or an import
-    of the file that defines it)."""
+                    ) -> list[tuple[str, int | None, str | None, str, str,
+                                   str | None]]:
+    """(file, line, from_symbol, relationship, confidence, receiver) — the
+    edges INTO `name` (by target symbol name, matching either a direct ref or
+    an import of the file that defines it)."""
     edges = []
     for r in m.callers_of(name):
         edges.append((r["file"], r["line"], r["from_symbol"],
-                      r["relationship"], r["confidence"]))
+                      r["relationship"], r["confidence"], r["receiver"]))
     # Import-based fan-in: files importing the file whose symbols include
-    # `name` (resolved edges are project-relative files).
+    # `name` (resolved edges are project-relative files). An import edge has
+    # no receiver expression.
     for imp in m.import_rows():
         if imp["resolved_file"] and _file_defines(m, imp["resolved_file"],
                                                   name):
             edges.append((imp["file"], imp["line"], None,
-                          f"import:{imp['kind']}", "ast"))
+                          f"import:{imp['kind']}", "ast", None))
     return edges
 
 
@@ -60,14 +68,15 @@ def _file_defines(m: Manifest, file: str, name: str) -> bool:
 
 
 def _expand_callees(core, m: Manifest, file: str, symbol: str | None
-                    ) -> list[tuple[str, int | None, str | None, str, str]]:
+                    ) -> list[tuple[str, int | None, str | None, str, str,
+                                   str | None]]:
     """Edges OUT of one symbol: the names it references, resolved to the
     defining file when unambiguous."""
     out = []
     for r in m.callees_of_file_symbol(file, symbol):
         target_file = _definer_of(m, r["to_name"])
         out.append((target_file or file, r["line"], r["to_name"],
-                    r["relationship"], r["confidence"]))
+                    r["relationship"], r["confidence"], r["receiver"]))
     return out
 
 
@@ -82,15 +91,20 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
     """BFS over fan-in edges for the subject ``name``.
 
     The subject may be dotted (``Type.Member``): the qualifier is resolved
-    against the symbol rows and the fan-in edges are matched on the trailing
-    member name, with the receiver reported on every hit so a hit for a
-    shared member name is not misread as belonging to another type.
+    against the symbol rows and the fan-in is matched on the trailing member
+    name. The subject (and its resolved qualifier, if any) is reported ONCE on
+    the ``notes`` lines — not stamped on the tree, where it cannot describe
+    the rows it would label.
+
+    A direct hit carries ``receiver`` only when the store holds one for that
+    row (a member access ``Type.Member`` records the receiver expression as
+    written); transitive nodes never carry a receiver.
 
     Symbol extraction covers method|class|function|enum|interface|struct
     only — properties and fields have NO definition row. When the subject has
-    no definition, the BFS is seeded from the reference rows in the ``refs``
-    table instead of returning an empty tree, and ``notes`` says so: an empty
-    caller list must never read as "nothing calls this".
+    no definition, the BFS is seeded from the reference rows instead of
+    returning an empty tree, and ``notes`` says so: an empty caller list must
+    never read as "nothing calls this".
 
     Returns ``(nodes, notes)``; ``notes`` are plain-language lines for the
     caller to print.
@@ -109,8 +123,9 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
                                  for r in q_rows[:3])
                 notes.append(
                     f"subject {name!r}: qualifier {qualifier!r} resolved "
-                    f"({defs}); fan-in matched on member {member!r}, receiver "
-                    "reported on each hit")
+                    f"({defs}); fan-in matched on member {member!r}; a "
+                    "receiver is shown on a direct hit only when the store "
+                    "holds one for that row")
                 target = member
             else:
                 # Unknown qualifier: fall back to the whole dotted name.
@@ -131,11 +146,12 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
             notes.append(
                 f"the index holds no definition for {target!r} (symbols cover "
                 "method|class|function|enum|interface|struct; properties and "
-                "fields are not extracted); seeding from reference rows in "
-                "the refs table instead of reporting none")
+                "fields are not extracted); seeding from reference rows "
+                "instead of reporting none")
             seeds = [GraphNode(file=r["file"], symbol=r["from_symbol"],
                                line=r["line"], relationship=r["relationship"],
-                               confidence=r["confidence"], receiver=qualifier)
+                               confidence=r["confidence"],
+                               receiver=r.get("receiver"))
                      for r in ref_rows]
             if not seeds:
                 notes.append(f"no reference rows for {target!r} either — "
@@ -154,7 +170,7 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
                 # because a caller references the symbol NAME.
                 tgt = target if level == 0 else (
                     node.symbol or os.path.basename(node.file))
-                for (file, line, frm, rel, conf) in _expand_callers(
+                for (file, line, frm, rel, conf, recv) in _expand_callers(
                         core, m, tgt):
                     key = (file, frm)
                     if key in seen or count >= max_nodes:
@@ -163,7 +179,8 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
                     count += 1
                     child = GraphNode(file=file, symbol=frm, line=line,
                                       relationship=rel, confidence=conf,
-                                      receiver=qualifier)
+                                      # Receiver only on the direct hits.
+                                      receiver=recv if level == 0 else None)
                     node.children.append(child)
                     next_frontier.append(child)
             frontier = next_frontier
@@ -185,10 +202,10 @@ def find_callees(core, slug: str, name: str, depth: int = 2,
         frontier = list(roots)
         result: list[GraphNode] = list(roots)
         count = len(result)
-        for _level in range(max(0, depth)):
+        for level in range(max(0, depth)):
             next_frontier: list[GraphNode] = []
             for node in frontier:
-                for (file, line, to, rel, conf) in _expand_callees(
+                for (file, line, to, rel, conf, recv) in _expand_callees(
                         core, m, node.file, node.symbol):
                     key = (file, to)
                     if key in seen or count >= max_nodes:
@@ -196,7 +213,8 @@ def find_callees(core, slug: str, name: str, depth: int = 2,
                     seen.add(key)
                     count += 1
                     child = GraphNode(file=file, symbol=to, line=line,
-                                      relationship=rel, confidence=conf)
+                                      relationship=rel, confidence=conf,
+                                      receiver=recv if level == 0 else None)
                     node.children.append(child)
                     next_frontier.append(child)
             frontier = next_frontier

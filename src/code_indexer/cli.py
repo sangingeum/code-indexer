@@ -219,21 +219,24 @@ def find_callers(
     json_output: bool = typer.Option(False, "--json"),
     skip_stale_check: bool = SkipOpt,
 ) -> None:
-    """Who references this symbol: fan-in BFS over the `refs` table
-    (tree-sitter `call`/`type`/`base_class` rows, confidence `ast`, for
-    python/typescript/tsx/javascript/c/cpp/go, plus the textual `identifier`
-    fallback, confidence `heuristic`, for every other language — C# included —
-    where comments and strings DO match) and import-based edges. The graph is
-    TEXTUAL AND UNBOUND by design: names are matched as text, there is no
-    compiler resolution, so a heuristic row is a navigation aid, not a
-    resolved call. NAME may be dotted (`Type.Member`): the qualifier resolves
-    against the symbol rows, the fan-in is matched on the trailing member
-    name, and `receiver=Type` is printed on each hit. When the name has no
-    definition row (symbols cover
+    """Who references this symbol: fan-in BFS over the single reference store
+    (tree-sitter `call`/`type`/`base_class`/`member` rows, confidence `ast`,
+    for python/typescript/tsx/javascript/c/cpp/go/csharp, plus the textual
+    `identifier` / `includes` rows, confidence `heuristic`, for every other
+    language, where comments and strings DO match) and import-based edges.
+    The graph is TEXTUAL AND UNBOUND by design: names are matched as text,
+    there is no compiler resolution, so a heuristic row is a navigation aid,
+    not a resolved call. NAME may be dotted (`Type.Member`): the qualifier
+    resolves against the symbol rows and the fan-in is matched on the
+    trailing member name; the subject is reported once on the `note:` lines,
+    and a direct hit carries `receiver=<expr>` only when the store actually
+    holds a receiver for that row (a member access records the receiver
+    expression as written) — transitive nodes never carry one. When the name
+    has no definition row (symbols cover
     method|class|function|enum|interface|struct; properties and fields are not
-    extracted), the search seeds from the `refs` rows and says so on `note:`
-    lines instead of printing a bare `no results`. For the union of BOTH
-    reference stores use `find-references`."""
+    extracted), the search seeds from the reference rows and says so on
+    `note:` lines instead of printing a bare `no results`. For every
+    reference TO a name use `find-references`."""
     core, entry = _core_entry(project, skip_stale_check)
     nodes, notes = graph.find_callers(core, entry.slug, name, depth=depth,
                                       max_nodes=max_nodes)
@@ -1240,22 +1243,22 @@ def find_references(
     skip_stale_check: bool = SkipOpt,
     fresh: bool = FreshOpt,
 ) -> None:
-    """Find references TO a symbol: the UNION of the index's two reference
-    stores. Rows from `symbol_refs` (invocation targets only: `calls`,
-    `includes`; every language; the captured name reduced to its trailing
-    segment) and from `refs` (tree-sitter `call`/`type`/`base_class` rows,
-    confidence `ast`, for python/typescript/tsx/javascript/c/cpp/go, plus the
-    textual `identifier` fallback, confidence `heuristic`, for every other
-    language — C# included, where comments and strings DO match) are both
-    references to the name and are both printed. Each row is labelled with the
-    store and confidence it came from, so a heuristic identifier hit is never
-    mistaken for a resolved call. A bare `no references to X` is printed only
-    when BOTH stores are empty.
+    """Find references TO a symbol in the single reference store. Every row
+    carries the relationship it was extracted with and its confidence, so a
+    heuristic `identifier` hit is never mistaken for a resolved call:
+    tree-sitter rows (`call`/`type`/`base_class`/`member`, confidence `ast`)
+    for python/typescript/tsx/javascript/c/cpp/go/csharp — `member` is a
+    member access read such as a C# property/field, and `member`/`call` rows
+    record the receiver expression as written when it is a plain identifier —
+    plus the textual `identifier` scan and `includes` import/include lines
+    (confidence `heuristic`) for every other language, where comment-leading
+    lines (`#`, `//`, `*`, `--`) are skipped but trailing comments and
+    strings DO match. A bare `no references to X` is printed only when the
+    store has none.
 
-    This answers a DIFFERENT question than `find-callers`, which walks the
-    `refs` table alone (fan-in from reference rows). The reference graph is
-    textual and unbound by design: there is no compiler resolution, names are
-    matched as text."""
+    This answers a DIFFERENT question than `find-callers`, which walks fan-in
+    edges from the same store. The reference graph is textual and unbound by
+    design: there is no compiler resolution, names are matched as text."""
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
     core.maybe_refresh(entry.slug, entry.path, force=fresh)
@@ -1269,15 +1272,16 @@ def find_references(
         typer.echo(f"no references to {name!r}")
         return
     known = core.all_symbol_names(entry)
-    typer.echo(f"references to {name!r} (store=which table answered, "
-               "confidence=how the row was extracted, target_confidence= "
-               "whether the name has a definition row):")
+    typer.echo(f"references to {name!r} (confidence=how the row was "
+               "extracted, receiver=the receiver expression as written, "
+               "target_confidence=whether the name has a definition row):")
     for r in rows:
         exact = "exact" if r["target"] in known else "heuristic"
         src = f" in {r['from_symbol']}" if r["from_symbol"] else ""
+        recv = f", receiver={r['receiver']}" if r.get("receiver") else ""
         typer.echo(f"- {entry.path}::{r['file']}:{r['line']}{src} "
                    f"{r['relationship']} {r['target']} "
-                   f"(store={r['store']}, confidence={r['confidence']}, "
+                   f"(confidence={r['confidence']}{recv}, "
                    f"target_confidence={exact})")
 
 

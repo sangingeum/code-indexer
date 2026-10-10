@@ -44,7 +44,8 @@ def test_language_capabilities_snapshot(lang):
     exp_ast, exp_sym = EXPECTED[lang]
     assert caps["ast_chunking"] is exp_ast, caps
     assert caps["symbols"] is exp_sym, caps
-    if lang in ("python", "typescript", "javascript", "c", "cpp", "go"):
+    if lang in ("python", "typescript", "javascript", "c", "cpp", "go",
+                "csharp"):
         assert caps["references"] == "ast", caps
     else:
         assert caps["references"] in ("heuristic", "none"), caps
@@ -85,7 +86,7 @@ def test_languages_without_ast_snapshot():
                        "bash", "lua", "swift", "kotlin", "markdown", "json",
                        "yaml", "toml", "html", "css"}
                       - {"python", "typescript", "tsx", "javascript",
-                         "c", "cpp", "go"})
+                         "c", "cpp", "go", "csharp"})
     assert languages_without_ast() == expected
 
 

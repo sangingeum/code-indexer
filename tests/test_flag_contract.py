@@ -1,14 +1,18 @@
 """The documented flag contract: every command accepts --skip-stale-check.
 
 SKILL-CLI.md states the flag is accepted by every command. This pins that
-promise against the real click parameters, and pins that the commands whose
-path runs the staleness probe actually ROUTE the flag into the Core (a flag
+promise against the real click parameters, and pins that commands route the
+flag into the Core even where NO staleness probe runs on their path (a flag
 that parses but is ignored is the drift the contract exists to prevent).
+The parametrised commands are exactly the ones whose path does not run the
+probe — find-callers, find-callees, deps, overview — plus changed-symbols;
+the probe-running commands are covered by the staleness tests.
 """
 
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from typing import Any
 
@@ -64,6 +68,13 @@ def captured(tmp_path, monkeypatch):
         "def refresh_token():\n    return 1\n"
         "\n"
         "def run():\n    refresh_token()\n    return 0\n")
+    # changed-symbols reads the git diff; give the fixture a repo so the
+    # command exits 0 with an empty change set.
+    subprocess.run(["git", "init", "-q"], cwd=project, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=project, check=True)
+    subprocess.run(["git", "-c", "user.email=t@example.com",
+                    "-c", "user.name=t", "commit", "-qm", "init"],
+                   cwd=project, check=True)
     core = Core(cfg, skip_stale_check=True)
     reg = Registry(os.path.join(cfg.index_root, "registry.db"))
     entry = reg.add(str(project), name="flagproj")
@@ -80,8 +91,9 @@ def captured(tmp_path, monkeypatch):
     ["find-callees", "run"],
     ["deps", "a.py"],
     ["overview"],
+    ["changed-symbols"],
 ])
-def test_probe_commands_route_the_flag_into_the_core(captured, argv):
+def test_the_flag_routes_into_the_core(captured, argv):
     seen, core, entry, project = captured
     result = runner.invoke(
         app, [*argv, "--project", str(project), "--skip-stale-check"])

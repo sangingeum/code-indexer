@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import re
 
 from .chunker import (Chunk, chunk as fallback_chunk, _guess_symbol,
                       regex_signature, regex_visibility)
@@ -369,39 +368,10 @@ def extract_symbols(path: str, text: str, chunks: list[Chunk]) -> list[dict]:
     return list(rows.values())
 
 
-_CALL_RE = re.compile(
-    r"\b([A-Za-z_][A-Za-z0-9_:<>,~]*)\s*\(")
-_INCLUDE_RE = re.compile(r"^\s*#\s*include\s+[<\"]([^>\"]+)[>\"]",
-                         re.MULTILINE)
-_IMPORT_RE = re.compile(r"^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))",
-                        re.MULTILINE)
-
-
-def extract_refs(path: str, text: str) -> list[dict]:
-    """Textual reference edges: calls, includes/imports.
-
-    Unbound by design (no compiler resolution, plan §5): every edge is a
-    textual match and consumers label it heuristic. Regex-based so it works
-    for all languages without per-grammar node maps.
-    """
-    lines = text.splitlines()
-    refs: list[dict] = []
-    for m in _INCLUDE_RE.finditer(text):
-        line = text[:m.start()].count("\n") + 1
-        refs.append({"line": line, "src_symbol": None,
-                     "relationship": "includes", "target": m.group(1)})
-    for m in _IMPORT_RE.finditer(text):
-        line = text[:m.start()].count("\n") + 1
-        target = m.group(1) or m.group(2)
-        refs.append({"line": line, "src_symbol": None,
-                     "relationship": "includes", "target": target})
-    for lineno, ln in enumerate(lines, 1):
-        for m in _CALL_RE.finditer(ln):
-            name = m.group(1).split("::")[-1].split("->")[-1].split(".")[-1]
-            if name and name.isidentifier():
-                refs.append({"line": lineno, "src_symbol": None,
-                             "relationship": "calls", "target": name})
-    return refs
+# NOTE: the regex reference extractor that used to live here (calls/includes
+# rows written to the retired `symbol_refs` table) is gone. References have ONE
+# writer — `graph_extract` — and land in the single `refs` manifest table
+# (schema v6). `ts_chunker` extracts chunks and symbols only.
 
 
 def _guess_type_regex(text: str) -> str | None:

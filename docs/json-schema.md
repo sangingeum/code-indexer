@@ -7,8 +7,13 @@ existing names never change meaning.
 ## semantic-search --json
 
 ```json
-{"schema": 1, "hits": [hit...], "truncated": bool, "dropped": int}
+{"schema": 1, "hits": [hit...], "truncated": bool, "dropped": int,
+ "skipped": [{"project": str, "reason": str}...], "skipped_count": int}
 ```
+
+`skipped` names the projects whose index could not answer, so a JSON consumer
+can tell a partial result from a complete one; `skipped_count` is its length.
+Both are always present (empty list / 0 when nothing was skipped).
 
 hit (search and hybrid fusion share the contract):
 

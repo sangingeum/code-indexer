@@ -693,16 +693,19 @@ class Core:
         return fused
 
     def format_hits(self, hits: list[dict[str, Any]], fmt: str = "text",
-                dropped: int = 0, context_lines: int = 0) -> str:
+                dropped: int = 0, context_lines: int = 0,
+                skipped: list[dict[str, Any]] | None = None) -> str:
         """Format search hits (stable field contract).
 
         ``text`` — the original verbose two-line-per-hit render (default;
         kept for compatibility with existing agent workflows).
         ``compact`` — one line per hit: ``path:start-end  symbol  score``;
         the token-budget agent loop (search compact -> get-code-context).
-        ``json`` — the JSON contract.
+        ``json`` — the JSON contract, which now also carries ``skipped`` and
+        ``skipped_count`` so a consumer can tell the result is partial.
         ``dropped`` > 0 appends one trailing truncation line in text/compact
-        mode (the documented exception to single-line stderr reporting).
+        mode, and a non-empty ``skipped`` appends one trailing partial-result
+        line (the documented exceptions to single-line stderr reporting).
         ``context_lines`` expands each hit's snippet window by padding the
         snippet with surrounding lines up to N (0 = location+symbol only in
         compact; the snippet itself already carries the source window).
@@ -712,7 +715,9 @@ class Core:
         if fmt == "json":
             return json.dumps(
                 {"schema": 1,
-                 "hits": hits, "truncated": dropped > 0, "dropped": dropped},
+                 "hits": hits, "truncated": dropped > 0, "dropped": dropped,
+                 "skipped": skipped or [],
+                 "skipped_count": len(skipped or [])},
                 ensure_ascii=False, indent=2)
         lines: list[str] = []
         if fmt == "compact":
@@ -743,6 +748,11 @@ class Core:
             lines.append(
                 f"({dropped} lower-ranked hit(s) dropped by the output budget; "
                 f"raise --max-chars/--max-tokens to see more)")
+        if skipped:
+            lines.append(
+                f"({len(skipped)} project(s) skipped — their index could not "
+                "answer, so this result is partial: "
+                + ", ".join(s["project"] for s in skipped) + ")")
         return "\n".join(lines)
 
     def search_for_display(self, query: str, project: str | None = None,
@@ -769,45 +779,37 @@ class Core:
         except ValueError as exc:
             return str(exc)
         return self.format_hits(result["hits"], fmt, dropped=result["dropped"],
-                                context_lines=context_lines)
+                                context_lines=context_lines,
+                                skipped=result.get("skipped", []))
 
     # ------------------------------------------------------------------
-    # reference surfaces (find-references): the union of BOTH ref stores
+    # reference surfaces (find-references): the single reference store
     # ------------------------------------------------------------------
 
-    # Reported relationship filter -> (symbol_refs relationships, refs
-    # relationships). The two stores use different spellings for the same
-    # idea (symbol_refs 'calls' vs refs 'call'), so the filter is expressed
-    # once here rather than leaking either spelling to the CLI.
-    _REFERENCE_FILTERS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
-        "calls": (("calls",), ("call",)),
-        "includes": (("includes",), ()),
-        "inherits": ((), ("base_class",)),
-        "references": ((), ("type", "identifier")),
+    # Reported relationship filter -> stored relationship values in the ONE
+    # reference store. The CLI vocabulary stays calls|includes|inherits|
+    # references; the stored vocabulary is call|includes|base_class|type|
+    # member|identifier. The mapping lives here so neither spelling leaks.
+    _REFERENCE_FILTERS: dict[str, tuple[str, ...]] = {
+        "calls": ("call",),
+        "includes": ("includes",),
+        "inherits": ("base_class",),
+        "references": ("type", "member", "identifier"),
     }
 
     def find_references(self, entry: ProjectEntry, name: str,
                         relationship: str | None = None,
                         limit: int = 25) -> list[dict[str, Any]]:
-        """Every reference TO ``name``, unioned across BOTH reference stores.
+        """Every reference TO ``name`` from the single reference store.
 
-        The index keeps two reference tables with different writers and
-        different row shapes, and each query surface historically read only
-        one of them:
-
-        - ``symbol_refs`` — invocation targets from the regex ref extractor
-          (``calls``, ``includes``), the captured name reduced to its
-          trailing segment (``A::b`` / ``a->b`` / ``a.b`` all become ``b``).
-          Written for every language.
-        - ``refs`` — tree-sitter rows (``call``/``type``/``base_class``,
-          confidence ``ast``) for LANGUAGES_WITH_AST, and the textual
-          identifier scan (``identifier``, confidence ``heuristic``) for
-          every other language, where comments and strings DO match.
-
-        A name that is referenced but never invoked as ``name(`` appears only
-        in ``refs``, so reading ``symbol_refs`` alone reported "no
-        references" while rows existed. This method reads both and labels
-        each row with the store and confidence it actually carries.
+        One writer (``graph_extract``) puts one row per reference into
+        ``refs`` with an honest relationship and confidence: tree-sitter rows
+        (``call``/``type``/``base_class``/``member``, confidence ``ast``) for
+        the AST languages, and the textual identifier scan (``identifier``)
+        plus import/include lines (``includes``), confidence ``heuristic``,
+        for every other language. A name that is referenced but never invoked
+        as ``name(`` is therefore visible, and a call is stored once, not
+        once per store.
 
         ``relationship`` filters the *reported* vocabulary
         (calls|includes|inherits|references); ``None`` returns every row.
@@ -819,35 +821,18 @@ class Core:
             raise ValueError(
                 f"error: unknown relationship: {relationship} "
                 "(expected calls|includes|inherits|references)")
-        sr_rels: tuple[str, ...] | None = None
-        r_rels: tuple[str, ...] | None = None
-        if relationship is not None:
-            sr_rels, r_rels = self._REFERENCE_FILTERS[relationship]
-        out: list[dict[str, Any]] = []
+        stored = (self._REFERENCE_FILTERS[relationship]
+                  if relationship is not None else None)
         m = self.manifest_for(entry.slug)
         try:
-            for rel in (sr_rels if sr_rels is not None
-                        else ("calls", "includes")):
-                for r in m.find_refs(name, relationship=rel, limit=limit):
-                    out.append({
-                        "file": r.file, "line": r.line,
-                        "from_symbol": r.src_symbol, "target": r.target,
-                        "relationship": r.relationship,
-                        "store": "symbol_refs", "confidence": "heuristic",
-                    })
-            if r_rels is None or r_rels:
-                for r in m.refs_to(name, relationships=r_rels or None,
-                                   limit=limit):
-                    out.append({
-                        "file": r["file"], "line": r["line"],
-                        "from_symbol": r["from_symbol"], "target": name,
-                        "relationship": r["relationship"],
-                        "store": "refs", "confidence": r["confidence"],
-                    })
+            rows = m.refs_to(name, relationships=stored, limit=limit)
         finally:
             m.close()
-        out.sort(key=lambda d: (d["file"], d["line"], d["relationship"]))
-        return out[:limit]
+        return [{"file": r["file"], "line": r["line"],
+                 "from_symbol": r["from_symbol"], "target": r["to_name"],
+                 "relationship": r["relationship"],
+                 "confidence": r["confidence"],
+                 "receiver": r["receiver"]} for r in rows]
 
     def all_symbol_names(self, entry: ProjectEntry) -> set[str]:
         """Names with a definition row (for exact-vs-heuristic labelling)."""

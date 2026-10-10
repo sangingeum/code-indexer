@@ -2,6 +2,9 @@
 (preproc_include
   path: (string_literal) @import.target)
 
+(preproc_include
+  path: (string_literal) @ref.include)
+
 (call_expression
   function: (identifier) @ref.call)
 

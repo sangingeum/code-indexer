@@ -123,7 +123,8 @@ Canonical states, the same everywhere (CLI and MCP):
   regex-window fallback. The embedded text carries a contextual header
   (`embed_text.py`, format `contextual-header-v1`).
 - **Fingerprint**: the manifest records `embed_model`, `embed_dim`,
-  `embed_text_version`, `chunker_version`. Any mismatch ⇒ `needs-reindex`
+  `embed_text_version`, `chunker_version`, `extraction_version`. Any mismatch
+  ⇒ `needs-reindex`
   (see table above). `--skip-stale-check` does not bypass this gate.
 - **Filtering**: `.gitignore`/`.codeindexignore` (nested), `--include` scope
   globs, secret-bearing file skips (filename globs + high-confidence content
@@ -140,9 +141,10 @@ Canonical states, the same everywhere (CLI and MCP):
 | v3 | `signature`/`visibility` columns on `symbols` | automatic ALTER; old rows NULL until `reindex-project` |
 | v4 | index fingerprint + stat fast-path columns on `files` | automatic ALTER; fingerprint backfills on next pass |
 | v5 | `files.loc`/`files.language` for `overview`; graph tables (refs/imports for `find-callers`/`find-callees`/`deps`) | automatic ALTER; overview/graph data populate on next reindex |
+| v6 | ONE reference store: `symbol_refs` folded into `refs` (+ a `receiver` column); `csharp` joins the AST-references languages (`EXTRACTION_VERSION` 2) | automatic: `symbol_refs` dropped, `receiver` ALTERed; the extraction-version bump marks every index `needs-reindex` until `reindex-project` |
 | — | FTS5 lexical table (`chunks_fts`, hybrid retrieval) | automatic backfill on next pass |
 
-Current schema version: **5** (auto-migrates on open; `reindex-project`
+Current schema version: **6** (auto-migrates on open; `reindex-project`
 backfills derived columns eagerly).
 
 ## Configuration
@@ -181,8 +183,10 @@ override. `.gitignore`/`.codeindexignore` are honored.
 
 ## Limitations
 
-- References are heuristic (textual) unless backed by the AST refs/import
-  tables; `find-references` output is always `confidence=heuristic`.
+- References are tree-sitter backed (`confidence=ast`) for the languages with
+  a query (`python`/`typescript`/`tsx`/`javascript`/`c`/`cpp`/`go`/`csharp`)
+  and textual (`confidence=heuristic`) for the rest; `find-references` labels
+  every row with the confidence it carries.
 - C/C++/Java visibility is weak by design (everything public).
 - The language matrix and per-language caveats live in
   [SKILL-CLI.md §semantic-search](SKILL-CLI.md#subcommand-reference) and
@@ -242,4 +246,4 @@ tests are marked `live` and deselected by default. Docs drift is guarded by
 
 Manifests auto-migrate (see Schema history). `reindex-project` is only
 required when `index-status` reports `needs-reindex` (fingerprint mismatch)
-or to eagerly backfill schema-v3/v5 derived columns.
+or to eagerly backfill schema-v3/v5/v6 derived columns.
