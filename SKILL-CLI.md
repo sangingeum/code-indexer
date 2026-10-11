@@ -57,11 +57,25 @@ line per hit), keep `--limit 8`, and cap long result sets with
 line ranges or `--symbol`. Take `overview --max-lines 40` before any deep
 dive on an unfamiliar repo.
 
-**State meanings:** `stale: true` on a hit means the file changed after the
-index pass — line numbers may have shifted; the CLI still returns the live
-lines (with a stderr Warning in line mode). `needs-reindex` (index-status)
-means the index configuration changed (model, format, chunker) — queries
-against it fail with ConfigError until a reindex rebuilds it.
+**State meanings (two vocabularies — do not confuse them):** the *pass state*
+(`idle | indexing | never-indexed | error`) answers "is an indexing pass
+running / did one ever complete?"; the *fingerprint state*
+(`ok | needs-reindex`) answers "was the index built by the code and
+configuration running now?". `index-status`, `list-projects`, `lookup-project`
+and `doctor` report both: a project that owes a rebuild shows
+`fingerprint=needs-reindex reason=...` (or `state=needs-reindex`) even while its
+pass state is `idle`, so the two surfaces never contradict each other.
+`needs-reindex` means the index configuration changed (model, dimension,
+embed-text format, chunker, or the row-extraction version) — `search` refuses
+with `ConfigError` until a reindex rebuilds it. The *manifest-only* surfaces
+(`find-references`, `find-callers`, `find-callees`, `deps`, `skeleton`/`map`,
+`outline`/`file-outline`) still answer on such an index, with **one** stderr
+warning line when the stored rows may have been produced by a different
+row-extraction version (that warning compares only `chunker_version` and
+`extraction_version`; a model/dimension change affects vectors, not stored
+rows, and does not warn). Separately, `stale: true` on a hit means the file
+changed after the index pass — line numbers may have shifted; the CLI still
+returns the live lines (with a stderr Warning in line mode).
 
 **Never run `reindex-project` unless explicitly told to** — it is a full
 re-embed (minutes of Ollama time). The watcher keeps indexes fresh
@@ -294,18 +308,23 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
   (`--symbol Foo::bar`), optionally padded with `--context-lines N`. Never
   read whole files; this answers "show me the code" questions.
 - **index-status / doctor / reindex-project / remove-project / watch / unwatch** — index
-  lifecycle. Index states (canonical set):
-  `idle | indexing | never-indexed | error` are what `index-status`
-  reports; `needs-reindex` is the fifth state, reported by
-  `list-projects`/`lookup-project` status lines and hit when a query
-  refuses. Meanings and agent action:
+  lifecycle. Two state vocabularies (see "State meanings" above): the
+  **pass state** `idle | indexing | never-indexed | error` describes indexing
+  passes; the **fingerprint state** `ok | needs-reindex` describes whether the
+  index was built by the current configuration. `index-status` prints the pass
+  state as `state=` and, when the fingerprint does not match, adds
+  `fingerprint=needs-reindex reason=<diff>` — the same verdict
+  `list-projects`/`lookup-project`/`doctor` give, so the surfaces never
+  contradict each other about whether a rebuild is owed. Meanings and agent
+  action:
   `indexing` — a pass is running; wait/retry.
   `never-indexed` — registered but no completed pass (an interrupted
   `add-project`); do not trust empty results, tell the owner
   (`reindex-project` builds it).
   `needs-reindex` — index built with a different embed model/dimension/
-  text format/chunker version; queries fail with `ConfigError` naming the
-  difference; do not run `reindex-project` yourself, report to the owner.
+  text format/chunker or row-extraction version; `search` fails with
+  `ConfigError` naming the difference; do not run `reindex-project`
+  yourself, report to the owner.
   `error` — run `doctor`.
   `idle` — normal. `reindex-project` is a full rebuild into a temporary
   collection, swapped in on completion (also populates schema-v3
@@ -328,7 +347,6 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
   line names the live watcher when a mismatch is present. Dev/ops surface —
   CLI-only, no MCP tool; agents use index-status instead. Run it when
   searches misbehave or after changing OLLAMA_URL/QDRANT_URL/EMBED_MODEL.
-
 ## Token reduction (schema v3)
 
 Signatures + visibility are extracted at index time (schema v3;

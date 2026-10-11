@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased] — fingerprint reporting (issue #13)
+
+- **`index-status` no longer reads as idle on an index that owes a rebuild
+  (issue #13).** Its output was built only from the in-process *pass* state, so
+  a project whose index no longer matched the current configuration — which
+  `doctor` and `list-projects` both call `needs-reindex` — printed a plain
+  `state=idle`, two readers giving two answers on the same binary. It now also
+  reports the *fingerprint* state: `fingerprint=needs-reindex reason=<diff>` is
+  printed whenever the recorded fingerprint does not match the running
+  configuration, the same verdict the other lifecycle surfaces give. The
+  `index-status` docstring and `SKILL-CLI.md` describe both vocabularies (pass
+  state vs fingerprint state) so they are no longer confusable.
+- **the manifest-only surfaces warn once instead of answering silently
+  (issue #13).** `find-references`, `find-callers`, `find-callees`, `deps`,
+  `skeleton`/`map` and `outline`/`file-outline` read stored rows and are NOT
+  made fatal on a mismatch — refusing them would remove the tool's usefulness
+  on exactly the index a user is inspecting. They now print one stderr warning
+  line when the stored rows may have been produced by different extraction
+  code, comparing only the version-ordered keys (`chunker_version`,
+  `extraction_version`) and naming the recorded and current values. The
+  embedding-configuration keys (`embed_model` / `embed_dim` /
+  `embed_text_version`) are deliberately NOT consulted — they affect the
+  vectors, not the stored rows — and that asymmetry is stated in
+  `fingerprint.rows_staleness_warning`. `search` remains fatal on a
+  fingerprint mismatch, unchanged.
+
 ## [Unreleased] — require scoping, pidfile-probe honesty, a vacuous assertion (issues #12, #14, #15)
 
 **This round needs a rebuild**: `EXTRACTION_VERSION` is `4`, so every existing

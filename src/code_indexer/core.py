@@ -19,8 +19,9 @@ from typing import Any
 from .config import Config, load_config
 from .embedder import Embedder
 from .fingerprint import (ConfigError, current_fingerprint,
-                          fingerprint_mismatches, mismatch_error,
-                          read_fingerprint)
+                          current_version_stamp, fingerprint_mismatches,
+                          mismatch_error, read_fingerprint,
+                          rows_staleness_warning)
 from .indexer import Indexer
 from .locks import project_lock
 from .manifest import SCHEMA_VERSION, Manifest, SymbolRow
@@ -409,6 +410,38 @@ class Core:
                 return {"state": "error", "error": str(exc)}
             finally:
                 manifest.close()
+
+    # ------------------------------------------------------------------
+    # stored-row staleness (manifest-only surfaces)
+    # ------------------------------------------------------------------
+
+    def rows_staleness(self, entry: ProjectEntry) -> str | None:
+        """One-line warning for a manifest-only surface, or None.
+
+        The manifest-only commands (find-references, find-callers,
+        find-callees, deps, skeleton, outline) read stored rows produced by
+        whatever extraction code built the index. When the version-ordered
+        fingerprint keys show a different build, those rows may not be what
+        this code would extract, so the command says so once instead of
+        silently answering from rows it cannot vouch for. A WARNING, never a
+        refusal: refusing would remove the tool's usefulness on exactly the
+        index a user is inspecting. Only the version keys are consulted —
+        the embedding-configuration keys affect vectors, not stored rows
+        (see fingerprint.rows_staleness_warning).
+        """
+        mdir = os.path.join(self.cfg.index_root, entry.slug, "manifest.db")
+        if not os.path.isfile(mdir):
+            return None
+        m = Manifest(mdir)
+        try:
+            recorded = read_fingerprint(m)
+        finally:
+            m.close()
+        if recorded is None:
+            # Legacy/absent fingerprint: it backfills on the next pass and is
+            # not a mismatch, so there is nothing to warn about.
+            return None
+        return rows_staleness_warning(recorded, current_version_stamp())
 
     # ------------------------------------------------------------------
     # search

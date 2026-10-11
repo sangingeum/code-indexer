@@ -98,8 +98,17 @@ Canonical states, the same everywhere (CLI and MCP):
 | `idle` | indexed, no pass running | normal use |
 | `indexing` | a pass is running | wait/retry |
 | `never-indexed` | registered but no completed pass (interrupted `add-project`) | do not trust empty results; tell the owner |
-| `needs-reindex` | index built with a different embed model/dimension/text format/chunker | do not run `reindex-project` yourself; report to the owner (queries fail with `ConfigError` until then) |
+| `needs-reindex` | index built with a different embed model/dimension/text format/chunker/extraction version | do not run `reindex-project` yourself; report to the owner (queries fail with `ConfigError` until then) |
 | `error` | last pass failed | run `code-indexer doctor` |
+
+`index-status` reports the **pass state** as `state=`, and — when the index
+was built by a different configuration — adds `fingerprint=needs-reindex
+reason=...`, the same verdict `list-projects`/`doctor` give. A project that
+owes a rebuild therefore never reads as plainly `idle`, and the two surfaces
+never contradict each other. The manifest-only surfaces (`find-references`,
+`find-callers`, `find-callees`, `deps`, `skeleton`, `outline`) still answer on
+such an index, with one stderr warning when the stored rows may predate the
+current extraction code; only `search` refuses.
 
 ## How indexing / staleness works
 

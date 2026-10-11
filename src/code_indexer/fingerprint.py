@@ -136,6 +136,49 @@ def manifest_newer_than(recorded: Fingerprint | None,
                for key in VERSION_KEYS)
 
 
+def current_version_stamp() -> Fingerprint:
+    """A fingerprint carrying only the version-ordered keys.
+
+    The manifest-only surfaces (find-references, find-callers, find-callees,
+    deps, skeleton, outline) compare the STORED ROWS they read against the
+    extraction code that this build would use, and that comparison is
+    described by ``VERSION_KEYS`` alone — both of which are module constants.
+    Building this stamp therefore answers the question without an embedder
+    dimension probe (i.e. without an Ollama round trip on a read-only
+    command). The three non-version keys are placeholders that
+    ``rows_staleness_warning`` never reads.
+    """
+    return Fingerprint(embed_model="", embed_dim=0, embed_text_version="",
+                       chunker_version=CHUNKER_VERSION)
+
+
+def rows_staleness_warning(recorded: Fingerprint | None,
+                           current: Fingerprint) -> str | None:
+    """One-line warning when the STORED ROWS a manifest-only surface reads
+    may not have been produced by the extraction code this build uses, else
+    None.
+
+    Only the version-ordered keys (``VERSION_KEYS``: chunker_version,
+    extraction_version) are compared. That asymmetry is DELIBERATE, not an
+    oversight: embed_model / embed_dim / embed_text_version describe the
+    VECTORS, not the stored symbol/ref/import rows, so a model or dimension
+    change leaves these surfaces honest and must never raise this warning.
+    The rows are still readable — this is a warning, never a refusal.
+    """
+    if recorded is None:
+        return None
+    diffs = [f"{key}: {getattr(recorded, key)} -> {getattr(current, key)}"
+             for key in VERSION_KEYS
+             if getattr(recorded, key) != getattr(current, key)]
+    if not diffs:
+        return None
+    if manifest_newer_than(recorded, current):
+        return ("warning: stored rows were produced by newer extraction code "
+                f"({'; '.join(diffs)}); this build may read them incompletely")
+    return ("warning: stored rows were produced by the older extraction code "
+            f"({'; '.join(diffs)}); run reindex-project to rebuild them")
+
+
 def mismatch_error(project_path: str, recorded: Fingerprint,
                    current: Fingerprint) -> ConfigError:
     return ConfigError(

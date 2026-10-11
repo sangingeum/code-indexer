@@ -210,6 +210,17 @@ def _core_entry(project: str | None, skip_stale_check: bool = False):
     return core, _resolve(core, project)
 
 
+def _warn_rows_staleness(core: Core, entry: ProjectEntry) -> None:
+    """One stderr line when the stored rows a manifest-only surface reads may
+    have been produced by different extraction code than this build (see
+    Core.rows_staleness). A warning, never a refusal: the command still
+    answers. On stdout for --json would corrupt the payload, so it is always
+    stderr."""
+    warning = core.rows_staleness(entry)
+    if warning:
+        typer.echo(warning, err=True)
+
+
 @app.command()
 def find_callers(
     name: str = typer.Argument(..., help="Symbol name to find callers of."),
@@ -238,6 +249,7 @@ def find_callers(
     `note:` lines instead of printing a bare `no results`. For every
     reference TO a name use `find-references`."""
     core, entry = _core_entry(project, skip_stale_check)
+    _warn_rows_staleness(core, entry)
     nodes, notes = graph.find_callers(core, entry.slug, name, depth=depth,
                                       max_nodes=max_nodes)
     _emit_graph(nodes, json_output, notes=notes)
@@ -257,6 +269,7 @@ def find_callees(
     and unbound by design). For references TO a symbol across both stores use
     `find-references`."""
     core, entry = _core_entry(project, skip_stale_check)
+    _warn_rows_staleness(core, entry)
     nodes = graph.find_callees(core, entry.slug, name, depth=depth,
                                max_nodes=max_nodes)
     _emit_graph(nodes, json_output)
@@ -300,6 +313,7 @@ def deps(
 ) -> None:
     """Import graph around one file (resolved edges only)."""
     core, entry = _core_entry(project, skip_stale_check)
+    _warn_rows_staleness(core, entry)
     result = graph.deps_for_file(core, entry.slug, path,
                                  direction=direction, depth=depth,
                                  max_nodes=max_nodes)
@@ -576,7 +590,16 @@ def index_status(
     default this is informational only — it does NOT trigger a re-index.
     --refresh runs the staleness pass now (output notes the pass). A
     registered project with no completed indexing pass reports
-    state=never-indexed rather than a misleading idle."""
+    state=never-indexed rather than a misleading idle.
+
+    The state above is the in-process PASS state. Index freshness has a
+    SECOND vocabulary: the fingerprint state, which says whether the index
+    was built by the current configuration. When it was not, a
+    `fingerprint=needs-reindex reason=...` field is printed alongside the
+    pass state — the same verdict `list-projects`/`doctor` give — so a
+    project that owes a rebuild never reads as plainly idle here, and the
+    two surfaces can never contradict each other.
+    """
     core = _get_core(skip_stale_check)
     path = os.path.abspath(os.path.expanduser(path))
     entry = core.registry.get_by_path(path)
@@ -587,6 +610,13 @@ def index_status(
     st = core.state_for(entry.slug)
     state = core.effective_state(entry.slug, st.get("state", "idle"))
     parts = [f"project={path}", f"state={state}"]
+    # The pass state says nothing about whether the index still matches the
+    # current configuration. Query paths refuse on a mismatch (ConfigError)
+    # and list-projects/doctor already call it needs-reindex; index-status
+    # must give the same verdict rather than a plain idle.
+    fp = core.fingerprint_status(entry)
+    if not fp["ok"]:
+        parts.append(f"fingerprint=needs-reindex reason={fp['reason']}")
     if st.get("last_result"):
         parts.append(f"last_pass={st['last_result']}")
     if st.get("progress"):
@@ -1155,6 +1185,7 @@ def skeleton(
             path_prefix = None
         elif apath.startswith(root + "/"):
             path_prefix = apath[len(root) + 1:]
+    _warn_rows_staleness(core, entry)
     data = core.skeleton(entry, prefix=path_prefix, tree_mode=tree_mode,
                          limit=limit,
                          include_signatures=not no_signatures, fresh=fresh)
@@ -1182,6 +1213,7 @@ def outline(
     """One file: declarations, signatures, one-line docstrings (design §2.2)."""
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
+    _warn_rows_staleness(core, entry)
     try:
         data = core.outline(entry, file, include_docstrings=docstrings,
                             fresh=fresh)
@@ -1373,6 +1405,7 @@ def find_references(
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
     core.maybe_refresh(entry.slug, entry.path, force=fresh)
+    _warn_rows_staleness(core, entry)
     try:
         rows = core.find_references(entry, name, relationship=relationship,
                                     limit=limit)
