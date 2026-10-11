@@ -31,6 +31,13 @@ logger = logging.getLogger("code-indexer.fingerprint")
 FINGERPRINT_KEYS = ("embed_model", "embed_dim", "embed_text_version",
                     "chunker_version", "extraction_version")
 
+# Version-ordered fingerprint keys. Only these carry an ordering, so only
+# these can say "the manifest was recorded by NEWER code than this process".
+# embed_model / embed_dim / embed_text_version differences are configuration
+# changes, not a version ordering, and must still rebuild in either
+# direction.
+VERSION_KEYS = ("chunker_version", "extraction_version")
+
 
 class ConfigError(Exception):
     """Raised when a project's index does not match the current configuration.
@@ -110,6 +117,23 @@ def fingerprint_mismatches(recorded: Fingerprint | None,
         if rk[1] != ck[1]:
             diffs.append(f"{rk[0]}: {rk[1]} -> {ck[1]}")
     return diffs
+
+
+def manifest_newer_than(recorded: Fingerprint | None,
+                        current: Fingerprint) -> bool:
+    """True when ``recorded`` was built by code newer than this process.
+
+    Compares the version-ordered keys only (``VERSION_KEYS``): a recorded
+    value GREATER than this process's own means the manifest was written by a
+    newer build, so this (older) process must not re-embed with its older
+    extraction code nor stamp its own older version over the newer one. A
+    recorded value LOWER (or equal) is not "newer" — an index built by older
+    code is the legitimate upgrade path and rebuilds normally.
+    """
+    if recorded is None:
+        return False
+    return any(getattr(recorded, key) > getattr(current, key)
+               for key in VERSION_KEYS)
 
 
 def mismatch_error(project_path: str, recorded: Fingerprint,

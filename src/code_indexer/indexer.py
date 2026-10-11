@@ -21,8 +21,8 @@ from .config import Config
 from .embed_text import EMBED_FORMAT, embed_text
 from .embedder import Embedder
 from .fingerprint import (current_fingerprint,
-                          fingerprint_mismatches, read_fingerprint,
-                          write_fingerprint)
+                          fingerprint_mismatches, manifest_newer_than,
+                          read_fingerprint, write_fingerprint)
 from . import ts_chunker
 from .manifest import Manifest, ManifestFile, SymbolRow
 from .scanner import ScannedFile, scan_project
@@ -173,11 +173,34 @@ class Indexer:
                 "config (%s) — no reindex required", current_fp.describe())
             write_fingerprint(manifest, current_fp)
             recorded_fp = current_fp
-        fp_changed = bool(fingerprint_mismatches(recorded_fp, current_fp))
-        if fp_changed:
-            logger.info("index fingerprint changed (%s): full re-embed",
-                        fingerprint_mismatches(recorded_fp, current_fp))
-        rebuild = rebuild or fp_changed
+        # Direction-aware fingerprint guard. The rebuild-and-restamp path is
+        # correct when the manifest was built by OLDER code (a legitimate
+        # upgrade) or when the model/dim/format genuinely changed. It is WRONG
+        # when the manifest was built by NEWER code than this process: an
+        # older-code watcher sweeping would re-embed the whole project with
+        # its older extraction code (fingerprint_mismatches is direction-blind)
+        # and then stamp its own older version over the newer one — the flag
+        # reverts and good vectors are replaced. So: warn loudly and defer the
+        # re-stamp, leaving the recorded (newer) value untouched.
+        defer_fingerprint_write = False
+        if manifest_newer_than(recorded_fp, current_fp):
+            assert recorded_fp is not None  # manifest_newer_than implies it
+            logger.warning(
+                "index for %s was built by NEWER code (%s) than this process "
+                "(%s, pid %d): refusing to re-embed or re-stamp — a sweep "
+                "would revert the fingerprint and rebuild with older "
+                "extraction code. Remedy: stop this watcher "
+                "(code-indexer unwatch) and restart it on the current code, "
+                "or run: code-indexer reindex-project %s",
+                slug, recorded_fp.describe(), current_fp.describe(),
+                os.getpid(), project_path)
+            defer_fingerprint_write = True
+        else:
+            fp_changed = bool(fingerprint_mismatches(recorded_fp, current_fp))
+            if fp_changed:
+                logger.info("index fingerprint changed (%s): full re-embed",
+                            fingerprint_mismatches(recorded_fp, current_fp))
+            rebuild = rebuild or fp_changed
 
         # Legacy-manifest FTS backfill (migration-style, idempotent): a
         # manifest with indexed chunks but an empty chunks_fts is populated
@@ -469,7 +492,11 @@ class Indexer:
         # Record the construction that produced (or refreshed) the vectors in
         # this pass, so a later construction change is detected as a rebuild.
         manifest.set_meta("embed_format", EMBED_FORMAT)
-        write_fingerprint(manifest, current_fp)
+        # DEFERRED when the manifest was built by newer code than this process
+        # (see the direction-aware guard above): stamping our own older
+        # fingerprint here is exactly the regression this pass must not make.
+        if not defer_fingerprint_write:
+            write_fingerprint(manifest, current_fp)
 
         # Unchanged files keep their manifest rows; ensure they're recorded
         # (status ok) for accurate file_count.

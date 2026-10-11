@@ -21,6 +21,7 @@ from code_indexer.config import Config  # noqa: E402
 from code_indexer.core import Core  # noqa: E402
 from code_indexer.fingerprint import (ConfigError, Fingerprint,  # noqa: E402
                                       fingerprint_mismatches,
+                                      manifest_newer_than,
                                       read_fingerprint)
 from code_indexer.graph_extract import EXTRACTION_VERSION  # noqa: E402
 from code_indexer.manifest import Manifest  # noqa: E402
@@ -266,3 +267,84 @@ def test_legacy_manifest_backfills_without_reindex(rig):
         assert fp is not None and fp.embed_model == "stub-model"
     finally:
         m.close()
+
+
+# ---------------------------------------------------------------------------
+# direction-aware fingerprint guard (issue #10 item 3)
+# ---------------------------------------------------------------------------
+
+def test_manifest_newer_than_is_directional():
+    """Only a version-ordered key recorded HIGHER says 'newer code'; a model
+    or dimension difference is a plain mismatch, not a version ordering."""
+    cur = Fingerprint("m", 4, "contextual-header-v1", 1, extraction_version=3)
+    older = Fingerprint("m", 4, "contextual-header-v1", 1, extraction_version=1)
+    newer = Fingerprint("m", 4, "contextual-header-v1", 1, extraction_version=4)
+    assert manifest_newer_than(older, cur) is False   # upgrade path
+    assert manifest_newer_than(cur, cur) is False
+    assert manifest_newer_than(newer, cur) is True    # beyond this process
+    assert manifest_newer_than(None, cur) is False
+    # chunker_version counts too
+    assert manifest_newer_than(
+        Fingerprint("m", 4, "contextual-header-v1", 5, extraction_version=3),
+        cur) is True
+    # a model/dim difference is NOT a version ordering
+    assert manifest_newer_than(
+        Fingerprint("other", 8, "contextual-header-v1", 1,
+                    extraction_version=3), cur) is False
+
+
+def _recorded_extraction_version(core, entry) -> int | None:
+    m = core.manifest_for(entry.slug)
+    try:
+        fp = read_fingerprint(m)
+        return fp.extraction_version if fp is not None else None
+    finally:
+        m.close()
+
+
+def test_older_manifest_rebuilds_and_restamps(rig):
+    """Direction 1 (legitimate upgrade): a manifest built by OLDER code is
+    rebuilt by the newer process and re-stamped to the current version.
+    MEASURED — real re-embedding happens, it is not merely asserted."""
+    core, reg, entry, project, store = rig
+    core.run_index(entry.slug, project)
+    m = core.manifest_for(entry.slug)
+    m.set_meta("extraction_version", str(EXTRACTION_VERSION - 1))
+    m.close()
+    store.upserts.clear()
+    result = core.run_index(entry.slug, project)
+    assert result["state"] == "idle"
+    assert result["result"]["chunks_embedded"] > 0, "upgrade path must re-embed"
+    assert sum(n for _, n in store.upserts) > 0
+    assert _recorded_extraction_version(core, entry) == EXTRACTION_VERSION
+
+
+def test_newer_manifest_defers_the_restamp_and_does_not_reembed(rig, caplog):
+    """Direction 2 (the failure): a manifest built by NEWER code must not be
+    re-embedded by this older process, nor re-stamped with the older version.
+    MEASURED — zero chunks embedded, zero upserts, recorded value untouched —
+    and the warning names the project, both fingerprints and the remedy."""
+    import logging
+
+    core, reg, entry, project, store = rig
+    core.run_index(entry.slug, project)
+    newer = EXTRACTION_VERSION + 1
+    m = core.manifest_for(entry.slug)
+    m.set_meta("extraction_version", str(newer))
+    m.close()
+    store.upserts.clear()
+    with caplog.at_level(logging.WARNING, logger="code-indexer.indexer"):
+        result = core.run_index(entry.slug, project)
+    assert result["state"] == "idle"
+    # NOT re-embedded: the direction-blind path would have set rebuild=True
+    # and re-embedded the whole project with this process's older code.
+    assert result["result"]["chunks_embedded"] == 0
+    assert sum(n for _, n in store.upserts) == 0
+    # The newer recorded value is left alone — our older version is not stamped.
+    assert _recorded_extraction_version(core, entry) == newer
+    text = caplog.text
+    assert entry.slug in text
+    assert f"extr={newer}" in text          # the recorded (newer) fingerprint
+    assert f"extr={EXTRACTION_VERSION}" in text  # this process's own
+    assert "NEWER code" in text
+    assert "unwatch" in text and "reindex-project" in text
