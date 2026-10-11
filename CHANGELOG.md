@@ -26,6 +26,23 @@
   `fingerprint.rows_staleness_warning`. `search` remains fatal on a
   fingerprint mismatch, unchanged.
 
+## [Unreleased] — the orphan sweep (issue #11)
+
+- **new `sweep-orphans` subcommand clears deleted-file residue (issue #11).**
+  A row in `refs`, `imports` or `symbols` whose `file` has no `files` row and
+  whose file is gone from the working tree is residue from a deletion that did
+  not clean up. The command is a **dry run by default**: it prints the
+  per-table counts and the file list it would clear and changes nothing;
+  `--apply` removes them in one transaction and reports the count removed. It
+  reads the manifest directly and never triggers an index pass. No implicit
+  purge is added to the pass.
+- **the delete path now purges `imports` rows too (issue #11).** This is the
+  one behaviour change in this leg: `Manifest.delete_files` removed `files`,
+  `symbols` and `refs` rows for a deleted path but skipped `imports`, so every
+  deletion left that file's import rows behind as orphans. New deletions no
+  longer accrue that residue; `sweep-orphans` clears what earlier ones already
+  left.
+
 ## [Unreleased] — require scoping, pidfile-probe honesty, a vacuous assertion (issues #12, #14, #15)
 
 **This round needs a rebuild**: `EXTRACTION_VERSION` is `4`, so every existing

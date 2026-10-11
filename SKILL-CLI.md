@@ -158,6 +158,7 @@ code-indexer changed-symbols [--project P] [--base HEAD] [--head REF] [--staged]
 # lifecycle
 code-indexer index-status /path/repo [--refresh]
 code-indexer doctor [--json]              # health check; exit 1 on any fail
+code-indexer sweep-orphans /path/repo [--apply] [--json]   # residue rows for deleted files; dry-run by default
 code-indexer reindex-project /path/repo   # full rebuild, foreground
 code-indexer watch /path/repo [--duration 300] [--background]   # optional inotify re-index daemon
 code-indexer watch --all                  # watch every registered project
@@ -307,7 +308,7 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
   (`--start-line/--end-line`) or the lines around a symbol
   (`--symbol Foo::bar`), optionally padded with `--context-lines N`. Never
   read whole files; this answers "show me the code" questions.
-- **index-status / doctor / reindex-project / remove-project / watch / unwatch** — index
+- **index-status / doctor / sweep-orphans / reindex-project / remove-project / watch / unwatch** — index
   lifecycle. Two state vocabularies (see "State meanings" above): the
   **pass state** `idle | indexing | never-indexed | error` describes indexing
   passes; the **fingerprint state** `ok | needs-reindex` describes whether the
@@ -347,6 +348,20 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
   line names the live watcher when a mismatch is present. Dev/ops surface —
   CLI-only, no MCP tool; agents use index-status instead. Run it when
   searches misbehave or after changing OLLAMA_URL/QDRANT_URL/EMBED_MODEL.
+- **sweep-orphans** — clear residue rows left by a file deletion. A row in
+  `refs`, `imports` or `symbols` whose `file` has no `files` row **and** whose
+  file is absent from the working tree is residue. The command is a **dry run
+  by default**: it prints the per-table counts and the file list it would
+  clear and changes nothing; `--apply` removes them in one transaction and
+  reports the count. It reads the manifest directly (no index pass, no
+  Ollama). The tree check is a guard — "no files row" and "the file is gone"
+  are different predicates; the dry run plus the reported count is the real
+  safety property. A path with rows but no `files` row that IS present on
+  disk is reported and left alone. New deletions no longer create `imports`
+  residue (the delete path purges `imports` too), but this sweep clears what
+  earlier deletions left behind. CLI-only (no MCP tool); the owner decides
+  when to `--apply` on a live index.
+
 ## Token reduction (schema v3)
 
 Signatures + visibility are extracted at index time (schema v3;

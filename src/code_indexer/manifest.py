@@ -219,7 +219,15 @@ class Manifest:
             )
 
     def delete_files(self, paths: list[str]) -> None:
-        """Remove file rows AND their symbol/ref rows in one transaction."""
+        """Remove file rows AND their symbol/ref/import rows in one transaction.
+
+        ``imports`` is purged here too. It was originally omitted, so every
+        deletion left the file's import rows behind as orphans (the ``files``
+        row is the authoritative "this path is indexed" record; a row in
+        another table without one is residue). The orphan sweep
+        (``orphan_rows``) clears what earlier deletions already left, and this
+        keeps new deletions from adding to it.
+        """
         with self._conn:
             self._conn.executemany(
                 "DELETE FROM files WHERE path = ?", [(p,) for p in paths]
@@ -230,6 +238,33 @@ class Manifest:
             self._conn.executemany(
                 "DELETE FROM refs WHERE file = ?", [(p,) for p in paths]
             )
+            self._conn.executemany(
+                "DELETE FROM imports WHERE file = ?", [(p,) for p in paths]
+            )
+
+    # -- orphan sweep ----------------------------------------------------
+
+    _FILE_KEYED_TABLES = ("refs", "imports", "symbols")
+
+    def orphan_rows(self) -> dict[str, dict[str, int]]:
+        """Rows in ``refs``/``imports``/``symbols`` whose ``file`` has NO row
+        in ``files``, as ``{file: {table: row_count}}``.
+
+        "No ``files`` row" and "the file is gone from the tree" are DIFFERENT
+        predicates, and the schema does not tie them together, so this method
+        answers only the first; the tree check is a separate guard applied by
+        the caller (``Core.sweep_orphans``), which also owns the safety
+        property (dry run by default + a reported count).
+        """
+        out: dict[str, dict[str, int]] = {}
+        for table in self._FILE_KEYED_TABLES:
+            rows = self._conn.execute(
+                f"SELECT file, COUNT(*) FROM {table} "
+                "WHERE file NOT IN (SELECT path FROM files) GROUP BY file"
+            ).fetchall()
+            for path, count in rows:
+                out.setdefault(path, {})[table] = int(count)
+        return out
 
     # -- symbols / refs --------------------------------------------------
 

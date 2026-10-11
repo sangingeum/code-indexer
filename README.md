@@ -76,7 +76,7 @@ The agent workflow (overview → skeleton → search → get-code-context) is in
 | `deps` | `deps` |
 | `changed-symbols` | `changed_symbols` |
 | `get-code-context` | `get_code_context` |
-| `overview`, `index-more`, `doctor`, `watch`, `unwatch`, `eval`, `eval-compare` | **CLI-only** (no MCP tool) |
+| `overview`, `index-more`, `doctor`, `watch`, `unwatch`, `sweep-orphans`, `eval`, `eval-compare` | **CLI-only** (no MCP tool) |
 
 MCP options are a subset of CLI flags; the MCP tool schemas (see
 `src/code_indexer/server.py`) are the source of truth for what each tool

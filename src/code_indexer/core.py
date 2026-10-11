@@ -444,6 +444,47 @@ class Core:
         return rows_staleness_warning(recorded, current_version_stamp())
 
     # ------------------------------------------------------------------
+    # orphan sweep
+    # ------------------------------------------------------------------
+
+    def sweep_orphans(self, entry: ProjectEntry, project_path: str,
+                      apply: bool = False) -> dict[str, Any]:
+        """Find (and optionally remove) residue rows for files that are gone.
+
+        A sweep candidate is a row in ``refs``/``imports``/``symbols`` whose
+        ``file`` has no ``files`` row AND whose file is absent from the
+        project's working tree. The tree check is DEFENCE IN DEPTH, not a
+        demonstrably necessary predicate — "no files row" and "the file is
+        gone" are different conditions and the schema does not tie them
+        together, so the guard is a cheap second opinion. The real safety
+        property is the dry run plus the reported count: ``apply=False``
+        (the default) prints what it WOULD clear and changes nothing.
+
+        Deletion, when asked for, is one transaction (``Manifest.delete_files``)
+        that reports the count removed. No implicit purge is added to the
+        index pass — that would change pass behaviour and is a separate owner
+        decision.
+        """
+        m = self.manifest_for(entry.slug)
+        try:
+            orphan_map = m.orphan_rows()
+            gone = {f: counts for f, counts in orphan_map.items()
+                    if not os.path.exists(os.path.join(project_path, f))}
+            kept = sorted(set(orphan_map) - set(gone))
+            per_table = {table: sum(c.get(table, 0) for c in gone.values())
+                         for table in m._FILE_KEYED_TABLES}
+            files = sorted(gone)
+            removed = 0
+            if apply and files:
+                removed = sum(sum(c.values()) for c in gone.values())
+                m.delete_files(files)
+        finally:
+            m.close()
+        return {"apply": apply, "files": files, "per_table": per_table,
+                "total": sum(per_table.values()), "removed": removed,
+                "present_on_disk_kept": kept}
+
+    # ------------------------------------------------------------------
     # search
     # ------------------------------------------------------------------
 

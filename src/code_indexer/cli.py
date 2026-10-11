@@ -681,6 +681,61 @@ def index_status(
     typer.echo(" ".join(parts))
 
 
+@app.command(name="sweep-orphans")
+def sweep_orphans(
+    path: str = typer.Argument(..., help="Registered project path."),
+    apply: bool = typer.Option(
+        False, "--apply",
+        help="Actually delete the orphan rows. Default is a dry run that "
+             "prints what it would clear and changes nothing."),
+    json_output: bool = typer.Option(False, "--json", help="JSON output."),
+    skip_stale_check: bool = SkipOpt,
+) -> None:
+    """Remove residue rows for files that are gone from the project tree.
+
+    A row in `refs`, `imports` or `symbols` whose `file` has NO `files` row
+    and whose file is absent from the working tree is residue from a deletion
+    that did not clean up after itself (the delete path historically skipped
+    `imports`). This sweep reports those rows and — only with `--apply` —
+    removes them in one transaction, reporting the count removed.
+
+    Dry run by default: it prints the per-table counts and the file list it
+    would clear and does nothing else. The tree check is a guard ("no files
+    row" and "the file is gone" are different predicates); the real safety
+    property is the dry run plus the reported count. Reads the manifest
+    directly and never triggers an index pass. CLI-only index-maintenance
+    surface (no MCP tool)."""
+    core = _get_core(skip_stale_check)
+    path = os.path.abspath(os.path.expanduser(path))
+    entry = core.registry.get_by_path(path)
+    if entry is None:
+        _die(f"error: not registered: {path}")
+    result = core.sweep_orphans(entry, entry.path, apply=apply)
+    if json_output:
+        typer.echo(json.dumps({"project": entry.path, **result},
+                              ensure_ascii=False))
+        return
+    counts = result["per_table"]
+    counts_line = " ".join(
+        f"{table}={counts[table]}" for table in ("refs", "imports", "symbols"))
+    if apply:
+        typer.echo(f"project={entry.path} applied files={len(result['files'])} "
+                   f"removed={result['removed']} {counts_line}")
+    else:
+        typer.echo(f"project={entry.path} dry-run files={len(result['files'])} "
+                   f"total={result['total']} {counts_line}")
+    for f in result["files"]:
+        typer.echo(f"- {f}")
+    if result["present_on_disk_kept"]:
+        typer.echo(
+            f"note: {len(result['present_on_disk_kept'])} path(s) with rows but "
+            "no files row are still present on disk and were left alone: "
+            + ", ".join(result["present_on_disk_kept"]), err=True)
+    if not apply and result["files"]:
+        typer.echo("note: dry run — nothing was deleted; pass --apply to "
+                   "remove these rows", err=True)
+
+
 @app.command(name="reindex-project")
 def reindex_project(
     path: str = typer.Argument(..., help="Registered project path."),
