@@ -336,21 +336,28 @@ def check_locks(cfg: Config) -> list[Check]:
         # writer emits "<pid> <iso-timestamp>", so a whole-file int() parse
         # fails on every live watcher). A held flock is a live holder; a free
         # flock with a pidfile present is genuine stale residue (e.g. a
-        # SIGKILLed watcher that could not unlink it).
-        from .watcher import pidfile_is_free, read_pid
-        watch_held = not pidfile_is_free(pid_path)
+        # SIGKILLed watcher that could not unlink it). A pidfile that cannot be
+        # probed at all (unopenable) is UNKNOWN — reported as its own warning,
+        # never folded into the stale message.
+        from .watcher import pidfile_liveness, read_pid
+        liveness = pidfile_liveness(pid_path)
         pid = read_pid(pid_path)
-        if not watch_held:
+        if liveness == "free":
             checks.append(Check(
                 WARN, "watch",
                 f"stale pidfile (pid {pid} not running); "
                 f"run: code-indexer unwatch"))
-        elif pid is not None:
+        elif liveness == "held" and pid is not None:
             checks.append(Check(OK, "watch", f"running (pid {pid})"))
-        else:
+        elif liveness == "held":
             # Held but the pid token is unreadable/unparseable: still live,
             # just not attributable to a pid.
             checks.append(Check(OK, "watch", "running (pid unreadable)"))
+        else:  # unknown: the probe could not open the pidfile
+            checks.append(Check(
+                WARN, "watch",
+                f"liveness unknown: {pid_path} is present but could not be "
+                f"opened, so whether a watcher is running cannot be told"))
     else:
         checks.append(Check(OK, "watch", "not running (pidfile absent)"))
 
@@ -435,14 +442,20 @@ def check_fingerprints(cfg: Config, registry: Any, embedder: Any) -> list[Check]
         # fingerprint every sweep, so name it here and state the documented
         # fix order (stop all watchers → reindex → restart them on the new
         # code). The flock, not the pid text, decides whether one is live.
-        from .watcher import pidfile_is_free, read_pid
+        from .watcher import pidfile_liveness, read_pid
         pid_path = os.path.join(cfg.index_root, "watch.pid")
         note = ""
-        if os.path.isfile(pid_path) and not pidfile_is_free(pid_path):
-            holder = read_pid(pid_path)
-            who = f"pid {holder}" if holder is not None else "pid unreadable"
-            note = (f"a live watcher ({who}) may be running different code and "
-                    f"re-stamping this; stop all watchers first; ")
+        if os.path.isfile(pid_path):
+            liveness = pidfile_liveness(pid_path)
+            if liveness == "held":
+                holder = read_pid(pid_path)
+                who = f"pid {holder}" if holder is not None else "pid unreadable"
+                note = (f"a live watcher ({who}) may be running different code "
+                        f"and re-stamping this; stop all watchers first; ")
+            elif liveness == "unknown":
+                note = ("a watcher's pidfile is present but could not be "
+                        "probed, so whether one is re-stamping this is "
+                        "unknown; stop all watchers first; ")
         return [Check(
             WARN, "fingerprint",
             "needs-reindex — " + "; ".join(issues)

@@ -852,8 +852,9 @@ def unwatch(
     are reported, with a note when they do not cover everything requested.
 
     No watcher running is a clean no-op: a one-line message and exit 0.
-    Exit 1 only when a live holder could not be stopped (`--timeout`
-    elapsed, or its pid is unreadable).
+    Exit 1 when a live holder could not be stopped (`--timeout` elapsed, or
+    its pid is unreadable), or when a pidfile that exists could not be probed
+    (liveness unknown — absence is not claimed).
     """
     from .watcher import STOP_TIMEOUT_DEFAULT, stop_watcher
 
@@ -881,6 +882,13 @@ def unwatch(
     if state == "absent":
         typer.echo(f"unwatch: no watcher running (pidfile={pidfile_path})")
         raise typer.Exit(0)
+    if state == "unknown":
+        # The pidfile exists but could not be probed: do NOT claim no watcher.
+        typer.echo(
+            f"unwatch: cannot tell whether a watcher is running: "
+            f"{pidfile_path} exists but could not be opened; not claiming no "
+            f"watcher — check its permissions or stop it manually", err=True)
+        raise typer.Exit(1)
     if state == "unresolvable":
         typer.echo(
             f"unwatch: a live watcher holds {pidfile_path} but its pid is "
@@ -1046,9 +1054,12 @@ def _daemon_confirmed(daemon_pid: int, pidfile_path: str) -> bool:
     signal (``watcher.PidFileLock``): a daemon that has exited has released
     it, so a free flock means the startup order is reporting a dead process.
     """
-    from .watcher import pidfile_is_free
+    from .watcher import pidfile_liveness
 
-    if pidfile_is_free(pidfile_path):
+    # The bar is "alive AND still holds the pidfile flock": require the flock
+    # to read as held. An unopenable pidfile is not proven held (unknown), so
+    # the daemon is not confirmed either.
+    if pidfile_liveness(pidfile_path) != "held":
         return False
     try:
         os.kill(daemon_pid, 0)

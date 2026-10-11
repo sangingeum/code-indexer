@@ -22,6 +22,7 @@ from code_indexer.config import Config
 from code_indexer.core import Core
 from code_indexer.watcher import (
     pidfile_is_free,
+    pidfile_liveness,
     read_pid,
     stop_watcher,
 )
@@ -237,6 +238,92 @@ def test_pidfile_is_free_missing_and_held(tmp_path):
     finally:
         lock.release(unlink=True)
     assert pidfile_is_free(pidfile) is True
+
+
+def test_pidfile_liveness_three_states(tmp_path):
+    """free / held / unknown: the probe opens the pidfile read-only, so a
+    pidfile this user may read but not write is still probed correctly
+    (issue #14)."""
+    from code_indexer.watcher import PidFileLock
+
+    pidfile = str(tmp_path / "watch.pid")
+    assert pidfile_liveness(pidfile) == "free"  # absent: no holder
+
+    lock = PidFileLock(pidfile)
+    try:
+        assert lock.acquire() is True
+        assert pidfile_liveness(pidfile) == "held"
+    finally:
+        lock.release(unlink=True)
+
+    # Present but unheld -> genuinely free.
+    with open(pidfile, "w") as fh:
+        fh.write("999999 now\n")
+    assert pidfile_liveness(pidfile) == "free"
+
+
+def test_pidfile_liveness_unknown_when_unopenable(tmp_path, monkeypatch):
+    """An unopenable pidfile is 'unknown', NOT 'free', and 'unknown' maps to
+    'not proven free' in the boolean helper.
+
+    Honest limit: as one user a genuinely unopenable pidfile cannot be
+    constructed, so this branch is witnessed by forcing ``os.open`` to fail
+    with a permission error — it is NOT reproduced with real cross-user
+    permissions.
+    """
+    from code_indexer import watcher as watcher_mod
+
+    pidfile = str(tmp_path / "watch.pid")
+    with open(pidfile, "w") as fh:
+        fh.write("123 now\n")
+
+    real_open = os.open
+
+    def deny(path, flags, *a, **k):
+        if str(path) == pidfile:
+            raise PermissionError(13, "Permission denied", path)
+        return real_open(path, flags, *a, **k)
+
+    monkeypatch.setattr(watcher_mod.os, "open", deny)
+    assert watcher_mod.pidfile_liveness(pidfile) == "unknown"
+    assert watcher_mod.pidfile_is_free(pidfile) is False
+
+
+def test_stop_watcher_reports_unknown_and_does_not_claim_absence(
+        tmp_path, monkeypatch):
+    """A probe that cannot tell must not be reported as 'absent' and must not
+    unlink the pidfile (issue #14)."""
+    from code_indexer import watcher as watcher_mod
+
+    pidfile = tmp_path / "watch.pid"
+    pidfile.write_text("123 now\n")
+    real_open = os.open
+
+    def deny(path, flags, *a, **k):
+        if str(path) == str(pidfile):
+            raise PermissionError(13, "Permission denied", path)
+        return real_open(path, flags, *a, **k)
+
+    monkeypatch.setattr(watcher_mod.os, "open", deny)
+    result = watcher_mod.stop_watcher(str(pidfile), timeout=0.1)
+    assert result["state"] == "unknown"
+    assert result["pid"] is None
+    assert pidfile.exists(), "an unknown probe must not unlink the pidfile"
+
+
+def test_unwatch_reports_unknown_and_does_not_claim_no_watcher(
+        core, project, monkeypatch):
+    """The CLI surfaces an unknown probe as exit 1 with a 'cannot tell' line,
+    never as the clean 'no watcher running' no-op (issue #14)."""
+    from code_indexer import watcher as watcher_mod
+
+    core.registry.add(str(project))
+    _patch_core(monkeypatch, core)
+    monkeypatch.setattr(watcher_mod, "pidfile_liveness", lambda p: "unknown")
+    result = runner.invoke(app, ["unwatch", "--all"])
+    assert result.exit_code == 1, result.output
+    assert "cannot tell whether a watcher is running" in result.output
+    assert "no watcher running" not in result.output
 
 
 def test_stop_watcher_absent_clears_stale_pidfile(tmp_path):

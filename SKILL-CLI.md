@@ -321,8 +321,11 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
   pidfile + locks, and per-project fingerprint status. The `watch` line
   reports liveness from the pidfile **flock** — a held flock is `running
   (pid <pid>)` (or `running (pid unreadable)`), and only a free flock with a
-  pidfile present is `stale pidfile`; the fingerprint line names the live
-  watcher when a mismatch is present. Dev/ops surface —
+  pidfile present is `stale pidfile`; a pidfile that cannot be opened at all
+  is reported as a distinct warning (`liveness unknown ...`), never as `stale`
+  or `running`. The probe opens the pidfile **read-only**, so a
+  readable-but-not-writable pidfile is still probed correctly. The fingerprint
+  line names the live watcher when a mismatch is present. Dev/ops surface —
   CLI-only, no MCP tool; agents use index-status instead. Run it when
   searches misbehave or after changing OLLAMA_URL/QDRANT_URL/EMBED_MODEL.
 
@@ -374,9 +377,11 @@ are not tracked); do not oversell it.
   flock to be released (default 10 s), and reports the projects that watcher
   was serving. The flock — never pid existence — is the liveness test, so a
   stale pidfile left by a killed watcher is cleaned up silently. No watcher
-  running is a clean no-op (one-line message, exit 0); exit 1 only when a
-  live holder could not be stopped (`--timeout` elapsed, or its pid is
-  unreadable). Arguments mirror `watch`: paths or `--all`, never both.
+  running is a clean no-op (one-line message, exit 0); exit 1 when a live
+  holder could not be stopped (`--timeout` elapsed, or its pid is unreadable),
+  or when a pidfile that exists could not be probed (liveness unknown —
+  absence is not claimed). Arguments mirror `watch`: paths or `--all`, never
+  both.
 
 ## Project selection
 

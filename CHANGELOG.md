@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] — require scoping and the extraction-version bump (issue #12)
+## [Unreleased] — require scoping, pidfile-probe honesty (issues #12, #14)
 
 **This round needs a rebuild**: `EXTRACTION_VERSION` is `4`, so every existing
 index reports `needs-reindex` and refuses queries until `reindex-project`
@@ -19,6 +19,19 @@ re-extracts. Existing live indexes were still recorded at `2` (never rebuilt to
   edit. The claim in the query comments that the pattern behaved "exactly as
   the C/C++ queries do" was inaccurate — the C/C++ capture matches the quoted
   include node only — and is corrected in place.
+- **the pidfile liveness probe no longer opens read-write (issue #14).**
+  `watcher.pidfile_is_free` opened the pidfile `O_RDWR` and returned "free" on
+  any `OSError`, so a live watcher whose pidfile this user cannot open
+  read-write read as free and `doctor` reported `stale pidfile` about a live
+  watcher. `flock` works on a read-only descriptor, so the probe now opens
+  `O_RDONLY`, and a new `watcher.pidfile_liveness(path) -> "free" | "held" |
+  "unknown"` distinguishes "cannot open at all" (unknown) from "free".
+  `pidfile_is_free` is kept for existing callers but maps unknown to *not
+  proven free*, so no caller turns ignorance into a confident negative.
+  `doctor`'s `watch` line renders unknown as a warning that is not the stale
+  message; `stop_watcher` gains an `unknown` state and its "no watcher
+  running" branch no longer claims absence on an unknown probe; `unwatch`
+  exits 1 with a "cannot determine" line for it.
 
 ## [Unreleased] — watcher and index-state hygiene (issue #10)
 

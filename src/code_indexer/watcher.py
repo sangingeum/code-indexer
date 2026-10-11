@@ -209,28 +209,50 @@ def _holder_roots(pid: int) -> list[str] | None:
     return roots
 
 
-def pidfile_is_free(pidfile_path: str) -> bool:
-    """True when no live process holds the flock on ``pidfile_path``.
+def pidfile_liveness(pidfile_path: str) -> str:
+    """Three-valued watcher-liveness probe: ``"free"``, ``"held"`` or
+    ``"unknown"``.
 
     The flock — never pid existence — is the liveness test (see
-    ``PidFileLock``); a missing file counts as free. Best effort: an
-    unopenable pidfile is reported as free.
+    ``PidFileLock``), and ``flock`` works on a read-only descriptor, so the
+    probe opens ``O_RDONLY``: a pidfile this user may read but not write is
+    still probed correctly (the cross-user / mode-restricted case issue #14
+    raised). A missing file has no holder and counts as ``"free"``. A file that
+    cannot be opened at all is ``"unknown"`` — the honest answer when the probe
+    genuinely cannot tell, so a caller never turns "cannot tell" into "stale".
+
+    Honest limit: as a single user a genuinely unopenable pidfile cannot be
+    constructed, so the ``"unknown"`` branch is witnessed in tests by forcing
+    the ``os.open`` call to fail (a monkeypatched permission error), not
+    reproduced with real cross-user permissions.
     """
     try:
-        fd = os.open(pidfile_path, os.O_RDWR)
+        fd = os.open(pidfile_path, os.O_RDONLY)
+    except FileNotFoundError:
+        return "free"
     except OSError:
-        return True
+        return "unknown"
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
-        return False
+        return "held"
     except OSError:
-        return True
+        return "unknown"
     else:
         fcntl.flock(fd, fcntl.LOCK_UN)
-        return True
+        return "free"
     finally:
         os.close(fd)
+
+
+def pidfile_is_free(pidfile_path: str) -> bool:
+    """True only when the pidfile is PROVEN free.
+
+    Kept for existing callers. ``"unknown"`` maps to ``False`` ("not proven
+    free"), so a caller never reads an unreadable pidfile as "no watcher is
+    running"; callers that must tell the two apart use ``pidfile_liveness``.
+    """
+    return pidfile_liveness(pidfile_path) == "free"
 
 
 def stop_watcher(pidfile_path: str,
@@ -245,6 +267,9 @@ def stop_watcher(pidfile_path: str,
     Returns one of:
 
     - ``{'state': 'absent', 'pid': None, 'roots': None}`` — no live holder;
+    - ``{'state': 'unknown', 'pid': None, 'roots': None}`` — the pidfile could
+      not be probed (unopenable), so whether a watcher is running is genuinely
+      undeterminable; absence is NOT claimed;
     - ``{'state': 'stopped', 'pid': p, 'roots': roots}`` — SIGTERM delivered
       and the flock released within ``timeout``;
     - ``{'state': 'timeout', 'pid': p, 'roots': roots}`` — still held after
@@ -255,10 +280,14 @@ def stop_watcher(pidfile_path: str,
     ``roots`` are the holder's watched project paths when recoverable
     (``/proc``), else None.
     """
-    if pidfile_is_free(pidfile_path):
+    liveness = pidfile_liveness(pidfile_path)
+    if liveness == "free":
         with contextlib.suppress(OSError):
             os.unlink(pidfile_path)
         return {"state": "absent", "pid": None, "roots": None}
+    if liveness == "unknown":
+        # Cannot tell whether a watcher is running: never claim absence.
+        return {"state": "unknown", "pid": None, "roots": None}
     pid = read_pid(pidfile_path)
     if not pid or pid <= 0:
         return {"state": "unresolvable", "pid": None, "roots": None}
@@ -267,7 +296,7 @@ def stop_watcher(pidfile_path: str,
         os.kill(pid, signal.SIGTERM)
     deadline = time.monotonic() + max(0.0, timeout)
     while time.monotonic() < deadline:
-        if pidfile_is_free(pidfile_path):
+        if pidfile_liveness(pidfile_path) == "free":
             with contextlib.suppress(OSError):
                 os.unlink(pidfile_path)
             return {"state": "stopped", "pid": pid, "roots": roots}
