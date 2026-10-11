@@ -46,6 +46,14 @@ NEVER_INDEXED = "never-indexed"
 # clears it by rebuilding.
 NEEDS_REINDEX = "needs-reindex"
 
+# The third value of the same vocabulary: the verdict could not be reached
+# (the running configuration needs an embedder dimension probe and the
+# embedder is unreachable). "Cannot verify" is its own value — never folded
+# into the pass state and never into the ok state, so an operator can tell
+# "the index is fine" from "I could not tell".
+UNVERIFIED = "unverified"
+UNVERIFIED_REASON = "embedder-unreachable"
+
 
 class Core:
     """Stateful core: owns config, registry, embedder, store, indexer.
@@ -328,7 +336,18 @@ class Core:
             return None
 
     def fingerprint_status(self, entry: ProjectEntry) -> dict[str, Any]:
-        """{'ok': bool, 'reason': str|None, 'recorded': str|None}.
+        """{'ok': bool, 'state': str, 'reason': str|None, 'recorded': str|None}.
+
+        ``state`` is the fingerprint vocabulary: ``ok`` (the index matches
+        the running configuration, or the manifest is legacy and will be
+        backfilled), ``needs-reindex`` (it verifiably does not match), or
+        ``unverified`` (the running configuration could not be probed —
+        the embedder is unreachable — so there is no verdict to give).
+        ``ok`` stays exactly "no KNOWN mismatch", so the query-path gate
+        (``assert_fingerprint_ok``) refuses what it always refused: a
+        project whose index is merely unverifiable is not turned into a
+        refusal here, because the query paths that need the embedder fail
+        on their own when it is genuinely unreachable.
 
         A manifest without a recorded fingerprint (legacy v3) counts as ok:
         the first indexing pass backfills it without forcing a reindex.
@@ -343,19 +362,22 @@ class Core:
                 m.close()
         current = self._current_fingerprint_or_none()
         if recorded is None:
-            return {"ok": True, "reason": None,
+            return {"ok": True, "state": "ok", "reason": None,
                     "recorded": None if recorded is None else recorded.describe()}
         if current is None:
             # Cannot verify right now; do not block (queries will fail on
-            # their own if the embedder is truly unreachable).
-            return {"ok": True, "reason": None,
+            # their own if the embedder is truly unreachable). Report the
+            # absence of a verdict as its own state so no caller has to
+            # guess whether a missing field means "fine" or "unknown".
+            return {"ok": True, "state": UNVERIFIED, "reason": UNVERIFIED_REASON,
                     "recorded": recorded.describe()}
         diffs = fingerprint_mismatches(recorded, current)
         if diffs:
-            return {"ok": False,
+            return {"ok": False, "state": NEEDS_REINDEX,
                     "reason": "; ".join(diffs),
                     "recorded": recorded.describe()}
-        return {"ok": True, "reason": None, "recorded": recorded.describe()}
+        return {"ok": True, "state": "ok", "reason": None,
+                "recorded": recorded.describe()}
 
     def assert_fingerprint_ok(self, entry: ProjectEntry) -> None:
         """Raise ConfigError when the index predates the current config.

@@ -16,9 +16,13 @@ import tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import pytest  # noqa: E402
+from typer.testing import CliRunner  # noqa: E402
 
+import code_indexer.cli as cli  # noqa: E402
+from code_indexer.cli import app  # noqa: E402
 from code_indexer.config import Config  # noqa: E402
-from code_indexer.core import Core  # noqa: E402
+from code_indexer.core import (UNVERIFIED, UNVERIFIED_REASON,  # noqa: E402
+                               Core)
 from code_indexer.fingerprint import (ConfigError, Fingerprint,  # noqa: E402
                                       fingerprint_mismatches,
                                       manifest_newer_than,
@@ -37,6 +41,16 @@ class StubEmbedder:
 
     def embed(self, texts):
         return [[0.1] * self.dim for _ in texts]
+
+
+class UnreachableEmbedder(StubEmbedder):
+    """An embedder whose dimension probe fails (Ollama unreachable)."""
+
+    def dimension(self) -> int:
+        raise RuntimeError("ollama unreachable")
+
+
+runner = CliRunner()
 
 
 class StubStore:
@@ -348,3 +362,54 @@ def test_newer_manifest_defers_the_restamp_and_does_not_reembed(rig, caplog):
     assert f"extr={EXTRACTION_VERSION}" in text  # this process's own
     assert "NEWER code" in text
     assert "unwatch" in text and "reindex-project" in text
+
+
+# ---------------------------------------------------------------------------
+# the unverifiable verdict (issue #18)
+# ---------------------------------------------------------------------------
+
+def test_unreachable_embedder_makes_the_verdict_unverified(rig):
+    """A verdict that cannot be reached is its own value, never a pass.
+
+    Reaching the verdict means probing the running configuration (the
+    embedder dimension). With the embedder unreachable there is no way to
+    compare the recorded fingerprint against the running one: that is
+    `unverified`, and `ok` keeps its meaning ("no KNOWN mismatch") so the
+    query-path gate refuses nothing new — the surfaces that need the
+    embedder fail on their own.
+    """
+    core, reg, entry, project, store = rig
+    core.run_index(entry.slug, project)      # a real recorded fingerprint
+    assert core.fingerprint_status(entry)["state"] == "ok"
+
+    core.embedder = UnreachableEmbedder()    # type: ignore[assignment]
+    status = core.fingerprint_status(entry)
+    assert status["state"] == UNVERIFIED
+    assert status["reason"] == UNVERIFIED_REASON
+    assert status["ok"] is True
+    assert status["recorded"] is not None
+    core.assert_fingerprint_ok(entry)        # unchanged: no new refusal
+
+
+def test_index_status_prints_the_unverified_verdict(rig, monkeypatch):
+    """`index-status` says "cannot verify" instead of saying nothing.
+
+    The field carries the reason, so a missing `fingerprint=` field can only
+    mean a verified match.
+    """
+    core, reg, entry, project, store = rig
+    core.run_index(entry.slug, project)
+    monkeypatch.setattr(cli, "_core", core)
+    monkeypatch.setattr(cli, "_core_skip", False)
+
+    verified = runner.invoke(app, ["index-status", entry.path])
+    assert verified.exit_code == 0, verified.output
+    assert "fingerprint=" not in verified.output   # matched: nothing to say
+    assert "state=idle" in verified.output
+
+    core.embedder = UnreachableEmbedder()  # type: ignore[assignment]
+    unverified = runner.invoke(app, ["index-status", entry.path])
+    assert unverified.exit_code == 0, unverified.output
+    assert "fingerprint=unverified reason=embedder-unreachable" in \
+        unverified.output
+    assert "needs-reindex" not in unverified.output

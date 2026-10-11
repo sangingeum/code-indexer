@@ -60,9 +60,9 @@ dive on an unfamiliar repo.
 **State meanings (two vocabularies — do not confuse them):** the *pass state*
 (`idle | indexing | never-indexed | error`) answers "is an indexing pass
 running / did one ever complete?"; the *fingerprint state*
-(`ok | needs-reindex`) answers "was the index built by the code and
-configuration running now?". `index-status`, `list-projects`, `lookup-project`
-and `doctor` report both: a project that owes a rebuild shows
+(`ok | needs-reindex | unverified`) answers "was the index built by the code
+and configuration running now?". `index-status`, `list-projects`,
+`lookup-project` and `doctor` report both: a project that owes a rebuild shows
 `fingerprint=needs-reindex reason=...` (or `state=needs-reindex`) even while its
 pass state is `idle`, so the two surfaces never contradict each other.
 `needs-reindex` means the index configuration changed (model, dimension,
@@ -71,7 +71,12 @@ with `ConfigError` until a reindex rebuilds it. That refusal is one line on
 stderr, `ConfigError: index for <path> was built with <recorded>; current is
 <current>; run: code-indexer reindex-project <path>`, exit 1 — the same
 one-line `<ErrorType>: <message>` shape every other failure in this CLI
-prints, never a traceback. The *manifest-only* surfaces
+prints, never a traceback. Reaching the verdict needs the embedder (a
+dimension probe), so on a host where the embedder is unreachable the verdict
+cannot be given: `index-status` then prints
+`fingerprint=unverified reason=embedder-unreachable` instead of omitting the
+field. "Cannot verify" is its own value — a missing `fingerprint=` field
+means the index matched. The *manifest-only* surfaces
 (`find-references`, `find-callers`, `find-callees`, `deps`, `skeleton`/`map`,
 `outline`/`file-outline`) still answer on such an index, with **one** stderr
 warning line when the stored rows may have been produced by a different
@@ -315,12 +320,18 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
 - **index-status / doctor / sweep-orphans / reindex-project / remove-project / watch / unwatch** — index
   lifecycle. Two state vocabularies (see "State meanings" above): the
   **pass state** `idle | indexing | never-indexed | error` describes indexing
-  passes; the **fingerprint state** `ok | needs-reindex` describes whether the
-  index was built by the current configuration. `index-status` prints the pass
+  passes; the **fingerprint state** `ok | needs-reindex | unverified`
+  describes whether the index was built by the current configuration.
+  `index-status` prints the pass
   state as `state=` and, when the fingerprint does not match, adds
   `fingerprint=needs-reindex reason=<diff>` — the same verdict
   `list-projects`/`lookup-project`/`doctor` give, so the surfaces never
-  contradict each other about whether a rebuild is owed. Meanings and agent
+  contradict each other about whether a rebuild is owed. When the running
+  configuration cannot be probed (the embedder is unreachable) the verdict is
+  `unverified` and `index-status` prints
+  `fingerprint=unverified reason=embedder-unreachable` — that third value is
+  never folded into the pass state, and a missing `fingerprint=` field means
+  the index matched. Meanings and agent
   action:
   `indexing` — a pass is running; wait/retry.
   `never-indexed` — registered but no completed pass (an interrupted

@@ -108,7 +108,11 @@ owes a rebuild therefore never reads as plainly `idle`, and the two surfaces
 never contradict each other. The manifest-only surfaces (`find-references`,
 `find-callers`, `find-callees`, `deps`, `skeleton`, `outline`) still answer on
 such an index, with one stderr warning when the stored rows may predate the
-current extraction code; only `search` refuses.
+current extraction code; only `search` refuses. Reaching that verdict needs a
+reachable embedder (a dimension probe), so when the embedder cannot be probed
+`index-status` prints `fingerprint=unverified reason=embedder-unreachable`
+instead of omitting the field — "cannot verify" is its own value, and a
+missing `fingerprint=` field means the index matched.
 
 ## How indexing / staleness works
 

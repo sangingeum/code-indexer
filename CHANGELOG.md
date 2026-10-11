@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased] — "cannot verify" is a verdict of its own (issue #18)
+
+- **`index-status` no longer goes silent when the fingerprint verdict cannot
+  be reached (issue #18).** Reaching that verdict means probing the running
+  configuration — asking the embedder for its dimension — so on a host where
+  the embedder is unreachable the probe fails and the status call has no
+  answer to give. It used to give none *visibly*: the field was simply
+  omitted, leaving an operator unable to tell "the index matches" from "I
+  could not tell", which is the misleading-by-omission shape the surrounding
+  fix exists to remove. The fingerprint vocabulary now carries a third
+  value: `index-status` prints
+  `fingerprint=unverified reason=embedder-unreachable` in that case, and a
+  missing `fingerprint=` field now means exactly one thing — the index
+  matches the running configuration. "Cannot verify" is its own value and is
+  never folded into the pass state; `needs-reindex` still means a *verified*
+  mismatch. Nothing else moves: a merely unverifiable index is not made a
+  refusal (`ok` keeps its meaning of "no known mismatch"), so which surfaces
+  refuse is unchanged and no emitted fingerprint state is re-stamped. The
+  command's help text and `SKILL-CLI.md` state the behaviour.
+
 ## [Unreleased] — the fingerprint refusal renders as one line (issue #16)
 
 - **a mismatched index now refuses with one clean error line, not a rich

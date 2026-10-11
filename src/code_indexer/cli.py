@@ -20,7 +20,8 @@ import typer
 logger = logging.getLogger("code-indexer.cli")
 
 from .errors import fail
-from .core import NEVER_INDEXED, Core, MIGRATION_HINT
+from .core import (NEEDS_REINDEX, NEVER_INDEXED, UNVERIFIED, Core,
+                   MIGRATION_HINT)
 from .doctor import run_doctor
 from . import graph
 from . import overview as overview_mod
@@ -611,6 +612,14 @@ def index_status(
     pass state — the same verdict `list-projects`/`doctor` give — so a
     project that owes a rebuild never reads as plainly idle here, and the
     two surfaces can never contradict each other.
+
+    Reaching that verdict means probing the running configuration (asking
+    the embedder for its dimension). When the embedder is unreachable the
+    verdict is unverifiable, and the field says so explicitly:
+    `fingerprint=unverified reason=embedder-unreachable`. "Cannot verify"
+    is its own value here — never folded into the pass state and never
+    silently omitted, so a missing `fingerprint=` field means "matched",
+    not "could not tell".
     """
     core = _get_core(skip_stale_check)
     path = os.path.abspath(os.path.expanduser(path))
@@ -627,8 +636,13 @@ def index_status(
     # and list-projects/doctor already call it needs-reindex; index-status
     # must give the same verdict rather than a plain idle.
     fp = core.fingerprint_status(entry)
-    if not fp["ok"]:
+    if fp["state"] == NEEDS_REINDEX:
         parts.append(f"fingerprint=needs-reindex reason={fp['reason']}")
+    elif fp["state"] == UNVERIFIED:
+        # Verdict unavailable (the embedder could not be probed). Say which
+        # it is rather than omitting the field: a bare pass state would read
+        # exactly like a verified match.
+        parts.append(f"fingerprint=unverified reason={fp['reason']}")
     if st.get("last_result"):
         parts.append(f"last_pass={st['last_result']}")
     if st.get("progress"):
