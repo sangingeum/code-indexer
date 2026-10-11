@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] — require scoping, pidfile-probe honesty (issues #12, #14)
+## [Unreleased] — require scoping, pidfile-probe honesty, a vacuous assertion (issues #12, #14, #15)
 
 **This round needs a rebuild**: `EXTRACTION_VERSION` is `4`, so every existing
 index reports `needs-reindex` and refuses queries until `reindex-project`
@@ -32,6 +32,15 @@ re-extracts. Existing live indexes were still recorded at `2` (never rebuilt to
   message; `stop_watcher` gains an `unknown` state and its "no watcher
   running" branch no longer claims absence on an unknown probe; `unwatch`
   exits 1 with a "cannot determine" line for it.
+- **a test assertion that could never fail (issue #15).**
+  `tests/test_graph.py` compared a reference row's `from_symbol` (index 1)
+  against line numbers while meaning the line (index 0), so the
+  "names only in comments/strings are never captured" property was untested.
+  The assertion now indexes the line field, and the positive direction (the
+  same name IS captured from real code, on its line) is pinned alongside it.
+  The repaired assertion was then proven to fail under a mutation that lets
+  the AST path also match string content, and to pass again once the file was
+  restored byte-exact.
 
 ## [Unreleased] — watcher and index-state hygiene (issue #10)
 

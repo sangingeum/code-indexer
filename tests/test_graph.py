@@ -67,9 +67,17 @@ def test_python_extraction_known_edges():
     assert ("refresh_token", "call") in ref_names
     assert ("other_fn", "call") in ref_names
     assert ("Base", "base_class") in ref_names
-    # False positives: names ONLY in comments/strings never captured.
-    assert all(r[1] != 10 and r[1] != 11 for r in refs
+    # False positives: names ONLY in comments/strings never captured. The row
+    # is (line, from_symbol, to_name, relationship, receiver) — the LINE is
+    # index 0, so guard the line against the comment (line 10) and the string
+    # (line 11). (Indexing r[1] here measured from_symbol, a name, against
+    # line numbers: vacuous — issue #15.)
+    assert all(r[0] != 10 and r[0] != 11 for r in refs
                if r[2] == "refresh_token")
+    # The same name IS captured from real code (line 7) — the positive
+    # direction, so the guard above is not satisfied by capturing nothing.
+    assert any(r[0] == 7 and r[2] == "refresh_token" and r[3] == "call"
+               for r in refs)
 
 
 def test_ts_extraction():
