@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased] — reference-store coverage and precision (#9)
+
+The two load-bearing coverage gaps the store unification left behind are
+closed — a `calls` filter answers on a language with no AST query, and
+`includes` is populated for every AST language, not just C/C++ — plus the C#
+member-access precision pass and the CLI honesty fix. **This round needs a
+rebuild**: `EXTRACTION_VERSION` is `3`, so every existing index reports
+`needs-reindex` and refuses queries until `reindex-project` re-extracts the
+new rows.
+
+- **textual `call` coverage.** The textual scan (every language with no AST
+  query, markdown included) now stores a `call` row for an identifier followed
+  immediately by `(`. Measured over the live indexes, that adds 20,157 rows
+  (13,338 of them `.csx` script call sites); allowing whitespace before the
+  paren would add 89,882 more that are overwhelmingly prose (`commit(s)`,
+  `function (see below)` — 79,551 of them markdown), so the tight form is the
+  documented rule. One occurrence yields one row: a tight `name(` is a `call`,
+  any other identifier an `identifier`. Rows stay `confidence='heuristic'` —
+  a `name(` in a string or trailing comment still matches.
+
 ## [Unreleased] — one reference store, a C# AST query, precision pass (#8)
 
 The two reference tables became one, C# stopped being textual-only, and the

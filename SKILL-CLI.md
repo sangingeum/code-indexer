@@ -239,11 +239,14 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
   `member`, confidence `ast`) for `python`/`typescript`/`tsx`/`javascript`/
   `c`/`cpp`/`go`/`csharp` — `member` is a member access read such as a C#
   property/field, and `call`/`member` rows record `receiver=` (the receiver
-  expression as written) when it is a plain identifier — plus a textual
-  identifier scan (`identifier`) and `includes` import/include lines
-  (confidence `heuristic`) for every other language. The textual scan skips
-  lines that BEGIN with `#`, `//`, `*` or `--`; trailing comments and strings
-  DO match, so those rows are heuristic and may be false positives. A bare
+  expression as written) when it is a plain identifier — plus a textual scan
+  for every other language (confidence `heuristic`): an identifier followed
+  IMMEDIATELY by `(` is a `call` row, any other identifier is an `identifier`
+  row (one row per occurrence — a call site is not also reported as an
+  identifier), and an import/include line yields an `includes` row. The
+  textual scan skips lines that BEGIN with `#`, `//`, `*` or `--`; trailing
+  comments and strings DO match, so those rows are heuristic and may be false
+  positives. A bare
   `no references to X` is printed only when the store has none, and a call is
   stored once, so a same call no longer appears twice.
   `--relationship` filters the reported vocabulary

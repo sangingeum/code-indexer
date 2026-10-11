@@ -94,6 +94,27 @@ def test_heuristic_fallback_flags_confidence():
     assert any(r[2] == "helper" for r in refs)
 
 
+def test_textual_scan_emits_a_call_row_for_a_tight_name_paren():
+    """Item A: a language with no AST query still answers a `calls` filter."""
+    src = (
+        "use std::io;\n"
+        "fn main() { helper(); }\n"
+        "let value = compute (x);\n"
+        "let other = plain_name;\n"
+        "# comment_lead();\n"
+    )
+    _imports, refs = extract_graph_textual("a.rs", src)
+    pairs = {(r[2], r[3]) for r in refs}
+    assert ("helper", "call") in pairs
+    # A name with whitespace before the paren is NOT a call (the prose shape).
+    assert ("compute", "identifier") in pairs
+    assert ("plain_name", "identifier") in pairs
+    # One occurrence yields one row — a call site is not also an identifier.
+    assert sum(1 for r in refs if r[2] == "helper") == 1
+    # A comment-leading line is skipped entirely, so no call row for it.
+    assert not any(r[2] == "comment_lead" for r in refs)
+
+
 def test_import_resolution_python_relative_and_src():
     import tempfile
     root = tempfile.mkdtemp()
@@ -153,6 +174,10 @@ def _rig(tmp_path, monkeypatch):
     (project / "main.c").write_text(
         '#include "util.h"\nint main() { helper(); return 0; }\n')
     (project / "util.h").write_text("void helper(void);\n")
+    # A textual-fallback language (no AST query): item A adds a `call` row for
+    # a tight `name(` occurrence here.
+    (project / "worker.rs").write_text(
+        "use std::io;\nfn main() { helper(); }\n")
     core = Core(cfg)
 
     class StubEmbedder:
@@ -218,6 +243,20 @@ def test_indexer_populates_graph_tables(tmp_path, monkeypatch):
         assert all(c["confidence"] == "ast" for c in callers)
         # The comment-only mention produced no ref row on that line.
         assert all(c["line"] != 5 for c in callers)
+    finally:
+        m.close()
+
+
+def test_textual_language_stores_a_heuristic_call_row(tmp_path, monkeypatch):
+    """Item A end-to-end: the `call` row survives to the store, heuristic."""
+    core, reg, entry, project = _rig(tmp_path, monkeypatch)
+    m = core.manifest_for(entry.slug)
+    try:
+        rows = m.callers_of("helper")
+        rust = [r for r in rows if r["file"] == "worker.rs"]
+        assert rust, rows
+        assert rust[0]["relationship"] == "call"
+        assert rust[0]["confidence"] == "heuristic"
     finally:
         m.close()
 

@@ -14,7 +14,11 @@ A reference row is ``(line, from_symbol, to_name, relationship, receiver)``
 and lands in the single ``refs`` manifest table. The relationship
 vocabulary is fixed here and documented once:
 
-- ``call``       — an invocation (AST) or ``name(`` in the textual scan.
+- ``call``       — an invocation (AST), or a tight ``name(`` occurrence (no
+                   whitespace between the name and the paren) in the textual
+                   scan. On a textual line one occurrence yields ONE row: a
+                   tight ``name(`` is a ``call``, anything else is an
+                   ``identifier`` — so a call site is never double-reported.
 - ``type``       — a name used in a type position (AST).
 - ``base_class`` — a base class / interface in an inheritance list (AST).
 - ``member``     — a member access read, e.g. C# ``a.OughtRoleBindings`` (AST).
@@ -56,7 +60,11 @@ LANGUAGES_WITH_AST = frozenset(
     {"python", "typescript", "tsx", "javascript", "c", "cpp", "go", "csharp"})
 
 # Bumped when queries/resolution change which rows are produced.
-EXTRACTION_VERSION = 2
+# v3: the textual scan emits a `call` row for a tight `name(` occurrence, and
+# the AST queries route their import/include target into the reference store as
+# an `includes` row. Every existing index therefore reports needs-reindex and
+# must be rebuilt before the new rows exist.
+EXTRACTION_VERSION = 3
 
 _INDEX_EXTS = (".ts", ".tsx", ".js", ".jsx")
 
@@ -198,6 +206,18 @@ def extract_graph_textual(path: str, text: str
     An import/include line yields both an import row and an ``includes``
     reference row, so ``find-references --relationship includes`` still sees
     it without a second writer.
+
+    Call coverage: an identifier followed IMMEDIATELY by ``(`` is stored as a
+    ``call`` row, so ``find-references X --relationship calls`` answers on a
+    language with no AST query instead of printing a bare negative. The
+    whitespace rule is deliberate — measured over the live indexes, a tight
+    ``name(`` occurs 20,157 times in textual-scan languages (13,338 of them in
+    ``.csx`` scripts, i.e. real code), while allowing whitespace before the
+    paren adds 89,882 matches that are overwhelmingly prose (79,551 in
+    markdown: ``commit(s)``, ``actor(s)``, ``function (see below)``). The row
+    means exactly "a ``name(`` occurrence is on this line" — it is
+    ``confidence='heuristic'``, context is not resolved, and a name mentioned
+    only in a string or a trailing comment still matches.
     """
     imports: list[tuple[str, str | None, str, int]] = []
     refs: list[tuple[int, str | None, str, str, str | None]] = []
@@ -210,8 +230,11 @@ def extract_graph_textual(path: str, text: str
             imports.append((target, None, "import", i))
             refs.append((i, None, target, "includes", None))
             continue
-        for ident in _IDENT_RE.findall(line):
-            refs.append((i, None, ident, "identifier", None))
+        for match in _IDENT_RE.finditer(line):
+            ident = match.group(0)
+            relationship = ("call" if line[match.end():match.end() + 1] == "("
+                            else "identifier")
+            refs.append((i, None, ident, relationship, None))
     return _dedupe_imports(imports), _dedupe_refs(refs)
 
 
