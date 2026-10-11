@@ -1,11 +1,22 @@
 ; TypeScript/JavaScript: imports, requires, calls, type annotations.
+; The import/require target is captured a SECOND time as `ref.include` on the
+; same node (as the C/C++ queries do), so the reference store carries an
+; `includes` row for it too — the `imports` table itself is unchanged.
 (import_statement
   source: (string) @import.target)
+
+(import_statement
+  source: (string) @ref.include)
 
 (call_expression
   function: (identifier) @import.require-target
   arguments: (arguments
     (string) @import.require-source))
+
+(call_expression
+  function: (identifier)
+  arguments: (arguments
+    (string) @ref.include))
 
 (call_expression
   function: (identifier) @ref.call)

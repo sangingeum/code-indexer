@@ -87,6 +87,61 @@ def test_c_extraction():
     assert all(r[0] != 6 for r in refs)
 
 
+# ---------------------------------------------------------------------------
+# item B: the AST import/include target reaches the reference store
+# ---------------------------------------------------------------------------
+
+def test_python_import_produces_an_includes_reference_row():
+    """Item B: `includes` coverage for python, not only C/C++."""
+    src = "import os\nimport pkg.helpers\nfrom .helpers import refresh_token\n"
+    imports, refs = extract_graph("mod/a.py", src, "python")
+    assert {i[0] for i in imports} >= {"os", "pkg.helpers", ".helpers"}
+    includes = {r[2] for r in refs if r[3] == "includes"}
+    assert includes == {"os", "pkg.helpers", ".helpers"}
+    # The imported NAME (`refresh_token`) is not an include target.
+    assert "refresh_token" not in includes
+
+
+@pytest.mark.parametrize("lang,path,src,target", [
+    ("typescript", "ui/a.ts", 'import { helper } from "./lib";\n', "./lib"),
+    ("tsx", "ui/a.tsx", 'import React from "react";\n', "react"),
+    ("javascript", "ui/a.js", 'import { helper } from "./lib";\n', "./lib"),
+    ("go", "svc/a.go", 'package main\n\nimport "fmt"\n', "fmt"),
+    ("csharp", "Sim/A.cs", "using System;\n", "System"),
+    ("c", "src/a.c", '#include "util.h"\n', "util.h"),
+    ("cpp", "src/a.cpp", '#include "shape.hpp"\n', "shape.hpp"),
+])
+def test_ast_import_target_is_an_includes_reference(lang, path, src, target):
+    """Item B across every AST language, each against its own grammar."""
+    _imports, refs = extract_graph(path, src, lang)
+    includes = [r for r in refs if r[3] == "includes"]
+    assert includes, f"{lang}: no includes row for {target!r}"
+    assert includes[0][2] == target, includes
+
+
+def test_angled_include_stays_unresolved_and_unreferenced():
+    """The documented C/C++ limitation, pinned: a system header is neither an
+    `imports` row nor an `includes` reference row (the grammar node is a
+    `system_lib_string`, which the query does not capture)."""
+    imports, refs = extract_graph("src/a.cpp", '#include <vector>\n', "cpp")
+    assert imports == []
+    assert [r for r in refs if r[3] == "includes"] == []
+
+
+def test_ast_language_is_actually_ast_backed(lang_of=("tsx", "javascript")):
+    """The `tsx`/`javascript` entries in LANGUAGES_WITH_AST have a query file
+    (a language listed there without one silently produces NO rows at all)."""
+    import os as _os
+    from code_indexer import graph_extract
+    for lang in lang_of:
+        assert lang in graph_extract.LANGUAGES_WITH_AST
+        qp = _os.path.join(_os.path.dirname(graph_extract.__file__),
+                           "queries", lang, "references.scm")
+        assert _os.path.isfile(qp), f"missing query file for {lang}"
+        assert graph_extract._load_query(lang) is not None, (
+            f"{lang}: the query file exists but does not compile")
+
+
 def test_heuristic_fallback_flags_confidence():
     rust = "use std::io;\nfn main() { helper(); }\n"
     imports, refs = extract_graph_textual("a.rs", rust)
@@ -243,6 +298,24 @@ def test_indexer_populates_graph_tables(tmp_path, monkeypatch):
         assert all(c["confidence"] == "ast" for c in callers)
         # The comment-only mention produced no ref row on that line.
         assert all(c["line"] != 5 for c in callers)
+    finally:
+        m.close()
+
+
+def test_ast_import_keeps_its_imports_row_and_gains_an_includes_ref(
+        tmp_path, monkeypatch):
+    """Item B end-to-end: the `imports` table is unchanged; the reference
+    store gains the matching `includes` row."""
+    core, reg, entry, project = _rig(tmp_path, monkeypatch)
+    m = core.manifest_for(entry.slug)
+    try:
+        imports = {(i["file"], i["raw_target"], i["resolved_file"])
+                   for i in m.import_rows()}
+        assert ("app.py", "pkg.helpers", "pkg/helpers.py") in imports, imports
+        includes = m.refs_to("pkg.helpers", relationships=("includes",))
+        assert includes, "the python import produced no includes reference"
+        assert includes[0]["file"] == "app.py"
+        assert includes[0]["confidence"] == "ast"
     finally:
         m.close()
 

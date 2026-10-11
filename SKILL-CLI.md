@@ -236,9 +236,9 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
 - **find-references** — all references TO a symbol from the SINGLE reference
   store (schema v6): one writer, one row shape, one honest relationship and
   `confidence=` per row. Tree-sitter rows (`call`/`type`/`base_class`/
-  `member`, confidence `ast`) for `python`/`typescript`/`tsx`/`javascript`/
-  `c`/`cpp`/`go`/`csharp` — `member` is a member access read such as a C#
-  property/field, and `call`/`member` rows record `receiver=` (the receiver
+  `member`/`includes`, confidence `ast`) for `python`/`typescript`/`tsx`/
+  `javascript`/`c`/`cpp`/`go`/`csharp` — `member` is a member access read such
+  as a C# property/field, and `call`/`member` rows record `receiver=` (the receiver
   expression as written) when it is a plain identifier — plus a textual scan
   for every other language (confidence `heuristic`): an identifier followed
   IMMEDIATELY by `(` is a `call` row, any other identifier is an `identifier`
@@ -249,6 +249,11 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
   positives. A bare
   `no references to X` is printed only when the store has none, and a call is
   stored once, so a same call no longer appears twice.
+  `includes` is an import/include directive: an AST language records its
+  import target (python module name, TS/JS module specifier, Go import path,
+  C# `using` target, C/C++ quoted include) as an `includes` row AND as an
+  `imports` row, while a textual scan records its import/include line; angled
+  C/C++ system headers stay unresolved and produce no row.
   `--relationship` filters the reported vocabulary
   (`calls`|`includes`|`inherits`|`references`; `inherits` selects the
   `base_class` rows, `references` the `type`/`member`/`identifier` rows).

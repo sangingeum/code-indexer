@@ -1,15 +1,28 @@
 ; Python: imports and references.
 ; Import statements -> import rows; calls, decorators, type annotations and
 ; base classes (argument_list of class_definition) -> reference rows.
+; The import/include target is captured a SECOND time as `ref.include` on the
+; same node (as the C/C++ queries do), so the reference store carries an
+; `includes` row for it as well — the `imports` table itself is unchanged.
 (import_statement
   name: (dotted_name) @import.target)
+
+(import_statement
+  name: (dotted_name) @ref.include)
 
 (import_statement
   (aliased_import
     name: (dotted_name) @import.target))
 
+(import_statement
+  (aliased_import
+    name: (dotted_name) @ref.include))
+
 (import_from_statement
   module_name: [(dotted_name) (relative_import)] @import.target)
+
+(import_from_statement
+  module_name: [(dotted_name) (relative_import)] @ref.include)
 
 (import_from_statement
   name: (dotted_name) @import.name)

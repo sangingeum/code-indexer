@@ -1,12 +1,22 @@
 ; C#: using directives, calls, member access, base lists.
 ;
-; The `using_directive` shapes are recorded as imports only (namespace-to-file
-; resolution needs project context the indexer does not build; never guessed).
+; The `using_directive` shapes are recorded as imports AND as parallel
+; `ref.include` captures on the SAME nodes, so the reference store carries an
+; `includes` row for every `using` target (the `imports` table itself is
+; unchanged). Namespace-to-file resolution needs project context the indexer
+; does not build; never guessed. `using Alias = Estate.Sim;` yields both the
+; local alias name and the qualified target, mirroring its `imports` rows.
 (using_directive
   (identifier) @import.target)
 
 (using_directive
+  (identifier) @ref.include)
+
+(using_directive
   (qualified_name) @import.target)
+
+(using_directive
+  (qualified_name) @ref.include)
 
 ; Plain calls: Foo(...)
 (invocation_expression

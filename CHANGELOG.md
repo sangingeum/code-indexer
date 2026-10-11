@@ -19,6 +19,18 @@ new rows.
   documented rule. One occurrence yields one row: a tight `name(` is a `call`,
   any other identifier an `identifier`. Rows stay `confidence='heuristic'` —
   a `name(` in a string or trailing comment still matches.
+- **AST `includes` coverage.** Every AST language now routes its import
+  directive into the reference store as an `includes` row, in parallel with
+  its unchanged `imports` row: python module names, TS/JS module specifiers
+  and `require` sources, Go import paths, and C# `using` targets (the capture
+  is a second `@ref.include` on the SAME node, exactly as the C/C++ queries
+  already did). `find-references <module> --relationship includes` therefore
+  answers for python/typescript/go/csharp instead of a bare negative.
+  `queries/tsx/` and `queries/javascript/` were
+  missing entirely, so `.tsx` and `.js` files silently produced NO reference
+  rows at all; both now have real query files, and `.jsx` resolves to the
+  `javascript` language like every other JS extension. Angled C/C++ system
+  headers remain unresolved and produce no row (documented, pinned by test).
 
 ## [Unreleased] — one reference store, a C# AST query, precision pass (#8)
 

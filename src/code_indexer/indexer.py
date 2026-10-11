@@ -512,7 +512,8 @@ class Indexer:
 def _lang_from_ext(path: str) -> str:
     ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
     return {
-        "py": "python", "md": "markdown", "js": "javascript", "ts": "typescript",
+        "py": "python", "md": "markdown", "js": "javascript", "jsx": "javascript",
+        "ts": "typescript", "tsx": "tsx",
         "rs": "rust", "go": "go", "java": "java", "c": "c", "cpp": "cpp",
         "h": "c", "cs": "csharp", "sh": "shell", "toml": "toml",
         "yaml": "yaml", "yml": "yaml", "json": "json", "txt": "text",
