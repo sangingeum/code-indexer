@@ -244,3 +244,5 @@ def test_watch_all_exits_nonzero_when_no_root_is_watchable(core, tmp_path,
     result = runner.invoke(app, ["watch", "--all", "--duration", "1"])
     assert result.exit_code != 0
     assert "no watchable project roots" in result.output
+    # Honest taxonomy: what was asked for is not there (not an internal fault).
+    assert "NotFoundError:" in result.output

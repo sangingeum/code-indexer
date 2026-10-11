@@ -85,7 +85,10 @@ def classify(exc: BaseException) -> IndexerError:
         return ConfigError(_strip_prefix(str(exc)))
     text = _strip_prefix(str(exc))
     if ("not registered" in text or "no projects registered" in text
-            or "path does not exist" in text or "no results for project" in text):
+            or "path does not exist" in text or "no results for project" in text
+            # watch could not start because nothing requested is watchable —
+            # the same "what you asked for is not there" family.
+            or "no watchable project roots" in text):
         return NotFoundError(text)
     if "lock" in text.lower() or "indexing in progress" in text.lower():
         return LockedError(text)
