@@ -133,5 +133,63 @@ def test_csharp_comment_and_string_mentions_do_not_match(cs_manifest):
     assert [r.line for r in rows] == [14], rows
 
 
+# ---------------------------------------------------------------------------
+# item D: member-access precision
+# ---------------------------------------------------------------------------
+
+def test_csharp_intermediate_segment_is_not_a_reference():
+    """Item D(a): only the OUTERMOST access of a chain is a reference."""
+    src = (
+        "class A\n"
+        "{\n"
+        "    void M(object x)\n"
+        "    {\n"
+        "        System.Console.WriteLine(x);\n"
+        "        var v = System.Numerics.Vector3.Zero;\n"
+        "    }\n"
+        "}\n"
+    )
+    _imports, refs = graph_extract.extract_graph("A.cs", src, "csharp")
+    names = {r[2] for r in refs}
+    assert "WriteLine" in names
+    assert "Zero" in names
+    for intermediate in ("Console", "Numerics", "Vector3", "System"):
+        assert intermediate not in names, (intermediate, sorted(names))
+    # A deep chain's surviving receiver is NULL (the receiver expression is
+    # itself a member access, not a plain identifier) — the stated trade-off.
+    write_line = [r for r in refs if r[2] == "WriteLine"][0]
+    assert write_line[3] == "call" and write_line[4] is None
+
+
+def test_csharp_same_line_double_read_collapses_to_one_row():
+    """Item D(b): the documented collapse — one row per (line, name, rel).
+
+    Two same-name member reads on ONE line keep only the first receiver,
+    because neither the in-memory dedupe key nor the table primary key
+    includes ``receiver``. Two reads on separate lines are both kept.
+    """
+    one_line = (
+        "class A\n"
+        "{\n"
+        "    void M()\n"
+        "    {\n"
+        "        var x = left.Foo; var y = right.Foo;\n"
+        "    }\n"
+        "}\n"
+    )
+    _imports, refs = graph_extract.extract_graph("A.cs", one_line, "csharp")
+    foo = [r for r in refs if r[2] == "Foo"]
+    assert len(foo) == 1, foo
+    assert foo[0][3] == "member" and foo[0][4] == "left"
+
+    two_lines = one_line.replace(
+        "        var x = left.Foo; var y = right.Foo;\n",
+        "        var x = left.Foo;\n"
+        "        var y = right.Foo;\n")
+    _imports2, refs2 = graph_extract.extract_graph("A.cs", two_lines, "csharp")
+    foo2 = sorted((r[4] for r in refs2 if r[2] == "Foo"))
+    assert foo2 == ["left", "right"], foo2
+
+
 if __name__ == "__main__":  # pragma: no cover
     sys.exit(pytest.main([__file__, "-v"]))

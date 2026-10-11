@@ -31,6 +31,24 @@ only when it is a plain identifier (``ArmorResolution.Classify`` →
 ``receiver='ArmorResolution'``); it is NULL otherwise. No type resolution is
 attempted — the column means exactly "the receiver expression as written".
 
+Only the OUTERMOST member access of a chain is a reference: in
+``System.Console.WriteLine(x)`` the row is ``WriteLine`` and there is NO row
+for ``Console`` or ``System``. The trade-off is stated rather than hidden:
+the surviving row of a chain deeper than one hop carries ``receiver=NULL``,
+because its receiver expression is itself a member access, not a plain
+identifier.
+
+One row per ``(file, line, to_name, relationship)``
+---------------------------------------------------
+Both the in-memory dedupe key (``_dedupe_refs``) and the ``refs`` table
+primary key EXCLUDE ``receiver``, so when the same name is read twice on one
+line with two different receivers (``a.Foo; b.Foo;``) the first row in
+document order wins and the second receiver is DROPPED with no trace. That is
+the documented resolution of issue #9 item 3b: keeping both rows would mean
+changing the table primary key, which needs a full ``refs`` table rebuild in
+the manifest migration — measured as unclean against the gain for a rare
+shape. Two reads on two separate lines are both kept.
+
 Import resolution is best-effort, documented per language:
 - python: relative imports resolved against the file's package; absolute
   dotted names tried as dir.py / dir/__init__.py from the root and src/.
@@ -162,7 +180,9 @@ def extract_graph(path: str, text: str, lang: str
         elif capture == "ref.call" or capture == "ref.call_plain":
             refs.append((row + 1, frm, text_val, "call", None))
         elif capture == "ref.member":
-            refs.append(_member_ref(node, data, row, frm))
+            member_row = _member_ref(node, data, row, frm)
+            if member_row is not None:
+                refs.append(member_row)
         elif capture == "ref.type":
             refs.append((row + 1, frm, text_val, "type", None))
         elif capture == "ref.base_class":
@@ -174,7 +194,7 @@ def extract_graph(path: str, text: str, lang: str
 
 
 def _member_ref(node, data: bytes, row: int, frm: str | None
-                ) -> tuple[int, str | None, str, str, str | None]:
+                ) -> tuple[int, str | None, str, str, str | None] | None:
     """One member-access row: (line, from_symbol, name, relationship, receiver).
 
     ``node`` is a ``member_access_expression`` (C#). The relationship is
@@ -182,13 +202,25 @@ def _member_ref(node, data: bytes, row: int, frm: str | None
     (``ArmorResolution.Classify(...)``) and ``member`` when it is a plain read
     (``a.OughtRoleBindings``). The receiver is the object expression's text
     only when that expression is a plain identifier, else NULL.
+
+    Returns ``None`` for an INTERMEDIATE segment of a longer chain: in
+    ``System.Console.WriteLine(x)`` the inner ``System.Console`` access is the
+    ``expression`` child of the outer access, so ``Console`` is a namespace
+    segment, not something anyone can call or read. Only the outermost access
+    of a chain becomes a row. Consequence: for a chain deeper than one hop the
+    surviving row's receiver is NULL (the receiver expression is itself a
+    member access, not a plain identifier) — the trade-off for dropping the
+    intermediate rows.
     """
+    parent = node.parent
+    if (parent is not None and parent.type == "member_access_expression"
+            and parent.child_by_field_name("expression") == node):
+        return None
     name_node = node.child_by_field_name("name")
     member = _node_text(name_node, data) if name_node is not None else ""
     obj = node.child_by_field_name("expression")
     receiver = (_node_text(obj, data)
                 if obj is not None and obj.type == "identifier" else None)
-    parent = node.parent
     is_call = (parent is not None
                and parent.type == "invocation_expression"
                and parent.child_by_field_name("function") == node)
@@ -250,6 +282,9 @@ def _dedupe_imports(rows):
 
 
 def _dedupe_refs(rows):
+    """One row per (line, to_name, relationship) — ``receiver`` is NOT part of
+    the key, so two same-name member reads on one line collapse to the first
+    in document order (documented; see the module docstring)."""
     seen: set = set()
     out = []
     for r in rows:

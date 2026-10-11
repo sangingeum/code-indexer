@@ -27,7 +27,9 @@
 ; /field READ captured here — not only invocations — which is the class of
 ; reference the C# corpus was previously blind to. A member access that is the
 ; function of an invocation (`ArmorResolution.Classify(...)`) is stored as
-; `call`; a plain read is stored as `member`.
+; `call`; a plain read is stored as `member`. Only the OUTERMOST access of a
+; chain becomes a row: `System.Console.WriteLine(x)` yields the `WriteLine`
+; row and NO row for the intermediate `Console` / `System` segments.
 (member_access_expression) @ref.member
 
 ; Base classes / interfaces in an inheritance list.

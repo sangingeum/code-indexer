@@ -37,6 +37,20 @@ new rows.
   `no calls references to 'X'; 12 references exist unfiltered (identifier,
   type)`. One aggregate query, not a second report; the bare line is kept for
   a genuinely absent name.
+- **C# member-access precision.** Only the OUTERMOST access of a chain is a
+  reference: `System.Console.WriteLine(x)` yields the `WriteLine` row and no
+  row for the intermediate `Console`/`System` segment, which previously
+  became a reference target nobody can call or read. Measured on 359 live
+  `.cs` files: 3,805 of 61,190 stored reference rows were such intermediate
+  segments (63 distinct receiver-shaped names — `Ledger`, `World`, `Producer`,
+  `CultureInfo`, `JsonSerializer`). The stated trade-off: a surviving row of a
+  chain deeper than one hop now carries `receiver=NULL`, because its receiver
+  expression is itself a member access. The same-line receiver collapse
+  (one row per `(file, line, to_name, relationship)`) is documented in
+  `graph_extract`, `manifest` and SKILL-CLI.md rather than fixed: keeping both
+  rows would require a `refs` table rebuild to change the primary key, which
+  was measured as unclean against the gain for a rare shape. Both routes are
+  pinned by test.
 
 ## [Unreleased] — one reference store, a C# AST query, precision pass (#8)
 

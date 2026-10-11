@@ -20,6 +20,11 @@ written (plain identifier or NULL). Rows are re-extracted on the next pass —
 the EXTRACTION_VERSION bump flags every existing index needs-reindex, so a
 migrated manifest is never queried as if it were complete.
 
+Rows are keyed by ``(file, line, to_name, relationship)``: ``receiver`` is
+NOT part of the key, so two same-name member reads on ONE line with two
+different receivers collapse to the first in document order. That collapse is
+documented in ``graph_extract``; two reads on separate lines are both kept.
+
 Opened in WAL mode. All writes are short transactions — safe under the
 per-project lock discipline; WAL allows concurrent readers during indexing.
 """

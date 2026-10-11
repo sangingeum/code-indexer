@@ -239,7 +239,14 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
   `member`/`includes`, confidence `ast`) for `python`/`typescript`/`tsx`/
   `javascript`/`c`/`cpp`/`go`/`csharp` — `member` is a member access read such
   as a C# property/field, and `call`/`member` rows record `receiver=` (the receiver
-  expression as written) when it is a plain identifier — plus a textual scan
+  expression as written) when it is a plain identifier. Only the OUTERMOST
+  member access of a chained access is a row: `System.Console.WriteLine(x)`
+  yields `WriteLine` and no row for `Console`/`System`; the surviving row of a
+  chain deeper than one hop carries no receiver (its receiver expression is
+  itself a member access, not a plain identifier). Rows are keyed by
+  `(file, line, to_name, relationship)`, so two same-name member reads on ONE
+  line collapse to the first in line order — put the two reads on separate
+  lines when both receivers matter. Plus a textual scan
   for every other language (confidence `heuristic`): an identifier followed
   IMMEDIATELY by `(` is a `call` row, any other identifier is an `identifier`
   row (one row per occurrence — a call site is not also reported as an
