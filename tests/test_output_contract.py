@@ -4,6 +4,7 @@ failing input."""
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 
@@ -120,6 +121,60 @@ def test_semantic_search_refusal_is_one_taxonomy_line(rig):
     assert lines[0].startswith("ConfigError: index for "), lines[0]
     assert "ConfigError: ConfigError" not in result.output
     assert "Traceback" not in result.output
+
+
+def test_verbose_refusal_logs_the_traceback_but_keeps_stdout_clean(rig):
+    """The refusal's diagnostic record carries the exception under --verbose.
+
+    The seam logs at INFO with ``exc_info=True``: ``configure_logging``
+    raises our package to INFO under ``--verbose`` (WARNING otherwise), so
+    the traceback itself is the log record, never a rich traceback on the
+    result stream. At the default level the record is filtered out, so the
+    one-line output contract is unchanged.
+    """
+    core, reg, _entry, project = rig
+    entry = core.registry.get_by_name("cproj")
+    core.run_index(entry.slug, str(project))   # a real recorded fingerprint
+    _record_stale_fingerprint(core, entry)
+
+    seen: list[logging.LogRecord] = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            seen.append(record)
+
+    handler = _Capture(level=logging.DEBUG)
+    app_logger = logging.getLogger("code-indexer.cli")
+    args = ["semantic-search", "q", "--project", str(project),
+            "--skip-stale-check"]
+    app_logger.addHandler(handler)
+    try:
+        verbose = runner.invoke(app, ["--verbose", *args])
+        verbose_records = list(seen)
+        seen.clear()
+        default = runner.invoke(app, list(args))
+    finally:
+        app_logger.removeHandler(handler)
+
+    # (a) --verbose: one diagnostic record, carrying the exception.
+    assert verbose.exit_code == 1, verbose.output
+    seam = [r for r in verbose_records
+            if r.name == "code-indexer.cli"
+            and r.getMessage() == "semantic-search failed"]
+    assert len(seam) == 1, [r.getMessage() for r in verbose_records]
+    assert seam[0].levelno == logging.INFO, seam[0].levelno
+    assert seam[0].exc_info is not None, "record carries no exc_info"
+    rendered = logging.Formatter().format(seam[0])
+    assert "Traceback" in rendered and "ConfigError" in rendered, rendered
+    # The result (stdout) stream stays result-only: no traceback, no log.
+    assert verbose.stdout == "", verbose.stdout
+    assert verbose.stderr.count("ConfigError:") == 1, verbose.stderr
+
+    # (b) default level: the INFO record is filtered out entirely.
+    assert default.exit_code == 1, default.output
+    assert default.stdout == ""
+    assert default.stderr.count("ConfigError:") == 1, default.stderr
+    assert seen == [], [r.getMessage() for r in seen]
 
 
 # ---------------------------------------------------------------------------

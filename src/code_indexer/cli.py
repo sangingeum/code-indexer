@@ -574,7 +574,7 @@ def semantic_search(
         # taxonomy line (`<ErrorType>: <message>`), the taxonomy's exit
         # code, and no rich traceback. The traceback stays available
         # under --verbose.
-        logger.debug("semantic-search failed", exc_info=True)
+        logger.info("semantic-search failed", exc_info=True)
         fail(exc)
     typer.echo(output)
     # Scoped indexing note: when the index covers only part of the
