@@ -34,9 +34,15 @@ Design ruling for the ``watch`` subcommand:
   pass runs is never dropped, it simply schedules the next quiet pass.
 
 - **Watch-descriptor exhaustion.** Scheduling the recursive root watch is
-  wrapped in ``except OSError``: if inotify watch limits are hit, the
-  watcher logs the condition and degrades to quiet-interval polling mode
-  (hash scan per project per quiet tick), which cannot lose changes.
+  wrapped in ``except OSError`` and so is ``observer.start()``: watchdog
+  performs the actual ``inotify_add_watch`` inside the emitter, so a
+  non-existent or unwatchable root surfaces as an ``OSError`` out of
+  ``start()`` rather than ``schedule()``. Either way the watcher logs the
+  condition and degrades to quiet-interval polling mode (hash scan per
+  project per quiet tick), which cannot lose changes. A target root that no
+  longer exists is skipped at scheduling time — it is filtered out by the
+  CLI before the engine is built, and defensively here if it vanishes in
+  between.
 
 - **Daemonization (``--background``).** Double-fork + setsid + stdio
   redirected to ``~/.code-indexer/watch.log``. Exactly one watcher per
@@ -431,8 +437,14 @@ class WatchEngine:
         observer = Observer()
         try:
             for _slug, root in self.targets:
-                observer.schedule(handler, os.path.abspath(root),
-                                  recursive=True)
+                root_abs = os.path.abspath(root)
+                if not os.path.isdir(root_abs):
+                    # Defensive: a target root that vanished between CLI
+                    # selection and scheduling. Skip it instead of letting
+                    # the inotify add-watch for a missing dir abort the whole
+                    # watcher (the CLI already named it in a warning).
+                    continue
+                observer.schedule(handler, root_abs, recursive=True)
         except OSError as exc:
             self.echo(
                 f"watch: inotify schedule failed ({exc}) — polling fallback")
@@ -441,7 +453,20 @@ class WatchEngine:
             return False
         with contextlib.suppress(AttributeError):
             observer.daemon_threads = True  # type: ignore[attr-defined]
-        observer.start()
+        try:
+            observer.start()
+        except OSError as exc:
+            # watchdog performs the real inotify_add_watch inside the emitter
+            # thread kick-off, so a watch-descriptor failure (or a root that
+            # disappeared after the isdir() check above) surfaces HERE, not in
+            # the schedule loop. Honour the documented degradation contract:
+            # fall back to quiet-interval polling rather than dying.
+            self.echo(
+                f"watch: inotify start failed ({exc}) — polling fallback")
+            with contextlib.suppress(Exception):
+                observer.stop()
+                observer.join(timeout=2)
+            return False
         self._observer = observer
         self.events_active = True
         return True

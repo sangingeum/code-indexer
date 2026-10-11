@@ -216,3 +216,31 @@ def test_watch_all_round_robin(core, project, tmp_path, monkeypatch):
     result = runner.invoke(app, ["watch", "--all", "--duration", "1"])
     assert result.exit_code == 0
     assert "watching 2 project(s)" in result.output
+    assert "one, two" in result.output  # the covered set is reported
+
+
+def test_watch_all_skips_a_missing_registration(core, project, tmp_path,
+                                                monkeypatch):
+    """--all survives a registration whose root is gone: one warning names it,
+    the live projects are still served, exit 0."""
+    gone = tmp_path / "gone-proj"  # deliberately NOT created
+    core.registry.add(str(project), name="liveone")
+    core.registry.add(str(gone), name="goneone")
+    _patch_core(monkeypatch, core)
+    result = runner.invoke(app, ["watch", "--all", "--duration", "1"])
+    assert result.exit_code == 0, result.output
+    # Exactly one warning naming the skipped project.
+    assert result.output.count("skipping project goneone") == 1
+    assert "watching 1 project(s) (liveone)" in result.output
+
+
+def test_watch_all_exits_nonzero_when_no_root_is_watchable(core, tmp_path,
+                                                           monkeypatch):
+    """When every requested root is missing there is nothing to watch, and the
+    watcher says so with a nonzero exit (never a false 'watching 0')."""
+    gone = tmp_path / "gone-proj"
+    core.registry.add(str(gone), name="goneone")
+    _patch_core(monkeypatch, core)
+    result = runner.invoke(app, ["watch", "--all", "--duration", "1"])
+    assert result.exit_code != 0
+    assert "no watchable project roots" in result.output

@@ -281,15 +281,45 @@ def test_sqlite_integrity_happy_and_corrupt(env):
 # locks / watch pid
 # ---------------------------------------------------------------------------
 
-def test_watch_pidfile_liveness(env):
+def test_watch_pidfile_liveness_follows_the_flock(env):
+    """The watch line reports liveness from the pidfile FLOCK — never the pid
+    or the file text. The writer's format is '<pid> <iso-timestamp>', which a
+    whole-file int() parse rejected, so every live watcher used to read stale.
+    """
+    from code_indexer.watcher import PidFileLock
+
     cfg, reg = env
     pidfile = os.path.join(cfg.index_root, "watch.pid")
-    with open(pidfile, "w") as f:
-        f.write(str(os.getpid()))  # our own pid is definitely alive
-    assert _by_name(check_locks(cfg))["watch"].status == "ok"
 
+    # A live flock holder writing the real two-token format -> running (pid N).
+    holder = PidFileLock(pidfile)
+    assert holder.acquire() is True
+    try:
+        with open(pidfile, encoding="utf-8") as fh:
+            text = fh.read().strip()
+        assert " " in text, "writer no longer emits the two-token format"
+        check = _by_name(check_locks(cfg))["watch"]
+        assert check.status == "ok"
+        assert check.detail == f"running (pid {os.getpid()})"
+    finally:
+        holder.release(unlink=True)
+
+    # Held flock whose pid token is unreadable -> still running, stated honestly.
+    import fcntl
+    fd = os.open(pidfile, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        os.ftruncate(fd, 0)
+        os.write(fd, b"not-a-pid\n")
+        check = _by_name(check_locks(cfg))["watch"]
+        assert check.status == "ok"
+        assert check.detail == "running (pid unreadable)"
+    finally:
+        os.close(fd)  # releases the flock
+
+    # Free flock with a pidfile present (SIGKILL residue) -> genuinely stale.
     with open(pidfile, "w") as f:
-        f.write("999999999")  # not a live pid
+        f.write("999999999 2026-01-01T00:00:00+0900\n")
     stale = _by_name(check_locks(cfg))["watch"]
     assert stale.status == "warn"
     assert "unwatch" in stale.detail
@@ -318,9 +348,8 @@ def test_lock_held_reported_ok(env):
 # fingerprints (CI-02 integration)
 # ---------------------------------------------------------------------------
 
-def test_fingerprint_mismatch_warns(env):
-    cfg, reg = env
-    entry = reg.add(str(tempfile.mkdtemp()), name="proj")
+def _write_mismatched_manifest(cfg: Config, entry) -> None:
+    """Create a manifest whose recorded fingerprint is a different model."""
     import sqlite3
     mdir = os.path.join(cfg.index_root, entry.slug, "manifest.db")
     os.makedirs(os.path.dirname(mdir), exist_ok=True)
@@ -335,6 +364,12 @@ def test_fingerprint_mismatch_warns(env):
         "INSERT INTO meta VALUES ('extraction_version','1');")
     conn.commit()
     conn.close()
+
+
+def test_fingerprint_mismatch_warns(env):
+    cfg, reg = env
+    entry = reg.add(str(tempfile.mkdtemp()), name="proj")
+    _write_mismatched_manifest(cfg, entry)
     checks = check_fingerprints(cfg, reg, StubEmbedder())
     fp = _by_name(checks)["fingerprint"]
     assert fp.status == "warn"

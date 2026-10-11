@@ -608,3 +608,97 @@ def test_covers_root_and_subdir():
     # Prefix-string (not path-component) must NOT count as covered.
     assert cli._covers(["/home/x/proj"],
                        [("proj", "/home/x/project-x")]) is False
+
+
+# ------------------------------------------------------------------
+# issue #10: a bad root must not kill the watcher; a dead daemon must
+# never be announced as started.
+# ------------------------------------------------------------------
+
+def test_start_events_degrades_to_polling_when_observer_start_fails(
+        core, project, monkeypatch):
+    """watchdog raises the inotify error from observer.start() (the actual
+    add-watch lives in the emitter), which is OUTSIDE the schedule loop:
+    start_events must degrade to polling (return False), never raise."""
+    import watchdog.observers as wo
+
+    class BoomObserver:
+        def __init__(self, *a, **k):
+            pass
+
+        def schedule(self, *a, **k):
+            pass
+
+        def start(self):
+            raise OSError(2, "No such file or directory")
+
+        def stop(self):
+            pass
+
+        def join(self, timeout=None):
+            pass
+
+    monkeypatch.setattr(wo, "Observer", BoomObserver)
+    core.registry.add(str(project))
+    engine = _make_engine(core, project)
+    assert engine.start_events() is False
+    assert engine.events_active is False
+    assert engine._observer is None
+
+
+def test_start_events_skips_a_missing_root_and_watches_the_rest(
+        core, project, tmp_path):
+    """A target root that does not exist is dropped at schedule time, so the
+    live projects are still watched in event mode instead of the whole
+    watcher aborting on the missing one."""
+    core.registry.add(str(project))
+    missing = str(tmp_path / "gone-project")  # deliberately not created
+    engine = WatchEngine(
+        core, [("live", str(project)), ("gone", missing)],
+        quiet=1, sweep_interval=3600, index_root=core.cfg.index_root,
+        echo=lambda msg: print(msg))
+    try:
+        assert engine.start_events() is True
+        assert engine.events_active is True
+    finally:
+        if engine._observer is not None:
+            engine._observer.stop()
+
+
+def test_daemon_confirmed_requires_a_held_flock(core, project, tmp_path):
+    """The liveness confirmation is the flock, not the pid: a free pidfile
+    (or a pid whose flock was released) is a dead daemon."""
+    import code_indexer.cli as cli
+
+    pidfile = str(tmp_path / "watch.pid")
+    # No pidfile at all: not confirmed.
+    assert cli._daemon_confirmed(os.getpid(), pidfile) is False
+    # Our own live pid, but no flock held on the file: not confirmed.
+    with open(pidfile, "w") as fh:
+        fh.write(f"{os.getpid()} now\n")
+    assert cli._daemon_confirmed(os.getpid(), pidfile) is False
+    # A held flock + live pid: confirmed.
+    holder = PidFileLock(pidfile)
+    assert holder.acquire() is True
+    try:
+        assert cli._daemon_confirmed(os.getpid(), pidfile) is True
+    finally:
+        holder.release(unlink=True)
+
+
+def test_background_reports_failure_when_the_daemon_is_not_alive(
+        core, project, monkeypatch):
+    """The parent must not print 'watch daemon started' for a daemon that is
+    already gone: a nonzero exit and a failure line instead."""
+    from code_indexer import watcher as watcher_mod
+
+    core.registry.add(str(project))
+    _patch_core(monkeypatch, core)
+    # spawn_background "returns a pid" but no daemon holds the pidfile flock.
+    monkeypatch.setattr(watcher_mod, "spawn_background",
+                        lambda *a, **k: 999999999)
+    result = runner.invoke(
+        app, ["watch", str(project), "--background"])
+    assert result.exit_code != 0, result.output
+    assert "watch daemon started" not in result.output
+    assert "exited immediately after startup" in result.output

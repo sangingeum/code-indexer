@@ -331,27 +331,26 @@ def check_locks(cfg: Config) -> list[Check]:
     root = cfg.index_root
     pid_path = os.path.join(root, "watch.pid")
     if os.path.isfile(pid_path):
-        pid: int | None = None
-        try:
-            with open(pid_path, encoding="utf-8") as f:
-                pid = int(f.read().strip())
-        except (OSError, ValueError):
-            pid = None
-        alive = False
-        if pid is not None:
-            try:
-                os.kill(pid, 0)
-                alive = True
-            except ProcessLookupError:
-                alive = False
-            except PermissionError:
-                alive = True  # exists, owned by another user
-        if alive:
-            checks.append(Check(OK, "watch", f"running (pid {pid})"))
-        else:
+        # The flock on the pidfile is the authoritative liveness signal —
+        # never the pid's existence, and never the file's text format (the
+        # writer emits "<pid> <iso-timestamp>", so a whole-file int() parse
+        # fails on every live watcher). A held flock is a live holder; a free
+        # flock with a pidfile present is genuine stale residue (e.g. a
+        # SIGKILLed watcher that could not unlink it).
+        from .watcher import pidfile_is_free, read_pid
+        watch_held = not pidfile_is_free(pid_path)
+        pid = read_pid(pid_path)
+        if not watch_held:
             checks.append(Check(
                 WARN, "watch",
-                f"stale pidfile (pid {pid} not running); run: code-indexer unwatch"))
+                f"stale pidfile (pid {pid} not running); "
+                f"run: code-indexer unwatch"))
+        elif pid is not None:
+            checks.append(Check(OK, "watch", f"running (pid {pid})"))
+        else:
+            # Held but the pid token is unreadable/unparseable: still live,
+            # just not attributable to a pid.
+            checks.append(Check(OK, "watch", "running (pid unreadable)"))
     else:
         checks.append(Check(OK, "watch", "not running (pidfile absent)"))
 

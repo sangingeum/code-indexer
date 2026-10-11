@@ -702,10 +702,15 @@ def watch(
     - A full staleness pass for every watched project runs every
       WATCH_SWEEP_INTERVAL seconds (default 300) even with zero events, so
       missed/lost events self-heal.
+    - A registered project whose root is missing or unreadable is skipped
+      with a single warning naming it; the remaining projects are still
+      served, and the watcher reports the projects it actually covers. It
+      exits nonzero only when it covers none.
     - If watchdog is not installed or inotify watch descriptors are
-      exhausted (OSError scheduling the recursive watches), the watcher
+      exhausted (OSError installing the recursive watches — raised from
+      either the schedule call or the observer's start), the watcher
       degrades to quiet-period polling (one hash scan per project per
-      quiet tick) — it never loses correctness, only latency.
+      quiet tick); it never exits for that reason, losing latency only.
 
     Self-write suppression: events under the index root, .git paths, and
     editor temp files (.swp, ~, .tmp, ...) are filtered, so the watcher's
@@ -722,8 +727,12 @@ def watch(
     watcher is refused while a live one holds it — the flock, not the
     pid, is the liveness test), redirects stdout/stderr to
     <index_root>/watch.log, and exits the parent after the daemon's
-    startup handshake. A stopped watcher leaves no live lock or PID
-    residue (the pidfile is unlinked only after the flock is released).
+    startup handshake (the daemon holds the pidfile flock and has installed
+    the event source by then). The parent then re-confirms the daemon is
+    alive and still holding the pidfile before printing "watch daemon
+    started" — a daemon that died on entry is reported as a failure with a
+    nonzero exit, never as a start. A stopped watcher leaves no live lock or
+    PID residue (the pidfile is unlinked only after the flock is released).
     --foreground is the default (inherited stdio, normal output) and takes
     the SAME pidfile, so one watcher per index root holds in both modes
     and `unwatch` can stop either.
@@ -752,6 +761,11 @@ def watch(
             _die("error: give at least one project path (or --all)")
 
     targets = [(e.slug, e.path) for e in entries]
+    # A missing or unreadable project root must never be scheduled: the
+    # inotify add-watch for it aborts the whole watcher. Drop it with ONE
+    # warning naming it and keep serving the rest; exit nonzero only when
+    # nothing remains to watch.
+    targets = _select_watchable(targets)
     pidfile_path = os.path.join(core.cfg.index_root, "watch.pid")
     log_path = os.path.join(core.cfg.index_root, "watch.log")
 
@@ -792,7 +806,8 @@ def watch(
             core, targets, quiet=quiet, sweep_interval=sweep_interval)
         mode = "inotify" if engine.start_events() else "poll"
         typer.echo(
-            f"watching {len(targets)} project(s), mode={mode}, "
+            f"watching {len(targets)} project(s) "
+            f"({', '.join(slug for slug, _ in targets)}), mode={mode}, "
             f"quiet={quiet}s, sweep={sweep_interval}s, "
             f"duration={'forever' if deadline is None else f'{duration}s'}")
         engine.run(duration, stop)
@@ -879,6 +894,32 @@ def unwatch(
     raise typer.Exit(0)
 
 
+def _select_watchable(
+        targets: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """Drop targets whose root is missing or unreadable, warning once each.
+
+    A registration whose directory is gone (or unreadable) must not be handed
+    to the inotify scheduler — watchdog raises while installing the watch and
+    the failure takes down the whole watcher. Each dropped target is named on
+    stderr exactly once; the remaining projects are served. Exits nonzero only
+    when nothing remains to watch, so an operator is told the difference
+    between "some projects are gone" and "there is nothing to watch".
+    """
+    live: list[tuple[str, str]] = []
+    for slug, path in targets:
+        root = os.path.abspath(os.path.expanduser(path))
+        if os.path.isdir(root) and os.access(root, os.R_OK | os.X_OK):
+            live.append((slug, path))
+        else:
+            typer.echo(
+                f"watch: skipping project {slug} ({path}): path is missing "
+                f"or unreadable", err=True)
+    if not live:
+        _die("error: no watchable project roots (every requested path is "
+             "missing or unreadable)")
+    return live
+
+
 def _make_engine(core: Core, targets: list[tuple[str, str]], *, quiet: float,
                  sweep_interval: float) -> Any:
     """Build the event engine, degrading gracefully without watchdog."""
@@ -912,7 +953,13 @@ def _watch_background(core: Core, targets: list[tuple[str, str]],
     daemon_state: dict[str, Any] = {}
 
     def setup() -> int:
-        """Daemon-side startup: pidfile flock, signal handlers. 0 == ready."""
+        """Daemon-side startup. 0 == ready (the parent confirms liveness).
+
+        The daemon holds the pidfile flock, builds the event engine AND
+        installs the event source here, before the handshake — so a failure
+        to start watching reaches the parent as a startup failure instead of
+        a printed success over a daemon that is already gone.
+        """
         import signal
 
         lock = PidFileLock(pidfile_path)
@@ -930,18 +977,28 @@ def _watch_background(core: Core, targets: list[tuple[str, str]],
         signal.signal(signal.SIGINT, _handle)
         signal.signal(signal.SIGTERM, _handle)
         daemon_state["stop"] = stop
+        try:
+            core = Core()  # fresh core in the daemon process
+            quiet = max(1, core.cfg.watch_debounce)
+            engine = _make_engine(
+                core, targets, quiet=quiet,
+                sweep_interval=max(1, core.cfg.watch_sweep_interval))
+            mode = "inotify" if engine.start_events() else "poll"
+        except Exception as exc:  # noqa: BLE001 — any startup failure
+            print(f"watch daemon: failed to start the watcher: {exc}",
+                  flush=True)
+            lock.release(unlink=True)
+            return 1
+        daemon_state["engine"] = engine
         print(f"watch daemon: pid={os.getpid()}, "
-              f"watching {len(targets)} project(s), pidfile={pidfile_path}, "
-              f"log={log_path}", flush=True)
+              f"watching {len(targets)} project(s) "
+              f"({', '.join(slug for slug, _ in targets)}), mode={mode}, "
+              f"pidfile={pidfile_path}, log={log_path}", flush=True)
         return 0
 
     def run_loop() -> None:
-        core = Core()  # fresh core in the daemon process
-        quiet = max(1, core.cfg.watch_debounce)
-        engine = _make_engine(core, targets, quiet=quiet,
-                              sweep_interval=max(1, core.cfg.watch_sweep_interval))
+        engine = daemon_state["engine"]
         try:
-            engine.start_events()
             engine.run(duration, daemon_state["stop"])
         finally:
             daemon_state["lock"].release(unlink=True)
@@ -960,8 +1017,35 @@ def _watch_background(core: Core, targets: list[tuple[str, str]],
                          and _covers(holder_roots, targets) else 3) from exc
     except RuntimeError as exc:
         _die(f"error: {exc}")
+    # The handshake says the daemon reached "ready"; confirm it is still
+    # alive and holding the pidfile before claiming a start, so a daemon that
+    # died the moment it entered its loop is reported as a failure with a
+    # nonzero exit instead of a false "watch daemon started".
+    if not _daemon_confirmed(daemon_pid, pidfile_path):
+        _die(f"error: watch daemon exited immediately after startup "
+             f"(pid={daemon_pid}); see {log_path}")
     typer.echo(f"watch daemon started: pid={daemon_pid} pidfile={pidfile_path} "
                f"log={log_path}")
+
+
+def _daemon_confirmed(daemon_pid: int, pidfile_path: str) -> bool:
+    """True when the daemon is alive AND still holds the pidfile flock.
+
+    The flock — never pid existence alone — is the authoritative liveness
+    signal (``watcher.PidFileLock``): a daemon that has exited has released
+    it, so a free flock means the startup order is reporting a dead process.
+    """
+    from .watcher import pidfile_is_free
+
+    if pidfile_is_free(pidfile_path):
+        return False
+    try:
+        os.kill(daemon_pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
 
 
 def _holder_roots_safe(pid: int | None) -> list[str] | None:
