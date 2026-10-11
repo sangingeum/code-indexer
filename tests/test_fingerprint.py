@@ -129,15 +129,20 @@ def rig():
 # ---------------------------------------------------------------------------
 
 def test_fingerprint_roundtrip_and_mismatch_detection():
-    fp = Fingerprint("m", 4096, "contextual-header-v1", 1)
+    # Pin the extraction version explicitly (rather than the module default)
+    # so this test describes the MECHANISM and does not need an edit on every
+    # EXTRACTION_VERSION bump.
+    fp = Fingerprint("m", 4096, "contextual-header-v1", 1, extraction_version=2)
     assert fp.describe() == (
         "m/4096/etext=contextual-header-v1/chunker=1/extr=2")
     assert fingerprint_mismatches(fp, fp) == []
-    other = Fingerprint("other", 4096, "contextual-header-v1", 1)
+    other = Fingerprint("other", 4096, "contextual-header-v1", 1,
+                        extraction_version=2)
     diffs = fingerprint_mismatches(fp, other)
     assert diffs == ["embed_model: m -> other"]
     same_dim_other_model = fingerprint_mismatches(
-        fp, Fingerprint("other", 4096, "contextual-header-v1", 1))
+        fp, Fingerprint("other", 4096, "contextual-header-v1", 1,
+                        extraction_version=2))
     assert same_dim_other_model  # the CI-02 core case: 4096-dim vs 4096-dim
     graph_bump = fingerprint_mismatches(
         fp, Fingerprint("m", 4096, "contextual-header-v1", 1,
