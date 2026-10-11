@@ -75,7 +75,8 @@ class Core:
     @staticmethod
     def _embed_cache():
         """Content-addressed embedding cache shared by all embed calls
-        (CI-14); disabled when EMBED_CACHE=0."""
+        (unchanged chunks and queries skip Ollama); disabled when
+        EMBED_CACHE=0."""
         if os.environ.get("EMBED_CACHE", "1") in ("0", "false"):
             return None
         from .embed_cache import EmbedCache
@@ -511,7 +512,7 @@ class Core:
         out of the window. The pool is over-fetched so the mitigation has
         candidates to promote."""
         collection = f"idx_{entry.slug}"
-        # Query-side embedding (CI-14): the instruction prefix applies ONLY
+        # Query-side embedding: the instruction prefix applies ONLY
         # here; document embeddings stay raw. The cache key is the exact
         # text, so instructed and raw embeddings never collide. Embedder
         # duck-typing: stubs without query_instruction_text embed verbatim.
@@ -539,7 +540,7 @@ class Core:
                 "start_line": p.get("start_line"),
                 "end_line": p.get("end_line"),
                 "snippet": (p.get("snippet") or "")[:500],
-                # CI-03: staleness provenance for get_code_context.
+                # Staleness provenance for get_code_context.
                 "file_hash": p.get("file_hash"),
                 "indexed_at": p.get("indexed_at"),
             })
@@ -1106,7 +1107,7 @@ class Core:
             m.close()
 
     # ------------------------------------------------------------------
-    # stale-safe line ranges (CI-03)
+    # stale-safe line ranges
     # ------------------------------------------------------------------
 
     def file_changed_since_index(self, entry: ProjectEntry, rel: str) -> bool:
@@ -1147,7 +1148,7 @@ class Core:
                      end_line: int | None = None,
                      symbol: str | None = None,
                      context_lines: int = 0) -> dict[str, Any]:
-        """Stale-safe get_code_context (CI-03).
+        """Stale-safe get_code_context.
 
         Symbol mode: when the file changed since indexing, re-resolve the
         symbol against the LIVE file with tree-sitter and return fresh line

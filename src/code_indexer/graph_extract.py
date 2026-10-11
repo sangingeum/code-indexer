@@ -68,7 +68,7 @@ Import resolution is best-effort, documented per language:
 - java/kotlin etc.: no AST query yet — textual fallback only.
 
 Extraction version: bump EXTRACTION_VERSION when the queries or resolution
-change shape; the CI-02 fingerprint mechanism flags existing indexes
+change shape; the fingerprint mechanism flags existing indexes
 needs-reindex so the new tables populate honestly.
 """
 

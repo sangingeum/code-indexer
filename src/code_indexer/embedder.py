@@ -45,10 +45,10 @@ class Embedder:
         self.batch_size = batch_size
         self.retries = retries
         self._dim: int | None = None
-        # Content-addressed cache (CI-14): consulted before Ollama; keyed on
+        # Content-addressed cache: consulted before Ollama; keyed on
         # the exact text + model + dim + embed-text version.
         self.cache = cache
-        # Query instruction (CI-14, eval-gated WIN): applied ONLY to
+        # Query instruction (eval-gated WIN): applied ONLY to
         # query-side embeddings via query_instruction_text(); document
         # embeddings are never instructed. Eval on this repo's 42-query set:
         # recall@1 +0.048, MRR +0.040, 9 improved / 5 regressed — the
@@ -144,7 +144,7 @@ class Embedder:
     def embed(self, texts: list[str]) -> list[list[float]]:
         """Embed texts in batches of self.batch_size with retry/backoff.
 
-        Cache-first (CI-14): each text is looked up by
+        Cache-first: each text is looked up by
         sha256(text)+model+dim+embed_text_version before Ollama; misses are
         embedded and stored. Documents and instructed queries share the same
         mechanism — the key IS the text, so an instructed query never collides

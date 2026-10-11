@@ -120,10 +120,10 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
     ``previous`` maps path -> (size, mtime_ns, inode, content_hash) from the
     last completed pass. When a file's stat triple matches exactly, its
     recorded content hash is reused instead of re-reading/hashing the file
-    (the CI-03 stat fast-path; env PARANOID_HASH=1 disables it for
+    (the stat fast-path; env PARANOID_HASH=1 disables it for
     filesystems/tools that preserve mtime, e.g. ``rsync -t``/``cp -p``).
 
-    ``include`` (scoped indexing, CI-23): gitignore-style patterns limiting
+    ``include`` (scoped indexing): gitignore-style patterns limiting
     the scan to a subtree (e.g. ``src/**``); None = whole project.
     ``priority``: matching files are returned FIRST (indexed before the
     rest of the pass).
@@ -203,7 +203,7 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
                                        st.st_mtime_ns, st.st_ino))
 
     if include:
-        # Scoped indexing (CI-23): gitignore-style INCLUSION — only files
+        # Scoped indexing: gitignore-style INCLUSION — only files
         # matching any pattern are kept.
         scope = pathspec.GitIgnoreSpec.from_lines(include)
         results = [f for f in results

@@ -104,7 +104,7 @@ class Indexer:
         if not self.store.collection_exists(collection):
             self.store.create_collection(collection, self.embedder.dimension())
 
-        # Scoped indexing (CI-23): the manifest's scope patterns limit the scan;
+        # Scoped indexing: the manifest's scope patterns limit the scan;
         # priority patterns order the pass. Stored meta keys:
         #   scope_include (newline-joined globs), scope_priority.
         include = [ln for ln in (manifest.get_meta("scope_include") or "")

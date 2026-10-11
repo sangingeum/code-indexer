@@ -401,7 +401,7 @@ def index_more(
     subpath: str = typer.Argument(..., help="Subtree to add to the scope."),
     skip_stale_check: bool = SkipOpt,
 ) -> None:
-    """Extend a project's indexed scope with another subtree (CI-23).
+    """Extend a project's indexed scope with another subtree.
 
     The new glob is appended to the manifest's scope_include and an
     incremental pass indexes the newly-covered files."""
@@ -576,7 +576,7 @@ def semantic_search(
         logger.debug("semantic-search failed", exc_info=True)
         fail(exc)
     typer.echo(output)
-    # Scoped indexing note (CI-23): when the index covers only part of the
+    # Scoped indexing note: when the index covers only part of the
     # project, say so instead of letting out-of-scope paths look empty.
     entry = core.resolve_entry(project)[0] if project else None
     if entry is not None:
@@ -644,11 +644,11 @@ def index_status(
     if st.get("error"):
         parts.append(f"error={st['error']}")
     # Languages mapped to a grammar but without AST references queries
-    # (heuristic/textual refs only) — orientation honesty (CI-25).
+    # (heuristic/textual refs only) — orientation honesty.
     from .langmatrix import languages_without_ast
     parts.append("languages_without_ast=[" + ", ".join(
         languages_without_ast()) + "]")
-    # Scoped-indexing coverage (CI-23): per top-level dir, indexed or not.
+    # Scoped-indexing coverage: per top-level dir, indexed or not.
     try:
         m = Manifest(os.path.join(core.cfg.index_root, entry.slug,
                                   "manifest.db"))
@@ -673,7 +673,7 @@ def index_status(
             m.close()
     except Exception as exc:  # noqa: BLE001 — status must never fail
         logger.debug("scope coverage skipped: %s", exc)
-    # Last 3 recorded embed errors (CI-04 poisoned-chunk reports).
+    # Last 3 recorded embed errors (poisoned-chunk reports).
     mdir = os.path.join(core.cfg.index_root, entry.slug, "manifest.db")
     if os.path.isfile(mdir):
         m = Manifest(mdir)
