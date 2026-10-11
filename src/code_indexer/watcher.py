@@ -247,11 +247,15 @@ def pidfile_liveness(pidfile_path: str) -> str:
 
 
 def pidfile_is_free(pidfile_path: str) -> bool:
-    """True only when the pidfile is PROVEN free.
+    """True only when the pidfile is PROVEN free, never "probably free".
 
-    Kept for existing callers. ``"unknown"`` maps to ``False`` ("not proven
-    free"), so a caller never reads an unreadable pidfile as "no watcher is
-    running"; callers that must tell the two apart use ``pidfile_liveness``.
+    Public compatibility surface: it has no ``src/`` caller any more (the
+    watcher-side code reads the three liveness answers directly), but it
+    stays part of this module's public contract and is covered by the
+    watcher tests. The contract is deliberately one-sided: ``"unknown"``
+    maps to ``False`` ("not proven free"), so a caller never reads an
+    unreadable pidfile as "no watcher is running". A caller that must tell
+    *unreadable* from *free* uses ``pidfile_liveness``.
     """
     return pidfile_liveness(pidfile_path) == "free"
 
