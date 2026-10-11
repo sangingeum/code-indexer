@@ -158,7 +158,8 @@ def test_fingerprint_roundtrip_and_mismatch_detection():
     same_dim_other_model = fingerprint_mismatches(
         fp, Fingerprint("other", 4096, "contextual-header-v1", 1,
                         extraction_version=2))
-    assert same_dim_other_model  # the CI-02 core case: 4096-dim vs 4096-dim
+    # the core fingerprint case: same dimension, different model still differs
+    assert same_dim_other_model
     graph_bump = fingerprint_mismatches(
         fp, Fingerprint("m", 4096, "contextual-header-v1", 1,
                         extraction_version=3))

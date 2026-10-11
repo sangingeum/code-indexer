@@ -1,6 +1,6 @@
-"""Output-contract tests (CI-26): one-line taxonomy errors, exit codes,
-schema field, deterministic ordering. Iterates over every subcommand with a
-failing input."""
+"""Output-contract tests: one-line taxonomy errors, exit codes, schema
+field, deterministic ordering. Iterates over every subcommand with a failing
+input."""
 
 from __future__ import annotations
 
