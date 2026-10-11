@@ -117,23 +117,6 @@ class SymbolRow:
     visibility: str | None = None  # v3: 'public' | 'private'; NULL → public
 
 
-@dataclass
-class RefRow:
-    """One row of the unified ``refs`` table (v6).
-
-    ``relationship`` is the stored vocabulary (call|type|base_class|member|
-    includes|identifier); ``confidence`` is 'ast' or 'heuristic'; ``receiver``
-    is the member-access receiver as written, or NULL.
-    """
-    file: str
-    line: int
-    from_symbol: str | None
-    to_name: str
-    relationship: str
-    confidence: str
-    receiver: str | None = None
-
-
 class Manifest:
     def __init__(self, db_path: str):
         self.db_path = db_path
@@ -326,20 +309,6 @@ class Manifest:
 
     _REF_COLS = ("SELECT file, line, from_symbol, to_name, relationship, "
                  "confidence, receiver FROM refs")
-
-    def find_refs(self, target: str, relationship: str | None = None,
-                  limit: int = 25) -> list[RefRow]:
-        """Reference rows TARGETING ``target``, optionally filtered by the
-        stored ``relationship`` (exact value: call|type|base_class|member|
-        includes|identifier)."""
-        sql = self._REF_COLS + " WHERE to_name = ?"
-        args: list = [target]
-        if relationship:
-            sql += " AND relationship = ?"
-            args.append(relationship)
-        sql += " ORDER BY file, line LIMIT ?"
-        args.append(limit)
-        return [RefRow(*row) for row in self._conn.execute(sql, args).fetchall()]
 
     def refs_to(self, name: str,
                 relationships: tuple[str, ...] | None = None,

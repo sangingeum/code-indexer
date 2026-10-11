@@ -102,35 +102,35 @@ def test_csharp_language_is_ast_backed():
 
 def test_csharp_member_read_is_an_ast_reference(cs_manifest):
     """Issue #5: a property read via member access is a real reference."""
-    rows = cs_manifest.find_refs("OughtRoleBindings")
+    rows = cs_manifest.refs_to("OughtRoleBindings")
     assert rows, "the C# property read produced no reference row"
     row = rows[0]
-    assert row.confidence == "ast", "still on the textual fallback"
-    assert row.relationship == "member"
-    assert row.receiver == "pawn"        # the receiver expression as written
-    assert row.from_symbol == "Apply"
+    assert row["confidence"] == "ast", "still on the textual fallback"
+    assert row["relationship"] == "member"
+    assert row["receiver"] == "pawn"        # the receiver expression as written
+    assert row["from_symbol"] == "Apply"
 
 
 def test_csharp_qualified_static_call_yields_a_caller(cs_manifest):
-    rows = cs_manifest.find_refs("Classify")
+    rows = cs_manifest.refs_to("Classify")
     assert rows, "the qualified static call produced no reference row"
     row = rows[0]
-    assert row.confidence == "ast"
-    assert row.relationship == "call"
-    assert row.receiver == "ArmorResolution"
+    assert row["confidence"] == "ast"
+    assert row["relationship"] == "call"
+    assert row["receiver"] == "ArmorResolution"
 
 
 def test_csharp_plain_call_and_base_class(cs_manifest):
-    assert any(r.relationship == "call"
-               for r in cs_manifest.find_refs("PlainCall"))
-    assert any(r.relationship == "base_class"
-               for r in cs_manifest.find_refs("BaseSurface"))
+    assert any(r["relationship"] == "call"
+               for r in cs_manifest.refs_to("PlainCall"))
+    assert any(r["relationship"] == "base_class"
+               for r in cs_manifest.refs_to("BaseSurface"))
 
 
 def test_csharp_comment_and_string_mentions_do_not_match(cs_manifest):
     """The false-positive contract, applied to the C# grammar."""
-    rows = cs_manifest.find_refs("OughtRoleBindings")
-    assert [r.line for r in rows] == [14], rows
+    rows = cs_manifest.refs_to("OughtRoleBindings")
+    assert [r["line"] for r in rows] == [14], rows
 
 
 # ---------------------------------------------------------------------------

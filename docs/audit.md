@@ -97,12 +97,16 @@ line and exit 0**. File was restored immediately after the test
 
 Empirical probe: `EXT_LANG` in `ts_chunker.py` maps 27 extensions → 21
 languages; each was parsed with a representative snippet
-(tree-sitter-language-pack 1.18.0, tree-sitter 0.26.0). References/imports
-are ALWAYS the regex pass in `ts_chunker.extract_refs` (textual, unbound,
-`confidence=heuristic` for every language — there are no per-language
-`.scm` queries). *(Superseded: schema v6 unifies the reference stores and
-adds per-language AST queries, C# included; `ts_chunker.extract_refs` is
-retired. See CHANGELOG and SKILL-CLI.md.)*
+(tree-sitter-language-pack 1.18.0, tree-sitter 0.26.0).
+
+*(Superseded: the reference pass is no longer a single regex sweep in
+`ts_chunker.extract_refs` — that function is retired. Schema v6 unifies the
+reference stores into one `refs` table written by `graph_extract`, which runs
+a per-language tree-sitter query for python/typescript/tsx/javascript/c/cpp/
+go/csharp (`confidence=ast`) and the textual scan for every other language
+(`confidence=heuristic`). The "references" column below therefore reads
+"ast" for those eight languages and "heuristic" elsewhere. See CHANGELOG and
+SKILL-CLI.md.)*
 
 | lang | AST chunking | symbols | signature | visibility | references |
 |---|---|---|---|---|---|

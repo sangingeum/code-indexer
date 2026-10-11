@@ -51,6 +51,16 @@ new rows.
   rows would require a `refs` table rebuild to change the primary key, which
   was measured as unclean against the gain for a rare shape. Both routes are
   pinned by test.
+- **stale residue cut.** `docs/subcommand-design.md` no longer claims `deps`
+  reads `symbol_refs` (it reads the `imports` table) and its supersede note
+  names the v6 store; `docs/audit.md` no longer describes
+  `ts_chunker.extract_refs` as the live reference producer. The dead
+  production-looking pair `Manifest.find_refs` / `RefRow` (tests were their
+  only callers) is deleted — `tests/test_csharp_references.py` and
+  `tests/test_codeintel.py` now read through the real reader,
+  `Manifest.refs_to` (and `Core.find_references`). The
+  `replace_file_refs_heuristic` stub is gone from
+  `tests/test_indexer_embed_context.py`; the method does not exist.
 
 ## [Unreleased] — one reference store, a C# AST query, precision pass (#8)
 

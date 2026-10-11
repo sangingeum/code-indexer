@@ -10,11 +10,12 @@ history.*
 
 ## 0. Design principles
 
-1. **Reuse stores first.** The schema-v2 manifest already has `symbols`
-   (file, name, symbol_type, start_line, end_line, source) and
-   `symbol_refs` (file, line, src_symbol, relationship, target). Anything
-   derivable from those two tables costs zero parse time and stays fresh
-   with the existing staleness pipeline.
+1. **Reuse stores first.** The manifest at design time already had `symbols`
+   (file, name, symbol_type, start_line, end_line, source) and a reference
+   table (then `symbol_refs` (file, line, src_symbol, relationship, target);
+   schema v6 replaced it with the single `refs` table). Anything derivable
+   from those tables costs zero parse time and stays fresh with the existing
+   staleness pipeline.
 2. **Signatures are the one honest gap.** The manifest stores *boundaries*
    (start/end line) but not the declaration *text*. A signature is the text
    of the declaration up to the body. Two options were weighed:
@@ -52,7 +53,7 @@ history.*
 
 | Subcommand | Purpose |
 |---|---|
-| `deps` | File/module-level import/include graph from `symbol_refs` (`includes` edges). |
+| `deps` | File/module-level import/include graph from the `imports` table (resolved import/include edges). |
 | `public-api` | Symbols filtered to public visibility (visibility computed at index time, see §3). |
 
 ### Pruned — and why (explicit disagreements with the owner's plan)
@@ -60,9 +61,9 @@ history.*
 | Owner's proposal | Verdict | Reason |
 |---|---|---|
 | `list-symbols` / `symbols` | **Merge into `find-symbol`** | `find-symbol` already queries the same `symbols` table via `Manifest.find_symbols`. The only real gap: it requires a name. Fix by making `name` optional with `--type`/`--file`/`--limit` filters. A new subcommand would duplicate the query path and force MCP to expose two tools for one table. |
-| `architecture` / `overview` | **Defer, then compose** | Everything it would print (languages, per-file counts, entry points, hotspots) is derivable from `files` + `symbols` + `symbol_refs`; a dedicated subcommand is a formatting exercise with product decisions (what is an "entry point"?) that shouldn't block phase 1. Once `skeleton` exists, an overview can be added as `skeleton --summary` cheaply. Deferring costs nothing. |
+| `architecture` / `overview` | **Defer, then compose** | Everything it would print (languages, per-file counts, entry points, hotspots) is derivable from `files` + `symbols` + `refs`; a dedicated subcommand is a formatting exercise with product decisions (what is an "entry point"?) that shouldn't block phase 1. Once `skeleton` exists, an overview can be added as `skeleton --summary` cheaply. Deferring costs nothing. |
 | `snippet` / `signature-only` | **Drop** | `get-code-context` already returns exactly the relevant lines with `context_lines=0` around a symbol. A second tool for "first N lines of the same thing" adds surface, not capability. If callers want only the signature, phase 1's persisted signatures let `find-symbol` print them for free. |
-| `callers` / `callees` graph view | **Defer** | `find-references` covers the same `symbol_refs` table with `--relationship calls`. A compact graph is a nice-to-have rendering, not new data. Revisit only if real usage shows agents chaining find-references + get-code-context repeatedly. |
+| `callers` / `callees` graph view | **Defer** | `find-references` covers the same `refs` store with `--relationship calls`. A compact graph is a nice-to-have rendering, not new data. Revisit only if real usage shows agents chaining find-references + get-code-context repeatedly. |
 | `tree` / `file-tree` | **Fold into `skeleton`** (`--tree` mode) | A directory tree is a degenerate skeleton (files only, no symbols). Two commands for one projection invites drift; `--tree` costs one flag. |
 | `compress-context` | **Drop for now** | Body-stripped re-rendering of retrieved chunks is real tree-sitter work (node-level elision per language) for a gain already mostly delivered by `get-code-context` line ranges + chunk caps (~1000 chars). Largest remaining effort/ROI ratio in the plan. Revisit only with evidence. |
 
@@ -169,23 +170,25 @@ code-indexer deps [--project P | --name P] [FILE] [--reverse] [--json]
     [--skip-stale-check]
 ```
 
-- Forward mode: for each file (or one file), the `includes` targets from
-  `symbol_refs` (`relationship='includes'` — covers Python imports and
-  C/C++ includes today). One file per line:
+- Forward mode: for each file (or one file), the import/include targets from
+  the `imports` table (resolved import/include edges — Python imports and
+  C/C++ quoted includes today). One file per line:
 
 ```
 src/session.hpp -> session.h, types.h, <vector>
 ```
 
-- `--reverse`: who includes this file. Data source: `symbol_refs` only,
+- `--reverse`: who includes this file. Data source: the `imports` table only,
   zero parsing.
-- **Honest limitation, scoped:** `extract_refs`'s `_IMPORT_RE` only
-  matches Python imports and `_INCLUDE_RE` only C preprocessor includes.
-  JS/TS (`import`/`export ... from`), Rust (`use`), Go (`import`), Java
-  (`import`) are missing. Phase 2 includes a ~20-line extension of
-  `_IMPORT_RE` in `ts_chunker.py` to cover those line shapes — regex
-  line-shapes, no per-grammar AST work. Unresolved-module-name edges stay
-  heuristic, same policy as calls today.
+- **Honest limitation, scoped:** the import/include capture is per-language
+  grammar work; the textual fallback's import-line pattern
+  (`^\s*(?:import|require|use)\s+(.+)`) only matches that line shape — JS/TS,
+  Rust, Go and Java line shapes that do not start with one of those words are
+  NOT covered there. The AST queries above do cover
+  python/typescript/tsx/javascript/go/csharp, so `deps` and
+  `find-references --relationship includes` agree on what an import is for
+  the AST languages, and a textual-scan language still gets its import line.
+  Unresolved-module-name edges stay heuristic, same policy as calls today.
 
 ### 2.5 `public-api` (phase 2)
 
@@ -248,7 +251,8 @@ Files touched, in order:
    `SymbolRow`, `replace_file_symbols`, `find_symbols` (optional name,
    `file` filter, `visibility` filter), `imports_for(file, reverse=False)` helpers.
 2. `ts_chunker.py` — signature + visibility extraction in the existing
-   walk; body-node-name dict; extend `_IMPORT_RE` family (phase 2).
+   walk; body-node-name dict; extend the textual import-line pattern
+   (phase 2).
 3. `chunker.py` — regex-fallback `extract_symbols` fills the two new
    fields best-effort.
 4. `indexer.py` — thread the new fields through to the manifest.

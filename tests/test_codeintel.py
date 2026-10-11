@@ -163,10 +163,12 @@ def test_create_modify_delete_reflected_next_pass(indexer, project):
 def test_refs_one_representation(indexer, project):
     m, _ = run_index(indexer, project)
     try:
-        includes = m.find_refs("transfer/session.hpp", relationship="includes")
+        includes = m.refs_to("transfer/session.hpp",
+                             relationships=("includes",))
         assert includes, "include edge missing"
-        calls = m.find_refs("start", relationship="call")
-        assert any(r.file == "src/main.cpp" and r.line == 4 for r in calls)
+        calls = m.refs_to("start", relationships=("call",))
+        assert any(r["file"] == "src/main.cpp" and r["line"] == 4
+                   for r in calls)
     finally:
         m.close()
 
@@ -177,7 +179,8 @@ def test_refs_removed_with_file(indexer, project):
     os.remove(os.path.join(project, "src", "main.cpp"))
     m2, _ = run_index(indexer, project)
     try:
-        assert not m2.find_refs("transfer/session.hpp", relationship="includes")
+        assert not m2.refs_to("transfer/session.hpp",
+                              relationships=("includes",))
     finally:
         m2.close()
 
