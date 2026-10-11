@@ -354,6 +354,15 @@ class Manifest:
         return [dict(zip(keys, r))
                 for r in self._conn.execute(sql, args).fetchall()]
 
+    def ref_relationship_counts(self, name: str) -> list[tuple[str, int]]:
+        """(stored relationship, count) for every row targeting ``name``,
+        unfiltered — ONE aggregate query, used to tell a filtered-empty
+        report apart from a genuinely absent name."""
+        return [(r[0], int(r[1])) for r in self._conn.execute(
+            "SELECT relationship, COUNT(*) FROM refs WHERE to_name = ?"
+            " GROUP BY relationship"
+            " ORDER BY COUNT(*) DESC, relationship", (name,))]
+
     # -- meta ----------------------------------------------------------
 
     def get_meta(self, key: str) -> str | None:

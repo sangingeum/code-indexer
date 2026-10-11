@@ -834,6 +834,17 @@ class Core:
                  "confidence": r["confidence"],
                  "receiver": r["receiver"]} for r in rows]
 
+    def reference_relationship_counts(self, entry: ProjectEntry, name: str
+                                      ) -> list[tuple[str, int]]:
+        """(stored relationship, count) for every reference to ``name``,
+        unfiltered. One aggregate query — the CLI uses it to say WHY a
+        filtered report is empty instead of implying the name is absent."""
+        m = self.manifest_for(entry.slug)
+        try:
+            return m.ref_relationship_counts(name)
+        finally:
+            m.close()
+
     def all_symbol_names(self, entry: ProjectEntry) -> set[str]:
         """Names with a definition row (for exact-vs-heuristic labelling)."""
         m = self.manifest_for(entry.slug)

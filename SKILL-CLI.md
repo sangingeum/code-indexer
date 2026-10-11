@@ -246,9 +246,13 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
   identifier), and an import/include line yields an `includes` row. The
   textual scan skips lines that BEGIN with `#`, `//`, `*` or `--`; trailing
   comments and strings DO match, so those rows are heuristic and may be false
-  positives. A bare
-  `no references to X` is printed only when the store has none, and a call is
-  stored once, so a same call no longer appears twice.
+  positives (a `name(` in a string or a trailing comment still matches). A
+  call is stored once, so a same call never appears twice. A bare
+  `no references to X` is printed only when the store has none at all — a
+  filtered report that comes back empty instead says so and names the
+  unfiltered count and the relationships that do carry the name
+  (`no calls references to 'X'; 12 references exist unfiltered (identifier,
+  type)`); that check is one aggregate query, not a second report.
   `includes` is an import/include directive: an AST language records its
   import target (python module name, TS/JS module specifier, Go import path,
   C# `using` target, C/C++ quoted include) as an `includes` row AND as an

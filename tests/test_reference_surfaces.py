@@ -121,6 +121,40 @@ def test_relationship_filter_spans_the_vocabulary(rig):
         core.find_references(entry, "ping", relationship="bogus")
 
 
+def test_filtered_empty_report_names_the_unfiltered_count(rig, monkeypatch):
+    """Item C: a `calls` filter with no call rows must not read as absent."""
+    core, entry, m = rig
+    m.replace_file_refs("a.py", [
+        (1, None, "widget", "identifier", None),
+        (2, None, "widget", "type", None),
+    ], "heuristic")
+    monkeypatch.setattr(cli, "_get_core", lambda skip: core)
+    res = runner.invoke(app, ["find-references", "widget", "--project",
+                              entry.path, "--relationship", "calls"])
+    assert res.exit_code == 0, res.output
+    assert "no references to 'widget'" not in res.output
+    assert "no calls references to 'widget'" in res.output
+    assert "2 references exist unfiltered" in res.output
+    assert "identifier" in res.output and "type" in res.output
+    # A genuinely absent name still gets the bare line.
+    miss = runner.invoke(app, ["find-references", "absent", "--project",
+                               entry.path, "--relationship", "calls"])
+    assert miss.exit_code == 0, miss.output
+    assert "no references to 'absent'" in miss.output
+
+
+def test_filtered_nonempty_report_is_unchanged(rig, monkeypatch):
+    """The honesty branch only fires when the filtered result is EMPTY."""
+    core, entry, m = rig
+    m.replace_file_refs("a.py", [(3, "run", "ping", "call", None)], "ast")
+    monkeypatch.setattr(cli, "_get_core", lambda skip: core)
+    res = runner.invoke(app, ["find-references", "ping", "--project",
+                              entry.path, "--relationship", "calls"])
+    assert res.exit_code == 0, res.output
+    assert "references to 'ping'" in res.output
+    assert "unfiltered" not in res.output
+
+
 def test_cli_prints_no_references_only_when_the_store_is_empty(rig,
                                                                monkeypatch):
     core, entry, m = rig

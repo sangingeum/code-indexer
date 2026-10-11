@@ -31,6 +31,12 @@ new rows.
   rows at all; both now have real query files, and `.jsx` resolves to the
   `javascript` language like every other JS extension. Angled C/C++ system
   headers remain unresolved and produce no row (documented, pinned by test).
+- **a filtered-empty report is honest.** `find-references X --relationship
+  calls` no longer prints a bare negative that reads as "nothing calls this"
+  when references to `X` exist under other relationships: it now prints
+  `no calls references to 'X'; 12 references exist unfiltered (identifier,
+  type)`. One aggregate query, not a second report; the bare line is kept for
+  a genuinely absent name.
 
 ## [Unreleased] — one reference store, a C# AST query, precision pass (#8)
 

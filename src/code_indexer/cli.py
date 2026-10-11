@@ -1246,15 +1246,20 @@ def find_references(
     """Find references TO a symbol in the single reference store. Every row
     carries the relationship it was extracted with and its confidence, so a
     heuristic `identifier` hit is never mistaken for a resolved call:
-    tree-sitter rows (`call`/`type`/`base_class`/`member`, confidence `ast`)
-    for python/typescript/tsx/javascript/c/cpp/go/csharp — `member` is a
-    member access read such as a C# property/field, and `member`/`call` rows
-    record the receiver expression as written when it is a plain identifier —
-    plus the textual `identifier` scan and `includes` import/include lines
-    (confidence `heuristic`) for every other language, where comment-leading
-    lines (`#`, `//`, `*`, `--`) are skipped but trailing comments and
-    strings DO match. A bare `no references to X` is printed only when the
-    store has none.
+    tree-sitter rows (`call`/`type`/`base_class`/`member`/`includes`,
+    confidence `ast`) for python/typescript/tsx/javascript/c/cpp/go/csharp —
+    `member` is a member access read such as a C# property/field, `includes`
+    is the import/include target, and `member`/`call` rows record the receiver
+    expression as written when it is a plain identifier — plus a textual scan
+    (confidence `heuristic`) for every other language: an identifier followed
+    IMMEDIATELY by `(` is a `call`, any other identifier is an `identifier`,
+    and an import/include line is an `includes`. Comment-leading lines
+    (`#`, `//`, `*`, `--`) are skipped there, but trailing comments and
+    strings DO match. A filtered report that comes back empty never reads as
+    "the name is absent": when rows exist under another relationship, the line
+    names the unfiltered count and the relationships that do carry it (one
+    aggregate query, not a second report). A bare `no references to X` is
+    printed only when the store has none at all.
 
     This answers a DIFFERENT question than `find-callers`, which walks fan-in
     edges from the same store. The reference graph is textual and unbound by
@@ -1269,6 +1274,18 @@ def find_references(
         _die(str(exc))
         return
     if not rows:
+        # A filtered-empty result must never read as "the name is absent":
+        # one cheap aggregate query tells the two cases apart.
+        if relationship is not None:
+            counts = core.reference_relationship_counts(entry, name)
+            if counts:
+                total = sum(n for _rel, n in counts)
+                kinds = ", ".join(rel for rel, _n in counts)
+                plural = "reference" if total == 1 else "references"
+                typer.echo(
+                    f"no {relationship} references to {name!r}; {total} "
+                    f"{plural} exist unfiltered ({kinds})")
+                return
         typer.echo(f"no references to {name!r}")
         return
     known = core.all_symbol_names(entry)
