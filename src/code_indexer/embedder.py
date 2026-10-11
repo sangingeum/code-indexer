@@ -104,7 +104,7 @@ class Embedder:
     @staticmethod
     def _raise_fatal(model: str, host: str, exc: Exception) -> ConfigError:
         raise ConfigError(
-            f"ConfigError: model '{model}' not found on Ollama "
+            f"model '{model}' not found on Ollama "
             f"({host}); run: ollama pull {model}") from exc
 
     # ------------------------------------------------------------------

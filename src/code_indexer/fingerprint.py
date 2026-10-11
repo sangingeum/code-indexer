@@ -42,8 +42,11 @@ VERSION_KEYS = ("chunker_version", "extraction_version")
 class ConfigError(Exception):
     """Raised when a project's index does not match the current configuration.
 
-    The CLI/MCP adapters render ``str(exc)`` as the error line; the message
-    carries the remediation command.
+    The message carries the remediation command and deliberately does NOT
+    bake in an error-type prefix: the CLI adapter routes the exception
+    through the shared failure taxonomy (``errors.classify`` / ``fail``),
+    which renders the one stdout/stderr line as ``<ErrorType>: <message>``.
+    Prefixing the message here would double the type on that line.
     """
 
 
@@ -182,6 +185,6 @@ def rows_staleness_warning(recorded: Fingerprint | None,
 def mismatch_error(project_path: str, recorded: Fingerprint,
                    current: Fingerprint) -> ConfigError:
     return ConfigError(
-        f"ConfigError: index for {project_path} was built with "
+        f"index for {project_path} was built with "
         f"{recorded.describe()}; current is {current.describe()}; "
         f"run: code-indexer reindex-project {project_path}")

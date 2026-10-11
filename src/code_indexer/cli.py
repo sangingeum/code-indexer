@@ -19,6 +19,7 @@ import typer
 
 logger = logging.getLogger("code-indexer.cli")
 
+from .errors import fail
 from .core import NEVER_INDEXED, Core, MIGRATION_HINT
 from .doctor import run_doctor
 from . import graph
@@ -558,12 +559,23 @@ def semantic_search(
             core.maybe_refresh(e.slug, e.path, force=forced)
     fmt = "json" if json_output else output_format
     rerank_mode = "none" if no_rerank else rerank
-    typer.echo(core.search_for_display(
-        query, project=project, limit=limit, file_filter=file_filter,
-        symbol_type=symbol_type, language=language, ranking_mode=ranking,
-        fmt=fmt, skip_refresh=True, per_file=per_file, max_chars=max_chars,
-        max_tokens=max_tokens, context_lines=context_lines,
-        rerank=rerank_mode, mode=search_mode))
+    try:
+        output = core.search_for_display(
+            query, project=project, limit=limit, file_filter=file_filter,
+            symbol_type=symbol_type, language=language, ranking_mode=ranking,
+            fmt=fmt, skip_refresh=True, per_file=per_file, max_chars=max_chars,
+            max_tokens=max_tokens, context_lines=context_lines,
+            rerank=rerank_mode, mode=search_mode)
+    except Exception as exc:  # noqa: BLE001 — the shared failure seam
+        # Search is the one surface that REFUSES a fingerprint-mismatched
+        # index (the graph surfaces warn and answer) — that refusal must
+        # render exactly like every other failure in this CLI: one
+        # taxonomy line (`<ErrorType>: <message>`), the taxonomy's exit
+        # code, and no rich traceback. The traceback stays available
+        # under --verbose.
+        logger.debug("semantic-search failed", exc_info=True)
+        fail(exc)
+    typer.echo(output)
     # Scoped indexing note (CI-23): when the index covers only part of the
     # project, say so instead of letting out-of-scope paths look empty.
     entry = core.resolve_entry(project)[0] if project else None

@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased] — the fingerprint refusal renders as one line (issue #16)
+
+- **a mismatched index now refuses with one clean error line, not a rich
+  traceback (issue #16).** `semantic-search` was the only command whose
+  failures escaped to the framework: a fingerprint-mismatched index raised
+  out of the command body, so an operator got a wall of traceback with the
+  actionable sentence (`run: code-indexer reindex-project <path>`) buried at
+  the bottom. Worse, the message sources baked a `ConfigError: ` prefix into
+  the *message*, and the shared failure taxonomy renders one line as
+  `<ErrorType>: <message>` — so the type was printed twice
+  (`ConfigError: ConfigError: index for ...`). The refusal now goes through
+  the same failure seam every other subcommand uses (`errors.fail`): exactly
+  one `<ErrorType>: <message>` line on stderr and the taxonomy's exit code,
+  with the traceback available under `--verbose`. The three message sources
+  that carried the baked-in prefix (`fingerprint.mismatch_error`,
+  `Core.assert_fingerprint_ok`'s fallback, and the embedder's fatal
+  model-missing error) no longer carry it, so the taxonomy is the single
+  source of the prefix. **Which surfaces refuse is unchanged**: `search`
+  still refuses a mismatched index, and the manifest-only surfaces still warn
+  and answer.
+
 ## [Unreleased] — fingerprint reporting (issue #13)
 
 - **`index-status` no longer reads as idle on an index that owes a rebuild

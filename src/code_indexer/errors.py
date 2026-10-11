@@ -21,6 +21,7 @@ JSON outputs carry "schema": 1 and stable field names (docs/json-schema.md).
 from __future__ import annotations
 
 import sys
+from typing import NoReturn
 
 # Exit codes shared by CLI and tests.
 EXIT_OK = 0
@@ -101,7 +102,7 @@ def _strip_prefix(text: str) -> str:
     return text[len("error: "):] if text.startswith("error: ") else text
 
 
-def fail(exc: BaseException) -> None:
+def fail(exc: BaseException) -> NoReturn:
     """Print exactly one taxonomy line to stderr and exit (CLI seam)."""
     err = classify(exc)
     print(err.render(), file=sys.stderr)

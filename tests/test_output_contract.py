@@ -60,6 +60,68 @@ def test_classify_wraps_fingerprint_config_error():
     assert err.render().startswith("ConfigError: embed model changed")
 
 
+def _record_stale_fingerprint(core, entry, model="older-model"):
+    """Write a recorded fingerprint the running config does not match.
+
+    The manifest seam: no index pass, no embedder round trip — just the
+    meta rows a previous build would have left behind.
+    """
+    from code_indexer.embed_text import EMBED_FORMAT
+    from code_indexer.graph_extract import EXTRACTION_VERSION
+    from code_indexer.ts_chunker import CHUNKER_VERSION
+
+    manifest = core.manifest_for(entry.slug)
+    try:
+        manifest.set_meta("embed_model", model)
+        manifest.set_meta("embed_dim", "4")
+        manifest.set_meta("embed_text_version", EMBED_FORMAT)
+        manifest.set_meta("chunker_version", str(CHUNKER_VERSION))
+        manifest.set_meta("extraction_version", str(EXTRACTION_VERSION))
+    finally:
+        manifest.close()
+
+
+def test_fingerprint_refusal_renders_the_type_prefix_exactly_once(rig):
+    """The mismatch refusal carries the error type ONCE.
+
+    The message sources no longer bake ``ConfigError: `` in, so the
+    taxonomy's ``<ErrorType>: <message>`` render is the only place a prefix
+    comes from (a baked-in one doubled it: ``ConfigError: ConfigError:``).
+    """
+    from code_indexer.fingerprint import ConfigError as FingerprintConfigError
+
+    core, reg, _entry, project = rig
+    entry = core.registry.get_by_name("cproj")
+    _record_stale_fingerprint(core, entry)
+
+    with pytest.raises(FingerprintConfigError) as excinfo:
+        core.assert_fingerprint_ok(entry)
+    rendered = classify(excinfo.value).render()
+    assert rendered.startswith("ConfigError: index for "), rendered
+    assert rendered.count("ConfigError:") == 1, rendered
+    assert "ConfigError: ConfigError" not in rendered
+    assert "run: code-indexer reindex-project" in rendered
+
+
+def test_semantic_search_refusal_is_one_taxonomy_line(rig):
+    """The search refusal no longer escapes as a rich traceback: one
+    taxonomy line on stderr, the taxonomy's exit code, nothing else."""
+    core, reg, _entry, project = rig
+    entry = core.registry.get_by_name("cproj")
+    core.run_index(entry.slug, str(project))   # a real recorded fingerprint
+    _record_stale_fingerprint(core, entry)
+
+    result = runner.invoke(app, ["semantic-search", "q", "--project",
+                                 str(project), "--skip-stale-check"])
+    assert result.exit_code == 1, result.output
+    lines = [ln for ln in result.output.splitlines()
+             if ln.startswith("ConfigError:")]
+    assert len(lines) == 1, result.output
+    assert lines[0].startswith("ConfigError: index for "), lines[0]
+    assert "ConfigError: ConfigError" not in result.output
+    assert "Traceback" not in result.output
+
+
 # ---------------------------------------------------------------------------
 # every subcommand with a failing input: one line, taxonomy prefix, exit 1/2
 # ---------------------------------------------------------------------------

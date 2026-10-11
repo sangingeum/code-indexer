@@ -374,7 +374,7 @@ class Core:
             if current is not None and recorded is not None:
                 raise mismatch_error(entry.path, recorded, current)
             raise ConfigError(
-                f"ConfigError: index for {entry.path} does not match the "
+                f"index for {entry.path} does not match the "
                 f"current configuration ({status['reason']}); "
                 f"run: code-indexer reindex-project {entry.path}")
 

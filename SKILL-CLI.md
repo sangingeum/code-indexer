@@ -67,7 +67,11 @@ and `doctor` report both: a project that owes a rebuild shows
 pass state is `idle`, so the two surfaces never contradict each other.
 `needs-reindex` means the index configuration changed (model, dimension,
 embed-text format, chunker, or the row-extraction version) — `search` refuses
-with `ConfigError` until a reindex rebuilds it. The *manifest-only* surfaces
+with `ConfigError` until a reindex rebuilds it. That refusal is one line on
+stderr, `ConfigError: index for <path> was built with <recorded>; current is
+<current>; run: code-indexer reindex-project <path>`, exit 1 — the same
+one-line `<ErrorType>: <message>` shape every other failure in this CLI
+prints, never a traceback. The *manifest-only* surfaces
 (`find-references`, `find-callers`, `find-callees`, `deps`, `skeleton`/`map`,
 `outline`/`file-outline`) still answer on such an index, with **one** stderr
 warning line when the stored rows may have been produced by a different
@@ -324,7 +328,8 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
   (`reindex-project` builds it).
   `needs-reindex` — index built with a different embed model/dimension/
   text format/chunker or row-extraction version; `search` fails with
-  `ConfigError` naming the difference; do not run `reindex-project`
+  `ConfigError` naming the difference (one line on stderr, exit 1);
+  do not run `reindex-project`
   yourself, report to the owner.
   `error` — run `doctor`.
   `idle` — normal. `reindex-project` is a full rebuild into a temporary
