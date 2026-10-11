@@ -2,6 +2,8 @@
 ; (this file exists because `_load_query` looks up the language directory by
 ; name, and `.tsx` files resolve to the `tsx` language). The import target is
 ; captured a SECOND time as `ref.include` — the `imports` table is unchanged.
+; Both require patterns are scoped to the `require` function name, so an
+; ordinary string-argument call is not an include (issue #12).
 (import_statement
   source: (string) @import.target)
 
@@ -9,14 +11,16 @@
   source: (string) @ref.include)
 
 (call_expression
-  function: (identifier) @import.require-target
+  function: (identifier) @_fn
   arguments: (arguments
-    (string) @import.require-source))
+    (string) @import.require-source)
+  (#eq? @_fn "require"))
 
 (call_expression
-  function: (identifier)
+  function: (identifier) @_fn
   arguments: (arguments
-    (string) @ref.include))
+    (string) @ref.include)
+  (#eq? @_fn "require"))
 
 (call_expression
   function: (identifier) @ref.call)

@@ -120,6 +120,36 @@ def test_ast_import_target_is_an_includes_reference(lang, path, src, target):
     assert includes[0][2] == target, includes
 
 
+@pytest.mark.parametrize("lang,path", [
+    ("typescript", "ui/a.ts"),
+    ("tsx", "ui/a.tsx"),
+    ("javascript", "ui/a.js"),
+])
+def test_require_call_is_an_import_and_an_includes_row(lang, path):
+    """`require("./x")` yields BOTH the import row (kind `require`) and the
+    `includes` reference row — the require coverage the scoping keeps."""
+    imports, refs = extract_graph(path, 'const x = require("./x");\n', lang)
+    assert [(i[0], i[2]) for i in imports] == [("./x", "require")], imports
+    includes = [r for r in refs if r[3] == "includes"]
+    assert [r[2] for r in includes] == ["./x"], refs
+    # The require call itself is still a `call` row.
+    assert any(r[2] == "require" and r[3] == "call" for r in refs)
+
+
+@pytest.mark.parametrize("lang,path", [
+    ("typescript", "ui/a.ts"),
+    ("tsx", "ui/a.tsx"),
+    ("javascript", "ui/a.js"),
+])
+def test_string_argument_call_is_not_an_include_or_import(lang, path):
+    """`alert("hi")` yields neither an imports row nor an includes row — only
+    a `call` row for `alert` (issue #12; both directions pinned)."""
+    imports, refs = extract_graph(path, 'alert("hi");\n', lang)
+    assert imports == []
+    assert [r for r in refs if r[3] == "includes"] == []
+    assert any(r[2] == "alert" and r[3] == "call" for r in refs)
+
+
 def test_angled_include_stays_unresolved_and_unreferenced():
     """The documented C/C++ limitation, pinned: a system header is neither an
     `imports` row nor an `includes` reference row (the grammar node is a

@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased] — require scoping and the extraction-version bump (issue #12)
+
+**This round needs a rebuild**: `EXTRACTION_VERSION` is `4`, so every existing
+index reports `needs-reindex` and refuses queries until `reindex-project`
+re-extracts. Existing live indexes were still recorded at `2` (never rebuilt to
+`3`), so this bump adds no work beyond the rebuild that was already pending.
+
+- **a JS/TS call with a string argument is no longer stored as an import AND
+  an include (issue #12).** `queries/typescript`, `queries/tsx` and
+  `queries/javascript` captured the require shape twice with no predicate on
+  the function name, so `alert("hi")` produced an `imports` row (kind
+  `require`, target `hi`) **and** an `includes` reference row. Both patterns
+  are now scoped with `(#eq? @_fn "require")`: a `require(...)` call still
+  yields its `imports` row (kind `require`) and its `includes` row, and an
+  ordinary string-argument call yields neither (only its `call` row). The
+  dead, unhandled `@import.require-target` capture was dropped in the same
+  edit. The claim in the query comments that the pattern behaved "exactly as
+  the C/C++ queries do" was inaccurate — the C/C++ capture matches the quoted
+  include node only — and is corrected in place.
+
 ## [Unreleased] — watcher and index-state hygiene (issue #10)
 
 Three index-side defects fixed at their source, plus the operational

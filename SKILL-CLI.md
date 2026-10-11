@@ -263,8 +263,11 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
   `includes` is an import/include directive: an AST language records its
   import target (python module name, TS/JS module specifier, Go import path,
   C# `using` target, C/C++ quoted include) as an `includes` row AND as an
-  `imports` row, while a textual scan records its import/include line; angled
-  C/C++ system headers stay unresolved and produce no row.
+  `imports` row, while a textual scan records its import/include line. For
+  TS/JS that target comes from an `import` statement or a `require(...)` call
+  specifically — an ordinary string-argument call (`alert("hi")`) is neither
+  an `imports` nor an `includes` row. Angled C/C++ system headers stay
+  unresolved and produce no row.
   `--relationship` filters the reported vocabulary
   (`calls`|`includes`|`inherits`|`references`; `inherits` selects the
   `base_class` rows, `references` the `type`/`member`/`identifier` rows).

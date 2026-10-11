@@ -1,7 +1,10 @@
 ; TypeScript/JavaScript: imports, requires, calls, type annotations.
 ; The import/require target is captured a SECOND time as `ref.include` on the
 ; same node (as the C/C++ queries do), so the reference store carries an
-; `includes` row for it too — the `imports` table itself is unchanged.
+; `includes` row for it too — the `imports` table itself is unchanged. Unlike
+; the C/C++ `#include` node, a require is a CALL, so both require patterns are
+; scoped to the `require` function name: an ordinary string-argument call
+; (`alert("hi")`) is not an import/include directive (issue #12).
 (import_statement
   source: (string) @import.target)
 
@@ -9,14 +12,16 @@
   source: (string) @ref.include)
 
 (call_expression
-  function: (identifier) @import.require-target
+  function: (identifier) @_fn
   arguments: (arguments
-    (string) @import.require-source))
+    (string) @import.require-source)
+  (#eq? @_fn "require"))
 
 (call_expression
-  function: (identifier)
+  function: (identifier) @_fn
   arguments: (arguments
-    (string) @ref.include))
+    (string) @ref.include)
+  (#eq? @_fn "require"))
 
 (call_expression
   function: (identifier) @ref.call)

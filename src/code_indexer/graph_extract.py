@@ -22,8 +22,13 @@ vocabulary is fixed here and documented once:
 - ``type``       — a name used in a type position (AST).
 - ``base_class`` — a base class / interface in an inheritance list (AST).
 - ``member``     — a member access read, e.g. C# ``a.OughtRoleBindings`` (AST).
-- ``includes``   — an include/import directive (AST ``#include``; textual
-                   import/include lines).
+- ``includes``   — an include/import directive. AST: a python import, a TS/JS
+                   import specifier or ``require(...)`` source, a Go import
+                   path, a C# ``using`` target, a C/C++ quoted include. A
+                   require is a call, so the TS/JS query scopes it to the
+                   ``require`` function name — an ordinary string-argument
+                   call (``alert("hi")``) is NOT an include (issue #12).
+                   Textual: an import/include line.
 - ``identifier`` — any identifier in the textual scan.
 
 ``receiver`` is the receiver expression of a member access AS WRITTEN, and
@@ -82,7 +87,12 @@ LANGUAGES_WITH_AST = frozenset(
 # the AST queries route their import/include target into the reference store as
 # an `includes` row. Every existing index therefore reports needs-reindex and
 # must be rebuilt before the new rows exist.
-EXTRACTION_VERSION = 3
+# v4: the TS/TSX/JS require patterns are scoped to the `require` function name
+# (issue #12). Previously any identifier call with a string first argument
+# (`alert("hi")`) produced BOTH an `imports` row (kind `require`) and an
+# `includes` reference row; now only `require(...)` does. `require` coverage is
+# unchanged — the false positives are dropped.
+EXTRACTION_VERSION = 4
 
 _INDEX_EXTS = (".ts", ".tsx", ".js", ".jsx")
 
