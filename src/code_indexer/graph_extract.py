@@ -243,10 +243,15 @@ def extract_graph_textual(path: str, text: str
     ``call`` row, so ``find-references X --relationship calls`` answers on a
     language with no AST query instead of printing a bare negative. The
     whitespace rule is deliberate — measured over the live indexes, a tight
-    ``name(`` occurs 20,157 times in textual-scan languages (13,338 of them in
-    ``.csx`` scripts, i.e. real code), while allowing whitespace before the
-    paren adds 89,882 matches that are overwhelmingly prose (79,551 in
-    markdown: ``commit(s)``, ``actor(s)``, ``function (see below)``). The row
+    ``name(`` occurs 20,157 times in textual-scan languages: 13,338 (≈66%) are
+    ``.csx`` script call sites, i.e. real code, and the other 6,819 (≈34%) are
+    not — markdown 6,468 (≈32%), json 244, shell 78, text 9, toml 2 and a few
+    stragglers. Allowing whitespace before the paren would add a further 89,882
+    matches that are overwhelmingly prose (79,551 in markdown, e.g.
+    ``function (see below)``). What the tight rule does NOT do: it removes that
+    spaced-prose flood but does not make markdown prose call-free, because the
+    ``word(s)`` shape has no space before the paren — a tight ``commit(s)``,
+    ``actor(s)`` or ``project(s)`` is still stored as a ``call`` row. The row
     means exactly "a ``name(`` occurrence is on this line" — it is
     ``confidence='heuristic'``, context is not resolved, and a name mentioned
     only in a string or a trailing comment still matches.

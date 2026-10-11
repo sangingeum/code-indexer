@@ -181,17 +181,21 @@ class Indexer:
         # its older extraction code (fingerprint_mismatches is direction-blind)
         # and then stamp its own older version over the newer one — the flag
         # reverts and good vectors are replaced. So: warn loudly and defer the
-        # re-stamp, leaving the recorded (newer) value untouched.
+        # re-stamp, leaving the recorded (newer) value untouched. The deferral
+        # guards the fingerprint write and the direction-blind FULL REBUILD
+        # only — it does not skip the pass, so a CHANGED file is still embedded
+        # with this older process's extraction code while the recorded newer
+        # fingerprint stands.
         defer_fingerprint_write = False
         if manifest_newer_than(recorded_fp, current_fp):
             assert recorded_fp is not None  # manifest_newer_than implies it
             logger.warning(
                 "index for %s was built by NEWER code (%s) than this process "
-                "(%s, pid %d): refusing to re-embed or re-stamp — a sweep "
-                "would revert the fingerprint and rebuild with older "
-                "extraction code. Remedy: stop this watcher "
-                "(code-indexer unwatch) and restart it on the current code, "
-                "or run: code-indexer reindex-project %s",
+                "(%s, pid %d): refusing the fingerprint re-stamp and the "
+                "direction-blind full rebuild; changed files may still be "
+                "embedded with this older extraction code. Remedy: stop this "
+                "watcher (code-indexer unwatch) and restart it on the current "
+                "code, or run: code-indexer reindex-project %s",
                 slug, recorded_fp.describe(), current_fp.describe(),
                 os.getpid(), project_path)
             defer_fingerprint_write = True

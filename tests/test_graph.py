@@ -88,11 +88,11 @@ def test_c_extraction():
 
 
 # ---------------------------------------------------------------------------
-# item B: the AST import/include target reaches the reference store
+# the AST import/include target reaches the reference store
 # ---------------------------------------------------------------------------
 
 def test_python_import_produces_an_includes_reference_row():
-    """Item B: `includes` coverage for python, not only C/C++."""
+    """`includes` coverage for python, not only C/C++."""
     src = "import os\nimport pkg.helpers\nfrom .helpers import refresh_token\n"
     imports, refs = extract_graph("mod/a.py", src, "python")
     assert {i[0] for i in imports} >= {"os", "pkg.helpers", ".helpers"}
@@ -112,7 +112,8 @@ def test_python_import_produces_an_includes_reference_row():
     ("cpp", "src/a.cpp", '#include "shape.hpp"\n', "shape.hpp"),
 ])
 def test_ast_import_target_is_an_includes_reference(lang, path, src, target):
-    """Item B across every AST language, each against its own grammar."""
+    """AST import/include coverage across every AST language, each against its
+    own grammar."""
     _imports, refs = extract_graph(path, src, lang)
     includes = [r for r in refs if r[3] == "includes"]
     assert includes, f"{lang}: no includes row for {target!r}"
@@ -150,7 +151,7 @@ def test_heuristic_fallback_flags_confidence():
 
 
 def test_textual_scan_emits_a_call_row_for_a_tight_name_paren():
-    """Item A: a language with no AST query still answers a `calls` filter."""
+    """A language with no AST query still answers a `calls` filter."""
     src = (
         "use std::io;\n"
         "fn main() { helper(); }\n"
@@ -229,8 +230,8 @@ def _rig(tmp_path, monkeypatch):
     (project / "main.c").write_text(
         '#include "util.h"\nint main() { helper(); return 0; }\n')
     (project / "util.h").write_text("void helper(void);\n")
-    # A textual-fallback language (no AST query): item A adds a `call` row for
-    # a tight `name(` occurrence here.
+    # A textual-fallback language (no AST query): a tight `name(` yields a
+    # `call` row here.
     (project / "worker.rs").write_text(
         "use std::io;\nfn main() { helper(); }\n")
     core = Core(cfg)
@@ -304,7 +305,7 @@ def test_indexer_populates_graph_tables(tmp_path, monkeypatch):
 
 def test_ast_import_keeps_its_imports_row_and_gains_an_includes_ref(
         tmp_path, monkeypatch):
-    """Item B end-to-end: the `imports` table is unchanged; the reference
+    """The `imports` table is unchanged; the reference
     store gains the matching `includes` row."""
     core, reg, entry, project = _rig(tmp_path, monkeypatch)
     m = core.manifest_for(entry.slug)
@@ -321,7 +322,7 @@ def test_ast_import_keeps_its_imports_row_and_gains_an_includes_ref(
 
 
 def test_textual_language_stores_a_heuristic_call_row(tmp_path, monkeypatch):
-    """Item A end-to-end: the `call` row survives to the store, heuristic."""
+    """The `call` row survives to the store, heuristic."""
     core, reg, entry, project = _rig(tmp_path, monkeypatch)
     m = core.manifest_for(entry.slug)
     try:

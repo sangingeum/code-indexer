@@ -134,11 +134,11 @@ def test_csharp_comment_and_string_mentions_do_not_match(cs_manifest):
 
 
 # ---------------------------------------------------------------------------
-# item D: member-access precision
+# member-access precision
 # ---------------------------------------------------------------------------
 
 def test_csharp_intermediate_segment_is_not_a_reference():
-    """Item D(a): only the OUTERMOST access of a chain is a reference."""
+    """Only the OUTERMOST access of a chain is a reference."""
     src = (
         "class A\n"
         "{\n"
@@ -162,7 +162,7 @@ def test_csharp_intermediate_segment_is_not_a_reference():
 
 
 def test_csharp_same_line_double_read_collapses_to_one_row():
-    """Item D(b): the documented collapse — one row per (line, name, rel).
+    """The documented same-line collapse — one row per (line, name, rel).
 
     Two same-name member reads on ONE line keep only the first receiver,
     because neither the in-memory dedupe key nor the table primary key

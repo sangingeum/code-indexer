@@ -1377,9 +1377,10 @@ def find_references(
                 total = sum(n for _rel, n in counts)
                 kinds = ", ".join(rel for rel, _n in counts)
                 plural = "reference" if total == 1 else "references"
+                verb = "exists" if total == 1 else "exist"
                 typer.echo(
                     f"no {relationship} references to {name!r}; {total} "
-                    f"{plural} exist unfiltered ({kinds})")
+                    f"{plural} {verb} unfiltered ({kinds})")
                 return
         typer.echo(f"no references to {name!r}")
         return

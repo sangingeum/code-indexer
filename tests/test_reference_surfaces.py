@@ -122,7 +122,7 @@ def test_relationship_filter_spans_the_vocabulary(rig):
 
 
 def test_filtered_empty_report_names_the_unfiltered_count(rig, monkeypatch):
-    """Item C: a `calls` filter with no call rows must not read as absent."""
+    """A `calls` filter with no call rows must not read as absent."""
     core, entry, m = rig
     m.replace_file_refs("a.py", [
         (1, None, "widget", "identifier", None),

@@ -58,13 +58,18 @@ new rows.
 
 - **textual `call` coverage.** The textual scan (every language with no AST
   query, markdown included) now stores a `call` row for an identifier followed
-  immediately by `(`. Measured over the live indexes, that adds 20,157 rows
-  (13,338 of them `.csx` script call sites); allowing whitespace before the
-  paren would add 89,882 more that are overwhelmingly prose (`commit(s)`,
-  `function (see below)` — 79,551 of them markdown), so the tight form is the
-  documented rule. One occurrence yields one row: a tight `name(` is a `call`,
-  any other identifier an `identifier`. Rows stay `confidence='heuristic'` —
-  a `name(` in a string or trailing comment still matches.
+  immediately by `(`. Measured over the live indexes, that adds 20,157 rows:
+  13,338 (≈66%) are `.csx` script call sites (real code) and the other 6,819
+  (≈34%) are not — markdown 6,468 (≈32%), then json 244, shell 78, text 9,
+  toml 2 and a few stragglers. Allowing whitespace before the paren would add a
+  further 89,882 matches that are overwhelmingly prose (79,551 of them
+  markdown, e.g. `function (see below)`), so the tight form is the documented
+  rule. That removes the spaced-prose flood but does **not** make markdown
+  prose call-free: the `word(s)` shape is tight, so `commit(s)`, `actor(s)` and
+  `project(s)` in prose are still stored as `call` rows. One occurrence yields
+  one row: a tight `name(` is a `call`, any other identifier an `identifier`.
+  Rows stay `confidence='heuristic'` — a `name(` in a string or trailing
+  comment still matches.
 - **AST `includes` coverage.** Every AST language now routes its import
   directive into the reference store as an `includes` row, in parallel with
   its unchanged `imports` row: python module names, TS/JS module specifiers
