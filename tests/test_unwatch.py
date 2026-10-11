@@ -262,53 +262,45 @@ def test_pidfile_liveness_three_states(tmp_path):
     assert pidfile_liveness(pidfile) == "free"
 
 
-def test_pidfile_liveness_unknown_when_unopenable(tmp_path, monkeypatch):
-    """An unopenable pidfile is 'unknown', NOT 'free', and 'unknown' maps to
-    'not proven free' in the boolean helper.
+def test_pidfile_liveness_unknown_when_unopenable(tmp_path):
+    """An own-but-unopenable pidfile is 'unknown', NOT 'free', and 'unknown'
+    maps to 'not proven free' in the boolean helper.
 
-    Honest limit: as one user a genuinely unopenable pidfile cannot be
-    constructed, so this branch is witnessed by forcing ``os.open`` to fail
-    with a permission error — it is NOT reproduced with real cross-user
-    permissions.
+    Reproduced on Linux with real permissions and no monkeypatch: a pidfile
+    this user owns with mode 000 is genuinely unopenable by that user
+    (``os.open(O_RDONLY)`` -> ``EACCES``). A pidfile owned by a *different*
+    user is the one case a single-user test cannot reach.
     """
-    from code_indexer import watcher as watcher_mod
-
-    pidfile = str(tmp_path / "watch.pid")
-    with open(pidfile, "w") as fh:
-        fh.write("123 now\n")
-
-    real_open = os.open
-
-    def deny(path, flags, *a, **k):
-        if str(path) == pidfile:
-            raise PermissionError(13, "Permission denied", path)
-        return real_open(path, flags, *a, **k)
-
-    monkeypatch.setattr(watcher_mod.os, "open", deny)
-    assert watcher_mod.pidfile_liveness(pidfile) == "unknown"
-    assert watcher_mod.pidfile_is_free(pidfile) is False
-
-
-def test_stop_watcher_reports_unknown_and_does_not_claim_absence(
-        tmp_path, monkeypatch):
-    """A probe that cannot tell must not be reported as 'absent' and must not
-    unlink the pidfile (issue #14)."""
     from code_indexer import watcher as watcher_mod
 
     pidfile = tmp_path / "watch.pid"
     pidfile.write_text("123 now\n")
-    real_open = os.open
+    os.chmod(pidfile, 0o000)
+    try:
+        assert watcher_mod.pidfile_liveness(str(pidfile)) == "unknown"
+        assert watcher_mod.pidfile_is_free(str(pidfile)) is False
+    finally:
+        os.chmod(pidfile, 0o600)  # restore so the tmp path can be cleaned up
 
-    def deny(path, flags, *a, **k):
-        if str(path) == str(pidfile):
-            raise PermissionError(13, "Permission denied", path)
-        return real_open(path, flags, *a, **k)
 
-    monkeypatch.setattr(watcher_mod.os, "open", deny)
-    result = watcher_mod.stop_watcher(str(pidfile), timeout=0.1)
-    assert result["state"] == "unknown"
-    assert result["pid"] is None
-    assert pidfile.exists(), "an unknown probe must not unlink the pidfile"
+def test_stop_watcher_reports_unknown_and_does_not_claim_absence(tmp_path):
+    """A probe that cannot tell must not be reported as 'absent' and must not
+    unlink the pidfile (issue #14).
+
+    Witnessed against a real own-but-mode-000 pidfile — no monkeypatch.
+    """
+    from code_indexer import watcher as watcher_mod
+
+    pidfile = tmp_path / "watch.pid"
+    pidfile.write_text("123 now\n")
+    os.chmod(pidfile, 0o000)
+    try:
+        result = watcher_mod.stop_watcher(str(pidfile), timeout=0.1)
+        assert result["state"] == "unknown"
+        assert result["pid"] is None
+        assert pidfile.exists(), "an unknown probe must not unlink the pidfile"
+    finally:
+        os.chmod(pidfile, 0o600)  # restore so the tmp path can be cleaned up
 
 
 def test_unwatch_reports_unknown_and_does_not_claim_no_watcher(

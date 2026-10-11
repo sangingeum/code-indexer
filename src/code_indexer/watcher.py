@@ -221,10 +221,11 @@ def pidfile_liveness(pidfile_path: str) -> str:
     cannot be opened at all is ``"unknown"`` — the honest answer when the probe
     genuinely cannot tell, so a caller never turns "cannot tell" into "stale".
 
-    Honest limit: as a single user a genuinely unopenable pidfile cannot be
-    constructed, so the ``"unknown"`` branch is witnessed in tests by forcing
-    the ``os.open`` call to fail (a monkeypatched permission error), not
-    reproduced with real cross-user permissions.
+    The ``"unknown"`` branch is witnessed against a real file, not a
+    monkeypatch: a pidfile this user owns with mode ``000`` is genuinely
+    unopenable by that user (``os.open(O_RDONLY)`` raises ``EACCES``). The one
+    case a single-user test cannot reach is a pidfile owned by a different
+    user.
     """
     try:
         fd = os.open(pidfile_path, os.O_RDONLY)

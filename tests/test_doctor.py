@@ -328,29 +328,25 @@ def test_watch_pidfile_liveness_follows_the_flock(env):
     assert _by_name(check_locks(cfg))["watch"].status == "ok"
 
 
-def test_watch_pidfile_unopenable_reports_unknown_not_stale(env, monkeypatch):
+def test_watch_pidfile_unopenable_reports_unknown_not_stale(env):
     """A pidfile that cannot be opened is 'liveness unknown' — a warning that
     is NOT the stale message, so a live-but-unreadable watcher is never
-    reported stale (issue #14)."""
-    from code_indexer import watcher as watcher_mod
+    reported stale (issue #14).
 
+    Witnessed against a real own-but-mode-000 pidfile — no monkeypatch.
+    """
     cfg, reg = env
     pidfile = os.path.join(cfg.index_root, "watch.pid")
     with open(pidfile, "w") as f:
         f.write("999999999 2026-01-01T00:00:00+0900\n")
-
-    real_open = os.open
-
-    def deny(path, flags, *a, **k):
-        if str(path) == pidfile:
-            raise PermissionError(13, "Permission denied", path)
-        return real_open(path, flags, *a, **k)
-
-    monkeypatch.setattr(watcher_mod.os, "open", deny)
-    check = _by_name(check_locks(cfg))["watch"]
-    assert check.status == "warn"
-    assert "liveness unknown" in check.detail
-    assert "stale" not in check.detail
+    os.chmod(pidfile, 0o000)
+    try:
+        check = _by_name(check_locks(cfg))["watch"]
+        assert check.status == "warn"
+        assert "liveness unknown" in check.detail
+        assert "stale" not in check.detail
+    finally:
+        os.chmod(pidfile, 0o600)  # restore so the index root can be removed
 
 
 def test_lock_held_reported_ok(env):
