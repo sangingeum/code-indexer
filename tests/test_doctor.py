@@ -376,6 +376,28 @@ def test_fingerprint_mismatch_warns(env):
     assert "old-model" in fp.detail and "reindex-project" in fp.detail
 
 
+def test_fingerprint_mismatch_names_the_live_watcher(env):
+    """A fingerprint mismatch with a live watcher present names it (and the
+    ordered remedy): a watcher left running across a version bump re-stamps
+    the flag every sweep."""
+    from code_indexer.watcher import PidFileLock
+
+    cfg, reg = env
+    entry = reg.add(str(tempfile.mkdtemp()), name="proj")
+    _write_mismatched_manifest(cfg, entry)
+    pidfile = os.path.join(cfg.index_root, "watch.pid")
+    holder = PidFileLock(pidfile)
+    assert holder.acquire() is True
+    try:
+        fp = _by_name(check_fingerprints(cfg, reg, StubEmbedder()))["fingerprint"]
+        assert fp.status == "warn"
+        assert f"live watcher (pid {os.getpid()})" in fp.detail
+        assert "stop all watchers first" in fp.detail
+        assert "reindex-project" in fp.detail
+    finally:
+        holder.release(unlink=True)
+
+
 def test_fingerprint_match_ok(env):
     cfg, reg = env
     reg.add(str(tempfile.mkdtemp()), name="proj")  # never-indexed: skipped

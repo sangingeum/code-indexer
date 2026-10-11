@@ -739,6 +739,17 @@ def watch(
 
     Stop it with `code-indexer unwatch [PATH...|--all]`.
 
+    Version bumps (EXTRACTION_VERSION, CHUNKER_VERSION, EMBED_FORMAT): a
+    manifest's recorded fingerprint describes the code that built it, and a
+    watcher keeps re-stamping its OWN fingerprint on every sweep — so a
+    watcher left running across a version bump silently reverts the
+    needs-reindex flag and can re-embed with its older extraction code.
+    After upgrading the code, stop every watcher first, rebuild, then start
+    the watchers again on the new code:
+    `code-indexer unwatch --all` -> `code-indexer reindex-project <path>` ->
+    `code-indexer watch --all --background`. `doctor` names the running
+    watcher when a fingerprint mismatch is present.
+
     This is opt-in and never a prerequisite: one-shot commands work without
     any watcher running.
     """

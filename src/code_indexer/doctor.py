@@ -431,10 +431,22 @@ def check_fingerprints(cfg: Config, registry: Any, embedder: Any) -> list[Check]
         if diffs:
             issues.append(f"{entry.slug} ({entry.path}): {'; '.join(diffs)}")
     if issues:
+        # A watcher left running across a version bump silently re-stamps the
+        # fingerprint every sweep, so name it here and state the documented
+        # fix order (stop all watchers → reindex → restart them on the new
+        # code). The flock, not the pid text, decides whether one is live.
+        from .watcher import pidfile_is_free, read_pid
+        pid_path = os.path.join(cfg.index_root, "watch.pid")
+        note = ""
+        if os.path.isfile(pid_path) and not pidfile_is_free(pid_path):
+            holder = read_pid(pid_path)
+            who = f"pid {holder}" if holder is not None else "pid unreadable"
+            note = (f"a live watcher ({who}) may be running different code and "
+                    f"re-stamping this; stop all watchers first; ")
         return [Check(
             WARN, "fingerprint",
             "needs-reindex — " + "; ".join(issues)
-            + "; run: code-indexer reindex-project <path>")]
+            + f"; {note}run: code-indexer reindex-project <path>")]
     return [Check(OK, "fingerprint",
                   f"{len(entries)} project(s) match the current config")]
 

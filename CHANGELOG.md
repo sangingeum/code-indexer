@@ -1,5 +1,51 @@
 # Changelog
 
+## [Unreleased] — watcher and index-state hygiene (issue #10)
+
+Three index-side defects fixed at their source, plus the operational
+ordering that keeps the third one from recurring. The code changes
+themselves imply no reindex; the procedure below is what a version bump
+already needed.
+
+- **`watch --all` survives one bad registration.** A registered project
+  whose root is missing or unreadable is now skipped with a single warning
+  naming it, and the remaining projects are served; the watcher reports the
+  projects it actually covers and exits nonzero only when it covers none.
+  The failure that actually occurred — watchdog raises the
+  `inotify_add_watch` error from the observer's `start()`, not from
+  `schedule()` — no longer aborts the watcher: it degrades to the documented
+  quiet-period polling fallback, which the docstring already promised. A
+  `--background` parent also re-confirms the daemon is alive and still
+  holding the pidfile after the handshake, so it never prints
+  `watch daemon started` for a daemon that died on entry (previously it
+  exited 0 over a dead daemon).
+- **`doctor` no longer calls a live watcher stale.** The `watch` line reads
+  liveness from the pidfile **flock**, not from pid existence or the file
+  text. The pidfile format is `<pid> <iso-timestamp>`, so the old
+  whole-file `int()` parse failed on every live watcher and reported
+  `stale pidfile (pid None not running)`. A held flock now reports `running
+  (pid <pid>)`, a held flock with an unreadable pid reports `running (pid
+  unreadable)`, and only a free flock with a pidfile present is genuinely
+  `stale pidfile`. Query-time only; no reindex implication.
+- **a process does not overwrite a fingerprint it does not recognise.** A
+  pass whose manifest was recorded by NEWER code than the running process (a
+  version-ordered key — `CHUNKER_VERSION` / `EXTRACTION_VERSION` — recorded
+  higher than this process's own) now logs a loud warning naming the
+  project, both fingerprints and the remedy, and defers the re-stamp,
+  leaving the newer value alone. Previously the mismatch check was
+  direction-blind: an older-code watcher's sweep re-embedded the whole
+  project with its older extraction code and then stamped its own older
+  version, reverting the flag and replacing good vectors. The legitimate
+  direction — an index built by older code, rebuilt by a newer process —
+  still rebuilds and re-stamps.
+- **operational ordering documented.** After any version bump, stop all
+  watchers, rebuild, then restart them on the new code:
+  `unwatch --all` -> `reindex-project <path>` -> `watch --all --background`.
+  A watcher left running across a bump silently reverts the fingerprint
+  every sweep. Recorded in the `watch --help` text and this repo's
+  `SKILL-CLI.md` watch details; `doctor`'s fingerprint check names the live
+  watcher when a mismatch is present.
+
 ## [Unreleased] — reference-store coverage and precision (#9)
 
 The two load-bearing coverage gaps the store unification left behind are

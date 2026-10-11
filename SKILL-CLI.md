@@ -315,7 +315,11 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
   fail). Covers runtime versions, Ollama (reachable/model/dimension probe),
   Qdrant (reachable/version/client-vs-server compatibility, collections vs
   registry, dims), INDEX_ROOT writability + disk, SQLite integrity, watch
-  pidfile + locks, and per-project fingerprint status. Dev/ops surface —
+  pidfile + locks, and per-project fingerprint status. The `watch` line
+  reports liveness from the pidfile **flock** — a held flock is `running
+  (pid <pid>)` (or `running (pid unreadable)`), and only a free flock with a
+  pidfile present is `stale pidfile`; the fingerprint line names the live
+  watcher when a mismatch is present. Dev/ops surface —
   CLI-only, no MCP tool; agents use index-status instead. Run it when
   searches misbehave or after changing OLLAMA_URL/QDRANT_URL/EMBED_MODEL.
 
@@ -336,13 +340,32 @@ are not tracked); do not oversell it.
   forever; honored by `--background` too). SIGINT/SIGTERM exit 0.
 - Degradation: no watchdog installed or inotify watch-descriptor
   exhaustion -> quiet-period polling fallback (hash scan per project per
-  quiet tick). Correctness is never lost, only latency.
+  quiet tick). Correctness is never lost, only latency. The failure that
+  actually occurs when a scheduled root cannot be watched (raised from
+  either the schedule call or the observer's `start`) degrades to polling
+  rather than exiting.
+- A registered project whose root is **missing or unreadable** is skipped
+  with exactly one warning naming it; the remaining projects are still
+  served and the watcher reports the projects it covers. It exits nonzero
+  only when it covers none.
+- `--background` prints `watch daemon started` only after re-confirming the
+  daemon is alive and still holding the pidfile: a daemon that died on entry
+  is reported as a failure with a nonzero exit, never a false start.
 - `--foreground` (default) is the plain inherited-stdio behavior, and takes
   the SAME flock-guarded `<INDEX_ROOT>/watch.pid` as `--background`, so "one
   watcher per index root" holds in both modes.
 - Projects: repeatable path/slug/name args, or `--all` (round-robin).
   Never pass both.
 - A second watcher is refused while a live one holds the PID-file flock.
+- **Version bumps need an ordered restart.** A manifest's recorded
+  fingerprint (model, dim, embed-text format, `CHUNKER_VERSION`,
+  `EXTRACTION_VERSION`) describes the code that built it, and a watcher
+  re-stamps its OWN fingerprint on every sweep — so a watcher left running
+  across a version bump silently reverts the `needs-reindex` flag and can
+  re-embed with its older extraction code. After upgrading the code:
+  `unwatch --all` (stop all watchers) -> `reindex-project <path>` per
+  project (rebuild) -> `watch --all --background` (restart on the new code).
+  `doctor` names the running watcher when a fingerprint mismatch is present.
 - `unwatch [PATH...|--all] [--timeout S]` is the reverse: it SIGTERMs the
   live watcher holding `<INDEX_ROOT>/watch.pid` (either mode), waits for the
   flock to be released (default 10 s), and reports the projects that watcher
