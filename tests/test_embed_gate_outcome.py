@@ -1,4 +1,4 @@
-"""CI-10 outcome tests: eval-gated contextual header and chunker changes.
+"""Eval-gate outcome tests: eval-gated contextual header and chunker changes.
 
 The richer v2 header (qualified symbol/type + signature + docstring) and the
 statement-boundary chunk split were BOTH evaluated against this repository's
@@ -79,7 +79,7 @@ def test_builtin_generated_lockfile_ignores(tmp_path):
 
 def test_format_version_change_flags_reindex_by_design():
     """A future v2 header bump must keep flagging old indexes via the
-    CI-02 fingerprint — this pins the mechanism the eval gate relies on."""
+    fingerprint — this pins the mechanism the eval gate relies on."""
     v1_index = Fingerprint("m", 4096, "contextual-header-v1", 1)
     hypothetical_v2 = Fingerprint("m", 4096, "contextual-header-v2", 1)
     diffs = fingerprint_mismatches(v1_index, hypothetical_v2)
