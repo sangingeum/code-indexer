@@ -1,4 +1,4 @@
-"""Stale-safe line ranges (CI-03) tests.
+"""Stale-safe line ranges tests.
 
 Covers: search hits carry file_hash/indexed_at; file_changed_since_index
 stat fast-path and PARANOID_HASH=1 escape; symbol-mode re-resolve on a live

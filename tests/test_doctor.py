@@ -366,7 +366,7 @@ def test_lock_held_reported_ok(env):
 
 
 # ---------------------------------------------------------------------------
-# fingerprints (CI-02 integration)
+# fingerprints (doctor integration)
 # ---------------------------------------------------------------------------
 
 def _write_mismatched_manifest(cfg: Config, entry) -> None:

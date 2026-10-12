@@ -1,4 +1,4 @@
-"""CI-04 resilience tests: retries, fatal classification, bisect, resume.
+"""Embedder resilience tests: retries, fatal classification, bisect, resume.
 
 Offline: a scripted fake ollama client, an indexer-level mock embedder that
 raises after N calls, and a poisoned-chunk embedder.

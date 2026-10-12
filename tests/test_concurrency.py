@@ -208,7 +208,7 @@ def test_lock_file_permanent_and_diagnostic(tmp_path):
 
 class CrashingEmbedder(StubEmbedder):
     """Succeeds for the first `ok_calls` single-text embed calls, then fails
-    permanently — models a poisoned chunk / mid-pass Ollama death (CI-04)."""
+    permanently — models a poisoned chunk / mid-pass Ollama death."""
 
     def __init__(self, batch_size: int = 1, ok_calls: int = 1):
         super().__init__()
@@ -241,7 +241,7 @@ class CrashingEmbedder(StubEmbedder):
 
 
 def test_incremental_first_index_resumable_after_mid_crash(core, project):
-    """A mid-pass embedder failure no longer aborts the pass (CI-04): the
+    """A mid-pass embedder failure no longer aborts the pass: the
     failing chunk is recorded in index_errors and the pass completes with
     the healthy chunks; the retry pass re-embeds only the failures (no
     duplicate points), and a third pass reuses everything (idempotent)."""

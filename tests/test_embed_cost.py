@@ -1,4 +1,4 @@
-"""Embedding-cost tests (CI-14): query instruction, content-addressed cache.
+"""Embedding-cost tests: query instruction, content-addressed cache.
 
 Offline: scripted embedders count Ollama-equivalent calls.
 """
@@ -33,7 +33,7 @@ def test_query_instruction_applies_to_queries_only(monkeypatch):
 
 
 def test_query_instruction_on_by_default_after_eval_win(monkeypatch):
-    """CI-14 gate result: the instruction is the DEFAULT (eval win, recall@1
+    """Eval-gate result: the instruction is the DEFAULT (eval win, recall@1
     +0.048 / MRR +0.040); QUERY_INSTRUCTION='' disables it."""
     monkeypatch.delenv("QUERY_INSTRUCTION", raising=False)
     e = Embedder(host="http://stub", model="m")

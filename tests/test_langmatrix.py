@@ -1,4 +1,4 @@
-"""Language coverage matrix tests (CI-25).
+"""Language coverage matrix tests.
 
 Per-language fixture files with snapshot assertions on chunks + symbols,
 the fallback languages, and index-status reporting of

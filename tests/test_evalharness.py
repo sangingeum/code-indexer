@@ -1,8 +1,8 @@
 """Eval harness tests: metrics math, query parsing, compare, CLI wiring.
 
 All offline: a fake embedder produces deterministic hash-based vectors and the
-store seam is stubbed, so a fixed index yields deterministic metrics (the CI-16
-determinism requirement) with no Ollama/Qdrant traffic.
+store seam is stubbed, so a fixed index yields deterministic metrics with no
+Ollama/Qdrant traffic.
 """
 
 from __future__ import annotations

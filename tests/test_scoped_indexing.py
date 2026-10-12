@@ -1,4 +1,4 @@
-"""Scoped (subtree-first) indexing tests (CI-23).
+"""Scoped (subtree-first) indexing tests.
 
 Monorepo fixture: indexing only services/a/** leaves other dirs untouched
 and reported as out of scope. All offline.

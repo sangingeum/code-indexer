@@ -1,4 +1,4 @@
-"""Live stdio handshake smoke test (CI-01): the real MCP server process.
+"""Live stdio handshake smoke test: the real MCP server process.
 
 Launches ``code-indexer-mcp`` as a subprocess, performs the JSON-RPC
 ``initialize`` + ``tools/list`` handshake over stdio, and asserts the 18
