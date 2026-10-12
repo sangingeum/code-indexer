@@ -1,8 +1,8 @@
 # Step 0 Audit — code-indexer improvement plan (2026-10-03)
 
 Read-only audit of the repo against the improvement plan §3 (Step 0, items 1–9).
-No behavior changes; this file is the deliverable and is intentionally left
-uncommitted. All numbers were produced by real runs on this host (2026-10-03).
+No behavior changes; this file is the deliverable, committed for the record. All
+numbers were produced by real runs at the time of writing (2026-10-03).
 
 ## 1. Entry points (plan CI-01)
 
