@@ -776,9 +776,9 @@ class Core:
                 # find_symbols caps this read at 25 rows, and the pin below
                 # takes 3. The cap cannot change that answer: the read's order
                 # key is total, so 3 of 25 and an uncapped read pin the same
-                # three (3 of 25 under a total key). Same-name rows are not
-                # filtered after the cut here — cf. the get-code-context
-                # --symbol lookup, where the file filter runs after the cap.
+                # three (3 of 25 under a total key). The get-code-context
+                # --symbol lookup no longer shares this shape: it filters name
+                # and file in one uncapped read (issue #23).
                 exact = [r for r in m.find_symbols(ident, substring=False)]
             finally:
                 m.close()
@@ -1183,6 +1183,12 @@ class Core:
         ranges (stale stays false — the answer is current). Line mode: the
         requested lines are returned as-is with ``stale: true`` so the
         caller knows the numbers may be shifted.
+
+        Symbol mode returns EVERY matching definition range in this file —
+        the name and file filters run in one uncapped read, so a file whose
+        row sorts past ``find_symbols``' default cap is still found, and a
+        name with more than five definitions in one file is not shortened
+        (issue #23).
         """
         rel = file.lstrip("/")
         abs_path = os.path.normpath(os.path.join(entry.path, rel))
@@ -1208,20 +1214,24 @@ class Core:
                 if fresh_rows:
                     ranges = [(max(1, c.start_line - context_lines),
                                c.end_line + context_lines)
-                              for c in fresh_rows[:5]]
+                              for c in fresh_rows]
                     re_resolved = True
             if not ranges:
                 core_manifest = self.manifest_for(entry.slug)
                 try:
-                    rows = [r for r in core_manifest.find_symbols(
-                        symbol, substring=False) if r.file == rel]
+                    # Scoped in SQL: the name filter AND the file filter are
+                    # the same read, uncapped. Filtering a capped exact-name
+                    # read in Python dropped a file whose row sorted past the
+                    # cap (issue #23: registry.py's __init__ is row 26 of 40).
+                    rows = core_manifest.find_symbols(
+                        symbol, substring=False, file=rel, limit=None)
                 finally:
                     core_manifest.close()
                 if not rows:
                     raise ValueError(
                         f"error: symbol {symbol!r} not indexed in {rel}")
                 ranges = [(max(1, r.start_line - context_lines),
-                           r.end_line + context_lines) for r in rows[:5]]
+                           r.end_line + context_lines) for r in rows]
         elif start_line is not None:
             end = end_line if end_line is not None else start_line
             ranges.append((max(1, start_line - context_lines),

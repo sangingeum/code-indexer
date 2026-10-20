@@ -99,11 +99,18 @@ def load_queries(path: str | Path) -> list[EvalQuery]:
 
 def _symbol_range(manifest: Any, rel_file: str,
                   symbol: str) -> tuple[int, int] | None:
-    """(start_line, end_line) for a symbol row, or None when absent."""
-    for r in manifest.find_symbols(symbol, substring=False):
-        if r.file == rel_file:
-            return (r.start_line, r.end_line)
-    return None
+    """(start_line, end_line) for a symbol row, or None when absent.
+
+    The name and the file are both filtered in SQL and the read is uncapped:
+    a capped exact-name read filtered to a file afterwards silently returned
+    None for every definition past the cap, mis-scoring the eval run that
+    asked about it (issue #23, same shape as the get-code-context lookup).
+    """
+    rows = manifest.find_symbols(symbol, substring=False, file=rel_file,
+                                 limit=None)
+    if not rows:
+        return None
+    return (rows[0].start_line, rows[0].end_line)
 
 
 def _hit_correct(core: "Core", entry: Any, hit: dict[str, Any],
