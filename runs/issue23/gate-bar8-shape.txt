@@ -1,0 +1,63 @@
+### bar8: answer shape
+--- line mode, stale file (stderr split) ---
+rc=0
+stderr: [10/21/26 07:41:08] WARNING  file changed since last index; line    core.py:1261
+                             numbers may be shifted                             
+{
+  "keys": [
+    "file",
+    "re_resolved",
+    "schema",
+    "segments",
+    "stale"
+  ],
+  "file": "src/code_indexer/manifest.py",
+  "stale": true,
+  "re_resolved": false,
+  "segs": 1,
+  "seg_keys": [
+    "end_line",
+    "lines",
+    "start_line"
+  ]
+}
+
+--- symbol mode, single-definition file ---
+{
+  "keys": [
+    "file",
+    "re_resolved",
+    "schema",
+    "segments",
+    "stale"
+  ],
+  "file": "src/code_indexer/registry.py",
+  "stale": false,
+  "re_resolved": false,
+  "segs": 1,
+  "seg_keys": [
+    "end_line",
+    "lines",
+    "start_line"
+  ]
+}
+
+--- symbol mode, three definitions in one file (watcher.py) ---
+{
+  "keys": [
+    "file",
+    "re_resolved",
+    "schema",
+    "segments",
+    "stale"
+  ],
+  "file": "src/code_indexer/watcher.py",
+  "stale": false,
+  "re_resolved": false,
+  "segs": 3,
+  "starts": [
+    94,
+    147,
+    391
+  ]
+}

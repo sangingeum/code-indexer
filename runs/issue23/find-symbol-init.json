@@ -1,0 +1,322 @@
+[
+  {
+    "file": "tests/test_indexer_embed_context.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 15,
+    "end_line": 17,
+    "signature": "def __init__(self) -> None:"
+  },
+  {
+    "file": "tests/test_search_data_files.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 16,
+    "end_line": 18,
+    "signature": "def __init__(self, score: float, payload: dict) -> None:"
+  },
+  {
+    "file": "tests/test_embedder_resilience.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 19,
+    "end_line": 21,
+    "signature": "def __init__(self, script):"
+  },
+  {
+    "file": "tests/test_embed_format.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 21,
+    "end_line": 23,
+    "signature": "def __init__(self) -> None:"
+  },
+  {
+    "file": "tests/test_indexer_embed_context.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 28,
+    "end_line": 30,
+    "signature": "def __init__(self) -> None:"
+  },
+  {
+    "file": "tests/test_concurrency.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 29,
+    "end_line": 30,
+    "signature": "def __init__(self):"
+  },
+  {
+    "file": "tests/test_search_data_files.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 32,
+    "end_line": 34,
+    "signature": "def __init__(self, points: list[_Point]) -> None:"
+  },
+  {
+    "file": "tests/test_codeintel.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 34,
+    "end_line": 35,
+    "signature": "def __init__(self):"
+  },
+  {
+    "file": "tests/test_embed_format.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 34,
+    "end_line": 35,
+    "signature": "def __init__(self) -> None:"
+  },
+  {
+    "file": "tests/test_fingerprint.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 36,
+    "end_line": 37,
+    "signature": "def __init__(self, dim: int = 4):"
+  },
+  {
+    "file": "src/code_indexer/embedder.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 39,
+    "end_line": 56,
+    "signature": "def __init__(self, host: str, model: str, batch_size: int = 48,"
+  },
+  {
+    "file": "src/code_indexer/store.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 40,
+    "end_line": 42,
+    "signature": "def __init__(self, url: str, upsert_batch: int = 256):"
+  },
+  {
+    "file": "tests/test_evalharness.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 40,
+    "end_line": 41,
+    "signature": "def __init__(self, dim: int = 16):"
+  },
+  {
+    "file": "tests/test_concurrency.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 41,
+    "end_line": 42,
+    "signature": "def __init__(self):"
+  },
+  {
+    "file": "tests/test_search_isolation.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 41,
+    "end_line": 48,
+    "signature": "def __init__(self, file: str) -> None:"
+  },
+  {
+    "file": "src/code_indexer/embed_cache.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 48,
+    "end_line": 53,
+    "signature": "def __init__(self, index_root: str,"
+  },
+  {
+    "file": "tests/test_doctor.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 48,
+    "end_line": 50,
+    "signature": "def __init__(self, models=(\"stub\",), error=None):"
+  },
+  {
+    "file": "tests/test_staleness_reporting.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 49,
+    "end_line": 50,
+    "signature": "def __init__(self, dim: int = 4):"
+  },
+  {
+    "file": "tests/test_indexer_embed_context.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 50,
+    "end_line": 51,
+    "signature": "def __init__(self) -> None:"
+  },
+  {
+    "file": "tests/test_orphan_sweep.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 56,
+    "end_line": 58,
+    "signature": "def __init__(self) -> None:"
+  },
+  {
+    "file": "src/code_indexer/indexer.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 59,
+    "end_line": 67,
+    "signature": "def __init__(self, cfg: Config, embedder: Embedder, store: Store,"
+  },
+  {
+    "file": "tests/test_evalharness.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 59,
+    "end_line": 61,
+    "signature": "def __init__(self) -> None:"
+  },
+  {
+    "file": "tests/test_fingerprint.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 59,
+    "end_line": 63,
+    "signature": "def __init__(self) -> None:"
+  },
+  {
+    "file": "tests/test_staleness_reporting.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 60,
+    "end_line": 62,
+    "signature": "def __init__(self) -> None:"
+  },
+  {
+    "file": "tests/test_doctor.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 64,
+    "end_line": 76,
+    "signature": "def __init__(self, collections=(), aliases=(), dims=None,"
+  },
+  {
+    "file": "src/code_indexer/registry.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 66,
+    "end_line": 78,
+    "signature": "def __init__(self, db_path: str):"
+  },
+  {
+    "file": "src/code_indexer/core.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 67,
+    "end_line": 81,
+    "signature": "def __init__(self, cfg: Config | None = None, skip_stale_check: bool = False):"
+  },
+  {
+    "file": "tests/test_search_isolation.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 75,
+    "end_line": 81,
+    "signature": "def __init__(self, live_collection: str | None = None,"
+  },
+  {
+    "file": "src/code_indexer/fts.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 76,
+    "end_line": 77,
+    "signature": "def __init__(self, conn):"
+  },
+  {
+    "file": "tests/test_unwatch.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 80,
+    "end_line": 86,
+    "signature": "def __init__(self, script: str, pidfile: str, marker: str) -> None:"
+  },
+  {
+    "file": "src/code_indexer/watcher.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 94,
+    "end_line": 96,
+    "signature": "def __init__(self, path: str) -> None:"
+  },
+  {
+    "file": "tests/test_embed_cost.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 95,
+    "end_line": 97,
+    "signature": "def __init__(self, cache=None):"
+  },
+  {
+    "file": "src/code_indexer/manifest.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 121,
+    "end_line": 139,
+    "signature": "def __init__(self, db_path: str):"
+  },
+  {
+    "file": "tests/test_embed_cost.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 125,
+    "end_line": 128,
+    "signature": "def __init__(self, cache):"
+  },
+  {
+    "file": "src/code_indexer/watcher.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 147,
+    "end_line": 157,
+    "signature": "def __init__("
+  },
+  {
+    "file": "tests/test_result_shaping.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 201,
+    "end_line": 202,
+    "signature": "def __init__(self, payload, score):"
+  },
+  {
+    "file": "tests/test_concurrency.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 213,
+    "end_line": 217,
+    "signature": "def __init__(self, batch_size: int = 1, ok_calls: int = 1):"
+  },
+  {
+    "file": "tests/test_watcher.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 386,
+    "end_line": 398,
+    "signature": "def __init__(self, pidfile: str, watched_roots: list[str]):"
+  },
+  {
+    "file": "src/code_indexer/watcher.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 391,
+    "end_line": 411,
+    "signature": "def __init__("
+  },
+  {
+    "file": "src/code_indexer/doctor.py",
+    "name": "__init__",
+    "type": "function",
+    "start_line": 398,
+    "end_line": 399,
+    "signature": "def __init__(self, mapping: dict[str, Any]):"
+  }
+]

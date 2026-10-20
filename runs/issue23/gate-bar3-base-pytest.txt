@@ -1,0 +1,146 @@
+.FFFFF                                                                   [100%]
+=================================== FAILURES ===================================
+_________________ test_symbol_mode_resolves_a_row_past_the_cap _________________
+
+wide_rig = (<code_indexer.core.Core object at 0x7d896eb0b440>, <code_indexer.registry.Registry object at 0x7d896eb0b0e0>, Project...ax_file_bytes=1048576, watch_debounce=1, watch_sweep_interval=3600, ollama_timeout=120, embed_concurrency=1, extra={}))
+
+    def test_symbol_mode_resolves_a_row_past_the_cap(wide_rig):
+        """Manifest path: the stored row for the late file must be returned."""
+        core, reg, entry, project, cfg = wide_rig
+>       data = core.code_context(entry, "late_definition.py", symbol=SHARED_NAME)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_symbol_resolution.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <code_indexer.core.Core object at 0x7d896eb0b440>
+entry = ProjectEntry(path='/tmp/pytest-of-keum/pytest-59/test_symbol_mode_resolves_a_ro0/proj', slug='symbolres', created_at=1792535943.243863, name='symbolres')
+file = 'late_definition.py', start_line = None, end_line = None
+symbol = 'prepare', context_lines = 0
+
+    def code_context(self, entry: ProjectEntry, file: str,
+                     start_line: int | None = None,
+                     end_line: int | None = None,
+                     symbol: str | None = None,
+                     context_lines: int = 0) -> dict[str, Any]:
+        """Stale-safe get_code_context.
+    
+        Symbol mode: when the file changed since indexing, re-resolve the
+        symbol against the LIVE file with tree-sitter and return fresh line
+        ranges (stale stays false — the answer is current). Line mode: the
+        requested lines are returned as-is with ``stale: true`` so the
+        caller knows the numbers may be shifted.
+        """
+        rel = file.lstrip("/")
+        abs_path = os.path.normpath(os.path.join(entry.path, rel))
+        if not abs_path.startswith(os.path.normpath(entry.path) + os.sep):
+            raise ValueError(f"error: path outside registered project: {file}")
+        if not os.path.isfile(abs_path):
+            raise ValueError(f"error: file not found: {abs_path}")
+    
+        changed = self.file_changed_since_index(entry, rel)
+        ranges: list[tuple[int, int]] = []
+        re_resolved = False
+        if symbol:
+            if changed:
+                # Re-resolve against the live file; the manifest rows are
+                # stale by definition here.
+                with open(abs_path, encoding="utf-8", errors="replace") as f:
+                    live_text = f.read()
+                live_chunks = ts_chunker.chunk_text(rel, live_text)
+                fresh_rows = [
+                    c for c in live_chunks
+                    if c.symbol == symbol or
+                    (c.symbol and c.symbol.endswith("." + symbol))]
+                if fresh_rows:
+                    ranges = [(max(1, c.start_line - context_lines),
+                               c.end_line + context_lines)
+                              for c in fresh_rows[:5]]
+                    re_resolved = True
+            if not ranges:
+                core_manifest = self.manifest_for(entry.slug)
+                try:
+                    rows = [r for r in core_manifest.find_symbols(
+                        symbol, substring=False) if r.file == rel]
+                finally:
+                    core_manifest.close()
+                if not rows:
+>                   raise ValueError(
+                        f"error: symbol {symbol!r} not indexed in {rel}")
+E                   ValueError: error: symbol 'prepare' not indexed in late_definition.py
+
+src/code_indexer/core.py:1221: ValueError
+______________ test_cli_symbol_mode_does_not_deny_an_indexed_row _______________
+
+wide_rig = (<code_indexer.core.Core object at 0x7d896eb26480>, <code_indexer.registry.Registry object at 0x7d896eb0b200>, Project...ax_file_bytes=1048576, watch_debounce=1, watch_sweep_interval=3600, ollama_timeout=120, embed_concurrency=1, extra={}))
+
+    def test_cli_symbol_mode_does_not_deny_an_indexed_row(wide_rig):
+        """User-facing: no InternalError, just the definition's lines."""
+        import code_indexer.cli as cli
+        core, reg, entry, project, cfg = wide_rig
+        cli._core = core
+        cli._core_skip = True
+        result = runner.invoke(app, ["get-code-context", "late_definition.py",
+                                     "--project", project, "--symbol", SHARED_NAME,
+                                     "--skip-stale-check"])
+>       assert result.exit_code == 0, result.output
+E       AssertionError: InternalError: symbol 'prepare' not indexed in late_definition.py
+E         
+E       assert 1 == 0
+E        +  where 1 = <Result SystemExit(1)>.exit_code
+
+tests/test_symbol_resolution.py:163: AssertionError
+______________ test_eval_symbol_range_resolves_a_row_past_the_cap ______________
+
+wide_rig = (<code_indexer.core.Core object at 0x7d896f23e420>, <code_indexer.registry.Registry object at 0x7d8970b1aa50>, Project...ax_file_bytes=1048576, watch_debounce=1, watch_sweep_interval=3600, ollama_timeout=120, embed_concurrency=1, extra={}))
+
+    def test_eval_symbol_range_resolves_a_row_past_the_cap(wide_rig):
+        """The eval harness scored this definition as absent and missed a hit."""
+        core, reg, entry, project, cfg = wide_rig
+        m = core.manifest_for(entry.slug)
+        try:
+            rng = evalharness._symbol_range(m, "late_definition.py", SHARED_NAME)
+        finally:
+            m.close()
+>       assert rng == (5, 6)
+E       assert None == (5, 6)
+
+tests/test_symbol_resolution.py:176: AssertionError
+____________ test_symbol_mode_returns_every_definition_in_the_file _____________
+
+repeated_rig = (<code_indexer.core.Core object at 0x7d896f23eff0>, <code_indexer.registry.Registry object at 0x7d896f59c8f0>, Project...ax_file_bytes=1048576, watch_debounce=1, watch_sweep_interval=3600, ollama_timeout=120, embed_concurrency=1, extra={}))
+
+    def test_symbol_mode_returns_every_definition_in_the_file(repeated_rig):
+        core, reg, entry, project, cfg = repeated_rig
+        data = core.code_context(entry, "repeated_definitions.py",
+                                 symbol=SHARED_NAME)
+>       assert len(data["segments"]) == 6
+E       AssertionError: assert 5 == 6
+E        +  where 5 = len([{'start_line': 1, 'end_line': 2, 'lines': ['    1| def prepare():', '    2|     return 0']}, {'start_line': 5, 'end_l...'   14|     return 3']}, {'start_line': 17, 'end_line': 18, 'lines': ['   17| def prepare():', '   18|     return 4']}])
+
+tests/test_symbol_resolution.py:187: AssertionError
+____________ test_re_resolved_symbol_mode_returns_every_definition _____________
+
+repeated_rig = (<code_indexer.core.Core object at 0x7d896f23d9a0>, <code_indexer.registry.Registry object at 0x7d8970b1aa50>, Project...ax_file_bytes=1048576, watch_debounce=1, watch_sweep_interval=3600, ollama_timeout=120, embed_concurrency=1, extra={}))
+
+    def test_re_resolved_symbol_mode_returns_every_definition(repeated_rig):
+        """Changed-file path: the live re-resolve answers with every range too."""
+        core, reg, entry, project, cfg = repeated_rig
+        target = project / "repeated_definitions.py"
+        target.write_text("# edited\n" + _repeated_definitions(6))
+        data = core.code_context(entry, "repeated_definitions.py",
+                                 symbol=SHARED_NAME)
+        assert data["re_resolved"] is True
+        assert data["stale"] is False
+>       assert len(data["segments"]) == 6
+E       AssertionError: assert 5 == 6
+E        +  where 5 = len([{'start_line': 2, 'end_line': 3, 'lines': ['    2| def prepare():', '    3|     return 0']}, {'start_line': 6, 'end_l...'   15|     return 3']}, {'start_line': 18, 'end_line': 19, 'lines': ['   18| def prepare():', '   19|     return 4']}])
+
+tests/test_symbol_resolution.py:201: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_symbol_resolution.py::test_symbol_mode_resolves_a_row_past_the_cap
+FAILED tests/test_symbol_resolution.py::test_cli_symbol_mode_does_not_deny_an_indexed_row
+FAILED tests/test_symbol_resolution.py::test_eval_symbol_range_resolves_a_row_past_the_cap
+FAILED tests/test_symbol_resolution.py::test_symbol_mode_returns_every_definition_in_the_file
+FAILED tests/test_symbol_resolution.py::test_re_resolved_symbol_mode_returns_every_definition
+5 failed, 1 passed in 2.04s

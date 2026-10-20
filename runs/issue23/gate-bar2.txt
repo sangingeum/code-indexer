@@ -1,0 +1,28 @@
+### bar2: get-code-context <file> --symbol __init__ over every distinct file in find-symbol __init__ (40 rows)
+1   rc=0 src/code_indexer/core.py | --- src/code_indexer/core.py:67-81 ---
+2   rc=0 src/code_indexer/doctor.py | --- src/code_indexer/doctor.py:398-399 ---
+3   rc=0 src/code_indexer/embed_cache.py | --- src/code_indexer/embed_cache.py:48-53 ---
+4   rc=0 src/code_indexer/embedder.py | --- src/code_indexer/embedder.py:39-56 ---
+5   rc=0 src/code_indexer/fts.py | --- src/code_indexer/fts.py:76-77 ---
+6   rc=0 src/code_indexer/indexer.py | --- src/code_indexer/indexer.py:59-67 ---
+7   rc=0 src/code_indexer/manifest.py | --- src/code_indexer/manifest.py:121-139 ---
+8   rc=0 src/code_indexer/registry.py | --- src/code_indexer/registry.py:66-78 ---
+9   rc=0 src/code_indexer/store.py | --- src/code_indexer/store.py:40-42 ---
+10  rc=0 src/code_indexer/watcher.py | --- src/code_indexer/watcher.py:94-96 ---
+11  rc=0 tests/test_codeintel.py | --- tests/test_codeintel.py:34-35 ---
+12  rc=0 tests/test_concurrency.py | --- tests/test_concurrency.py:29-30 ---
+13  rc=0 tests/test_doctor.py | --- tests/test_doctor.py:48-50 ---
+14  rc=0 tests/test_embed_cost.py | --- tests/test_embed_cost.py:95-97 ---
+15  rc=0 tests/test_embed_format.py | --- tests/test_embed_format.py:21-23 ---
+16  rc=0 tests/test_embedder_resilience.py | --- tests/test_embedder_resilience.py:19-21 ---
+17  rc=0 tests/test_evalharness.py | --- tests/test_evalharness.py:40-41 ---
+18  rc=0 tests/test_fingerprint.py | --- tests/test_fingerprint.py:36-37 ---
+19  rc=0 tests/test_indexer_embed_context.py | --- tests/test_indexer_embed_context.py:15-17 ---
+20  rc=0 tests/test_orphan_sweep.py | --- tests/test_orphan_sweep.py:56-58 ---
+21  rc=0 tests/test_result_shaping.py | --- tests/test_result_shaping.py:201-202 ---
+22  rc=0 tests/test_search_data_files.py | --- tests/test_search_data_files.py:16-18 ---
+23  rc=0 tests/test_search_isolation.py | --- tests/test_search_isolation.py:41-48 ---
+24  rc=0 tests/test_staleness_reporting.py | --- tests/test_staleness_reporting.py:49-50 ---
+25  rc=0 tests/test_unwatch.py | --- tests/test_unwatch.py:80-86 ---
+26  rc=0 tests/test_watcher.py | --- tests/test_watcher.py:386-398 ---
+checked=26 failures=0

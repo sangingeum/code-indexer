@@ -1,0 +1,46 @@
+### bar1 live-index repro at c5d60fb
+$ code-indexer get-code-context src/code_indexer/registry.py --symbol __init__ --skip-stale-check
+--- src/code_indexer/registry.py:66-78 ---
+   66|     def __init__(self, db_path: str):
+   67|         self.db_path = db_path
+   68|         # check_same_thread=False: the core is used from worker threads
+   69|         # (the CLI watcher loop's per-project passes). All access
+   70|         # is short transactions under WAL + busy_timeout, and cross-process
+   71|         # writes are serialized by the per-project flock.
+   72|         self._conn = sqlite3.connect(db_path, timeout=30, check_same_thread=False)
+   73|         self._conn.execute("PRAGMA journal_mode=WAL")
+   74|         self._conn.execute("PRAGMA synchronous=NORMAL")
+   75|         self._conn.execute("PRAGMA busy_timeout=30000")
+   76|         with self._conn:
+   77|             self._conn.executescript(_SCHEMA)
+   78|         self._migrate()
+rc=0
+
+$ code-indexer get-code-context src/code_indexer/doctor.py --symbol __init__ --skip-stale-check
+--- src/code_indexer/doctor.py:398-399 ---
+  398|     def __init__(self, mapping: dict[str, Any]):
+  399|         self._mapping = mapping
+rc=0
+
+$ code-indexer get-code-context src/code_indexer/embedder.py --symbol __init__ --skip-stale-check
+--- src/code_indexer/embedder.py:39-56 ---
+   39|     def __init__(self, host: str, model: str, batch_size: int = 48,
+   40|                  retries: int = DEFAULT_RETRIES, timeout: int = DEFAULT_TIMEOUT,
+   41|                  cache=None):
+   42|         self._host = host
+   43|         self.client = ollama.Client(host=host, timeout=timeout)
+   44|         self.model = model
+   45|         self.batch_size = batch_size
+   46|         self.retries = retries
+   47|         self._dim: int | None = None
+   48|         # Content-addressed cache: consulted before Ollama; keyed on
+   49|         # the exact text + model + dim + embed-text version.
+   50|         self.cache = cache
+   51|         # Query instruction (eval-gated WIN): applied ONLY to
+   52|         # query-side embeddings via query_instruction_text(); document
+   53|         # embeddings are never instructed. Eval on this repo's 42-query set:
+   54|         # recall@1 +0.048, MRR +0.040, 9 improved / 5 regressed — the
+   55|         # default comes from the plan's instruction text. Set
+   56|         # QUERY_INSTRUCTION="" to disable (cache keys include the full
+rc=0
+
