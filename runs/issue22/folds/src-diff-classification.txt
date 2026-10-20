@@ -1,0 +1,6 @@
+src/code_indexer/changed.py: string literal text only (code tree identical)
+  - " callers per symbol (raise --max-nodes does not affect that bound; run find-callers <symbol> for one symbol's whole fan-in)"
+  + " callers per symbol (raise --max-nodes does not affect that bound; run find-callers <symbol> --max-nodes N with an N big enough to cover one symbol's fan-in)"
+src/code_indexer/core.py: comments/docstrings only (code tree identical)
+src/code_indexer/graph.py: comments/docstrings only (code tree identical)
+src/code_indexer/manifest.py: comments/docstrings only (code tree identical)

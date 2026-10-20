@@ -1,0 +1,71 @@
+diff --git a/src/code_indexer/changed.py b/src/code_indexer/changed.py
+index f2f4833..9d68796 100644
+--- a/src/code_indexer/changed.py
++++ b/src/code_indexer/changed.py
+@@ -327,6 +327,7 @@ def _impact_bound_note(imp: dict) -> str:
+     advises `--max-nodes` is wrong for whichever one actually fired. The
+     shared node budget answers to `--max-nodes`; the per-name read does not —
+-    it is `CALLERS_PER_NAME`, and one symbol's whole fan-in is what
+-    `find-callers` is for.
++    it is `CALLERS_PER_NAME`, so the remedy is the walk that asks for one
++    symbol with a budget big enough to cover it:
++    `find-callers <symbol> --max-nodes N`.
+     """
+     bounds = imp.get("bounds") or {}
+@@ -338,6 +339,6 @@ def _impact_bound_note(imp: dict) -> str:
+             f"{per_name} refused by the per-name read cap of "
+             f"{CALLERS_PER_NAME} callers per symbol (raise --max-nodes does "
+-            "not affect that bound; run find-callers <symbol> for one "
+-            "symbol's whole fan-in)")
++            "not affect that bound; run find-callers <symbol> --max-nodes N "
++            "with an N big enough to cover one symbol's fan-in)")
+     if budget:
+         parts.append(
+diff --git a/src/code_indexer/core.py b/src/code_indexer/core.py
+index 2330055..bb7bdd5 100644
+--- a/src/code_indexer/core.py
++++ b/src/code_indexer/core.py
+@@ -774,4 +774,10 @@ class Core:
+             m = self.manifest_for(entry.slug)
+             try:
++                # find_symbols caps this read at 25 rows, and the pin below
++                # takes 3. The cap cannot change that answer: the read's order
++                # key is total, so 3 of 25 and an uncapped read pin the same
++                # three (3 of 25 under a total key). Same-name rows are not
++                # filtered after the cut here — cf. the get-code-context
++                # --symbol lookup, where the file filter runs after the cap.
+                 exact = [r for r in m.find_symbols(ident, substring=False)]
+             finally:
+diff --git a/src/code_indexer/graph.py b/src/code_indexer/graph.py
+index 56eb729..a007dc2 100644
+--- a/src/code_indexer/graph.py
++++ b/src/code_indexer/graph.py
+@@ -115,5 +115,8 @@ def _root_cap_note(total: int, cap: int) -> str:
+     remains the completeness flag, so this note is how the real situation is
+     named: how many roots exist, how many were shown, and the only knob that
+-    helps.
++    helps. A hidden root's subtree is never walked, so the sibling edge count
++    covers the roots that were shown only — it does not include the edges the
++    hidden roots would have contributed, and it must not be read as the size
++    of everything hidden.
+     """
+     hidden = total - cap
+diff --git a/src/code_indexer/manifest.py b/src/code_indexer/manifest.py
+index f02f71e..7e4cd16 100644
+--- a/src/code_indexer/manifest.py
++++ b/src/code_indexer/manifest.py
+@@ -530,8 +530,10 @@ class Manifest:
+ 
+         The order key ``(file, line, relationship, to_name, receiver)`` is
+-        total — the first four columns are the row's primary key — so a capped
+-        read is a reproducible prefix of the full read and no tie group can
+-        straddle the cut. ``(file, line)`` alone was not: a live index has
+-        73,911 lines carrying more than one reference.
++        total — its first four columns are the table's primary-key column set
++        (``(file, line, to_name, relationship)``, a different order) and the
++        fifth is the receiver — so a capped read is a reproducible prefix of
++        the full read and no tie group can straddle the cut. ``(file, line)``
++        alone was not: a live index has 73,911 lines carrying more than one
++        reference.
+         """
+         sql = ("SELECT file, line, from_symbol, relationship, confidence,"
