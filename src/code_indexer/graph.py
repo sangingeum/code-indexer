@@ -1,14 +1,35 @@
 """Graph queries: find-callers / find-callees / deps (graph work item).
 
 Walks the manifest's single reference store (``refs``) and the imports table
-breadth-first with depth and node caps. Cycle-safe: visited set keyed on
-(file, symbol). Output is an indented compact tree; JSON carries the edges.
+breadth-first with depth and node caps.
+
+Node identity — what makes two rows the same node, and therefore what the
+cycle-safe visited set is keyed on:
+
+* a definition root is ``(file, symbol)``;
+* a caller node is the CALL SITE, ``(file, line, from_symbol,
+  relationship)`` — not the enclosing symbol, so two calls to the same target
+  from ONE function are two nodes, each carrying its own line and its own
+  receiver (issue #21: enclosing-symbol identity collapsed the second into the
+  first, silently);
+* a callee node is the TARGET, ``(file, to_name)`` — `find-callees` answers
+  "what does this symbol reach", so one target reached twice is one callee.
+  The asymmetry with `find-callers` is deliberate.
+
+Caps are honest. An edge this walk examined and refused because the node cap
+was reached is counted in ``GraphResult.omitted`` and the answer is marked
+``truncated``; a depth cap that stops a frontier which still has unvisited
+edges adds a "deeper references exist" line. An incomplete answer always says
+so — it is never indistinguishable from a complete one.
+
+Output is an indented compact tree; JSON carries the edges plus the two
+top-level truncation fields (``truncated``, ``omitted``).
 
 A node's ``receiver`` is the receiver expression of the reference AS WRITTEN
 (a plain identifier on a member access, else NULL). It is taken from the
 stored row — never inferred from the query — and is reported only on the
 DIRECT hits of the subject (the level-0 fan-in/fan-out edges); transitive
-nodes carry no receiver, because the store holds none for them.
+nodes carry no receiver.
 """
 
 from __future__ import annotations
@@ -38,8 +59,62 @@ class GraphNode:
         return f"{loc}{sym} [{self.relationship}/{self.confidence}]{recv}"
 
 
+@dataclass
+class GraphResult:
+    """One graph walk: the nodes, what explains them, and whether the answer
+    is incomplete.
+
+    ``notes`` are plain-language lines for the caller to print. ``truncated``
+    is true when this answer is incomplete — the node cap refused an edge, or
+    the depth cap stopped a frontier that still had edges. ``omitted`` is the
+    number of edges the walk examined and refused because the node cap was
+    reached (0 when nothing was refused); it is a count of what the walk saw,
+    never a claim about the whole population.
+    """
+
+    nodes: list[GraphNode] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
+    truncated: bool = False
+    omitted: int = 0
+
+
 def _manifest_for(core, slug: str) -> Manifest:
     return core.manifest_for(slug)
+
+
+def _plural(count: int, one: str, many: str) -> str:
+    return one if count == 1 else many
+
+
+def _cap_note(cap: int, omitted: int, what: str, scope: str = "") -> str:
+    """The truncation line for a node cap. It says the answer is incomplete,
+    names the cap and the refused count, and never presents that count as the
+    whole population (it is what this walk examined before stopping)."""
+    noun = _plural(omitted, "edge", "edges")
+    return (f"node cap {cap} reached{scope} — {omitted} more {what} {noun} "
+            "not shown (a lower bound: the walk stopped examining at the "
+            "cap); raise --max-nodes to see more")
+
+
+def _depth_note(depth: int, what: str) -> str:
+    return (f"depth cap {depth} reached — deeper {what} exist beyond depth "
+            f"{depth}; raise --depth to see them")
+
+
+def _site_key(file: str, line: int | None, frm: str | None,
+              relationship: str) -> tuple:
+    """Call-site identity: the SITE, not the enclosing symbol."""
+    return ("site", file, line if line is not None else -1, frm or "",
+            relationship)
+
+
+def _root_key(file: str, symbol: str | None) -> tuple:
+    return ("definition", file, symbol or "")
+
+
+def _callee_key(file: str, to_name: str | None) -> tuple:
+    """Callee identity: the TARGET set (see the module docstring)."""
+    return ("callee", file, to_name or "")
 
 
 def _expand_callers(core, m: Manifest, name: str
@@ -87,8 +162,14 @@ def _definer_of(m: Manifest, name: str) -> str | None:
 
 
 def find_callers(core, slug: str, name: str, depth: int = 2,
-                 max_nodes: int = 40) -> tuple[list[GraphNode], list[str]]:
+                 max_nodes: int = 40) -> GraphResult:
     """BFS over fan-in edges for the subject ``name``.
+
+    A caller node is a CALL SITE, keyed ``(file, line, from_symbol,
+    relationship)``: two calls to the same target inside ONE function of the
+    same file are two nodes, each with its own line and its own receiver.
+    (Enclosing-symbol identity silently collapsed the second — issue #21.)
+    Definition roots keep ``(file, symbol)`` identity.
 
     The subject may be dotted (``Type.Member``): the qualifier is resolved
     against the symbol rows and the fan-in is matched on the trailing member
@@ -106,11 +187,13 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
     returning an empty tree, and ``notes`` says so: an empty caller list must
     never read as "nothing calls this".
 
-    Returns ``(nodes, notes)``; ``notes`` are plain-language lines for the
-    caller to print.
+    Returns a GraphResult; ``truncated``/``omitted`` report a node-cap or
+    depth-cap refusal instead of dropping edges silently.
     """
     m = _manifest_for(core, slug)
     notes: list[str] = []
+    omitted = 0
+    depth_capped = False
     try:
         qualifier: str | None = None
         member = name
@@ -156,9 +239,8 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
             if not seeds:
                 notes.append(f"no reference rows for {target!r} either — "
                              "nothing in this index mentions it")
-            return seeds, notes
-        seen: set[tuple[str, str | None]] = {
-            (n.file, n.symbol) for n in roots}
+            return GraphResult(nodes=seeds, notes=notes)
+        seen: set[tuple] = {_root_key(n.file, n.symbol) for n in roots}
         frontier = list(roots)
         result: list[GraphNode] = list(roots)
         count = len(result)
@@ -172,8 +254,14 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
                     node.symbol or os.path.basename(node.file))
                 for (file, line, frm, rel, conf, recv) in _expand_callers(
                         core, m, tgt):
-                    key = (file, frm)
-                    if key in seen or count >= max_nodes:
+                    key = _site_key(file, line, frm, rel)
+                    if key in seen:
+                        continue
+                    if count >= max_nodes:
+                        # Refused, not dropped: counted, and remembered so a
+                        # later level cannot recount the same edge.
+                        seen.add(key)
+                        omitted += 1
                         continue
                     seen.add(key)
                     count += 1
@@ -184,21 +272,51 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
                     node.children.append(child)
                     next_frontier.append(child)
             frontier = next_frontier
-        return result, notes
+        # The depth cap stopped a frontier: does it still hold unvisited
+        # edges? Answer that from the store rather than assuming it does.
+        stopped_level = max(0, depth)
+        for node in frontier:
+            tgt = target if stopped_level == 0 else (
+                node.symbol or os.path.basename(node.file))
+            for (file, line, frm, rel, _conf, _recv) in _expand_callers(
+                    core, m, tgt):
+                if _site_key(file, line, frm, rel) not in seen:
+                    depth_capped = True
+                    break
+            if depth_capped:
+                break
+        if omitted:
+            notes.append(_cap_note(max_nodes, omitted, "reference"))
+        if depth_capped:
+            notes.append(_depth_note(stopped_level, "references"))
+        return GraphResult(nodes=result, notes=notes,
+                           truncated=bool(omitted or depth_capped),
+                           omitted=omitted)
     finally:
         m.close()
 
 
 def find_callees(core, slug: str, name: str, depth: int = 2,
-                 max_nodes: int = 40) -> list[GraphNode]:
-    """BFS over fan-out edges rooted at every definition of `name`."""
+                 max_nodes: int = 40) -> GraphResult:
+    """BFS over fan-out edges rooted at every definition of `name`.
+
+    Identity is the TARGET, keyed ``(file, to_name)`` — deliberately NOT the
+    call site, which is the asymmetry with `find_callers`: this walk answers
+    "what does this symbol reach", so a caller calling one target twice is one
+    callee node. The line reported is the first row that reached it.
+
+    Returns a GraphResult; ``truncated``/``omitted`` report a node-cap or
+    depth-cap refusal instead of dropping edges silently.
+    """
     m = _manifest_for(core, slug)
+    notes: list[str] = []
+    omitted = 0
+    depth_capped = False
     try:
         roots = [GraphNode(file=r.file, symbol=r.name, line=r.start_line,
                            relationship="definition", confidence="ast")
                  for r in m.find_symbols(name, substring=False)]
-        seen: set[tuple[str, str | None]] = {(n.file, n.symbol)
-                                             for n in roots}
+        seen: set[tuple] = {_root_key(n.file, n.symbol) for n in roots}
         frontier = list(roots)
         result: list[GraphNode] = list(roots)
         count = len(result)
@@ -207,8 +325,12 @@ def find_callees(core, slug: str, name: str, depth: int = 2,
             for node in frontier:
                 for (file, line, to, rel, conf, recv) in _expand_callees(
                         core, m, node.file, node.symbol):
-                    key = (file, to)
-                    if key in seen or count >= max_nodes:
+                    key = _callee_key(file, to)
+                    if key in seen:
+                        continue
+                    if count >= max_nodes:
+                        seen.add(key)
+                        omitted += 1
                         continue
                     seen.add(key)
                     count += 1
@@ -218,7 +340,22 @@ def find_callees(core, slug: str, name: str, depth: int = 2,
                     node.children.append(child)
                     next_frontier.append(child)
             frontier = next_frontier
-        return result
+        stopped_level = max(0, depth)
+        for node in frontier:
+            for (file, _line, to, _rel, _conf, _recv) in _expand_callees(
+                    core, m, node.file, node.symbol):
+                if _callee_key(file, to) not in seen:
+                    depth_capped = True
+                    break
+            if depth_capped:
+                break
+        if omitted:
+            notes.append(_cap_note(max_nodes, omitted, "callee"))
+        if depth_capped:
+            notes.append(_depth_note(stopped_level, "callees"))
+        return GraphResult(nodes=result, notes=notes,
+                           truncated=bool(omitted or depth_capped),
+                           omitted=omitted)
     finally:
         m.close()
 
@@ -248,11 +385,26 @@ def graph_to_json(nodes: list[GraphNode]) -> dict:
     return {"roots": [node_dict(n) for n in nodes]}
 
 
+def result_to_json(result: GraphResult) -> dict:
+    """The JSON payload for one walk: `roots` unchanged, plus the top-level
+    `truncated` / `omitted` siblings (and `notes` when there are any)."""
+    payload = graph_to_json(result.nodes)
+    payload["truncated"] = result.truncated
+    payload["omitted"] = result.omitted
+    if result.notes:
+        payload["notes"] = list(result.notes)
+    return payload
+
+
 def deps_for_file(core, slug: str, path: str, direction: str = "both",
                   depth: int = 2, max_nodes: int = 60) -> dict:
     """Import graph around one file: `in` (importers), `out` (imports),
-    or both. Returns {'in': [...], 'out': [...]} of file names per level."""
+    or both. Returns {'in': [...], 'out': [...]} of file names per level,
+    plus `truncated` / `omitted` / `notes` describing a refused edge."""
     m = _manifest_for(core, slug)
+    notes: list[str] = []
+    omitted = 0
+    depth_capped = False
     try:
         all_rows = m.import_rows()
 
@@ -273,26 +425,57 @@ def deps_for_file(core, slug: str, path: str, direction: str = "both",
         want_out = direction in ("out", "both")
         want_in = direction in ("in", "both")
 
-        def walk(start: str, edge_fn, levels: int) -> dict[int, list[str]]:
+        def walk(start: str, edge_fn, levels: int) -> tuple[dict[int, list[str]], int, bool]:
             levels_out: dict[int, list[str]] = {}
             frontier = [start]
             seen: set[str] = {start}
+            refused = 0
             for lvl in range(1, max(0, levels) + 1):
                 nxt: list[str] = []
                 for f in frontier:
                     for t in edge_fn(f):
-                        if t not in seen and len(seen) < max_nodes:
+                        if t in seen:
+                            continue
+                        if len(seen) >= max_nodes:
+                            # Refused at the cap: counted, and remembered so a
+                            # later level cannot recount the same file.
                             seen.add(t)
-                            nxt.append(t)
+                            refused += 1
+                            continue
+                        seen.add(t)
+                        nxt.append(t)
                 if not nxt:
                     break
                 levels_out[lvl] = sorted(nxt)
                 frontier = nxt
-            return levels_out
+            else:
+                # Ran out of levels, not out of files: ask the store whether
+                # the frontier still has an unvisited edge.
+                for f in frontier:
+                    if any(t not in seen for t in edge_fn(f)):
+                        return levels_out, refused, True
+            return levels_out, refused, False
 
-        return {
-            "out": walk(path, out_edges, depth) if want_out else {},
-            "in": walk(path, in_edges, depth) if want_in else {},
-        }
+        result: dict = {}
+        for dir_key, edge_fn, wanted in (("out", out_edges, want_out),
+                                         ("in", in_edges, want_in)):
+            if not wanted:
+                result[dir_key] = {}
+                continue
+            levels, refused, deeper = walk(path, edge_fn, depth)
+            result[dir_key] = levels
+            omitted += refused
+            if refused:
+                notes.append(_cap_note(max_nodes, refused, "import",
+                                       scope=f" ({dir_key} direction)"))
+            if deeper:
+                depth_capped = True
+                notes.append(_depth_note(max(0, depth),
+                                         f"{dir_key} import edges"))
+        result["truncated"] = bool(omitted or depth_capped)
+        result["omitted"] = omitted
+        if notes:
+            result["notes"] = notes
+        return result
     finally:
         m.close()

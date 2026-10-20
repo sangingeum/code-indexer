@@ -186,8 +186,9 @@ def test_find_callers_dotted_subject_reports_the_store_receiver(rig):
     m.replace_file_refs(
         "Vivarium.Sim/Psychology/SelfDiscrepancy.cs",
         [(42, "Apply", "OughtRoleBindings", "member", "surface")], "ast")
-    nodes, notes = graph.find_callers(
+    res = graph.find_callers(
         core, entry.slug, "LegitimacySurface.OughtRoleBindings")
+    nodes, notes = res.nodes, res.notes
     assert nodes, "a dotted subject must resolve, not fail closed"
     hits = [n for n in _walk(nodes) if n.relationship != "definition"]
     assert hits, [n.label() for n in _walk(nodes)]
@@ -203,7 +204,8 @@ def test_find_callers_never_stamps_a_receiver_the_store_lacks(rig):
                                               1, 9, "ast")])
     # The row carries no receiver: nothing may be asserted for it.
     m.replace_file_refs("b.py", [(4, "run", "Classify", "call", None)], "ast")
-    nodes, notes = graph.find_callers(core, entry.slug, "Surface.Classify")
+    res = graph.find_callers(core, entry.slug, "Surface.Classify")
+    nodes, notes = res.nodes, res.notes
     hits = [n for n in _walk(nodes) if n.relationship != "definition"]
     assert hits, [n.label() for n in _walk(nodes)]
     assert all(n.receiver is None for n in hits)
@@ -216,7 +218,8 @@ def test_find_callers_seeds_from_reference_rows_without_a_definition(rig):
         "Vivarium.Sim/Psychology/SelfDiscrepancy.cs",
         [(42, "Apply", "OughtRoleBindings", "member", "pawn")], "ast")
     assert m.find_symbols("OughtRoleBindings", substring=False) == []
-    nodes, notes = graph.find_callers(core, entry.slug, "OughtRoleBindings")
+    res = graph.find_callers(core, entry.slug, "OughtRoleBindings")
+    nodes, notes = res.nodes, res.notes
     assert nodes, "must not print a bare 'no results' when rows exist"
     assert nodes[0].file == "Vivarium.Sim/Psychology/SelfDiscrepancy.cs"
     assert nodes[0].receiver == "pawn"
@@ -225,7 +228,8 @@ def test_find_callers_seeds_from_reference_rows_without_a_definition(rig):
 
 def test_find_callers_explains_a_truly_unknown_name(rig):
     core, entry, m = rig
-    nodes, notes = graph.find_callers(core, entry.slug, "never_mentioned")
+    res = graph.find_callers(core, entry.slug, "never_mentioned")
+    nodes, notes = res.nodes, res.notes
     assert nodes == []
     assert any("nothing in this index mentions it" in s for s in notes)
 

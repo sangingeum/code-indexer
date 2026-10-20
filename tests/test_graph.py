@@ -11,6 +11,8 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+import json  # noqa: E402
+
 import pytest  # noqa: E402
 from typer.testing import CliRunner  # noqa: E402
 
@@ -262,6 +264,21 @@ def _rig(tmp_path, monkeypatch):
         "    refresh_token()\n"
         "    return 0\n"
         "# refresh_token comment only here\n")
+    # ONE enclosing function calling the same target on two lines: two call
+    # SITES, one `from_symbol` — the shape that used to collapse into the
+    # first (issue #21).
+    (project / "repeat.py").write_text(
+        "from pkg.helpers import refresh_token\n"
+        "def twice():\n"
+        "    refresh_token()\n"
+        "    refresh_token()\n"
+        "    return 0\n")
+    # A caller of `run`, so a depth cap has something real to stop.
+    (project / "chain.py").write_text(
+        "from app import run\n"
+        "def outer():\n"
+        "    run()\n"
+        "    return 0\n")
     (project / "ui.ts").write_text(
         'import { helper } from "./lib";\nexport function go() { helper(); }\n')
     (project / "lib.ts").write_text("export function helper() { return 1; }\n")
@@ -414,6 +431,140 @@ def test_graph_caps_respected(tmp_path, monkeypatch):
     assert result.exit_code == 0
     body = [ln for ln in result.output.splitlines() if ln.startswith(("pkg", "app"))]
     assert len(body) <= 2  # definition root + cap
+    # ...and the cap is reported, never silent (issue #21).
+    assert "node cap 1" in result.output
+
+
+def _walk_json(payload):
+    """Every node of a graph JSON payload, depth-first."""
+    out = []
+
+    def walk(node):
+        out.append(node)
+        for child in node["children"]:
+            walk(child)
+
+    for root in payload["roots"]:
+        walk(root)
+    return out
+
+
+def test_find_callers_reports_every_call_site_in_one_enclosing_symbol(
+        tmp_path, monkeypatch):
+    """One function calling the same target twice is two hits, two lines —
+    the enclosing symbol is NOT the node identity (issue #21)."""
+    core, reg, entry, project = _rig(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["find-callers", "refresh_token",
+                                 "--project", str(project), "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    sites = {(n["line"], n["symbol"]) for n in _walk_json(payload)
+             if n["file"] == "repeat.py" and n["symbol"] == "twice"}
+    assert sites == {(3, "twice"), (4, "twice")}, sites
+    text = runner.invoke(app, ["find-callers", "refresh_token",
+                               "--project", str(project)])
+    assert text.exit_code == 0, text.output
+    assert "repeat.py:3" in text.output and "repeat.py:4" in text.output
+
+
+def test_find_callers_reports_a_refused_edge_instead_of_dropping_it(
+        tmp_path, monkeypatch):
+    """A node cap below the direct-hit count is reported, not silent."""
+    core, reg, entry, project = _rig(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["find-callers", "refresh_token",
+                                 "--project", str(project),
+                                 "--max-nodes", "2", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["truncated"] is True
+    assert payload["omitted"] > 0, payload
+    assert "roots" in payload  # the existing key keeps its shape
+    text = runner.invoke(app, ["find-callers", "refresh_token",
+                               "--project", str(project), "--max-nodes", "2"])
+    assert text.exit_code == 0, text.output
+    assert "note:" in text.output and "node cap 2" in text.output
+    # The note must not present the refused count as the whole population.
+    assert "lower bound" in text.output
+
+
+def test_find_callers_reports_a_depth_cap(tmp_path, monkeypatch):
+    """A depth-bounded answer is incomplete too, and says so."""
+    core, reg, entry, project = _rig(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["find-callers", "refresh_token",
+                                 "--project", str(project),
+                                 "--depth", "1", "--max-nodes", "500"])
+    assert result.exit_code == 0, result.output
+    assert "deeper references exist beyond depth 1" in result.output
+    payload = json.loads(runner.invoke(
+        app, ["find-callers", "refresh_token", "--project", str(project),
+              "--depth", "1", "--max-nodes", "500", "--json"]).stdout)
+    assert payload["truncated"] is True
+
+
+def test_find_callers_generous_cap_is_not_truncated(tmp_path, monkeypatch):
+    """The pin in the other direction: a complete answer says complete."""
+    core, reg, entry, project = _rig(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["find-callers", "refresh_token",
+                                 "--project", str(project),
+                                 "--max-nodes", "500", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["truncated"] is False, payload.get("notes")
+    assert payload["omitted"] == 0
+
+
+def test_unknown_symbol_is_not_reported_as_truncated(tmp_path, monkeypatch):
+    """Negative control: nothing was refused, so nothing is truncated."""
+    core, reg, entry, project = _rig(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["find-callers", "never_mentioned_anywhere",
+                                 "--project", str(project), "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["truncated"] is False
+    assert payload["omitted"] == 0
+    assert any("nothing in this index mentions it" in n
+               for n in payload.get("notes", []))
+
+
+def test_find_callees_reports_targets_not_sites_and_its_truncation(
+        tmp_path, monkeypatch):
+    """find-callees keeps TARGET-set identity (one target called twice is one
+    callee) and still reports a refused edge."""
+    core, reg, entry, project = _rig(tmp_path, monkeypatch)
+    twice = json.loads(runner.invoke(
+        app, ["find-callees", "twice", "--project", str(project),
+              "--max-nodes", "500", "--json"]).stdout)
+    targets = [n for n in _walk_json(twice)
+               if n["file"] == "pkg/helpers.py" and n["symbol"] == "refresh_token"]
+    assert len(targets) == 1, targets
+    capped = runner.invoke(app, ["find-callees", "run", "--project",
+                                 str(project), "--max-nodes", "1", "--json"])
+    assert capped.exit_code == 0, capped.output
+    payload = json.loads(capped.stdout)
+    assert payload["truncated"] is True
+    assert payload["omitted"] > 0
+    text = runner.invoke(app, ["find-callees", "run", "--project",
+                               str(project), "--max-nodes", "1"])
+    assert "note:" in text.output and "node cap 1" in text.output
+
+
+def test_deps_reports_its_truncation_and_keeps_its_levels(tmp_path, monkeypatch):
+    core, reg, entry, project = _rig(tmp_path, monkeypatch)
+    payload = json.loads(runner.invoke(
+        app, ["deps", "app.py", "--project", str(project), "--direction",
+              "out", "--format", "json"]).stdout)
+    assert payload["out"], payload  # per-level dict unchanged
+    assert payload["truncated"] is False and payload["omitted"] == 0
+    capped = runner.invoke(app, ["deps", "app.py", "--project", str(project),
+                                 "--direction", "out", "--max-nodes", "1",
+                                 "--format", "json"])
+    assert capped.exit_code == 0, capped.output
+    payload = json.loads(capped.stdout)
+    assert payload["truncated"] is True
+    assert payload["omitted"] > 0
+    text = runner.invoke(app, ["deps", "app.py", "--project", str(project),
+                               "--direction", "out", "--max-nodes", "1"])
+    assert "note:" in text.output and "node cap 1" in text.output
 
 
 def test_mcp_graph_tools_exist():

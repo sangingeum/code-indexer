@@ -248,13 +248,17 @@ def find_callers(
     has no definition row (symbols cover
     method|class|function|enum|interface|struct; properties and fields are not
     extracted), the search seeds from the reference rows and says so on
-    `note:` lines instead of printing a bare `no results`. For every
-    reference TO a name use `find-references`."""
+    `note:` lines instead of printing a bare `no results`. Every CALL SITE is
+    its own node (two calls to the same target inside one function are two
+    hits, each with its own line and receiver), and an answer the depth or
+    node cap left incomplete says so: the JSON payload carries `truncated`
+    and `omitted` beside `roots`, and the tree gains a `note:` line naming
+    the cap. For every reference TO a name use `find-references`."""
     core, entry = _core_entry(project, skip_stale_check)
     _warn_rows_staleness(core, entry)
-    nodes, notes = graph.find_callers(core, entry.slug, name, depth=depth,
-                                      max_nodes=max_nodes)
-    _emit_graph(nodes, json_output, notes=notes)
+    result = graph.find_callers(core, entry.slug, name, depth=depth,
+                                max_nodes=max_nodes)
+    _emit_graph(result, json_output)
 
 
 @app.command()
@@ -268,37 +272,40 @@ def find_callees(
 ) -> None:
     """What this symbol references: fan-out BFS over the `refs` table
     (same store and confidence rules as `find-callers`; the graph is textual
-    and unbound by design). For references TO a symbol across both stores use
-    `find-references`."""
+    and unbound by design). A callee is identified by its TARGET, not by the
+    call site — this walk answers "what does this symbol reach", so one target
+    reached twice is one callee. The opposite of `find-callers`, deliberately.
+    An answer the depth or node cap left incomplete reports `truncated` /
+    `omitted` in JSON and a `note:` line in the tree. For references TO a
+    symbol across both stores use `find-references`.
+    """
     core, entry = _core_entry(project, skip_stale_check)
     _warn_rows_staleness(core, entry)
-    nodes = graph.find_callees(core, entry.slug, name, depth=depth,
-                               max_nodes=max_nodes)
-    _emit_graph(nodes, json_output)
+    result = graph.find_callees(core, entry.slug, name, depth=depth,
+                                max_nodes=max_nodes)
+    _emit_graph(result, json_output)
 
 
-def _emit_graph(nodes, json_output: bool,
-                notes: list[str] | tuple[str, ...] = ()) -> None:
+def _emit_graph(result: graph.GraphResult, json_output: bool) -> None:
     """Render a graph result; `notes` explain an empty or near-empty answer so
     it is never a bare `no results` (an empty caller list must not read as
-    "nothing calls this")."""
+    "nothing calls this"). A result the caps left incomplete also carries a
+    `note:` line naming the cap, printed WITH the answer (stdout) — an
+    incomplete answer must say so where the answer is read. The explanatory
+    notes of a complete, non-empty answer stay on stderr (result-only stdout).
+    """
     if json_output:
-        payload = graph.graph_to_json(nodes)
-        if notes:
-            payload["notes"] = list(notes)
-        typer.echo(json.dumps(payload))
+        typer.echo(json.dumps(graph.result_to_json(result)))
         return
-    if not nodes:
+    typer.echo(graph.render_tree(result.nodes))
+    if not result.nodes:
         # Nothing at all: keep the legacy shape but never bare — the notes
         # carry the explanation on stdout.
-        typer.echo(graph.render_tree(nodes))
-        for note in notes:
+        for note in result.notes:
             typer.echo(f"note: {note}")
         return
-    typer.echo(graph.render_tree(nodes))
-    # Notes stay off stdout (result-only contract) when rows were printed.
-    for note in notes:
-        typer.echo(f"note: {note}", err=True)
+    for note in result.notes:
+        typer.echo(f"note: {note}", err=not result.truncated)
 
 
 @app.command()
@@ -313,7 +320,10 @@ def deps(
                                      help="tree | edges | json"),
     skip_stale_check: bool = SkipOpt,
 ) -> None:
-    """Import graph around one file (resolved edges only)."""
+    """Import graph around one file (resolved edges only). The payload keeps
+    its per-level `in` / `out` dicts and gains `truncated` and `omitted`; a
+    result the depth or node cap left incomplete also prints a `note:` line
+    naming the cap."""
     core, entry = _core_entry(project, skip_stale_check)
     _warn_rows_staleness(core, entry)
     result = graph.deps_for_file(core, entry.slug, path,
@@ -332,6 +342,9 @@ def deps(
                 indent = "  " * (lvl - 1)
                 lines.append(f"{dir_key} L{lvl}: {indent}{f}")
     typer.echo("\n".join(lines) if lines else "no resolved dependencies")
+    # An incomplete answer says so, on the same stream as the answer.
+    for note in result.get("notes") or []:
+        typer.echo(f"note: {note}")
 
 
 @app.command()
