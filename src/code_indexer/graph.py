@@ -227,21 +227,32 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
         if not roots:
             # No definition row: seed from the reference rows this command
             # reads, and say plainly that the index holds no definition.
+            # The store hands over every row; the node cap is applied HERE and
+            # announced, like every other cap in this walk.
             ref_rows = m.callers_of(target)
             notes.append(
                 f"the index holds no definition for {target!r} (symbols cover "
                 "method|class|function|enum|interface|struct; properties and "
                 "fields are not extracted); seeding from reference rows "
                 "instead of reporting none")
-            seeds = [GraphNode(file=r["file"], symbol=r["from_symbol"],
-                               line=r["line"], relationship=r["relationship"],
-                               confidence=r["confidence"],
-                               receiver=r.get("receiver"))
-                     for r in ref_rows]
+            seeds: list[GraphNode] = []
+            for r in ref_rows:
+                if len(seeds) >= max_nodes:
+                    omitted += 1
+                    continue
+                seeds.append(GraphNode(file=r["file"],
+                                       symbol=r["from_symbol"],
+                                       line=r["line"],
+                                       relationship=r["relationship"],
+                                       confidence=r["confidence"],
+                                       receiver=r.get("receiver")))
             if not seeds:
                 notes.append(f"no reference rows for {target!r} either — "
                              "nothing in this index mentions it")
-            return GraphResult(nodes=seeds, notes=notes)
+            elif omitted:
+                notes.append(_cap_note(max_nodes, omitted, "reference"))
+            return GraphResult(nodes=seeds, notes=notes,
+                               truncated=bool(omitted), omitted=omitted)
         seen: set[tuple] = {_root_key(n.file, n.symbol) for n in roots}
         frontier = list(roots)
         result: list[GraphNode] = list(roots)

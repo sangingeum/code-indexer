@@ -1,5 +1,48 @@
 # Changelog
 
+## [Unreleased] — the store reads hand over everything (issue #22)
+
+- **No store read caps silently any more, and `overview` hotspots are computed
+  instead of sampled (issue #22).** Issue #21 made every *graph* cap announce
+  itself, but the reads one layer beneath them were still bare `limit=` caps:
+  `Manifest.callers_of` and `callees_of_file_symbol` stopped at 200 rows,
+  `import_rows` and `callers_of_all` at 5,000, with no signal anywhere. The
+  graph could not be honest about the population while the layer beneath it
+  handed it a short list, and the orientation surface every agent reads first
+  was reporting sampled hotspots as if they were complete.
+  **The store now hands over everything it holds.** `callers_of`,
+  `callees_of_file_symbol` and `import_rows` take `limit: int | None = None`,
+  and no limit means no cap; an explicit limit stays usable for a caller that
+  wants a bounded read and says so in its own output (`changed-symbols` does).
+  `import_rows` also gained `ORDER BY file, line`, so a capped read is at
+  least a deterministic subset rather than an arbitrary one.
+  This was live-reachable, not theoretical: on one live index a single target
+  name holds 10,258 reference rows and another holds 18,493, so the 200-row
+  read answered with 1.9% of the truth and called the answer complete. That
+  same walk now reports `truncated: true` with `omitted: 10218` at the default
+  node cap — a lower bound on what it refused, where it used to print 200
+  nodes and claim nothing was missing.
+  **`overview` fan-in hotspots are now one SQL aggregate** (`file_fan_in`)
+  over resolved imports into a file plus references to a name that file
+  defines, excluding self-references — the same intent the old row scan had,
+  minus the sample. The old code counted `callers_of_all(limit=5000)`: 0.8% of
+  the `refs` table on a large index, and with no `ORDER BY` not even a stable
+  0.8%. `callers_of_all` had no other caller and is gone.
+  **This changes visible output, and that is the fix.** On live indexes:
+  `overview` on a 608k-reference project reports its top file at
+  **184 → 19,183** fan-in (second place **40 → 3,627**); on a 935k-reference
+  project the top file goes **253 → 55,503** (second **76 → 16,662**). Any
+  hotspot ranking computed before this change was a sample, not a count.
+  Measured cost of the complete answer: `overview` 0.885 s → 1.087 s and
+  0.891 s → 1.483 s on those two indexes, `find-callers` 0.869 s → 0.887 s and
+  0.895 s → 1.025 s (medians of three runs, cold process). No new index was
+  needed.
+  **Unchanged:** query-time only — no extraction query, schema, row key or
+  fingerprint moved, so `EXTRACTION_VERSION` stays 4, no reindex is owed, and
+  exit codes are as they were. `omitted` keeps its documented meaning (edges
+  examined and refused at the node cap, a lower bound); it is now a truer
+  lower bound.
+
 ## [Unreleased] — an incomplete graph answer says so (issue #21)
 
 - **`find-callers` no longer loses a second call site in the same function, and

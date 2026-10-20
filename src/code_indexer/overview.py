@@ -171,20 +171,11 @@ def build_overview(m: Manifest, project_path: str,
         if os.path.exists(os.path.join(project_path, c)))
 
     # -- hotspots ----------------------------------------------------------
-    fan_in: dict[str, int] = {}
-    for imp in m.import_rows():
-        if imp["resolved_file"] and imp["resolved_file"] in files \
-                and imp["file"] != imp["resolved_file"]:
-            fan_in[imp["resolved_file"]] = fan_in.get(
-                imp["resolved_file"], 0) + 1
-    defined_files: dict[str, str] = {}
-    for sym in (all_syms or []):
-        if sym.file in files:
-            defined_files.setdefault(sym.name, sym.file)
-    for ref in m.callers_of_all(limit=5000):
-        tgt_file = defined_files.get(ref["to_name"])
-        if tgt_file and ref["file"] != tgt_file:
-            fan_in[tgt_file] = fan_in.get(tgt_file, 0) + 1
+    # Fan-in is the store's own per-file aggregate — resolved imports into a
+    # file plus references to a name that file defines. It is complete by
+    # construction; the old version counted a 5,000-row sample of `refs`,
+    # which on a large index was under 1% of the table and unstable besides.
+    fan_in = {f: n for f, n in m.file_fan_in() if f in files}
     hotspots_fan = sorted(
         ({"file": f, "fan_in": n} for f, n in fan_in.items()),
         key=lambda d: (-d["fan_in"], d["file"]))[:10]

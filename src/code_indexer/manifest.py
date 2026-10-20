@@ -495,30 +495,43 @@ class Manifest:
              for (ln, frm, to, rel, recv) in rows])
         self._conn.commit()
 
-    def callers_of(self, name: str, limit: int = 200) -> list[dict]:
-        """Fan-in edges: files/symbols that reference `name`."""
+    def callers_of(self, name: str, limit: int | None = None) -> list[dict]:
+        """Fan-in edges: every stored row that references ``name``.
+
+        ``limit=None`` — the default — is the WHOLE store read. The store hands
+        over everything it holds; the graph layer above owns and announces its
+        own node cap, and it cannot be honest about the population while a cap
+        down here hands it a short list with no trace (issue #22). Pass an
+        explicit ``limit`` only when the caller wants a bounded read and says
+        so in its own output.
+        """
+        sql = ("SELECT file, line, from_symbol, relationship, confidence,"
+               " receiver FROM refs WHERE to_name = ? ORDER BY file, line")
+        args: list = [name]
+        if limit is not None:
+            sql += " LIMIT ?"
+            args.append(limit)
         return [dict(zip(("file", "line", "from_symbol", "relationship",
                           "confidence", "receiver"), r))
-                for r in self._conn.execute(
-                    "SELECT file, line, from_symbol, relationship, confidence,"
-                    " receiver FROM refs WHERE to_name = ?"
-                    " ORDER BY file, line LIMIT ?", (name, limit))]
+                for r in self._conn.execute(sql, args)]
 
     def callees_of_file_symbol(self, file: str, symbol: str | None,
-                               limit: int = 200) -> list[dict]:
+                               limit: int | None = None) -> list[dict]:
         """Fan-out edges originating from one symbol (or the whole file when
-        symbol is None)."""
+        symbol is None). ``limit=None`` is the whole store read (issue #22)."""
         if symbol is None:
-            rows = self._conn.execute(
-                "SELECT line, to_name, relationship, confidence, receiver"
-                " FROM refs WHERE file = ? ORDER BY line LIMIT ?",
-                (file, limit)).fetchall()
-            keys = ("line", "to_name", "relationship", "confidence", "receiver")
-            return [dict(zip(keys, r)) for r in rows]
-        rows = self._conn.execute(
-            "SELECT line, to_name, relationship, confidence, receiver"
-            " FROM refs WHERE file = ? AND from_symbol = ? ORDER BY line"
-            " LIMIT ?", (file, symbol, limit)).fetchall()
+            sql = ("SELECT line, to_name, relationship, confidence, receiver"
+                   " FROM refs WHERE file = ? ORDER BY line")
+            args: list = [file]
+        else:
+            sql = ("SELECT line, to_name, relationship, confidence, receiver"
+                   " FROM refs WHERE file = ? AND from_symbol = ?"
+                   " ORDER BY line")
+            args = [file, symbol]
+        if limit is not None:
+            sql += " LIMIT ?"
+            args.append(limit)
+        rows = self._conn.execute(sql, args).fetchall()
         keys = ("line", "to_name", "relationship", "confidence", "receiver")
         return [dict(zip(keys, r)) for r in rows]
 
@@ -528,25 +541,48 @@ class Manifest:
             "SELECT to_name, COUNT(*) AS n FROM refs GROUP BY to_name"
             " ORDER BY n DESC, to_name LIMIT ?", (limit,))]
 
-    def import_rows(self, limit: int = 5000) -> list[dict]:
+    def file_fan_in(self) -> list[tuple[str, int]]:
+        """Reference fan-in per target FILE, computed by the store.
+
+        Two complete aggregates, never a row sample: resolved imports INTO a
+        file, plus references to a name that file defines (a reference from
+        the file itself is not fan-in). With a name defined in several files
+        the first definition in ``(file, start_line)`` order owns it, exactly
+        as the symbol rows define it. Sorted by count desc, then file.
+        """
+        counts: dict[str, int] = {}
+        for target, n in self._conn.execute(
+                "SELECT resolved_file, COUNT(*) FROM imports"
+                " WHERE resolved_file IS NOT NULL AND resolved_file != file"
+                " GROUP BY resolved_file"):
+            counts[target] = counts.get(target, 0) + int(n)
+        for target, n in self._conn.execute(
+                "SELECT s.file, COUNT(*) FROM refs r JOIN"
+                " (SELECT name, MIN(file) AS file FROM symbols GROUP BY name) s"
+                " ON s.name = r.to_name WHERE r.file != s.file"
+                " GROUP BY s.file"):
+            counts[target] = counts.get(target, 0) + int(n)
+        return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+
+    def import_rows(self, limit: int | None = None) -> list[dict]:
+        """Every stored import row, ordered by ``(file, line)`` so a capped
+        read is at least a deterministic subset. ``limit=None`` (the default)
+        is the whole store read (issue #22)."""
+        sql = ("SELECT file, raw_target, resolved_file, kind, line"
+               " FROM imports ORDER BY file, line")
+        args: list = []
+        if limit is not None:
+            sql += " LIMIT ?"
+            args.append(limit)
         return [dict(zip(("file", "raw_target", "resolved_file", "kind",
                           "line"), r))
-                for r in self._conn.execute(
-                    "SELECT file, raw_target, resolved_file, kind, line"
-                    " FROM imports LIMIT ?", (limit,))]
+                for r in self._conn.execute(sql, args)]
 
     def all_symbols(self) -> list[SymbolRow]:
         cur = self._conn.execute(
             "SELECT file, name, symbol_type, start_line, end_line, source,"
             " signature, visibility FROM symbols ORDER BY file, start_line")
         return [SymbolRow(*row) for row in cur.fetchall()]
-
-    def callers_of_all(self, limit: int = 5000) -> list[dict]:
-        return [dict(zip(("file", "line", "from_symbol", "to_name",
-                          "relationship", "confidence"), r))
-                for r in self._conn.execute(
-                    "SELECT file, line, from_symbol, to_name, relationship,"
-                    " confidence FROM refs LIMIT ?", (limit,))]
 
     def read_git_branch(self, project_root: str) -> str | None:
         import os

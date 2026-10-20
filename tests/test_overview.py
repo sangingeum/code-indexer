@@ -167,6 +167,37 @@ def test_overview_json(rig):
     assert data["hotspots"]["fan_in"]
 
 
+def test_hotspot_fan_in_counts_the_whole_store_not_a_sample(rig):
+    """Hotspots are computed by the store, not read off a 5,000-row sample.
+
+    The fixture gains 5,100 references to one defined name; the reported
+    fan-in must move by exactly 5,100. A sampled scan could move it by at
+    most 5,000 — and, with no ORDER BY beneath it, not reliably even that.
+    """
+    core, reg, entry, project = rig
+    m = core.manifest_for(entry.slug)
+    try:
+        from code_indexer.overview import build_overview
+
+        def helper_fan_in() -> int | None:
+            data = build_overview(m, str(project))
+            for h in data["hotspots"]["fan_in"]:
+                if h["file"] == "pkg/helpers.py":
+                    return h["fan_in"]
+            return None
+
+        baseline = helper_fan_in()
+        assert baseline is not None
+        rows = [(i + 1, f"call_{i}", "refresh_token", "call", None)
+                for i in range(5100)]
+        m.replace_file_refs("generated/callers.py", rows, "ast")
+        assert helper_fan_in() == baseline + 5100
+        # ...and the aggregate is the same one the manifest computes.
+        assert dict(m.file_fan_in())["pkg/helpers.py"] == baseline + 5100
+    finally:
+        m.close()
+
+
 def test_manifest_loc_language_columns(rig):
     core, reg, entry, project = rig
     m = core.manifest_for(entry.slug)

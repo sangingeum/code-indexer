@@ -607,6 +607,123 @@ def test_deps_reports_its_truncation_and_keeps_its_levels(tmp_path, monkeypatch)
     assert "note:" not in text.stderr
 
 
+def _wide_rig(tmp_path, monkeypatch, callers: int = 250):
+    """A project with `callers` distinct call sites for one name — more than
+    the 200-row store cap that used to sit under every graph walk (issue #22).
+
+    `models.py` defines `pairA`; five caller files hold 50 functions each that
+    call it and import nothing, so every edge is a call site and no import
+    fan-in edge inflates the count. `ghost_fn` is called just as often and
+    defined nowhere, which exercises the no-definition seed path.
+    """
+    cfg = Config(ollama_url="", qdrant_url="", embed_model="stub",
+                 index_root=str(tmp_path / "state"), stale_ttl=60,
+                 embed_batch=48, upsert_batch=256, max_file_bytes=1048576,
+                 watch_debounce=3, watch_sweep_interval=300)
+    project = tmp_path / "wide"
+    project.mkdir()
+    (project / "models.py").write_text(
+        "def pairA():\n    return 1\n")
+    per_file = callers // 5
+    for f in range(5):
+        body = []
+        for i in range(per_file):
+            body.append(f"def caller_{f}_{i:03d}():")
+            body.append("    pairA()")
+            body.append("    ghost_fn()")
+        (project / f"callers_{f}.py").write_text("\n".join(body) + "\n")
+    core = Core(cfg)
+
+    class StubEmbedder:
+        def dimension(self):
+            return 4
+
+        def embed(self, texts):
+            return [[0.1] * 4 for _ in texts]
+
+        def query_instruction_text(self, q):
+            return q
+
+        def embed_with_errors(self, texts):
+            return [[0.1] * 4 for _ in texts], []
+
+        def close(self):
+            pass
+
+    class StubStore:
+        def collection_exists(self, name):
+            return True
+
+        def create_collection(self, name, dim):
+            pass
+
+        def upsert_points(self, name, points):
+            pass
+
+        def purge_file_points(self, *a, **kw):
+            return 0
+
+        def count_points(self, name):
+            return 0
+
+        def search(self, *a, **kw):
+            return []
+
+    core.embedder = StubEmbedder()  # type: ignore[assignment]
+    core.store = StubStore()  # type: ignore[assignment]
+    core.indexer.embedder = core.embedder  # type: ignore[assignment]
+    core.indexer.store = core.store  # type: ignore[assignment]
+    from code_indexer.registry import Registry
+    reg = Registry(os.path.join(cfg.index_root, "registry.db"))
+    entry = reg.add(str(project), name="wideproj")
+    core.run_index(entry.slug, str(project))
+    monkeypatch.setattr(cli, "_get_core", lambda skip: core)
+    return core, reg, entry, project
+
+
+def test_every_call_site_above_the_old_store_cap_is_in_the_answer(
+        tmp_path, monkeypatch):
+    """250 call sites: the store used to hand the walk 200 and say nothing."""
+    core, reg, entry, project = _wide_rig(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["find-callers", "pairA", "--project",
+                                 str(project), "--max-nodes", "400",
+                                 "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    sites = [n for n in _walk_json(payload) if n["relationship"] == "call"]
+    assert len(sites) == 250, len(sites)
+    assert payload["truncated"] is False, payload.get("notes")
+    assert payload["omitted"] == 0
+
+
+def test_seeded_reference_list_applies_and_announces_its_node_cap(
+        tmp_path, monkeypatch):
+    """The no-definition seed path reads the whole store and caps HERE.
+
+    Before the store stopped capping, this path returned the store's 200 rows
+    and claimed a complete answer; it must not replace that with an unbounded
+    answer either — the walk's own cap decides, and reports.
+    """
+    core, reg, entry, project = _wide_rig(tmp_path, monkeypatch)
+    capped = runner.invoke(app, ["find-callers", "ghost_fn", "--project",
+                                 str(project), "--max-nodes", "40", "--json"])
+    assert capped.exit_code == 0, capped.output
+    payload = json.loads(capped.stdout)
+    assert len(payload["roots"]) == 40
+    assert payload["truncated"] is True
+    assert payload["omitted"] == 210, payload["omitted"]
+    assert any("node cap 40" in n for n in payload["notes"])
+    # Generous cap: the same list, complete, and nothing claims truncation.
+    full = runner.invoke(app, ["find-callers", "ghost_fn", "--project",
+                               str(project), "--max-nodes", "400", "--json"])
+    assert full.exit_code == 0, full.output
+    payload = json.loads(full.stdout)
+    assert len(payload["roots"]) == 250
+    assert payload["truncated"] is False
+    assert payload["omitted"] == 0
+    assert not any("node cap" in n for n in payload["notes"])
+
+
 def test_mcp_graph_tools_exist():
     import code_indexer.server as server
     assert hasattr(server, "find_callers") and hasattr(server, "find_callees")
