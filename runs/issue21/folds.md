@@ -32,8 +32,13 @@ docstring, a user-facing string, or a test assertion.
 4. **S-4 — the stdout/stderr split is pinned: done.** The four assertions now
    read `result.stdout` / `result.stderr` instead of the mixed
    `result.output`: the cap note must be on stdout with the tree and `note:`
-   must be absent from stderr. Inverting `typer.echo(..., err=not
-   result.truncated)` now fails the suite.
+   must be absent from stderr. Measured revert sensitivity rather than claimed:
+   with `typer.echo(..., err=not result.truncated)` inverted to
+   `err=result.truncated` in a throwaway worktree at this commit, the
+   `find-callers` and `find-callees` pins fail (the note is found on stderr,
+   not stdout). The `deps` pin keeps passing under that inversion because
+   `deps` prints its notes to stdout unconditionally — it is a stream pin with
+   no ternary behind it.
 5. **Gate fold — two truncation pins were single-candidate: done.** The rig
    gained two fixtures: `pkg/shapes.py`, whose `compose` calls four distinct
    targets, and `pkg/aggregate.py`, which has three resolved out-edges (all
