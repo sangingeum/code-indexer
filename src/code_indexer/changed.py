@@ -263,19 +263,20 @@ def impact(core, slug: str, changed: dict, depth: int = 1,
             if not targets:
                 continue
             callers: list[dict] = []
-            omitted = 0
+            per_name_refused = 0
+            budget_refused = 0
             for name in targets:
                 rows = m.callers_of(name, limit=CALLERS_PER_NAME)
                 # What the per-name read refused, from one aggregate rather
                 # than a second row read.
                 population = sum(n for _rel, n
                                  in m.ref_relationship_counts(name))
-                omitted += max(0, population - len(rows))
+                per_name_refused += max(0, population - len(rows))
                 for edge in rows:
                     if budget <= 0:
                         # Refused at the shared node budget: counted, not
                         # dropped in silence.
-                        omitted += 1
+                        budget_refused += 1
                         continue
                     callers.append({"symbol": name,
                                     "file": edge["file"],
@@ -283,12 +284,18 @@ def impact(core, slug: str, changed: dict, depth: int = 1,
                                     "line": edge["line"],
                                     "confidence": edge["confidence"]})
                     budget -= 1
+            omitted = per_name_refused + budget_refused
             tests = sorted(_match_tests(
                 _candidate_tests(file, set(targets)), _indexed_files(m)))
             out[file] = {"callers": callers,
                          "candidate_tests": tests,
                          "truncated": bool(omitted),
-                         "omitted": omitted}
+                         "omitted": omitted,
+                         # WHICH bound refused what: the two have different
+                         # remedies, so a single total cannot advise.
+                         "bounds": {"per_name": per_name_refused,
+                                    "node_budget": budget_refused,
+                                    "max_nodes": max_nodes}}
         return out
     finally:
         m.close()
@@ -312,6 +319,33 @@ def _match_tests(candidates: set[str], indexed: set[str]) -> set[str]:
 # ---------------------------------------------------------------------------
 # rendering
 # ---------------------------------------------------------------------------
+
+def _impact_bound_note(imp: dict) -> str:
+    """The impact line for a cut caller list: name the bound that cut it.
+
+    The two bounds have different remedies, so a note that blames both and
+    advises `--max-nodes` is wrong for whichever one actually fired. The
+    shared node budget answers to `--max-nodes`; the per-name read does not —
+    it is `CALLERS_PER_NAME`, and one symbol's whole fan-in is what
+    `find-callers` is for.
+    """
+    bounds = imp.get("bounds") or {}
+    per_name = int(bounds.get("per_name") or 0)
+    budget = int(bounds.get("node_budget") or 0)
+    parts: list[str] = []
+    if per_name:
+        parts.append(
+            f"{per_name} refused by the per-name read cap of "
+            f"{CALLERS_PER_NAME} callers per symbol (raise --max-nodes does "
+            "not affect that bound; run find-callers <symbol> for one "
+            "symbol's whole fan-in)")
+    if budget:
+        parts.append(
+            f"{budget} refused by the shared node budget of "
+            f"{bounds.get('max_nodes', 0)} (raise --max-nodes for more)")
+    return (f"impact: {imp.get('omitted', 0)} more caller references not "
+            "shown — " + "; ".join(parts))
+
 
 def render(changed: dict, impact_data: dict | None = None) -> str:
     lines: list[str] = []
@@ -341,15 +375,16 @@ def render(changed: dict, impact_data: dict | None = None) -> str:
             lines.append(f"{kind} {file}")
         if impact_data and file in impact_data:
             imp = impact_data[file]
-            for c in imp.get("callers", [])[:6]:
+            callers = imp.get("callers", [])
+            for c in callers[:6]:
                 frm = f" {c['from']}" if c.get("from") else ""
                 lines.append(f"  impact: {c['file']}{frm}"
                              f" ({c['confidence']})")
+            # The preview is six lines; the rest are counted, not hidden.
+            if len(callers) > 6:
+                lines.append(f"  impact: (+{len(callers) - 6} more)")
             for t in imp.get("candidate_tests", [])[:3]:
                 lines.append(f"  candidate test: {t}")
             if imp.get("omitted"):
-                lines.append(
-                    f"  impact: {imp['omitted']} more caller references not "
-                    "shown (the per-name read and the shared node budget cut; "
-                    "raise --max-nodes for more)")
+                lines.append("  " + _impact_bound_note(imp))
     return "\n".join(lines) if lines else "no changes"

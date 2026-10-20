@@ -330,13 +330,20 @@ def test_impact_reports_the_per_name_store_bound(tmp_path, monkeypatch):
     assert len(entry_data["callers"]) == changed.CALLERS_PER_NAME
     assert entry_data["truncated"] is True
     assert entry_data["omitted"] == 60 - changed.CALLERS_PER_NAME
+    assert entry_data["bounds"]["per_name"] == 60 - changed.CALLERS_PER_NAME
+    assert entry_data["bounds"]["node_budget"] == 0
     out = changed.render(changed_data, imp)
     assert "more caller references not shown" in out
+    # The note names the bound that fired, and does not advise a flag that
+    # cannot help it: --max-nodes has nothing to do with this cap.
+    assert "per-name read cap of" in out
+    assert "raise --max-nodes does not affect that bound" in out
+    assert "shared node budget" not in out
 
 
 def test_impact_reports_the_shared_node_budget(tmp_path, monkeypatch):
     """Both bounds are in play; a node budget below the per-name read counts
-    what it refused too."""
+    what it refused too, and the note names both remedies."""
     core, entry, changed_data = _impact_rig(tmp_path, monkeypatch,
                                             caller_files=60)
     imp = changed.impact(core, entry.slug, changed_data, max_nodes=5)
@@ -346,6 +353,31 @@ def test_impact_reports_the_shared_node_budget(tmp_path, monkeypatch):
     # 10 rows refused at the per-name read + 45 of the 50 rows it returned
     # refused at the budget = 55 of the 60 rows in the store.
     assert entry_data["omitted"] == 60 - 5
+    assert entry_data["bounds"] == {"per_name": 10, "node_budget": 45,
+                                   "max_nodes": 5}
+    out = changed.render(changed_data, imp)
+    assert "shared node budget of 5" in out
+    assert "raise --max-nodes for more" in out
+    assert "per-name read cap" in out
+
+
+def test_text_preview_counts_the_caller_lines_it_does_not_print(
+        tmp_path, monkeypatch):
+    """The text preview prints six caller lines; the rest are counted.
+
+    The JSON carries every caller, so the text was the only place the cut was
+    invisible: six lines read exactly like six callers.
+    """
+    core, entry, changed_data = _impact_rig(tmp_path, monkeypatch,
+                                            caller_files=10)
+    imp = changed.impact(core, entry.slug, changed_data, max_nodes=100)
+    entry_data = imp["app.py"]
+    assert len(entry_data["callers"]) == 10
+    assert entry_data["omitted"] == 0
+    out = changed.render(changed_data, imp)
+    assert "(+4 more)" in out, out
+    assert len([ln for ln in out.splitlines()
+                if ln.startswith("  impact: caller_")]) == 6
 
 
 def test_impact_reports_no_bound_when_the_list_is_complete(
