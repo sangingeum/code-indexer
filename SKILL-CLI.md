@@ -361,7 +361,11 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
 - **get-code-context** — the only way to read actual source: a line range
   (`--start-line/--end-line`) or the lines around a symbol
   (`--symbol Foo::bar`), optionally padded with `--context-lines N`. Never
-  read whole files; this answers "show me the code" questions.
+  read whole files; this answers "show me the code" questions. Symbol mode
+  resolves the name from that file's own rows — the name and the file are
+  filtered in one uncapped read — so a definition sorting past
+  `find-symbol`'s 25-row default is still found, and EVERY definition of
+  that name in the file is returned.
 - **index-status / doctor / sweep-orphans / reindex-project / remove-project / watch / unwatch** — index
   lifecycle. Two state vocabularies (see "State meanings" above): the
   **pass state** `idle | indexing | never-indexed | error` describes indexing
@@ -535,7 +539,10 @@ receiver for refs.
   "<slug>: indexing in progress". `--fresh` forces the scan now (ignore
   STALE_TTL for this call).
 - `get-code-context` checks the live file hash against the manifest:
-  `--symbol` mode re-resolves the symbol on the live file; line-range mode on
+  `--symbol` mode re-resolves the symbol on the live file, and otherwise
+  answers from that file's own symbol rows (name and file filtered in one
+  uncapped read, every matching range returned — a definition past
+  `find-symbol`'s 25-row default is not reported as absent); line-range mode on
   a changed file returns the requested lines plus a one-line `Warning: ...`
   on stderr (exit 0) and `stale: true` in JSON. Search hits carry `file_hash`
   and `indexed_at`.

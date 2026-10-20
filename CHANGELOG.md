@@ -1,5 +1,35 @@
 # Changelog
 
+## [Unreleased] — get-code-context symbol resolution
+
+- **`get-code-context --symbol` finds a definition whose row sorts past the
+  25-row exact-name cap (issue #23).** Symbol mode read the exact-name rows
+  through `Manifest.find_symbols`' default `limit=25` and only then filtered
+  to the requested file in Python, so a file whose row sorted past the cut
+  came back empty and the command reported the stored row as absent:
+  `InternalError: symbol '__init__' not indexed in
+  src/code_indexer/registry.py` (row 26 of 40 on this tool's own index;
+  `doctor.py` is row 40). The lookup now filters name and file in one
+  uncapped read — `find_symbols(symbol, substring=False, file=rel,
+  limit=None)` — so the answer no longer depends on where the row sorts. The
+  answer shape (`file` / `stale` / `re_resolved` / `segments`) and the order
+  (ast rows first, then `start_line`) are unchanged. No reindex is needed:
+  the store already held the row.
+- **The eval harness scores the same definitions (issue #23).**
+  `evalharness._symbol_range` had the identical capped-then-filtered shape
+  and returned `None` for every definition past the cap, so a hit that
+  matched a late-sorting definition was scored as a miss. It uses the same
+  scoped, uncapped read.
+- **Symbol mode returns every matching range, not the first five.** Both
+  `code_context` segment paths carried `[:5]` — the manifest rows and the
+  live re-resolve on a changed file — which silently shortened a name with
+  more than five definitions in one file. The cap is gone rather than
+  announced: a file's own definitions of one name are a small, finite
+  answer, and an unannounced cap on an answer was the defect.
+- The rest of `find_symbols`' 25-row default is untouched: `find-symbol`'s
+  browse and substring fallback and the exact-symbol pin in the fused
+  ranking depend on it deliberately.
+
 ## [Unreleased] — the definition roots reach the walk, and a prefix scopes its own hotspots
 
 - **The definition-roots read no longer stops at 25 (issue #22).** The read
