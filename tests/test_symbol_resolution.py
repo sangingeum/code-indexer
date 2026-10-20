@@ -365,5 +365,72 @@ def test_a_decorated_definition_is_one_segment(decorated_rig):
     assert "def prepare(" in body
 
 
+# ---------------------------------------------------------------------------
+# context padding is presentation: it never changes the segment count
+# ---------------------------------------------------------------------------
+
+def test_context_padding_keeps_six_definitions_apart(repeated_rig):
+    """Six definitions four lines apart stay SIX segments when padded.
+
+    ``--context-lines 2`` makes consecutive windows touch and overlap: rows
+    (1,2) and (5,6) pad to (1,4) and (3,8). Padding before the merge fused
+    every window into one span covering the whole file. The rows' own ranges
+    are merged first, then each surviving span is padded, so the count is
+    still six and each span is widened by two lines on both sides (issue
+    #26).
+    """
+    core, reg, entry, project, cfg = repeated_rig
+    data = core.code_context(entry, "repeated_definitions.py",
+                             symbol=SHARED_NAME, context_lines=2)
+    spans = [(seg["start_line"], seg["end_line"]) for seg in data["segments"]]
+    assert spans == [(1, 4), (3, 8), (7, 12), (11, 16), (15, 20), (19, 24)], \
+        spans
+    # The padded windows really do touch — otherwise this pin is vacuous.
+    assert all(spans[i][0] <= spans[i - 1][1] for i in range(1, len(spans)))
+
+
+def test_context_padding_keeps_two_close_definitions_apart(disjoint_rig):
+    """Two genuinely disjoint definitions a few lines apart stay TWO spans.
+
+    The rows are (2,3) and (5,6); ``--context-lines 2`` pads them to (1,5)
+    and (3,8), which touch. Merging the padded windows would answer one
+    segment whose body contains the code between the two definitions.
+    """
+    core, reg, entry, project, cfg = disjoint_rig
+    m = core.manifest_for(entry.slug)
+    try:
+        rows = m.find_symbols("repeated", substring=False,
+                              file="disjoint_rows.py", limit=None)
+    finally:
+        m.close()
+    own = sorted((r.start_line, r.end_line) for r in rows)
+    assert len(own) == 2, own
+    expected = [(max(1, s - 2), e + 2) for s, e in own]
+    # The padded windows of these two rows touch, so merging them first
+    # would have answered one segment covering the code between them.
+    assert expected[1][0] <= expected[0][1]
+
+    data = core.code_context(entry, "disjoint_rows.py", symbol="repeated",
+                             context_lines=2)
+    spans = [(seg["start_line"], seg["end_line"]) for seg in data["segments"]]
+    assert spans == expected, (spans, expected)
+
+
+def test_context_padding_keeps_every_definition_on_the_live_path(
+        repeated_rig):
+    """The changed-file re-resolve path pads after merging too."""
+    core, reg, entry, project, cfg = repeated_rig
+    target = project / "repeated_definitions.py"
+    target.write_text("# edited\n" + _repeated_definitions(6))
+    data = core.code_context(entry, "repeated_definitions.py",
+                             symbol=SHARED_NAME, context_lines=2)
+    assert data["re_resolved"] is True
+    spans = [(seg["start_line"], seg["end_line"]) for seg in data["segments"]]
+    assert len(spans) == 6, spans
+    # The one-line comment shifts every definition down by one.
+    assert spans == [(1, 5), (4, 9), (8, 13), (12, 17), (16, 21), (20, 25)], \
+        spans
+
+
 if __name__ == "__main__":  # pragma: no cover
     sys.exit(pytest.main([__file__, "-v"]))

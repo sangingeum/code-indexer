@@ -67,6 +67,11 @@ def _merge_symbol_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]
     merge is part of the answer, never a silent convenience: it is stated in
     ``Core.code_context`` and in SKILL-CLI.md.
 
+    Callers pass the rows' OWN ranges — the caller merges first and applies
+    ``--context-lines`` padding to each surviving span afterwards. Padding
+    before the merge would let two definitions a few lines apart touch and
+    collapse into one span covering the code between them.
+
     Returns the spans ordered by start line.
     """
     merged: list[tuple[int, int]] = []
@@ -1217,8 +1222,11 @@ class Core:
         segments are built (issue #26): a decorated definition is extracted
         as two rows (decorator line + declaration line, same end line) and
         surfaces as ONE segment with one honest range, while genuinely
-        disjoint ranges stay separate. The merge is stated here and in
-        SKILL-CLI.md — it is part of the answer, never a silent
+        disjoint ranges stay separate. The rows' own ranges are merged
+        first, then ``context_lines`` padding is applied to each surviving
+        span — identity is decided on the definitions, so ``--context-lines``
+        cannot change how many segments answer. The merge is stated here and
+        in SKILL-CLI.md — it is part of the answer, never a silent
         normalisation. Spans are returned in start-line order.
         """
         rel = file.lstrip("/")
@@ -1232,6 +1240,8 @@ class Core:
         ranges: list[tuple[int, int]] = []
         re_resolved = False
         if symbol:
+            # The rows' OWN ranges, before any --context-lines padding.
+            own_ranges: list[tuple[int, int]] = []
             if changed:
                 # Re-resolve against the live file; the manifest rows are
                 # stale by definition here.
@@ -1240,11 +1250,10 @@ class Core:
                 live_chunks = ts_chunker.chunk_text(rel, live_text)
                 fresh_rows = [c for c in live_chunks if c.symbol == symbol]
                 if fresh_rows:
-                    ranges = [(max(1, c.start_line - context_lines),
-                               c.end_line + context_lines)
-                              for c in fresh_rows]
+                    own_ranges = [(c.start_line, c.end_line)
+                                  for c in fresh_rows]
                     re_resolved = True
-            if not ranges:
+            if not own_ranges:
                 core_manifest = self.manifest_for(entry.slug)
                 try:
                     # Scoped in SQL: the name filter AND the file filter are
@@ -1258,12 +1267,16 @@ class Core:
                 if not rows:
                     raise ValueError(
                         f"error: symbol {symbol!r} not indexed in {rel}")
-                ranges = [(max(1, r.start_line - context_lines),
-                           r.end_line + context_lines) for r in rows]
-            # One decorated definition is stored as two rows (decorator line
-            # + declaration line); merge same-name ranges that overlap or
-            # touch so a definition answers with one span (issue #26).
-            ranges = _merge_symbol_ranges(ranges)
+                own_ranges = [(r.start_line, r.end_line) for r in rows]
+            # Identity first, presentation second: the rows' own ranges are
+            # merged into one span per run (a decorated definition is two
+            # rows, issue #26), and only then is the --context-lines padding
+            # applied to each surviving span. Padding before the merge would
+            # fuse two genuinely disjoint definitions that sit a few lines
+            # apart into one span that contains the code between them, making
+            # the segment count depend on a display flag.
+            ranges = [(max(1, s - context_lines), e + context_lines)
+                      for s, e in _merge_symbol_ranges(own_ranges)]
         elif start_line is not None:
             end = end_line if end_line is not None else start_line
             ranges.append((max(1, start_line - context_lines),

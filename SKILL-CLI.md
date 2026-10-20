@@ -369,7 +369,10 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
   then merged into one contiguous span per run, so a decorated definition —
   stored as two rows, the decorator line and the declaration line, with the
   same end line — answers as ONE segment with one range, while genuinely
-  disjoint ranges stay separate. The merge is part of the answer, never a
+  disjoint ranges stay separate. The rows' own ranges are merged **first**,
+  and the `--context-lines` padding is applied to each surviving span
+  afterwards: identity is decided on the definitions, so padding never
+  changes how many segments answer. The merge is part of the answer, never a
   hidden convenience: counting segments counts definitions. Spans are listed
   in start-line order.
 - **index-status / doctor / sweep-orphans / reindex-project / remove-project / watch / unwatch** — index
@@ -550,7 +553,9 @@ receiver for refs.
   uncapped read, every matching range returned — a definition past
   `find-symbol`'s 25-row default is not reported as absent — and then the
   ranges of that one name that overlap or touch merged into one span each, so
-  a decorated definition answers as one segment); line-range mode on
+  a decorated definition answers as one segment; the rows' own ranges merge
+  first and `--context-lines` padding is applied to each merged span after,
+  so padding never changes the segment count); line-range mode on
   a changed file returns the requested lines plus a one-line `Warning: ...`
   on stderr (exit 0) and `stale: true` in JSON. Search hits carry `file_hash`
   and `indexed_at`.

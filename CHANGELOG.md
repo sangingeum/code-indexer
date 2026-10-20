@@ -39,6 +39,22 @@
   order is unchanged. The eval any-overlap hardening reads rows from the
   manifest, never segment counts, so it does not depend on this merge. No
   reindex is owed: the stored rows are what they were.
+- **The merge runs on the rows' own ranges, then `--context-lines` pads each
+  merged span (issue #26).** `code_context` padded every row's range with
+  `context_lines` before calling `_merge_symbol_ranges`, whose adjacency test
+  (`start <= previous_end + 1`) then fused two genuinely disjoint definitions
+  of the requested name that sit a few lines apart: with `--context-lines 2`
+  and definitions four lines apart, the padded windows touch and the whole
+  file collapsed into one segment that included the code between the
+  definitions. The order is now identity first, presentation second — the
+  rows' own ranges are merged, then `context_lines` is applied to each
+  surviving span — so a display flag no longer changes how many segments
+  answer. Line-range mode is unchanged. Pinned by three tests: six
+  definitions four lines apart answer as six padded spans, two disjoint
+  definitions answer as two padded spans, and the changed-file re-resolve
+  path keeps every definition under padding. The rule is stated in the
+  `code_context` and `_merge_symbol_ranges` docstrings and in SKILL-CLI.md.
+  No reindex is owed: no stored row changes.
 
 ## [Unreleased] — get-code-context symbol resolution
 
