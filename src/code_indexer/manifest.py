@@ -565,12 +565,6 @@ class Manifest:
         keys = ("line", "to_name", "relationship", "confidence", "receiver")
         return [dict(zip(keys, r)) for r in rows]
 
-    def fan_in_counts(self, limit: int = 20) -> list[tuple[str, int]]:
-        """Top N names by reference count (overview hotspots)."""
-        return [(r[0], int(r[1])) for r in self._conn.execute(
-            "SELECT to_name, COUNT(*) AS n FROM refs GROUP BY to_name"
-            " ORDER BY n DESC, to_name LIMIT ?", (limit,))]
-
     def file_fan_in(self, scope_prefix: str | None = None
                     ) -> list[tuple[str, int]]:
         """Reference fan-in per target FILE, computed by the store.
