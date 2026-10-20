@@ -55,7 +55,7 @@ checkout's working tree as `pins-fail-on-base-full.txt`.
 | 7. `fan_in_counts` is gone and unreferenced | **PASS** |
 | 8. revert sensitivity | **PASS** — 10 failed / 63 passed at the base, 7 on value and 3 on a missing name |
 | 9. the two previously-false doc claims are now true | **PASS** — both are scoped to the reads beneath the walks, and the roots cap is described rather than implied away |
-| 10. timing after the fix | **PASS** — worst walk 2.556 s against 3 s, worst overview 1.468 s against 2 s |
+| 10. timing after the fix | **PASS** — worst walk 2.543 s against 3 s, worst overview 1.488 s against 2 s |
 | 11. no side effects | **PASS**, with one disclosure |
 
 **Final verdict: FAIL** — item: *`get-code-context --symbol` still resolves an
