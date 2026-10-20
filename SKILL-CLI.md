@@ -151,9 +151,9 @@ code-indexer find-symbol Name [--project P | --name P] [--type class]   # exact-
 code-indexer find-symbol [--project P | --name P] [--type class] [--file src/x.py] [--substring] [--limit 25]   # browse mode (no name)
 code-indexer find-definition Name [--project P | --name P]              # exact match only
 code-indexer find-references Name [--project P | --name P] [--relationship calls|includes|inherits|references] [--limit 25]   # references from the single store; every row labelled confidence=/receiver=
-code-indexer find-callers Name [--project P] [--depth 2] [--max-nodes 40] [--json]   # fan-in over the refs table (ast vs heuristic); accepts a dotted Type.Member subject
-code-indexer find-callees Name [--project P] [--depth 2] [--max-nodes 40] [--json]   # fan-out over the refs table
-code-indexer deps PATH [--project P] [--direction in|out|both] [--depth 2] [--max-nodes 60] [--format tree|edges|json]   # import graph around a file
+code-indexer find-callers Name [--project P] [--depth 2] [--max-nodes 40] [--json]   # fan-in over the refs table (ast vs heuristic); dotted Type.Member ok; every CALL SITE is a node; json adds truncated/omitted
+code-indexer find-callees Name [--project P] [--depth 2] [--max-nodes 40] [--json]   # fan-out over the refs table; a TARGET is a node (one target reached twice is one callee)
+code-indexer deps PATH [--project P] [--direction in|out|both] [--depth 2] [--max-nodes 60] [--format tree|edges|json]   # import graph around a file; json keeps the per-level in/out dicts and adds truncated/omitted
 
 # reading
 code-indexer get-code-context src/f.hpp --start-line 40 --end-line 80   # or --symbol Foo::bar [--context-lines N]
@@ -313,6 +313,33 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
   `find-callers` seeds the BFS from the `refs` rows and says so plainly on its
   `note:` lines instead of printing a bare `no results` (which would read as
   "nothing calls this").
+  **Node identity differs by direction, deliberately.** A `find-callers` node
+  is the call SITE — `(file, line, from_symbol, relationship)` — so two calls
+  to the same target on two lines of ONE function are two hits, each with its
+  own line and its own receiver, at every depth (a transitive site is not
+  swallowed either). Enclosing-symbol identity used to collapse the second
+  one into the first, silently (issue #21). A `find-callees` node is the
+  TARGET — `(file, to_name)` — because that walk answers "what does this
+  symbol reach", so one target reached twice is one callee. Definition roots
+  in both walks are `(file, symbol)`.
+  **An incomplete answer says so — no cap is silent.** A node cap does not
+  just stop adding nodes: every edge the walk examined and refused is
+  counted. In `--json` the payload is unchanged apart from two new top-level
+  siblings — `"truncated": <bool>` (the answer is incomplete) and
+  `"omitted": <int>` (edges refused at the node cap; `0` when nothing was
+  refused) — beside `roots` (`deps` keeps its per-level `in`/`out` dicts and
+  gains the same two fields). In the text tree the result gains a `note:`
+  line naming the cap and the count, e.g.
+  `note: node cap 4 reached — 61 more reference edges not shown (a lower
+  bound: the walk stopped examining at the cap); raise --max-nodes to see
+  more`. The count is what the walk itself saw before stopping, never a claim
+  about the whole population. A depth cap that stops a frontier which still
+  has unvisited edges adds one line — `deeper references exist beyond depth
+  2` (callers), `deeper callees exist beyond depth 2` (callees), `deeper out
+  import edges exist beyond depth 2` (`deps`) — because a depth-bounded
+  answer is incomplete too. These lines print on stdout with the answer, even
+  when rows were printed; the explanatory notes of a complete answer stay on
+  stderr. An unknown name is not reported as truncated: nothing was refused.
 - **get-code-context** — the only way to read actual source: a line range
   (`--start-line/--end-line`) or the lines around a symbol
   (`--symbol Foo::bar`), optionally padded with `--context-lines N`. Never

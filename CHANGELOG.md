@@ -1,5 +1,46 @@
 # Changelog
 
+## [Unreleased] — an incomplete graph answer says so (issue #21)
+
+- **`find-callers` no longer loses a second call site in the same function, and
+  every graph cap now reports what it refused (issue #21).** Two defects sat
+  behind one symptom. The first was node identity: `find-callers` keyed its
+  visited set on `(file, symbol)` — the *enclosing* symbol — so two calls to
+  the same target on two lines of ONE function were the same node, and the
+  second was dropped by the cycle guard before it could be printed. Nothing
+  said so: the answer looked complete. A caller node is now the call SITE,
+  `(file, line, from_symbol, relationship)`, at every BFS level (a transitive
+  call site is not swallowed either), so each site keeps its own line and its
+  own receiver; definition roots keep `(file, symbol)` identity. The second
+  defect was the caps: `find-callers` / `find-callees` (`count >= max_nodes`)
+  and `deps_for_file` (`len(seen) < max_nodes`) applied a reached cap as a
+  bare `continue`, so an edge disappeared with no trace, and `graph_to_json`
+  emitted only `{"roots": ...}`. A refused edge is now counted. In `--json` the
+  payload keeps `roots` exactly as it was and gains two top-level siblings —
+  `"truncated": <bool>` and `"omitted": <int>`, the number of edges the walk
+  examined and refused at the node cap (`0` when nothing was refused); `deps`
+  keeps its per-level `in`/`out` dicts and gains the same two fields. In the
+  text tree the result gains one `note:` line naming the cap and the count,
+  phrased as a lower bound — what this walk saw before it stopped, never a
+  claim about the whole population:
+  `note: node cap 4 reached — 61 more reference edges not shown (a lower
+  bound: the walk stopped examining at the cap); raise --max-nodes to see
+  more`. A depth cap is reported too, because a depth-bounded answer is
+  incomplete: when the last level leaves a frontier with unvisited edges the
+  answer says `deeper references exist beyond depth N` (and the callee /
+  import-edge variants). Those lines print on stdout with the answer; the
+  explanatory notes of a complete, non-empty answer stay on stderr as before.
+  `find-callees` deliberately keeps TARGET-set identity `(file, to_name)` — its
+  question is "what does this symbol reach", so a caller calling one target
+  twice is one callee — and that asymmetry with `find-callers` is now written
+  down in the module docstring, the command docstrings and `SKILL-CLI.md`.
+  **Unchanged:** this is a query-time change only — no extraction query,
+  schema or fingerprint moved, so `EXTRACTION_VERSION` is untouched, no
+  reindex is owed, and an existing index answers with the fix immediately;
+  exit codes are as they were (success is still 0); the graph is still textual
+  and unbound; the MCP server needed no new logic and relays the new fields
+  because it relays the CLI's own output.
+
 ## [Unreleased] — "cannot verify" is a verdict of its own (issue #18)
 
 - **`index-status` no longer goes silent when the fingerprint verdict cannot

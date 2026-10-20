@@ -1,0 +1,30 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______ test_find_callers_reports_every_call_site_in_one_enclosing_symbol _______
+
+tmp_path = PosixPath('/tmp/pytest-of-keum/pytest-3/test_find_callers_reports_ever0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7942124b0680>
+
+    def test_find_callers_reports_every_call_site_in_one_enclosing_symbol(
+            tmp_path, monkeypatch):
+        """One function calling the same target twice is two hits, two lines —
+        the enclosing symbol is NOT the node identity (issue #21)."""
+        core, reg, entry, project = _rig(tmp_path, monkeypatch)
+        result = runner.invoke(app, ["find-callers", "refresh_token",
+                                     "--project", str(project), "--json"])
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        sites = {(n["line"], n["symbol"]) for n in _walk_json(payload)
+                 if n["file"] == "repeat.py" and n["symbol"] == "twice"}
+>       assert sites == {(3, "twice"), (4, "twice")}, sites
+E       AssertionError: {(3, 'twice')}
+E       assert {(3, 'twice')} == {(3, 'twice'), (4, 'twice')}
+E         
+E         Extra items in the right set:
+E         (4, 'twice')
+E         Use -v to get more diff
+
+tests/test_graph.py:463: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_graph.py::test_find_callers_reports_every_call_site_in_one_enclosing_symbol
+1 failed in 0.99s
