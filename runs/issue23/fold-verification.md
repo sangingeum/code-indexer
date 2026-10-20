@@ -4,7 +4,8 @@ Verdict: **PASS**
 
 - Fold set under test: `498a060` (review record) → `aa947f3` (the development
   leg's folds of review items 1-3) → `454ef10` (this gate leg's folds of review
-  items 4-5). `origin/main` = `454ef10`, and every finding below is judged on the
+  items 4-5). `454ef10` was the tip of `origin/main` when the checks below ran;
+  this record is the commit added on top of it, and every finding is judged on
   pushed content, not on a worktree.
 - Both fold commits signed (`%G? = G`).
 - Issue #23 remains **open**. This is the narrow pass over the folds, not a
