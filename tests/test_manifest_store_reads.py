@@ -101,6 +101,60 @@ def test_import_rows_is_complete_and_ordered(tmp_path):
         m.close()
 
 
+def test_callers_of_order_is_total_inside_a_one_line_tie_group(tmp_path):
+    """A reference tie group on ONE line comes back in the key's order.
+
+    `refs` is keyed `(file, line, to_name, relationship)`, so one line can
+    carry several rows; a live index has 73,911 such lines. `ORDER BY file,
+    line` left their order to the query plan, so a cut inside the group was
+    not a reproducible prefix. The key now names the primary key (plus the
+    receiver) and the rows are inserted in the REVERSE of that order, so a
+    plan-order answer cannot pass.
+    """
+    m = _manifest(tmp_path)
+    try:
+        _add_file(m, "target.py",
+                  symbols=[_definition("target.py", "target_fn")])
+        _add_file(m, "one_user.py", refs=[
+            (1, "use_member", "target_fn", "member", "obj"),
+            (1, "use_type", "target_fn", "type", None),
+            (1, "use_call", "target_fn", "call", None),
+            (2, "later", "target_fn", "call", None),
+        ])
+        rows = m.callers_of("target_fn")
+        assert [(r["line"], r["relationship"]) for r in rows] == [
+            (1, "call"), (1, "member"), (1, "type"), (2, "call")], rows
+        # Cuts inside the tie group are still prefixes of the full read.
+        assert m.callers_of("target_fn", limit=1) == rows[:1]
+        assert m.callers_of("target_fn", limit=2) == rows[:2]
+        assert m.callers_of("target_fn", limit=3) == rows[:3]
+    finally:
+        m.close()
+
+
+def test_import_rows_order_is_total_inside_a_one_line_tie_group(tmp_path):
+    """`imports` is keyed `(file, raw_target, line)`, so two rows can share
+    one `(file, line)` (3 such groups on one live index). Inserted in the
+    reverse of the key's order: only a total key returns the same prefix.
+    """
+    m = _manifest(tmp_path)
+    try:
+        _add_file(m, "pkg/a.py", imports=[
+            ("pkg.zeta", "pkg/zeta.py", "python", 1),
+            ("pkg.middle", None, "python", 1),
+            ("pkg.alpha", "pkg/alpha.py", "python", 1),
+            ("pkg.alpha", "pkg/alpha.py", "python", 2),
+        ])
+        rows = m.import_rows()
+        assert [(r["line"], r["raw_target"]) for r in rows] == [
+            (1, "pkg.alpha"), (1, "pkg.middle"), (1, "pkg.zeta"),
+            (2, "pkg.alpha")], rows
+        assert m.import_rows(limit=1) == rows[:1]
+        assert m.import_rows(limit=2) == rows[:2]
+    finally:
+        m.close()
+
+
 def test_definitions_of_returns_every_definition_row(tmp_path):
     """The definition-roots read has no browse cap (issue #22).
 

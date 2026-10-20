@@ -1,0 +1,8 @@
+=== vivarium-sim ===
+  imports: 3 (file, line) tie groups / 488 rows
+  refs:    73911 (file, line) tie groups / 608055 rows
+  largest refs group: 657 rows at docs/verification/layer-c-cohort-axis-four-profile-240x3600.run-2f.cross-seed.cohort.json:1
+=== b1b7f48b ===
+  imports: 0 (file, line) tie groups / 12 rows
+  refs:    107401 (file, line) tie groups / 934672 rows
+  largest refs group: 198 rows at docs/adr/adr-0038-capability-truth-store-resolver-modes-declared-base-belief-truth-gap-and-read-only-reveal-detection.md:6
