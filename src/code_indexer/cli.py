@@ -293,6 +293,9 @@ def _emit_graph(result: graph.GraphResult, json_output: bool) -> None:
     `note:` line naming the cap, printed WITH the answer (stdout) — an
     incomplete answer must say so where the answer is read. The explanatory
     notes of a complete, non-empty answer stay on stderr (result-only stdout).
+    The stream is chosen once for the whole note block, from `truncated`: when
+    an answer is incomplete every note follows the answer on stdout, including
+    an explanatory note that is not itself about the cap.
     """
     if json_output:
         typer.echo(json.dumps(graph.result_to_json(result)))

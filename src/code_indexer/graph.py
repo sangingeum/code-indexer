@@ -89,11 +89,13 @@ def _plural(count: int, one: str, many: str) -> str:
 def _cap_note(cap: int, omitted: int, what: str, scope: str = "") -> str:
     """The truncation line for a node cap. It says the answer is incomplete,
     names the cap and the refused count, and never presents that count as the
-    whole population (it is what this walk examined before stopping)."""
+    whole population (it is what this walk examined, not what the graph
+    holds)."""
     noun = _plural(omitted, "edge", "edges")
     return (f"node cap {cap} reached{scope} — {omitted} more {what} {noun} "
-            "not shown (a lower bound: the walk stopped examining at the "
-            "cap); raise --max-nodes to see more")
+            "not shown (a lower bound: a refused edge is counted but never "
+            "expanded, so its own edges are not walked, and a depth cap on "
+            "the same answer can cut more); raise --max-nodes to see more")
 
 
 def _depth_note(depth: int, what: str) -> str:

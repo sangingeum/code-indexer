@@ -59,12 +59,43 @@ entry_points, tests, config_files, hotspots) + `schema: 1`.
 
 ## find-callers/find-callees --json
 
-`{"roots": [node...]}` where node = `{"file", "symbol"|null, "line"|null,
-"relationship", "confidence", "children": [node...]}`.
+```json
+{"roots": [node...], "truncated": bool, "omitted": int, "notes": [str]}
+```
+
+node = `{"file", "symbol"|null, "line"|null, "relationship", "confidence",
+"receiver"|null, "children": [node...]}`.
+
+`truncated` is the completeness flag: `true` when the answer is incomplete —
+the node cap refused an edge, or the depth cap stopped a frontier that still
+had unvisited edges. `omitted` is an `int` counting the edges the walk
+examined and refused at the **node** cap; it is a lower bound, because a
+refused edge is never expanded and so its own edges are not walked. It is
+`0` on a depth-capped answer, so `truncated: true` with `omitted: 0` is a
+normal, reachable combination: decide completeness from `truncated`, never
+from `omitted`.
+
+`notes` is a `[str]` of plain-language lines for the caller to print, and is
+present only when non-empty: on an incomplete answer it carries the cap
+lines, on a complete one the explanations (a dotted subject resolved, an
+unknown definition seeded from reference rows). All three keys are additive
+siblings — `roots` keeps its shape and a consumer that ignores them still
+reads the same tree.
 
 ## deps --json
 
-`{"out": {level: [file...]}, "in": {level: [file...]}}` (level = 1-based).
+```json
+{"out": {level: [file...]}, "in": {level: [file...]},
+ "truncated": bool, "omitted": int, "notes": [str]}
+```
+
+level = 1-based. `truncated`, `omitted` and `notes` mean exactly what they
+mean for `find-callers` (above): node-cap refusals are counted in `omitted`,
+a depth-capped answer is `truncated` with `omitted: 0`, and `notes` is
+present only when non-empty. A refusal line names its direction
+(`node cap 2 reached (out direction) — ...`) because one answer can carry
+refusals from both walks; `omitted` is the sum over both. A direction that
+was not requested keeps its empty dict.
 
 ## Error contract (non-JSON)
 

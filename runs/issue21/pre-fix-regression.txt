@@ -2,7 +2,7 @@ F                                                                        [100%]
 =================================== FAILURES ===================================
 ______ test_find_callers_reports_every_call_site_in_one_enclosing_symbol _______
 
-tmp_path = PosixPath('/tmp/pytest-of-keum/pytest-3/test_find_callers_reports_ever0')
+tmp_path = PosixPath('<tmp>/pytest-3/test_find_callers_reports_ever0')
 monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7942124b0680>
 
     def test_find_callers_reports_every_call_site_in_one_enclosing_symbol(

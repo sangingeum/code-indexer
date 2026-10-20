@@ -322,21 +322,27 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
   TARGET — `(file, to_name)` — because that walk answers "what does this
   symbol reach", so one target reached twice is one callee. Definition roots
   in both walks are `(file, symbol)`.
-  **An incomplete answer says so — no cap is silent.** A node cap does not
-  just stop adding nodes: every edge the walk examined and refused is
-  counted. In `--json` the payload is unchanged apart from two new top-level
-  siblings — `"truncated": <bool>` (the answer is incomplete) and
+  **An incomplete graph answer says so — no graph-walk cap is silent.** A node
+  cap does not just stop adding nodes: every edge the walk examined and
+  refused is counted. In `--json` the payload is unchanged apart from two new
+  top-level siblings — `"truncated": <bool>` (the answer is incomplete) and
   `"omitted": <int>` (edges refused at the node cap; `0` when nothing was
   refused) — beside `roots` (`deps` keeps its per-level `in`/`out` dicts and
-  gains the same two fields). In the text tree the result gains a `note:`
-  line naming the cap and the count, e.g.
+  gains the same two fields). `truncated` is the completeness flag; `omitted`
+  counts node-cap refusals only and is `0` on a depth-capped answer, so read
+  `truncated`, never `omitted`, to decide whether an answer is complete. The
+  promise is scoped to these three graph walks: the store reads one layer
+  beneath them still cap silently (issue #22), so a walk fed from a store
+  read above its own limit can be short with no trace. In the text tree the
+  result gains a `note:` line naming the cap and the count, e.g.
   `note: node cap 4 reached — 61 more reference edges not shown (a lower
-  bound: the walk stopped examining at the cap); raise --max-nodes to see
-  more`. The count is what the walk itself saw before stopping, never a claim
-  about the whole population. A depth cap that stops a frontier which still
-  has unvisited edges adds one line — `deeper references exist beyond depth
-  2` (callers), `deeper callees exist beyond depth 2` (callees), `deeper out
-  import edges exist beyond depth 2` (`deps`) — because a depth-bounded
+  bound: a refused edge is counted but never expanded, so its own edges are
+  not walked, and a depth cap on the same answer can cut more); raise
+  --max-nodes to see more`. The count is what the walk itself saw, never a
+  claim about the whole population. A depth cap that stops a frontier which
+  still has unvisited edges adds one line — `deeper references exist beyond
+  depth 2` (callers), `deeper callees exist beyond depth 2` (callees), `deeper
+  out import edges exist beyond depth 2` (`deps`) — because a depth-bounded
   answer is incomplete too. These lines print on stdout with the answer, even
   when rows were printed; the explanatory notes of a complete answer stay on
   stderr. An unknown name is not reported as truncated: nothing was refused.

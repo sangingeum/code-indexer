@@ -33,13 +33,14 @@ and is not.
   `roots` byte-identical in shape and gains top-level `truncated` / `omitted`
   (plus `notes` when non-empty); `deps` keeps its per-level `in`/`out` dicts
   and gains the same two fields. Text gains one `note:` line naming the cap
-  and the count, phrased as a lower bound ("a lower bound: the walk stopped
-  examining at the cap") so it cannot be read as the whole population. A depth
-  cap that stops a frontier with unvisited edges adds one line
-  (`deeper references exist beyond depth N` / `deeper callees exist beyond
-  depth N` / `deeper out import edges exist beyond depth N`) — verified from
-  the store rather than assumed, so a natural end of the graph produces no
-  line. Truncation lines print on stdout with the answer; the explanatory
+  and the count, phrased as a lower bound ("a lower bound: a refused edge is
+  counted but never expanded, so its own edges are not walked, and a depth cap
+  on the same answer can cut more") so it cannot be read as the whole
+  population. A depth cap that stops a frontier with unvisited edges adds one
+  line (`deeper references exist beyond depth N` / `deeper callees exist
+  beyond depth N` / `deeper out import edges exist beyond depth N`) — verified
+  from the store rather than assumed, so a natural end of the graph produces
+  no line. Truncation lines print on stdout with the answer; the explanatory
   notes of a complete non-empty answer stay on stderr, unchanged.
 - **C — `find_callees` keeps target-set semantics: done, deliberately.**
   Identity stays `(file, to_name)`. Written down in the `graph.py` module
@@ -107,7 +108,9 @@ $ uv run code-indexer find-callers DistanceBetween --project vivarium-sim --max-
 Vivarium.Sim/SimCore.cs:85 DistanceBetween [definition/ast]
   ...:152 ...  ...:210 ...  ...:218 ...
 note: node cap 4 reached — 61 more reference edges not shown (a lower bound:
-the walk stopped examining at the cap); raise --max-nodes to see more
+a refused edge is counted but never expanded, so its own edges are not
+walked, and a depth cap on the same answer can cut more); raise --max-nodes
+to see more
 ```
 
 `--json` for the same walk (`runs/issue21/live-max4.json`) has keys
@@ -139,6 +142,23 @@ needed no logic change — `_run_cli` relays the CLI's own stdout, so
 - No extraction, schema or embed change: `EXTRACTION_VERSION` untouched, no
   fingerprint flip, so no reindex is owed and an existing index answers with
   the fix immediately.
+
+## The issue's other suggestions — decisions of record
+
+- **Suggestion (1), compare lexical-hit and store-row counts: rejected.** It
+  costs a second lexical sweep per query on the common path, and after this
+  repair the store is no longer the layer that goes missing — the query path
+  dropped the row, not extraction. Recorded as a decision rather than dropped.
+- **Suggestion (3), fix the extractor: refuted.** The reference rows were in
+  the store all along (152, 210 and 218 in `PawnSetRegistrationTests.cs`); the
+  query path dropped one of them, so no extractor change was owed and none was
+  made.
+- **The store-level silent caps** on `Manifest.callers_of`,
+  `callees_of_file_symbol` and `import_rows` are filed as issue #22, not fixed
+  in this leg (see below).
+- **The issue's line 223 is 218 in this record.** The audited tree moved
+  between the report and the round, so the row under test now sits at 218;
+  the three rows of record are 152, 210 and 218.
 
 ## Deliberately not done (recommendations, not started)
 

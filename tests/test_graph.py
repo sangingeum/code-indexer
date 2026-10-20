@@ -279,6 +279,34 @@ def _rig(tmp_path, monkeypatch):
         "def outer():\n"
         "    run()\n"
         "    return 0\n")
+    # Four DISTINCT callee targets in one symbol, so a node cap below four
+    # refuses more than one edge — a fixture that can tell "counts every
+    # refusal" from "counts the first".
+    (project / "pkg" / "shapes.py").write_text(
+        "def square():\n"
+        "    return 1\n"
+        "def circle():\n"
+        "    return 2\n"
+        "def triangle():\n"
+        "    return 3\n"
+        "def hexagon():\n"
+        "    return 4\n"
+        "def compose():\n"
+        "    square()\n"
+        "    circle()\n"
+        "    triangle()\n"
+        "    hexagon()\n"
+        "    return 0\n")
+    # THREE resolved out-edges from one file, for the same reason on the
+    # `deps` side. The targets are deliberately outside the `refresh_token`
+    # call graph, so this fixture does not deepen that walk.
+    (project / "pkg" / "leaves.py").write_text(
+        "def stub_one():\n"
+        "    return 1\n")
+    (project / "pkg" / "aggregate.py").write_text(
+        "import pkg\n"
+        "import pkg.leaves\n"
+        "import pkg.shapes\n")
     (project / "ui.ts").write_text(
         'import { helper } from "./lib";\nexport function go() { helper(); }\n')
     (project / "lib.ts").write_text("export function helper() { return 1; }\n")
@@ -482,9 +510,12 @@ def test_find_callers_reports_a_refused_edge_instead_of_dropping_it(
     text = runner.invoke(app, ["find-callers", "refresh_token",
                                "--project", str(project), "--max-nodes", "2"])
     assert text.exit_code == 0, text.output
-    assert "note:" in text.output and "node cap 2" in text.output
+    # The note rides WITH the answer: stdout. `Result.output` would mix the
+    # two streams and could not tell this from an inverted echo() call.
+    assert "note:" in text.stdout and "node cap 2" in text.stdout
+    assert "note:" not in text.stderr
     # The note must not present the refused count as the whole population.
-    assert "lower bound" in text.output
+    assert "lower bound" in text.stdout
 
 
 def test_find_callers_reports_a_depth_cap(tmp_path, monkeypatch):
@@ -537,15 +568,19 @@ def test_find_callees_reports_targets_not_sites_and_its_truncation(
     targets = [n for n in _walk_json(twice)
                if n["file"] == "pkg/helpers.py" and n["symbol"] == "refresh_token"]
     assert len(targets) == 1, targets
-    capped = runner.invoke(app, ["find-callees", "run", "--project",
-                                 str(project), "--max-nodes", "1", "--json"])
+    # Four distinct callees under a cap of 2: one fits beside the definition
+    # root and the other three are refused, so `omitted` can only be 3 if
+    # every refusal is counted, not the first.
+    capped = runner.invoke(app, ["find-callees", "compose", "--project",
+                                 str(project), "--max-nodes", "2", "--json"])
     assert capped.exit_code == 0, capped.output
     payload = json.loads(capped.stdout)
     assert payload["truncated"] is True
-    assert payload["omitted"] > 0
-    text = runner.invoke(app, ["find-callees", "run", "--project",
-                               str(project), "--max-nodes", "1"])
-    assert "note:" in text.output and "node cap 1" in text.output
+    assert payload["omitted"] == 3, payload
+    text = runner.invoke(app, ["find-callees", "compose", "--project",
+                               str(project), "--max-nodes", "2"])
+    assert "note:" in text.stdout and "node cap 2" in text.stdout
+    assert "note:" not in text.stderr
 
 
 def test_deps_reports_its_truncation_and_keeps_its_levels(tmp_path, monkeypatch):
@@ -555,16 +590,21 @@ def test_deps_reports_its_truncation_and_keeps_its_levels(tmp_path, monkeypatch)
               "out", "--format", "json"]).stdout)
     assert payload["out"], payload  # per-level dict unchanged
     assert payload["truncated"] is False and payload["omitted"] == 0
-    capped = runner.invoke(app, ["deps", "app.py", "--project", str(project),
-                                 "--direction", "out", "--max-nodes", "1",
-                                 "--format", "json"])
+    # Three resolved out-edges under a cap of 2: the start file leaves room
+    # for one, so exactly two are refused — a count that requires counting
+    # every refusal.
+    capped = runner.invoke(app, ["deps", "pkg/aggregate.py", "--project",
+                                 str(project), "--direction", "out",
+                                 "--max-nodes", "2", "--format", "json"])
     assert capped.exit_code == 0, capped.output
     payload = json.loads(capped.stdout)
     assert payload["truncated"] is True
-    assert payload["omitted"] > 0
-    text = runner.invoke(app, ["deps", "app.py", "--project", str(project),
-                               "--direction", "out", "--max-nodes", "1"])
-    assert "note:" in text.output and "node cap 1" in text.output
+    assert payload["omitted"] == 2, payload
+    text = runner.invoke(app, ["deps", "pkg/aggregate.py", "--project",
+                               str(project), "--direction", "out",
+                               "--max-nodes", "2"])
+    assert "note:" in text.stdout and "node cap 2" in text.stdout
+    assert "note:" not in text.stderr
 
 
 def test_mcp_graph_tools_exist():

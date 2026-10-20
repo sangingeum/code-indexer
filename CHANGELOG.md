@@ -21,19 +21,25 @@
   examined and refused at the node cap (`0` when nothing was refused); `deps`
   keeps its per-level `in`/`out` dicts and gains the same two fields. In the
   text tree the result gains one `note:` line naming the cap and the count,
-  phrased as a lower bound — what this walk saw before it stopped, never a
-  claim about the whole population:
+  phrased as a lower bound — what this walk examined, never a claim about the
+  whole population:
   `note: node cap 4 reached — 61 more reference edges not shown (a lower
-  bound: the walk stopped examining at the cap); raise --max-nodes to see
-  more`. A depth cap is reported too, because a depth-bounded answer is
-  incomplete: when the last level leaves a frontier with unvisited edges the
-  answer says `deeper references exist beyond depth N` (and the callee /
-  import-edge variants). Those lines print on stdout with the answer; the
-  explanatory notes of a complete, non-empty answer stay on stderr as before.
+  bound: a refused edge is counted but never expanded, so its own edges are
+  not walked, and a depth cap on the same answer can cut more); raise
+  --max-nodes to see more`. A depth cap is reported too, because a
+  depth-bounded answer is incomplete: when the last level leaves a frontier
+  with unvisited edges, the answer says `deeper references exist beyond
+  depth N` (and the callee / import-edge variants). Those lines print on
+  stdout with the answer; the explanatory notes of a complete, non-empty
+  answer stay on stderr as before.
   `find-callees` deliberately keeps TARGET-set identity `(file, to_name)` — its
   question is "what does this symbol reach", so a caller calling one target
   twice is one callee — and that asymmetry with `find-callers` is now written
   down in the module docstring, the command docstrings and `SKILL-CLI.md`.
+  **Expect more rows, and more truncation.** Every import statement is now its
+  own site, so a heavily referenced symbol lists more nodes per answer and
+  reaches the default `--max-nodes 40` sooner: expect more nodes per answer,
+  and expect the default caps to report truncation more often than before.
   **Unchanged:** this is a query-time change only — no extraction query,
   schema or fingerprint moved, so `EXTRACTION_VERSION` is untouched, no
   reindex is owed, and an existing index answers with the fix immediately;
