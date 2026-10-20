@@ -10,6 +10,13 @@ for query plans, ordering-key tie groups, prefix-scope damage and symbol-row
 counts, and ran one live graph read to test the surviving-cap question. Gate
 numbers were taken as of record from the dispatch, not re-run (§Gate record).
 
+Review probes committed beside this record:
+`runs/issue22/probe_query_plans.py` (plans, tie groups, output in
+`probe_query_plans.txt`), `runs/issue22/probe_prefix_scope.py` (prefix-scope
+damage), `runs/issue22/probe_symbol_definitions.py` (definition counts per
+name, and therefore the reachability of the roots cap). The single live graph
+read is quoted verbatim below.
+
 ## Verdict
 
 **FAIL** — one blocker. The round closes the three reads the issue enumerated,

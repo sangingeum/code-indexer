@@ -1,0 +1,42 @@
+=== vivarium-sim ===
+-- plan: refs aggregate
+    (0, 0, 'CO-ROUTINE s')
+    (2, 223, 'SCAN symbols USING INDEX idx_symbols_name')
+    (0, 82, 'SCAN s')
+    (0, 61, 'SEARCH r USING INDEX idx_refs_to_name (to_name=?)')
+    (0, 0, 'USE TEMP B-TREE FOR GROUP BY')
+-- plan: imports aggregate
+    (0, 216, 'SCAN imports')
+    (0, 0, 'USE TEMP B-TREE FOR GROUP BY')
+-- plan: callers_of
+    (0, 61, 'SEARCH refs USING INDEX idx_refs_to_name (to_name=?)')
+    (0, 0, 'USE TEMP B-TREE FOR ORDER BY')
+-- plan: import_rows
+    (0, 225, 'SCAN imports USING INDEX sqlite_autoindex_imports_1')
+    (0, 0, 'USE TEMP B-TREE FOR LAST TERM OF ORDER BY')
+-- rows: refs=608055 imports=488 symbols=6841 files=733
+-- names defined in >1 file: 285
+-- names first-defined outside 'docs/' but also defined inside: 6
+-- duplicate (file,line) groups: imports=3 refs=73911
+-- refs to 'the': 18493
+=== b1b7f48b ===
+-- plan: refs aggregate
+    (0, 0, 'CO-ROUTINE s')
+    (2, 223, 'SCAN symbols USING INDEX idx_symbols_name')
+    (0, 82, 'SCAN s')
+    (0, 61, 'SEARCH r USING INDEX idx_refs_to_name (to_name=?)')
+    (0, 0, 'USE TEMP B-TREE FOR GROUP BY')
+-- plan: imports aggregate
+    (0, 216, 'SCAN imports')
+    (0, 0, 'USE TEMP B-TREE FOR GROUP BY')
+-- plan: callers_of
+    (0, 61, 'SEARCH refs USING INDEX idx_refs_to_name (to_name=?)')
+    (0, 0, 'USE TEMP B-TREE FOR ORDER BY')
+-- plan: import_rows
+    (0, 225, 'SCAN imports USING INDEX sqlite_autoindex_imports_1')
+    (0, 0, 'USE TEMP B-TREE FOR LAST TERM OF ORDER BY')
+-- rows: refs=934672 imports=12 symbols=1046 files=458
+-- names defined in >1 file: 183
+-- names first-defined outside 'docs/' but also defined inside: 19
+-- duplicate (file,line) groups: imports=0 refs=107401
+-- refs to 'the': 55650
