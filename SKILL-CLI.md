@@ -147,9 +147,9 @@ code-indexer outline [--project P | --name P] FILE [--docstrings] [--json]
 code-indexer file-outline ...   # alias for outline
 
 # lookup
-code-indexer find-symbol Name [--project P | --name P] [--type class]   # exact-first, capped substring fallback
-code-indexer find-symbol [--project P | --name P] [--type class] [--file src/x.py] [--substring] [--limit 25]   # browse mode (no name)
-code-indexer find-definition Name [--project P | --name P]              # exact match only
+code-indexer find-symbol Name [--project P | --name P] [--type class] [--limit N]   # exact-first: EVERY definition of the name (40 if there are 40); --limit bounds it only when given; the substring tier is a capped fallback
+code-indexer find-symbol [--project P | --name P] [--type class] [--file src/x.py] [--substring] [--limit 25]   # browse mode (no name); default cap 25
+code-indexer find-definition Name [--project P | --name P]              # exact match only, every definition
 code-indexer find-references Name [--project P | --name P] [--relationship calls|includes|inherits|references] [--limit 25]   # references from the single store; every row labelled confidence=/receiver=
 code-indexer find-callers Name [--project P] [--depth 2] [--max-nodes 40] [--json]   # fan-in over the refs table (ast vs heuristic); dotted Type.Member ok; every CALL SITE is a node; json adds truncated/omitted
 code-indexer find-callees Name [--project P] [--depth 2] [--max-nodes 40] [--json]   # fan-out over the refs table; a TARGET is a node (one target reached twice is one callee)
@@ -162,7 +162,7 @@ code-indexer get-code-context src/f.hpp --start-line 40 --end-line 80   # or --s
 code-indexer semantic-search "query" [--project P] [--limit 8] [--file-filter '*.py'] [--symbol-type class] [--language python] [--ranking vector|metadata|hybrid] [--mode hybrid|dense|lexical] [--rerank heuristic|none] [--per-file N] [--max-chars N | --max-tokens N] [--context-lines N] [--format text|compact|json] [--json] [--fresh]
 
 # edits
-code-indexer changed-symbols [--project P] [--base HEAD] [--head REF] [--staged] [--include-untracked] [--impact] [--depth 1] [--max-nodes 40] [--json]   # post-edit diff -> symbols; --impact lists callers + candidate tests, and its json reports truncated/omitted per file
+code-indexer changed-symbols [--project P] [--base HEAD] [--head REF] [--staged] [--include-untracked] [--impact] [--depth 1] [--max-nodes 40] [--json]   # post-edit diff -> symbols; --impact lists callers + candidate tests, prints the first six as `(+N more)`, and names the bound its list hit; json reports truncated/omitted/bounds per file
 
 # lifecycle
 code-indexer index-status /path/repo [--refresh]
@@ -251,12 +251,12 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
   `get-code-context` call is worth it. `--docstrings` adds the first
   docstring/comment line per declaration (the only subcommand that reads
   source at query time).
-- **find-symbol** — symbol lookup by exact name (capped substring
-  fallback), or **browse mode** with no name: filter by `--type`,
-  `--file`, `--limit` to list "what exists where". With schema v3, output
-  includes the persisted signature. `--type` is an alias of
-  `--symbol-type` (both accepted).
-- **find-definition** — exact-name definition location only.
+- **find-symbol** — symbol lookup by exact name (every definition of it; a
+  capped substring fallback only when the exact name has no row), or **browse
+  mode** with no name: filter by `--type`, `--file`, `--limit` to list "what
+  exists where" (browse cap 25). With schema v3, output includes the persisted
+  signature. `--type` is an alias of `--symbol-type` (both accepted).
+- **find-definition** — exact-name definition location only: every row, no cap.
 - **find-references** — all references TO a symbol from the SINGLE reference
   store (schema v6): one writer, one row shape, one honest relationship and
   `confidence=` per row. Tree-sitter rows (`call`/`type`/`base_class`/
@@ -331,8 +331,18 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
   gains the same two fields). `truncated` is the completeness flag; `omitted`
   counts node-cap refusals only and is `0` on a depth-capped answer, so read
   `truncated`, never `omitted`, to decide whether an answer is complete. The
-  store reads beneath these walks cap nothing at all (see "Store reads"
-  below), so a short answer is a cap this walk applied and announced. In the
+  store reads beneath these walks cap nothing at all — the store hands over
+  every row and the walks own their bounds (see "Store reads" below) — so a
+  short answer is a cap this walk applied and announced.
+  **Definition roots are one of those bounds.** Both walks read EVERY
+  definition of the subject (40 `__init__` rows on a live index, not the first
+  25) and then spend the node budget on them. When the root set alone exceeds
+  `--max-nodes` the walk shows the first `cap` roots, sets `truncated`, and
+  prints `note: 40 definition roots exist for this subject, node cap 10 — 30
+  roots not shown; raise --max-nodes`. Those refusals are NOT counted in
+  `omitted` — a definition list is not an edge list — so a root-capped answer
+  is another instance of `truncated: true` with `omitted: 0`: read
+  `truncated`. In the
   text tree the result gains a `note:` line naming the cap and the count, e.g.
   `note: node cap 4 reached — 61 more reference edges not shown (a lower
   bound: a refused edge is counted but never expanded, so its own edges are
@@ -484,15 +494,29 @@ argument instead of a flag.
 ## Store reads (no silent caps)
 
 The manifest store hands over everything it holds. `Manifest.callers_of`,
-`callees_of_file_symbol` and `import_rows` take `limit: int | None = None`,
-and `None` — the default — means the **whole store read**, not a large
-number. A cap belongs to the layer above, which can announce it: the graph
-walks count what their `--max-nodes` refused in `omitted`, `overview`
-computes hotspots from one SQL aggregate instead of a row sample, and
-`changed-symbols --impact` reports its own per-name read and shared node
-budget as `truncated`/`omitted` per file. An explicit `limit` stays available
-to a caller that wants a bounded read — and that caller is then responsible
-for saying so in its own output.
+`callees_of_file_symbol`, `import_rows` and `Manifest.definitions_of` — the
+exact-name definition read behind a walk's roots, a dotted subject's qualifier
+and the definer lookup — take `limit: int | None = None`, and `None` — the
+default — means the **whole store read**, not a large number. A cap belongs
+to the layer above, which can announce it: the graph walks count what their
+`--max-nodes` refused in `omitted` and name a capped definition-root list in a
+note, `overview` computes hotspots from one SQL aggregate instead of a row
+sample, and `changed-symbols --impact` reports its own per-name read and
+shared node budget as `truncated`/`omitted` per file, plus which of the two
+fired. An explicit `limit` stays available to a caller that wants a bounded
+read — and that caller is then responsible for saying so in its own output.
+
+Two caps are a surface's own default, not a sampling of a store read, and
+they stay: `find-references --limit` (25) and `find-symbol`'s browse mode and
+substring fallback (25, `--limit` honoured). Exact-name `find-symbol`,
+`find-definition`, the graph's definition roots, the qualifier resolution and
+the definer lookup read every row.
+
+The capped reads' order keys are total, so a capped read is a reproducible
+prefix of the full read rather than a query-plan lottery: `callers_of` orders
+`(file, line, relationship, to_name, receiver)` and `import_rows` orders
+`(file, line, raw_target)` — the tables' primary-key column sets, plus the
+receiver for refs.
 
 ## Key rules
 

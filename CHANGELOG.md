@@ -1,5 +1,57 @@
 # Changelog
 
+## [Unreleased] — the definition roots reach the walk, and a prefix scopes its own hotspots
+
+- **The definition-roots read no longer stops at 25 (issue #22).** The read
+  behind a graph walk's roots — `Manifest.find_symbols` — defaulted to
+  `limit=25` with no trace, so `find-callers __init__` on this tool's own
+  index walked 25 of the store's 40 `__init__` subtrees and certified the
+  answer `truncated: false, omitted: 0`. That was issue #22's filed symptom,
+  live, one layer under the reads the previous entry fixed. It now goes
+  through `Manifest.definitions_of(name)` — the exact-name read with no cap —
+  as do `find-callees`' roots, a dotted subject's qualifier resolution and
+  `_definer_of`. `find-symbol`'s browse mode keeps its own 25-row default;
+  exact-name `find-symbol` and `find-definition` answer with every definition
+  (and `--limit` is honoured when given, which no surface could do before).
+  Live: `find-callers __init__ --max-nodes 400` reports **25 → 40 roots**,
+  `truncated: false`.
+- **A root set larger than `--max-nodes` is cut, and says so.** Roots still
+  consume the node budget; when they alone exceed it the walk shows the first
+  `cap`, sets `truncated`, and prints `40 definition roots exist for this
+  subject, node cap 10 — 30 roots not shown; raise --max-nodes`. Those
+  refusals are not `omitted` (a definition list is not an edge list), so this
+  is a second, documented instance of `truncated: true` with `omitted: 0`.
+- **`overview --path-prefix` attributes a name to its in-prefix definition
+  again.** `file_fan_in` picked the owning definition over the whole store and
+  `build_overview` then filtered to the prefix's files, so a name defined both
+  inside and outside the prefix lost every reference. Scoping the ownership
+  aggregate to the files being reported on recovers, measured on read-only
+  live manifests: **532** rows under `docs/` and **6,044** under
+  `docs/verification` on one index, **20,295** under `docs/` on another; on
+  that second index `docs/SUMMARY.md` moves 7,345 → 8,096 and a second file
+  enters the top ten. A full overview is unchanged.
+- **The capped reads' order keys are total.** `callers_of` now orders
+  `(file, line, relationship, to_name, receiver)` and `import_rows`
+  `(file, line, raw_target)` — both tables' primary-key column sets (+ the
+  receiver for refs). `ORDER BY file, line` left the order inside a tie group
+  to the query plan, and the tie groups are not rare: 73,911 tied `(file,
+  line)` groups in one live `refs` table, 107,401 in another, 3 in a 488-row
+  `imports` table. A capped read is now a reproducible prefix, not a subset
+  that happens to agree today.
+- **`changed-symbols --impact` names the bound it hit.** Each file entry
+  carries `bounds: {per_name, node_budget, max_nodes}` beside `truncated` /
+  `omitted`, and the note advises only what works for the bound that fired:
+  the per-name cap of 50 does not answer to `--max-nodes` (use
+  `find-callers <symbol>`), the shared node budget does. The text preview
+  prints six caller lines and now adds `(+N more)`; the JSON carried all of
+  them, so the text was the only place the cut was invisible.
+- **`Manifest.fan_in_counts` is deleted.** No caller at this tip or at the
+  round's base, no test, and its docstring claimed the overview hotspots — a
+  surface it never fed (it counted names; hotspots count files). A store layer
+  that hands over everything should not keep a silent 20-row cap in it.
+- Query-time only: `EXTRACTION_VERSION` stays 4, no schema or row-key change,
+  no reindex owed, exit codes and `server.py` untouched.
+
 ## [Unreleased] — changed-symbols reports its own bounds (issue #22)
 
 - **`changed-symbols --impact` says when its caller list is cut (issue #22).**
@@ -21,11 +73,13 @@
 
 ## [Unreleased] — the store reads hand over everything (issue #22)
 
-- **No store read caps silently any more, and `overview` hotspots are computed
-  instead of sampled (issue #22).** Issue #21 made every *graph* cap announce
-  itself, but the reads one layer beneath them were still bare `limit=` caps:
-  `Manifest.callers_of` and `callees_of_file_symbol` stopped at 200 rows,
-  `import_rows` and `callers_of_all` at 5,000, with no signal anywhere. The
+- **No store read under these walks caps silently any more, and `overview`
+  hotspots are computed instead of sampled (issue #22).** Issue #21 made every
+  *graph* cap announce itself, but the reads one layer beneath them were still
+  bare `limit=` caps: `Manifest.callers_of` and `callees_of_file_symbol`
+  stopped at 200 rows, `import_rows` and `callers_of_all` at 5,000, with no
+  signal anywhere. (The definition-roots read, which still capped at 25 at the
+  time of writing, is fixed in the entry above.) The
   graph could not be honest about the population while the layer beneath it
   handed it a short list, and the orientation surface every agent reads first
   was reporting sampled hotspots as if they were complete.
@@ -33,8 +87,9 @@
   `callees_of_file_symbol` and `import_rows` take `limit: int | None = None`,
   and no limit means no cap; an explicit limit stays usable for a caller that
   wants a bounded read and says so in its own output (`changed-symbols` does).
-  `import_rows` also gained `ORDER BY file, line`, so a capped read is at
-  least a deterministic subset rather than an arbitrary one.
+  `import_rows` also gained an order key, so a capped read is a reproducible
+  prefix rather than an arbitrary one — corrected in the entry above to
+  `(file, line, raw_target)`, a total key; `(file, line)` alone was not.
   This was live-reachable, not theoretical: on one live index a single target
   name holds 10,258 reference rows and another holds 18,493, so the 200-row
   read answered with 1.9% of the truth and called the answer complete. That

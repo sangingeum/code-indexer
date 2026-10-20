@@ -56,6 +56,9 @@ entry_points, tests, config_files, hotspots) + `schema: 1`.
 **complete** per-file count: resolved imports into the file plus references
 to a name that file defines, self-references excluded. It is a count, never a
 sample of the reference table, so two runs over one index agree exactly.
+Under `--path-prefix` the count is scoped to the files being reported on: a
+name defined both inside and outside the prefix belongs to its in-prefix
+definition, so the prefix keeps the references it owns.
 
 ## changed-symbols --json
 
@@ -65,7 +68,9 @@ The changed map plus `schema`:
 {"schema": 1, "<file>": {"kind": str, "symbols": [sym...],
  "removed_symbols": [sym...], "files": [str]},
  "impact": {"<file>": {"callers": [caller...], "candidate_tests": [str],
-                       "truncated": bool, "omitted": int}}}
+                       "truncated": bool, "omitted": int,
+                       "bounds": {"per_name": int, "node_budget": int,
+                                  "max_nodes": int}}}}
 ```
 
 `impact` is present only with `--impact`. caller =
@@ -78,6 +83,12 @@ per-name store read and the shared `--max-nodes` budget. It is a count of rows
 withheld, never a population total, and it is the same pair of names the graph
 commands use, so one rule reads every incomplete answer: decide completeness
 from `truncated`.
+
+`bounds` splits that total by which bound refused what, because the two have
+different remedies — `per_name` rows were cut by the fixed 50-callers-per-
+symbol read (raise `--max-nodes` does not help; `find-callers <symbol>` answers
+one symbol's whole fan-in), `node_budget` rows by the shared `--max-nodes`
+budget. The text output names the bound that fired rather than advising both.
 
 ## doctor --json
 
@@ -94,12 +105,20 @@ node = `{"file", "symbol"|null, "line"|null, "relationship", "confidence",
 "receiver"|null, "children": [node...]}`.
 
 `truncated` is the completeness flag: `true` when the answer is incomplete —
-the node cap refused an edge, or the depth cap stopped a frontier that still
-had unvisited edges. `omitted` is an `int` counting the edges the walk
-examined and refused at the **node** cap; it is a lower bound, because a
-refused edge is never expanded and so its own edges are not walked. It is
-`0` on a depth-capped answer, so `truncated: true` with `omitted: 0` is a
-normal, reachable combination: decide completeness from `truncated`, never
+the node cap refused an edge, the depth cap stopped a frontier that still had
+unvisited edges, or the definition-root list was itself cut. `omitted` is an
+`int` counting the edges the walk examined and refused at the **node** cap; it
+is a lower bound, because a refused edge is never expanded and so its own
+edges are not walked.
+
+Both walks read EVERY definition of the subject and then spend the node budget
+on those roots. When the root set alone exceeds `--max-nodes` the payload
+carries the first `cap` roots, `truncated: true`, and a note naming the real
+situation (`40 definition roots exist for this subject, node cap 10 — 30 roots
+not shown; raise --max-nodes`). Those refused rows are definitions, not edges,
+so they are NOT counted in `omitted`. So `truncated: true` with `omitted: 0`
+is a normal, reachable combination in two documented cases — a depth-capped
+answer and a root-capped one: decide completeness from `truncated`, never
 from `omitted`.
 
 `notes` is a `[str]` of plain-language lines for the caller to print, and is
