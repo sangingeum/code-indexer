@@ -363,9 +363,10 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
   (`--symbol Foo::bar`), optionally padded with `--context-lines N`. Never
   read whole files; this answers "show me the code" questions. Symbol mode
   resolves the name from that file's own rows — the name and the file are
-  filtered in one uncapped read — so a definition sorting past
-  `find-symbol`'s 25-row default is still found, and EVERY definition of
-  that name in the file is returned.
+  filtered in one uncapped read — so a row sorting past `find-symbol`'s
+  25-row default is still found, and EVERY matching symbol row in that file
+  is returned. Rows are not definitions: a decorated definition contributes
+  two rows, so it surfaces as two overlapping ranges.
 - **index-status / doctor / sweep-orphans / reindex-project / remove-project / watch / unwatch** — index
   lifecycle. Two state vocabularies (see "State meanings" above): the
   **pass state** `idle | indexing | never-indexed | error` describes indexing

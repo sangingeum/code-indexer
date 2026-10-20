@@ -111,6 +111,9 @@ def wide_rig(tmp_path, monkeypatch):
     core, reg, entry, project, cfg = _build_rig(tmp_path, monkeypatch, files)
     yield core, reg, entry, project, cfg
     reg.close()
+    import code_indexer.cli as cli
+    cli._core = None
+    cli._core_skip = False
 
 
 @pytest.fixture()
@@ -120,6 +123,9 @@ def repeated_rig(tmp_path, monkeypatch):
     core, reg, entry, project, cfg = _build_rig(tmp_path, monkeypatch, files)
     yield core, reg, entry, project, cfg
     reg.close()
+    import code_indexer.cli as cli
+    cli._core = None
+    cli._core_skip = False
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +169,8 @@ def test_cli_symbol_mode_does_not_deny_an_indexed_row(wide_rig):
     assert result.exit_code == 0, result.output
     assert "not indexed in" not in result.output
     assert "def prepare():" in result.output
+    cli._core = None
+    cli._core_skip = False
 
 
 def test_eval_symbol_range_resolves_a_row_past_the_cap(wide_rig):

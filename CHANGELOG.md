@@ -19,13 +19,22 @@
   `evalharness._symbol_range` had the identical capped-then-filtered shape
   and returned `None` for every definition past the cap, so a hit that
   matched a late-sorting definition was scored as a miss. It uses the same
-  scoped, uncapped read.
-- **Symbol mode returns every matching range, not the first five.** Both
+  scoped, uncapped read. One shipped eval query moves with it:
+  `eval/queries.jsonl` (`q-concept-04`) labels
+  `src/code_indexer/manifest.py` / `__init__`, whose row is 33 of 40 — the
+  one label in the shipped set the old read could never resolve — so
+  overlap scoring was silently unavailable for it. An `eval-compare` against
+  a report recorded before this change is therefore not comparable for that
+  query. No eval report is tracked in the repo, so no recorded score needs
+  repair.
+- **Symbol mode returns every matching symbol row, not the first five.** Both
   `code_context` segment paths carried `[:5]` — the manifest rows and the
   live re-resolve on a changed file — which silently shortened a name with
-  more than five definitions in one file. The cap is gone rather than
-  announced: a file's own definitions of one name are a small, finite
-  answer, and an unannounced cap on an answer was the defect.
+  more than five matching rows in one file. The cap is gone rather than
+  announced: a file's own rows for one name are a small, finite answer, and
+  an unannounced cap on an answer was the defect. Rows are not definitions:
+  a decorated definition contributes two rows, so it surfaces as two
+  overlapping ranges.
 - The rest of `find_symbols`' 25-row default is untouched: `find-symbol`'s
   browse and substring fallback and the exact-symbol pin in the fused
   ranking depend on it deliberately.

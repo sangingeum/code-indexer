@@ -1184,11 +1184,12 @@ class Core:
         requested lines are returned as-is with ``stale: true`` so the
         caller knows the numbers may be shifted.
 
-        Symbol mode returns EVERY matching definition range in this file —
-        the name and file filters run in one uncapped read, so a file whose
-        row sorts past ``find_symbols``' default cap is still found, and a
-        name with more than five definitions in one file is not shortened
-        (issue #23).
+        Symbol mode returns EVERY matching symbol row in this file — the
+        name and file filters run in one uncapped read, so a row that sorts
+        past ``find_symbols``' default cap is still found, and a name with
+        more than five matching rows in one file is not shortened
+        (issue #23). Rows are not definitions: a decorated definition
+        contributes two rows, so it surfaces as two overlapping ranges.
         """
         rel = file.lstrip("/")
         abs_path = os.path.normpath(os.path.join(entry.path, rel))
