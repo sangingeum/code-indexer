@@ -175,7 +175,12 @@ def build_overview(m: Manifest, project_path: str,
     # file plus references to a name that file defines. It is complete by
     # construction; the old version counted a 5,000-row sample of `refs`,
     # which on a large index was under 1% of the table and unstable besides.
-    fan_in = {f: n for f, n in m.file_fan_in() if f in files}
+    # Under --path-prefix the aggregate is scoped to the files being
+    # reported: a name defined both inside and outside the prefix belongs to
+    # its in-prefix definition, or its in-prefix references are attributed
+    # outside and then filtered away.
+    fan_in = {f: n for f, n in m.file_fan_in(path_prefix or None)
+              if f in files}
     hotspots_fan = sorted(
         ({"file": f, "fan_in": n} for f, n in fan_in.items()),
         key=lambda d: (-d["fan_in"], d["file"]))[:10]

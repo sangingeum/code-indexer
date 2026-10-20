@@ -564,26 +564,42 @@ class Manifest:
             "SELECT to_name, COUNT(*) AS n FROM refs GROUP BY to_name"
             " ORDER BY n DESC, to_name LIMIT ?", (limit,))]
 
-    def file_fan_in(self) -> list[tuple[str, int]]:
+    def file_fan_in(self, scope_prefix: str | None = None
+                    ) -> list[tuple[str, int]]:
         """Reference fan-in per target FILE, computed by the store.
 
         Two complete aggregates, never a row sample: resolved imports INTO a
         file, plus references to a name that file defines (a reference from
         the file itself is not fan-in). With a name defined in several files
-        the first definition in ``(file, start_line)`` order owns it, exactly
-        as the symbol rows define it. Sorted by count desc, then file.
+        the first definition owns it — the first definition AMONG the files
+        being reported on. Pass ``scope_prefix`` (what ``overview
+        --path-prefix`` reports) and a name defined both inside and outside
+        the prefix keeps its in-prefix owner; without that scoping the
+        ownership is decided over the whole store, and a reference to an
+        in-prefix definition is then attributed to an out-of-prefix file and
+        dropped by the caller's filter. Sorted by count desc, then file.
         """
         counts: dict[str, int] = {}
-        for target, n in self._conn.execute(
-                "SELECT resolved_file, COUNT(*) FROM imports"
-                " WHERE resolved_file IS NOT NULL AND resolved_file != file"
-                " GROUP BY resolved_file"):
+        imports_sql = ("SELECT resolved_file, COUNT(*) FROM imports"
+                       " WHERE resolved_file IS NOT NULL"
+                       " AND resolved_file != file")
+        imports_args: list = []
+        owners_sql = ("SELECT s.file, COUNT(*) FROM refs r JOIN"
+                      " (SELECT name, MIN(file) AS file FROM symbols")
+        owners_args: list = []
+        if scope_prefix:
+            # Exact prefix match: LIKE is case-insensitive for ASCII and
+            # would scope by a different rule than the caller used.
+            imports_sql += " AND substr(resolved_file, 1, ?) = ?"
+            imports_args += [len(scope_prefix), scope_prefix]
+            owners_sql += " WHERE substr(file, 1, ?) = ?"
+            owners_args += [len(scope_prefix), scope_prefix]
+        imports_sql += " GROUP BY resolved_file"
+        owners_sql += (" GROUP BY name) s ON s.name = r.to_name"
+                       " WHERE r.file != s.file GROUP BY s.file")
+        for target, n in self._conn.execute(imports_sql, imports_args):
             counts[target] = counts.get(target, 0) + int(n)
-        for target, n in self._conn.execute(
-                "SELECT s.file, COUNT(*) FROM refs r JOIN"
-                " (SELECT name, MIN(file) AS file FROM symbols GROUP BY name) s"
-                " ON s.name = r.to_name WHERE r.file != s.file"
-                " GROUP BY s.file"):
+        for target, n in self._conn.execute(owners_sql, owners_args):
             counts[target] = counts.get(target, 0) + int(n)
         return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
 

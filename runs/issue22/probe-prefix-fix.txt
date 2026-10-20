@@ -1,0 +1,18 @@
+=== vivarium-sim  prefix 'docs/' ===
+  ref rows under the prefix, before: 97405
+  ref rows under the prefix, after:  97937
+  rows recovered:                    532
+  names defined inside AND outside:  6
+  refs table total:                  608055
+=== vivarium-sim  prefix 'docs/verification' ===
+  ref rows under the prefix, before: 87579
+  ref rows under the prefix, after:  93623
+  rows recovered:                    6044
+  names defined inside AND outside:  16
+  refs table total:                  608055
+=== b1b7f48b  prefix 'docs/' ===
+  ref rows under the prefix, before: 361697
+  ref rows under the prefix, after:  381992
+  rows recovered:                    20295
+  names defined inside AND outside:  19
+  refs table total:                  934672

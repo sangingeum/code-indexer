@@ -198,6 +198,55 @@ def test_hotspot_fan_in_counts_the_whole_store_not_a_sample(rig):
         m.close()
 
 
+def test_path_prefix_keeps_the_in_prefix_definition_of_a_shared_name(rig):
+    """A name defined both inside and outside the prefix belongs to its
+    in-prefix definition — the rule the old row scan used.
+
+    The whole-store aggregate gave the name to `beta.py` (it sorts first), so
+    every reference to it was attributed outside the prefix and then dropped
+    by the prefix filter: up to 6,044 rows on one live prefix, 20,330 on
+    another. Scoping the ownership aggregate to the files being reported on
+    restores the count.
+    """
+    core, reg, entry, project = rig
+    m = core.manifest_for(entry.slug)
+    try:
+        from code_indexer.manifest import ManifestFile, SymbolRow
+        from code_indexer.overview import build_overview
+
+        def add_file(path: str) -> None:
+            m.upsert_files([ManifestFile(path=path, content_hash=path,
+                                         size=1, chunk_count=1,
+                                         status="indexed", loc=5)])
+
+        # "beta.py" sorts BEFORE "docs/alpha.py", so the global first
+        # definition is the out-of-prefix one: the defect's shape exactly.
+        for path in ("beta.py", "docs/alpha.py"):
+            add_file(path)
+            m.replace_file_symbols(path, [SymbolRow(
+                file=path, name="shared_topic", symbol_type="function",
+                start_line=1, end_line=2, source="ast")])
+        for i in range(5):
+            path = f"users/u{i}.py"
+            add_file(path)
+            m.replace_file_refs(
+                path, [(1, f"caller_{i}", "shared_topic", "call", None)],
+                "ast")
+
+        scoped = {h["file"]: h["fan_in"] for h in
+                  build_overview(m, str(project),
+                                 path_prefix="docs/")["hotspots"]["fan_in"]}
+        assert scoped.get("docs/alpha.py") == 5, scoped
+        assert "beta.py" not in scoped, scoped
+        # Unscoped, the whole-store owner is unchanged — the fix scopes, it
+        # does not re-rank.
+        full = {h["file"]: h["fan_in"] for h in
+                build_overview(m, str(project))["hotspots"]["fan_in"]}
+        assert full.get("beta.py") == 5, full
+    finally:
+        m.close()
+
+
 def test_manifest_loc_language_columns(rig):
     core, reg, entry, project = rig
     m = core.manifest_for(entry.slug)
