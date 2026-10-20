@@ -1,0 +1,74 @@
+[tip] code_indexer = src/code_indexer/__init__.py
+other files: CHANGELOG.md, SKILL-CLI.md, docs/json-schema.md, runs/issue22/after-prefix-overview-b1b7f48b.json, runs/issue22/after-prefix-overview-vivarium-sim.json, runs/issue22/after-roots-find-callers-code-indexer-max-nodes-10.json, runs/issue22/after-roots-find-callers-code-indexer-max-nodes-25.json, runs/issue22/after-roots-find-callers-code-indexer.json (+7 more)
+added runs/issue22/probe_prefix_fix.py / function scalar:30-31
+added runs/issue22/probe_prefix_fix.py / function main:34-56
+added runs/issue22/probe_tie_groups.py / function in:1-22
+added runs/issue22/summarize_graph_json.py / function summarise:10-21
+modified src/code_indexer/changed.py / function _impact_bound_note:323-344
+modified src/code_indexer/cli.py / function find_symbol:1330-1349
+modified src/code_indexer/cli.py / function find_symbol:1331-1351
+modified src/code_indexer/cli.py / function find_definition:1405-1428
+modified src/code_indexer/cli.py / function find_definition:1406-1429
+  impact: README.md (heuristic)
+  impact: docs/audit.md (heuristic)
+  impact: docs/subcommand-design.md (heuristic)
+  impact: docs/subcommand-design.md (heuristic)
+  impact: tests/test_mcp_server.py (ast)
+  impact: tests/test_mcp_server.py (ast)
+  impact: (+14 more)
+modified src/code_indexer/graph.py / function _root_cap_note:110-123
+modified src/code_indexer/graph.py / function _definer_of:180-182
+modified src/code_indexer/graph.py / function find_callees:339-358
+  impact: src/code_indexer/graph.py _expand_callees (ast)
+  impact: README.md (heuristic)
+  impact: runs/issue21/review.md (heuristic)
+  impact: runs/issue21/round.md (heuristic)
+  impact: src/code_indexer/cli.py find_callees (ast)
+  candidate test: tests/test_graph.py
+modified src/code_indexer/manifest.py / function find_symbols:292-310
+modified src/code_indexer/manifest.py / function definitions_of:330-343
+modified src/code_indexer/manifest.py / function callers_of:521-536
+modified src/code_indexer/manifest.py / function file_fan_in:568-583
+modified src/code_indexer/manifest.py / function import_rows:607-622
+  impact: README.md (heuristic)
+  impact: docs/audit.md (heuristic)
+  impact: docs/subcommand-design.md (heuristic)
+  impact: docs/subcommand-design.md (heuristic)
+  impact: docs/subcommand-design.md (heuristic)
+  impact: docs/subcommand-design.md (heuristic)
+  impact: (+68 more)
+  impact: 1 more caller references not shown — 1 refused by the per-name read cap of 50 callers per symbol (raise --max-nodes does not affect that bound; run find-callers <symbol> for one symbol's whole fan-in)
+modified src/code_indexer/overview.py / lines 178-183
+modified tests/test_changed_symbols.py / function test_impact_reports_the_per_name_store_bound:323-338
+modified tests/test_changed_symbols.py / function test_impact_reports_the_shared_node_budget:344-361
+modified tests/test_changed_symbols.py / function test_text_preview_counts_the_caller_lines_it_does_not_print:364-380
+modified tests/test_graph.py / function _many_definitions_rig:727-744
+modified tests/test_graph.py / class StubEmbedder:747-761
+modified tests/test_graph.py / function dimension:748-749
+modified tests/test_graph.py / function embed:751-752
+modified tests/test_graph.py / function query_instruction_text:754-755
+modified tests/test_graph.py / function embed_with_errors:757-758
+modified tests/test_graph.py / function close:760-761
+modified tests/test_graph.py / class StubStore:763-780
+modified tests/test_graph.py / function collection_exists:764-765
+modified tests/test_graph.py / function create_collection:767-768
+modified tests/test_graph.py / function upsert_points:770-771
+modified tests/test_graph.py / function purge_file_points:773-774
+modified tests/test_graph.py / function count_points:776-777
+modified tests/test_graph.py / function search:779-780
+modified tests/test_graph.py / function test_every_definition_root_reaches_the_walk:794-812
+modified tests/test_graph.py / function test_a_capped_root_list_says_how_many_roots_exist:818-835
+modified tests/test_graph.py / function test_find_symbol_exact_name_is_uncapped_and_honours_limit:844-861
+  impact: tests/test_changed_symbols.py test_impact_lists_callers (ast)
+  impact: tests/test_codeintel.py indexer (ast)
+  impact: tests/test_concurrency.py _stub_core (ast)
+  impact: tests/test_concurrency.py CrashingEmbedder (ast)
+  impact: tests/test_concurrency.py test_incremental_first_index_resumable_after_mid_crash (ast)
+  impact: tests/test_csharp_references.py cs_manifest (ast)
+  impact: (+232 more)
+  impact: 154 more caller references not shown — 154 refused by the per-name read cap of 50 callers per symbol (raise --max-nodes does not affect that bound; run find-callers <symbol> for one symbol's whole fan-in)
+modified tests/test_manifest_store_reads.py / function test_callers_of_order_is_total_inside_a_one_line_tie_group:104-123
+modified tests/test_manifest_store_reads.py / function test_import_rows_order_is_total_inside_a_one_line_tie_group:135-155
+modified tests/test_manifest_store_reads.py / function test_definitions_of_returns_every_definition_row:158-177
+modified tests/test_overview.py / function test_path_prefix_keeps_the_in_prefix_definition_of_a_shared_name:201-221
+modified tests/test_overview.py / function add_file:217-220

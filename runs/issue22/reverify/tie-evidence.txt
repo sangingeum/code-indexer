@@ -1,0 +1,20 @@
+### (a) tie groups on the live indexes — (file, line) with >1 row
+vivarium-sim   refs     tie_groups= 73911 rows_in_ties=494238 rows= 608055 largest_group=657
+vivarium-sim   imports  tie_groups=     3 rows_in_ties=     9 rows=    488 largest_group=4
+b1b7f48b       refs     tie_groups=107401 rows_in_ties=932086 rows= 934672 largest_group=198
+b1b7f48b       imports  tie_groups=     0 rows_in_ties=     0 rows=     12 largest_group=1
+code-indexer   refs     tie_groups=  6449 rows_in_ties= 41179 rows=  49785 largest_group=49
+code-indexer   imports  tie_groups=   335 rows_in_ties=   729 rows=   1193 largest_group=5
+
+### (b) fixture: tie rows inserted in REVERSE key order
+callers_of() uncapped -> [(7, 'call'), (7, 'identifier'), (7, 'member')]
+callers_of(limit=1) x5 distinct_results=1 rows=((7, 'call'),) is_ordered_prefix_of_whole=True cut_inside_tie_group=False
+callers_of(limit=2) x5 distinct_results=1 rows=((7, 'call'), (7, 'identifier')) is_ordered_prefix_of_whole=True cut_inside_tie_group=True
+callers_of(limit=3) x5 distinct_results=1 rows=((7, 'call'), (7, 'identifier'), (7, 'member')) is_ordered_prefix_of_whole=True cut_inside_tie_group=True
+import_rows() uncapped head -> [('AA_import_probe.py', 'pkg.alpha'), ('AA_import_probe.py', 'pkg.zeta')]
+import_rows(limit=1) x5 distinct_results=1 rows=(('AA_import_probe.py', 'pkg.alpha'),) is_ordered_prefix_of_whole=True
+  (head rows are one (file, line) tie group inserted zeta-first; the key answers alpha, insertion order would answer zeta)
+
+### (c) the uncapped consumers are order-blind aggregates
+file_fan_in() twice identical=True zz_owner.py fan_in=3 (3 inserted non-self ref rows)
+file_fan_in() total=6546 — a GROUP BY aggregate over every row, no ORDER BY and no LIMIT

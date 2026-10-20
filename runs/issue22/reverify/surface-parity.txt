@@ -1,0 +1,17 @@
+store definitions_of('__init__') -> 40 rows, 26 files
+find-symbol --limit 100      -> 40 rows same_set=True same_order=True
+find-definition              -> 40 lines covers_every_row=True missing=[]
+  first/last: '<project>::tests/test_indexer_embed_context.py:15-17 __init__ (function, confidence=exact)' / '<project>::src/code_indexer/doctor.py:398-399 __init__ (function, confidence=exact)'
+find-callers roots           -> 40 roots same_set=True truncated=False omitted=0
+
+### the residual: get-code-context --symbol, one call per defining file
+files answered=17 files refused=9
+  refused rc=1 src/code_indexer/core.py: InternalError: symbol '__init__' not indexed in src/code_indexer/core.py  [its row is #27 of 40 in the read order]
+  refused rc=1 src/code_indexer/doctor.py: InternalError: symbol '__init__' not indexed in src/code_indexer/doctor.py  [its row is #40 of 40 in the read order]
+  refused rc=1 src/code_indexer/fts.py: InternalError: symbol '__init__' not indexed in src/code_indexer/fts.py  [its row is #29 of 40 in the read order]
+  refused rc=1 src/code_indexer/registry.py: InternalError: symbol '__init__' not indexed in src/code_indexer/registry.py  [its row is #26 of 40 in the read order]
+  refused rc=1 src/code_indexer/watcher.py: InternalError: symbol '__init__' not indexed in src/code_indexer/watcher.py  [its row is #31 of 40 in the read order]
+  refused rc=1 tests/test_embed_cost.py: InternalError: symbol '__init__' not indexed in tests/test_embed_cost.py  [its row is #32 of 40 in the read order]
+  refused rc=1 tests/test_result_shaping.py: InternalError: symbol '__init__' not indexed in tests/test_result_shaping.py  [its row is #36 of 40 in the read order]
+  refused rc=1 tests/test_unwatch.py: InternalError: symbol '__init__' not indexed in tests/test_unwatch.py  [its row is #30 of 40 in the read order]
+  refused rc=1 tests/test_watcher.py: InternalError: symbol '__init__' not indexed in tests/test_watcher.py  [its row is #38 of 40 in the read order]

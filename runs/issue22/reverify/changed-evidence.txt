@@ -1,0 +1,104 @@
+=== --max-nodes 400 : text ===
+exit=0
+added runs/issue22/probe_prefix_fix.py / function scalar:30-31
+added runs/issue22/probe_prefix_fix.py / function main:34-56
+added runs/issue22/probe_tie_groups.py / function in:1-22
+added runs/issue22/summarize_graph_json.py / function summarise:10-21
+modified src/code_indexer/changed.py / function _impact_bound_note:323-344
+modified src/code_indexer/cli.py / function find_symbol:1330-1349
+modified src/code_indexer/cli.py / function find_symbol:1331-1351
+modified src/code_indexer/cli.py / function find_definition:1405-1428
+modified src/code_indexer/cli.py / function find_definition:1406-1429
+  impact: README.md (heuristic)
+  impact: docs/audit.md (heuristic)
+  impact: docs/subcommand-design.md (heuristic)
+  impact: docs/subcommand-design.md (heuristic)
+  impact: tests/test_mcp_server.py (ast)
+  impact: tests/test_mcp_server.py (ast)
+  impact: (+14 more)
+modified src/code_indexer/graph.py / function _root_cap_note:110-123
+modified src/code_indexer/graph.py / function _definer_of:180-182
+modified src/code_indexer/graph.py / function find_callees:339-358
+  impact: src/code_indexer/graph.py _expand_callees (ast)
+  impact: README.md (heuristic)
+  impact: runs/issue21/review.md (heuristic)
+  impact: runs/issue21/round.md (heuristic)
+  impact: src/code_indexer/cli.py find_callees (ast)
+modified src/code_indexer/manifest.py / function find_symbols:292-310
+modified src/code_indexer/manifest.py / function definitions_of:330-343
+modified src/code_indexer/manifest.py / function callers_of:521-536
+modified src/code_indexer/manifest.py / function file_fan_in:568-583
+modified src/code_indexer/manifest.py / function import_rows:607-622
+  impact: README.md (heuristic)
+  impact: docs/audit.md (heuristic)
+  impact: docs/subcommand-design.md (heuristic)
+  impact: docs/subcommand-design.md (heuristic)
+  impact: docs/subcommand-design.md (heuristic)
+  impact: docs/subcommand-design.md (heuristic)
+  impact: (+68 more)
+  impact: 1 more caller references not shown — 1 refused by the per-name read cap of 50 callers per symbol (raise --max-nodes does not affect that bound; run find-callers <symbol> for one symbol's whole fan-in)
+modified src/code_indexer/overview.py / lines 178-183
+modified tests/test_changed_symbols.py / function test_impact_reports_the_per_name_store_bound:323-338
+modified tests/test_changed_symbols.py / function test_impact_reports_the_shared_node_budget:344-361
+=== --max-nodes 400 : json ===
+exit=0
+src/code_indexer/changed.py callers=0 truncated=false omitted=0 bounds={"per_name":0,"node_budget":0,"max_nodes":400}
+src/code_indexer/cli.py callers=20 truncated=false omitted=0 bounds={"per_name":0,"node_budget":0,"max_nodes":400}
+src/code_indexer/graph.py callers=5 truncated=false omitted=0 bounds={"per_name":0,"node_budget":0,"max_nodes":400}
+src/code_indexer/manifest.py callers=74 truncated=true omitted=1 bounds={"per_name":1,"node_budget":0,"max_nodes":400}
+tests/test_changed_symbols.py callers=0 truncated=false omitted=0 bounds={"per_name":0,"node_budget":0,"max_nodes":400}
+tests/test_graph.py callers=238 truncated=true omitted=154 bounds={"per_name":154,"node_budget":0,"max_nodes":400}
+tests/test_manifest_store_reads.py callers=0 truncated=false omitted=0 bounds={"per_name":0,"node_budget":0,"max_nodes":400}
+tests/test_overview.py callers=0 truncated=false omitted=0 bounds={"per_name":0,"node_budget":0,"max_nodes":400}
+=== --max-nodes 8 : text ===
+exit=0
+added runs/issue22/probe_prefix_fix.py / function scalar:30-31
+added runs/issue22/probe_prefix_fix.py / function main:34-56
+added runs/issue22/probe_tie_groups.py / function in:1-22
+added runs/issue22/summarize_graph_json.py / function summarise:10-21
+modified src/code_indexer/changed.py / function _impact_bound_note:323-344
+modified src/code_indexer/cli.py / function find_symbol:1330-1349
+modified src/code_indexer/cli.py / function find_symbol:1331-1351
+modified src/code_indexer/cli.py / function find_definition:1405-1428
+modified src/code_indexer/cli.py / function find_definition:1406-1429
+  impact: README.md (heuristic)
+  impact: docs/audit.md (heuristic)
+  impact: docs/subcommand-design.md (heuristic)
+  impact: docs/subcommand-design.md (heuristic)
+  impact: tests/test_mcp_server.py (ast)
+  impact: tests/test_mcp_server.py (ast)
+  impact: (+2 more)
+  impact: 12 more caller references not shown — 12 refused by the shared node budget of 8 (raise --max-nodes for more)
+modified src/code_indexer/graph.py / function _root_cap_note:110-123
+modified src/code_indexer/graph.py / function _definer_of:180-182
+modified src/code_indexer/graph.py / function find_callees:339-358
+  impact: 5 more caller references not shown — 5 refused by the shared node budget of 8 (raise --max-nodes for more)
+modified src/code_indexer/manifest.py / function find_symbols:292-310
+modified src/code_indexer/manifest.py / function definitions_of:330-343
+modified src/code_indexer/manifest.py / function callers_of:521-536
+modified src/code_indexer/manifest.py / function file_fan_in:568-583
+modified src/code_indexer/manifest.py / function import_rows:607-622
+  impact: 75 more caller references not shown — 1 refused by the per-name read cap of 50 callers per symbol (raise --max-nodes does not affect that bound; run find-callers <symbol> for one symbol's whole fan-in); 74 refused by the shared node budget of 8 (raise --max-nodes for more)
+modified src/code_indexer/overview.py / lines 178-183
+modified tests/test_changed_symbols.py / function test_impact_reports_the_per_name_store_bound:323-338
+modified tests/test_changed_symbols.py / function test_impact_reports_the_shared_node_budget:344-361
+modified tests/test_changed_symbols.py / function test_text_preview_counts_the_caller_lines_it_does_not_print:364-380
+modified tests/test_graph.py / function _many_definitions_rig:727-744
+modified tests/test_graph.py / class StubEmbedder:747-761
+modified tests/test_graph.py / function dimension:748-749
+modified tests/test_graph.py / function embed:751-752
+modified tests/test_graph.py / function query_instruction_text:754-755
+modified tests/test_graph.py / function embed_with_errors:757-758
+modified tests/test_graph.py / function close:760-761
+modified tests/test_graph.py / class StubStore:763-780
+modified tests/test_graph.py / function collection_exists:764-765
+=== --max-nodes 8 : json ===
+exit=0
+src/code_indexer/changed.py callers=0 truncated=false omitted=0 bounds={"per_name":0,"node_budget":0,"max_nodes":8}
+src/code_indexer/cli.py callers=8 truncated=true omitted=12 bounds={"per_name":0,"node_budget":12,"max_nodes":8}
+src/code_indexer/graph.py callers=0 truncated=true omitted=5 bounds={"per_name":0,"node_budget":5,"max_nodes":8}
+src/code_indexer/manifest.py callers=0 truncated=true omitted=75 bounds={"per_name":1,"node_budget":74,"max_nodes":8}
+tests/test_changed_symbols.py callers=0 truncated=false omitted=0 bounds={"per_name":0,"node_budget":0,"max_nodes":8}
+tests/test_graph.py callers=0 truncated=true omitted=392 bounds={"per_name":154,"node_budget":238,"max_nodes":8}
+tests/test_manifest_store_reads.py callers=0 truncated=false omitted=0 bounds={"per_name":0,"node_budget":0,"max_nodes":8}
+tests/test_overview.py callers=0 truncated=false omitted=0 bounds={"per_name":0,"node_budget":0,"max_nodes":8}

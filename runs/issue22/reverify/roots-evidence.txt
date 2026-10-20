@@ -1,0 +1,6 @@
+code_indexer = src/code_indexer/__init__.py
+
+### code-indexer
+symbols where name='__init__': rows=40 files=26
+definitions_of          -> 40 rows, 26 files
+find_symbols(limit=100) -> 40 rows

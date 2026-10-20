@@ -1,0 +1,280 @@
+.........FFF.........................................FFF....FFF........F [ 98%]
+.                                                                        [100%]
+=================================== FAILURES ===================================
+_________________ test_impact_reports_the_per_name_store_bound _________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x768465b26b40>
+
+    def test_impact_reports_the_per_name_store_bound(tmp_path, monkeypatch):
+        """A caller list cut by the per-name read says so, in the graph
+        vocabulary: `truncated` + `omitted`, never a silent short list."""
+        core, entry, changed_data = _impact_rig(tmp_path, monkeypatch,
+                                                caller_files=60)
+        imp = changed.impact(core, entry.slug, changed_data, max_nodes=100)
+        entry_data = imp["app.py"]
+        assert len(entry_data["callers"]) == changed.CALLERS_PER_NAME
+        assert entry_data["truncated"] is True
+        assert entry_data["omitted"] == 60 - changed.CALLERS_PER_NAME
+>       assert entry_data["bounds"]["per_name"] == 60 - changed.CALLERS_PER_NAME
+               ^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'bounds'
+
+tests/test_changed_symbols.py:333: KeyError
+__________________ test_impact_reports_the_shared_node_budget __________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x768465acf6e0>
+
+    def test_impact_reports_the_shared_node_budget(tmp_path, monkeypatch):
+        """Both bounds are in play; a node budget below the per-name read counts
+        what it refused too, and the note names both remedies."""
+        core, entry, changed_data = _impact_rig(tmp_path, monkeypatch,
+                                                caller_files=60)
+        imp = changed.impact(core, entry.slug, changed_data, max_nodes=5)
+        entry_data = imp["app.py"]
+        assert len(entry_data["callers"]) == 5
+        assert entry_data["truncated"] is True
+        # 10 rows refused at the per-name read + 45 of the 50 rows it returned
+        # refused at the budget = 55 of the 60 rows in the store.
+        assert entry_data["omitted"] == 60 - 5
+>       assert entry_data["bounds"] == {"per_name": 10, "node_budget": 45,
+               ^^^^^^^^^^^^^^^^^^^^
+                                       "max_nodes": 5}
+E       KeyError: 'bounds'
+
+tests/test_changed_symbols.py:356: KeyError
+_________ test_text_preview_counts_the_caller_lines_it_does_not_print __________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x768465b22cf0>
+
+    def test_text_preview_counts_the_caller_lines_it_does_not_print(
+            tmp_path, monkeypatch):
+        """The text preview prints six caller lines; the rest are counted.
+    
+        The JSON carries every caller, so the text was the only place the cut was
+        invisible: six lines read exactly like six callers.
+        """
+        core, entry, changed_data = _impact_rig(tmp_path, monkeypatch,
+                                                caller_files=10)
+        imp = changed.impact(core, entry.slug, changed_data, max_nodes=100)
+        entry_data = imp["app.py"]
+        assert len(entry_data["callers"]) == 10
+        assert entry_data["omitted"] == 0
+        out = changed.render(changed_data, imp)
+>       assert "(+4 more)" in out, out
+E       AssertionError: modified app.py / function new_fn:5-6
+E         removed app.py / old_fn:5
+E           impact: caller_000.py (ast)
+E           impact: caller_001.py (ast)
+E           impact: caller_002.py (ast)
+E           impact: caller_003.py (ast)
+E           impact: caller_004.py (ast)
+E           impact: caller_005.py (ast)
+E           candidate test: tests/test_app.py
+E       assert '(+4 more)' in 'modified app.py / function new_fn:5-6\nremoved app.py / old_fn:5\n  impact: caller_000.py (ast)\n  impact: caller_001...caller_003.py (ast)\n  impact: caller_004.py (ast)\n  impact: caller_005.py (ast)\n  candidate test: tests/test_app.py'
+
+tests/test_changed_symbols.py:378: AssertionError
+_________________ test_every_definition_root_reaches_the_walk __________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x768465b771d0>
+
+    def test_every_definition_root_reaches_the_walk(tmp_path, monkeypatch):
+        """40 definitions of one name: the walk is handed all 40, not 25.
+    
+        The store read behind the roots used to cap at 25, so 15 subtrees were
+        never walked and the answer still said `truncated: false` — issue #22's
+        filed symptom, live on this tool's own index.
+        """
+        core, reg, entry, project = _many_definitions_rig(tmp_path, monkeypatch)
+        result = runner.invoke(app, ["find-callers", "step", "--project",
+                                     str(project), "--max-nodes", "400",
+                                     "--json"])
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+>       assert len(payload["roots"]) == 40, len(payload["roots"])
+E       AssertionError: 25
+E       assert 25 == 40
+E        +  where 25 = len([{'file': 'models_33.py', 'symbol': 'step', 'line': 2, 'relationship': 'definition', ...}, {'file': 'models_39.py', 's...ip': 'definition', ...}, {'file': 'models_17.py', 'symbol': 'step', 'line': 2, 'relationship': 'definition', ...}, ...])
+
+tests/test_graph.py:807: AssertionError
+______________ test_a_capped_root_list_says_how_many_roots_exist _______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x768465b211f0>
+
+    def test_a_capped_root_list_says_how_many_roots_exist(tmp_path, monkeypatch):
+        """A root set larger than the node cap is cut, and the cut is named.
+    
+        The refusals are NOT `omitted`: that field stays "edges examined and
+        refused at the node cap". So a root-capped answer is another instance of
+        the documented `truncated: true, omitted: 0` combination, and `truncated`
+        carries the incompleteness.
+        """
+        core, reg, entry, project = _many_definitions_rig(tmp_path, monkeypatch)
+        result = runner.invoke(app, ["find-callers", "step", "--project",
+                                     str(project), "--max-nodes", "10", "--json"])
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+>       assert len(payload["roots"]) == 10, len(payload["roots"])
+E       AssertionError: 25
+E       assert 25 == 10
+E        +  where 25 = len([{'file': 'models_33.py', 'symbol': 'step', 'line': 2, 'relationship': 'definition', ...}, {'file': 'models_39.py', 's...ip': 'definition', ...}, {'file': 'models_17.py', 'symbol': 'step', 'line': 2, 'relationship': 'definition', ...}, ...])
+
+tests/test_graph.py:831: AssertionError
+__________ test_find_symbol_exact_name_is_uncapped_and_honours_limit ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x768465b222a0>
+
+    def test_find_symbol_exact_name_is_uncapped_and_honours_limit(
+            tmp_path, monkeypatch):
+        """No surface could list all 40 definitions even by asking: exact-name
+        mode never forwarded --limit. Browse mode keeps its default cap."""
+        core, reg, entry, project = _many_definitions_rig(tmp_path, monkeypatch)
+        rows = json.loads(runner.invoke(
+            app, ["find-symbol", "step", "--project", str(project),
+                  "--json"]).stdout)
+>       assert len(rows) == 40, len(rows)
+E       AssertionError: 25
+E       assert 25 == 40
+E        +  where 25 = len([{'file': 'models_33.py', 'name': 'step', 'type': 'function', 'start_line': 2, ...}, {'file': 'models_39.py', 'name': ...ction', 'start_line': 2, ...}, {'file': 'models_17.py', 'name': 'step', 'type': 'function', 'start_line': 2, ...}, ...])
+
+tests/test_graph.py:852: AssertionError
+__________ test_callers_of_order_is_total_inside_a_one_line_tie_group __________
+
+
+    def test_callers_of_order_is_total_inside_a_one_line_tie_group(tmp_path):
+        """A reference tie group on ONE line comes back in the key's order.
+    
+        `refs` is keyed `(file, line, to_name, relationship)`, so one line can
+        carry several rows; a live index has 73,911 such lines. `ORDER BY file,
+        line` left their order to the query plan, so a cut inside the group was
+        not a reproducible prefix. The key now names the primary key (plus the
+        receiver) and the rows are inserted in the REVERSE of that order, so a
+        plan-order answer cannot pass.
+        """
+        m = _manifest(tmp_path)
+        try:
+            _add_file(m, "target.py",
+                      symbols=[_definition("target.py", "target_fn")])
+            _add_file(m, "one_user.py", refs=[
+                (1, "use_member", "target_fn", "member", "obj"),
+                (1, "use_type", "target_fn", "type", None),
+                (1, "use_call", "target_fn", "call", None),
+                (2, "later", "target_fn", "call", None),
+            ])
+            rows = m.callers_of("target_fn")
+>           assert [(r["line"], r["relationship"]) for r in rows] == [
+                (1, "call"), (1, "member"), (1, "type"), (2, "call")], rows
+E               AssertionError: [{'file': 'one_user.py', 'line': 1, 'from_symbol': 'use_member', 'relationship': 'member', ...}, {'file': 'one_user.py... 'relationship': 'call', ...}, {'file': 'one_user.py', 'line': 2, 'from_symbol': 'later', 'relationship': 'call', ...}]
+E               assert [(1, 'member'..., (2, 'call')] == [(1, 'call'),..., (2, 'call')]
+E                 
+E                 At index 0 diff: (1, 'member') != (1, 'call')
+E                 Use -v to get more diff
+
+tests/test_manifest_store_reads.py:125: AssertionError
+_________ test_import_rows_order_is_total_inside_a_one_line_tie_group __________
+
+
+    def test_import_rows_order_is_total_inside_a_one_line_tie_group(tmp_path):
+        """`imports` is keyed `(file, raw_target, line)`, so two rows can share
+        one `(file, line)` (3 such groups on one live index). Inserted in the
+        reverse of the key's order: only a total key returns the same prefix.
+        """
+        m = _manifest(tmp_path)
+        try:
+            _add_file(m, "pkg/a.py", imports=[
+                ("pkg.zeta", "pkg/zeta.py", "python", 1),
+                ("pkg.middle", None, "python", 1),
+                ("pkg.alpha", "pkg/alpha.py", "python", 1),
+                ("pkg.alpha", "pkg/alpha.py", "python", 2),
+            ])
+            rows = m.import_rows()
+            assert [(r["line"], r["raw_target"]) for r in rows] == [
+                (1, "pkg.alpha"), (1, "pkg.middle"), (1, "pkg.zeta"),
+                (2, "pkg.alpha")], rows
+>           assert m.import_rows(limit=1) == rows[:1]
+E           AssertionError: assert [{'file': 'pk...python', ...}] == [{'file': 'pk...python', ...}]
+E             
+E             At index 0 diff: {'file': 'pkg/a.py', 'raw_target': 'pkg.zeta', 'resolved_file': 'pkg/zeta.py', 'kind': 'python', 'line': 1} != {'file': 'pkg/a.py', 'raw_target': 'pkg.alpha', 'resolved_file': 'pkg/alpha.py', 'kind': 'python', 'line': 1}
+E             Use -v to get more diff
+
+tests/test_manifest_store_reads.py:152: AssertionError
+_______________ test_definitions_of_returns_every_definition_row _______________
+
+
+    def test_definitions_of_returns_every_definition_row(tmp_path):
+        """The definition-roots read has no browse cap (issue #22).
+    
+        Forty definitions of one name is not a browse; a caller that wants a
+        bound asks for one, and the order is total so a capped read is a
+        reproducible prefix.
+        """
+        m = _manifest(tmp_path)
+        try:
+            for i in range(40):
+                path = f"defs/mod_{i:02d}.py"
+                _add_file(m, path, symbols=[_definition(path, "shared")])
+>           rows = m.definitions_of("shared")
+                   ^^^^^^^^^^^^^^^^
+E           AttributeError: 'Manifest' object has no attribute 'definitions_of'
+
+tests/test_manifest_store_reads.py:170: AttributeError
+_______ test_path_prefix_keeps_the_in_prefix_definition_of_a_shared_name _______
+
+rig = (<code_indexer.core.Core object at 0x768465b76900>, <code_indexer.registry.Registry object at 0x76847f779a90>, Project...at=1792510310.2137923, name='ovproj'), PosixPath('<pytest-tmp>/pytest-45/test_path_prefix_keeps_the_in_0/proj'))
+
+    def test_path_prefix_keeps_the_in_prefix_definition_of_a_shared_name(rig):
+        """A name defined both inside and outside the prefix belongs to its
+        in-prefix definition — the rule the old row scan used.
+    
+        The whole-store aggregate gave the name to `beta.py` (it sorts first), so
+        every reference to it was attributed outside the prefix and then dropped
+        by the prefix filter: up to 6,044 rows on one live prefix, 20,330 on
+        another. Scoping the ownership aggregate to the files being reported on
+        restores the count.
+        """
+        core, reg, entry, project = rig
+        m = core.manifest_for(entry.slug)
+        try:
+            from code_indexer.manifest import ManifestFile, SymbolRow
+            from code_indexer.overview import build_overview
+    
+            def add_file(path: str) -> None:
+                m.upsert_files([ManifestFile(path=path, content_hash=path,
+                                             size=1, chunk_count=1,
+                                             status="indexed", loc=5)])
+    
+            # "beta.py" sorts BEFORE "docs/alpha.py", so the global first
+            # definition is the out-of-prefix one: the defect's shape exactly.
+            for path in ("beta.py", "docs/alpha.py"):
+                add_file(path)
+                m.replace_file_symbols(path, [SymbolRow(
+                    file=path, name="shared_topic", symbol_type="function",
+                    start_line=1, end_line=2, source="ast")])
+            for i in range(5):
+                path = f"users/u{i}.py"
+                add_file(path)
+                m.replace_file_refs(
+                    path, [(1, f"caller_{i}", "shared_topic", "call", None)],
+                    "ast")
+    
+            scoped = {h["file"]: h["fan_in"] for h in
+                      build_overview(m, str(project),
+                                     path_prefix="docs/")["hotspots"]["fan_in"]}
+>           assert scoped.get("docs/alpha.py") == 5, scoped
+E           AssertionError: {}
+E           assert None == 5
+E            +  where None = <built-in method get of dict object at 0x7684655ac1c0>('docs/alpha.py')
+E            +    where <built-in method get of dict object at 0x7684655ac1c0> = {}.get
+
+tests/test_overview.py:239: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_changed_symbols.py::test_impact_reports_the_per_name_store_bound
+FAILED tests/test_changed_symbols.py::test_impact_reports_the_shared_node_budget
+FAILED tests/test_changed_symbols.py::test_text_preview_counts_the_caller_lines_it_does_not_print
+FAILED tests/test_graph.py::test_every_definition_root_reaches_the_walk - Ass...
+FAILED tests/test_graph.py::test_a_capped_root_list_says_how_many_roots_exist
+FAILED tests/test_graph.py::test_find_symbol_exact_name_is_uncapped_and_honours_limit
+FAILED tests/test_manifest_store_reads.py::test_callers_of_order_is_total_inside_a_one_line_tie_group
+FAILED tests/test_manifest_store_reads.py::test_import_rows_order_is_total_inside_a_one_line_tie_group
+FAILED tests/test_manifest_store_reads.py::test_definitions_of_returns_every_definition_row
+FAILED tests/test_overview.py::test_path_prefix_keeps_the_in_prefix_definition_of_a_shared_name
+10 failed, 63 passed in 8.69s

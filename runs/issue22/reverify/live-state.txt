@@ -1,0 +1,3 @@
+vivarium-sim   refs= 608055 (was  608055) imports=   488 (was    488) files=733 symbols=6841 extraction_version=4 unchanged=True
+b1b7f48b       refs= 934672 (was  934672) imports=    12 (was     12) files=458 symbols=1046 extraction_version=4 unchanged=True
+code-indexer   refs=  49785 (was   49785) imports=  1193 (was   1193) files=198 symbols=1427 extraction_version=4 unchanged=True

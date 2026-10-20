@@ -1,0 +1,18 @@
+tip  = this checkout
+base = a worktree at 58473d9 (CI22_BASE)
+find-callers __init__ (code-indexer):
+  base runs=[2.394, 2.396, 2.399] median=2.396s
+  tip  runs=[2.543, 2.537, 2.55] median=2.543s  limit=3.0s within=True  delta=+0.147s
+find-callers Compile (vivarium-sim):
+  base runs=[0.887, 0.902, 0.896] median=0.896s
+  tip  runs=[0.889, 0.896, 0.893] median=0.893s  limit=3.0s within=True  delta=-0.003s
+find-callers pairA (vivarium-sim):
+  base runs=[0.931, 0.903, 0.918] median=0.918s
+  tip  runs=[0.908, 0.898, 0.887] median=0.898s  limit=3.0s within=True  delta=-0.020s
+overview (vivarium-sim):
+  base runs=[1.085, 1.078, 1.063] median=1.078s
+  tip  runs=[1.072, 1.078, 1.07] median=1.072s  limit=2.0s within=True  delta=-0.006s
+overview (b1b7f48b):
+  base runs=[1.441, 1.47, 1.478] median=1.470s
+  tip  runs=[1.506, 1.488, 1.472] median=1.488s  limit=2.0s within=True  delta=+0.019s
+all_within_threshold: True
