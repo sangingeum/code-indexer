@@ -724,12 +724,16 @@ def test_seeded_reference_list_applies_and_announces_its_node_cap(
     assert not any("node cap" in n for n in payload["notes"])
 
 
-def _many_definitions_rig(tmp_path, monkeypatch, definitions: int = 40):
+def _many_definitions_rig(tmp_path, monkeypatch, definitions: int = 40,
+                          with_one_caller: bool = False):
     """A project defining ONE name more times than the old 25-row browse cap:
     `definitions` generated classes, each with a `step` method and nothing
     that references it. The definition roots ARE the answer here, so a walk
     handed 25 of them cannot be distinguished from a complete one by its
     node count alone — which is why the note names the root set (issue #22).
+
+    `with_one_caller` adds a single reference row targeting `step`, so the
+    capped-root case has an edge to refuse as well as roots to hide.
     """
     cfg = Config(ollama_url="", qdrant_url="", embed_model="stub",
                  index_root=str(tmp_path / "state"), stale_ttl=60,
@@ -742,6 +746,10 @@ def _many_definitions_rig(tmp_path, monkeypatch, definitions: int = 40):
             f"class Model{i:02d}:\n"
             f"    def step(self):\n"
             f"        return {i}\n")
+    if with_one_caller:
+        (project / "users.py").write_text(
+            "def drive(model):\n"
+            "    model.step()\n")
     core = Core(cfg)
 
     class StubEmbedder:
@@ -815,13 +823,41 @@ def test_every_definition_root_reaches_the_walk(tmp_path, monkeypatch):
     assert len(callees["roots"]) == 40, len(callees["roots"])
 
 
+def test_a_capped_root_list_counts_the_edges_it_also_refused(
+        tmp_path, monkeypatch):
+    """A subject whose root set is capped answers with TWO notes, in order.
+
+    Roots spend the node budget, so a capped root set leaves no slot for the
+    level-0 edges: they are refused and counted. The payload therefore says
+    `truncated: true` with a POSITIVE `omitted` — the root refusals stay out
+    of `omitted`, the edge refusals do not. First note is the population cut
+    (roots), second is the refusals among the edges the walk examined.
+    """
+    core, reg, entry, project = _many_definitions_rig(
+        tmp_path, monkeypatch, with_one_caller=True)
+    result = runner.invoke(app, ["find-callers", "step", "--project",
+                                 str(project), "--max-nodes", "10", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert len(payload["roots"]) == 10, len(payload["roots"])
+    assert payload["truncated"] is True
+    assert payload["omitted"] == 1, payload
+    notes = payload["notes"]
+    assert len(notes) == 2, notes
+    assert "40 definition roots exist for this subject" in notes[0], notes
+    assert "30 roots not shown" in notes[0], notes
+    assert "node cap 10 reached" in notes[1], notes
+    assert "1 more reference edge not shown" in notes[1], notes
+
+
 def test_a_capped_root_list_says_how_many_roots_exist(tmp_path, monkeypatch):
     """A root set larger than the node cap is cut, and the cut is named.
 
     The refusals are NOT `omitted`: that field stays "edges examined and
-    refused at the node cap". So a root-capped answer is another instance of
-    the documented `truncated: true, omitted: 0` combination, and `truncated`
-    carries the incompleteness.
+    refused at the node cap". This fixture has no reference rows at all, so
+    nothing is refused on the edge side and `omitted` stays 0; `truncated`
+    carries the incompleteness either way (the two-note case, where the roots
+    also spend the budget on edges, is pinned separately in this module).
     """
     core, reg, entry, project = _many_definitions_rig(tmp_path, monkeypatch)
     result = runner.invoke(app, ["find-callers", "step", "--project",
@@ -864,6 +900,25 @@ def test_find_symbol_exact_name_is_uncapped_and_honours_limit(
     assert text.exit_code == 0, text.output
     assert len([ln for ln in text.stdout.splitlines() if ln.startswith("- ")]) \
         == 40
+
+
+def test_find_symbol_browse_mode_keeps_its_default_cap(tmp_path, monkeypatch):
+    """Browse mode's default is 25 rows — behaviour, not a constant.
+
+    No name is given, so the surface is browsing a type: 40 classes exist and
+    25 come back. An uncapped browse read (40 here) or a moved default (5,
+    50) fails this pin, which is the point — the number is a contract other
+    surfaces quote, so it must not drift silently.
+    """
+    core, reg, entry, project = _many_definitions_rig(tmp_path, monkeypatch)
+    rows = json.loads(runner.invoke(
+        app, ["find-symbol", "--type", "class", "--project", str(project),
+              "--json"]).stdout)
+    assert len(rows) == 25, len(rows)
+    stored = json.loads(runner.invoke(
+        app, ["find-symbol", "--type", "class", "--project", str(project),
+              "--limit", "40", "--json"]).stdout)
+    assert len(stored) == 40, len(stored)
 
 
 def test_mcp_graph_tools_exist():
