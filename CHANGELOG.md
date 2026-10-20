@@ -14,6 +14,17 @@
   of what a caller might wish to match, and a test pins the changed-file
   rule against a live chunk named `pkg.prepare`. No reindex is owed: no
   stored row changes.
+- **The eval harness scores every same-name row in a file (issue #25).**
+  `_symbol_range` read the label's rows uncapped but scored against only the
+  first of them, which was safe only because every measured duplicate is a
+  decorator double-row with near-identical ranges — a label whose rows in one
+  file diverge (an overload set, a redefinition, a wrapper) would have scored
+  a hit inside the second row as a miss. `_hit_correct` now reads every row
+  through `_symbol_ranges` and any overlap wins; nothing is capped or
+  truncated. A fixture pins a label with two disjoint rows in one file and a
+  hit inside the second row scoring correct. The unscoped past-the-cap
+  fixture still passes. No reindex is owed: the eval reads rows the store
+  already holds.
 
 ## [Unreleased] — get-code-context symbol resolution
 

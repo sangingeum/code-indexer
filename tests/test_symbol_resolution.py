@@ -40,6 +40,17 @@ EARLY_FILE_COUNT = 25
 EARLY_FILE = "def prepare():\n    return 1\n"
 LATE_FILE = "def unrelated():\n    return 0\n\n\ndef prepare():\n    return 2\n"
 
+# One name with two rows in the same file whose ranges do NOT overlap: a
+# duplicate method definition inside one class, both extracted as rows.
+DISJOINT_FILE = (
+    "class Holder:\n"
+    "    def repeated(self):\n"
+    "        return 1\n"
+    "\n"
+    "    def repeated(self):\n"
+    "        return 2\n"
+)
+
 
 def _repeated_definitions(count: int) -> str:
     return "".join(f"def prepare():\n    return {i}\n\n\n" for i in range(count))
@@ -121,6 +132,18 @@ def wide_rig(tmp_path, monkeypatch):
 def repeated_rig(tmp_path, monkeypatch):
     """Six definitions of one name inside a single file."""
     files = {"repeated_definitions.py": _repeated_definitions(6)}
+    core, reg, entry, project, cfg = _build_rig(tmp_path, monkeypatch, files)
+    yield core, reg, entry, project, cfg
+    reg.close()
+    import code_indexer.cli as cli
+    cli._core = None
+    cli._core_skip = False
+
+
+@pytest.fixture()
+def disjoint_rig(tmp_path, monkeypatch):
+    """One label, two rows in ONE file, with genuinely disjoint ranges."""
+    files = {"disjoint_rows.py": DISJOINT_FILE}
     core, reg, entry, project, cfg = _build_rig(tmp_path, monkeypatch, files)
     yield core, reg, entry, project, cfg
     reg.close()
@@ -243,6 +266,41 @@ def test_re_resolved_symbol_mode_matches_the_exact_name_only(
         import code_indexer.cli as cli
         cli._core = None
         cli._core_skip = False
+
+
+def test_eval_scores_a_hit_inside_a_later_row(disjoint_rig):
+    """Every row of a label is scored, not just the first (issue #25).
+
+    The two rows here are genuinely disjoint, so a hit inside the second one
+    is a correct answer to "where is this definition in this file" and must
+    not be scored as a miss. First-row-only scoring passes only because the
+    measured duplicates are decorator double-rows with near-identical ranges.
+    """
+    core, reg, entry, project, cfg = disjoint_rig
+    m = core.manifest_for(entry.slug)
+    try:
+        ranges = evalharness._symbol_ranges(m, "disjoint_rows.py",
+                                            "repeated")
+    finally:
+        m.close()
+    assert len(ranges) == 2, ranges
+    (first_s, first_e), (second_s, second_e) = ranges
+    assert second_s > first_e, ranges  # genuinely disjoint, not a double-row
+
+    rel = evalharness.Relevant(file="disjoint_rows.py", symbol="repeated")
+    inside_second = {"file": "disjoint_rows.py", "symbol": None,
+                     "start_line": second_s, "end_line": second_e}
+    assert evalharness._hit_correct(core, entry, inside_second, rel) is True
+
+    inside_first = {"file": "disjoint_rows.py", "symbol": None,
+                    "start_line": first_s, "end_line": first_e}
+    assert evalharness._hit_correct(core, entry, inside_first, rel) is True
+
+    gap = first_e + 1
+    assert gap < second_s
+    between_rows = {"file": "disjoint_rows.py", "symbol": None,
+                    "start_line": gap, "end_line": gap}
+    assert evalharness._hit_correct(core, entry, between_rows, rel) is False
 
 
 if __name__ == "__main__":  # pragma: no cover

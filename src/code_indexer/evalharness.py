@@ -97,41 +97,56 @@ def load_queries(path: str | Path) -> list[EvalQuery]:
     return queries
 
 
-def _symbol_range(manifest: Any, rel_file: str,
-                  symbol: str) -> tuple[int, int] | None:
-    """(start_line, end_line) for a symbol row, or None when absent.
+def _symbol_ranges(manifest: Any, rel_file: str,
+                   symbol: str) -> list[tuple[int, int]]:
+    """EVERY (start_line, end_line) row of one label in one file.
+
+    A name can hold more than one row in the same file — a decorator
+    double-row, an overload set, a redefinition, a wrapper — and the rows may
+    not overlap at all. Scoring tests a hit against every one of them (any
+    overlap wins), so no row is privileged over another and nothing is
+    truncated.
 
     The name and the file are both filtered in SQL and the read is uncapped:
     a capped exact-name read filtered to a file afterwards silently returned
-    None for every definition past the cap, mis-scoring the eval run that
+    nothing for every definition past the cap, mis-scoring the eval run that
     asked about it (issue #23, same shape as the get-code-context lookup).
     """
     rows = manifest.find_symbols(symbol, substring=False, file=rel_file,
                                  limit=None)
-    if not rows:
-        return None
-    return (rows[0].start_line, rows[0].end_line)
+    return [(r.start_line, r.end_line) for r in rows]
+
+
+def _symbol_range(manifest: Any, rel_file: str,
+                  symbol: str) -> tuple[int, int] | None:
+    """The FIRST row's (start_line, end_line), or None when the label is
+    absent from that file.
+
+    A single-span view kept for a caller that wants one range; it says
+    nothing about a label's other rows in the file. Scoring uses
+    ``_symbol_ranges``, which reads every row.
+    """
+    ranges = _symbol_ranges(manifest, rel_file, symbol)
+    return ranges[0] if ranges else None
 
 
 def _hit_correct(core: "Core", entry: Any, hit: dict[str, Any],
                  rel: Relevant) -> bool:
     """File must match; when the label names a symbol, the hit must point at
-    it (same symbol, or a line-range overlap with its manifest row)."""
+    it (same symbol, or a line-range overlap with ANY manifest row of it)."""
     if hit.get("file") != rel.file:
         return False
     if rel.symbol is None:
         return True
     if hit.get("symbol") == rel.symbol:
         return True
-    rng = _symbol_range(core.manifest_for(entry.slug), rel.file, rel.symbol)
-    if rng is None:
-        return False
-    s, e = rng
     hs = hit.get("start_line")
     he = hit.get("end_line")
     if hs is None or he is None:
         return False
-    return hs <= e and s <= he  # inclusive overlap
+    ranges = _symbol_ranges(core.manifest_for(entry.slug), rel.file,
+                            rel.symbol)
+    return any(hs <= e and s <= he for s, e in ranges)  # inclusive overlap
 
 
 def run_eval(core: "Core", project: str, queries_path: str | Path,
