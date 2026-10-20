@@ -34,12 +34,16 @@ base 5ee5154 : roots 25, truncated false, omitted 0, notes none
 fix  tip     : roots 40, truncated false, omitted 0, notes none
 ```
 
-(The store holds 40 `__init__` rows.) At a cap the root set alone exceeds:
+(The store holds 40 `__init__` rows.) At a cap the root set alone spends the
+whole budget, so level-0 edges are refused as well and are counted:
 
 ```
---max-nodes 10 : roots 10, truncated true, omitted 0  (root cut, no edges examined)
+--max-nodes 10 : roots 10, truncated true, omitted 124
   note: 40 definition roots exist for this subject, node cap 10 — 30 roots not shown;
         raise --max-nodes
+  note: node cap 10 reached — 124 more reference edges not shown (a lower bound: a
+        refused edge is counted but never expanded, so its own edges are not walked,
+        and a depth cap on the same answer can cut more); raise --max-nodes to see more
 --max-nodes 25 : roots 25, truncated true, omitted 124
   note: 40 definition roots exist for this subject, node cap 25 — 15 roots not shown;
         raise --max-nodes

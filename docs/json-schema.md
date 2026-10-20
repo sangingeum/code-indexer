@@ -86,8 +86,9 @@ from `truncated`.
 
 `bounds` splits that total by which bound refused what, because the two have
 different remedies — `per_name` rows were cut by the fixed 50-callers-per-
-symbol read (raise `--max-nodes` does not help; `find-callers <symbol>` answers
-one symbol's whole fan-in), `node_budget` rows by the shared `--max-nodes`
+symbol read (raise `--max-nodes` does not help; the walk that answers one
+symbol's fan-in is `find-callers <symbol> --max-nodes N`, with `N` above the
+count), `node_budget` rows by the shared `--max-nodes`
 budget. The text output names the bound that fired rather than advising both.
 
 ## doctor --json
@@ -116,10 +117,13 @@ on those roots. When the root set alone exceeds `--max-nodes` the payload
 carries the first `cap` roots, `truncated: true`, and a note naming the real
 situation (`40 definition roots exist for this subject, node cap 10 — 30 roots
 not shown; raise --max-nodes`). Those refused rows are definitions, not edges,
-so they are NOT counted in `omitted`. So `truncated: true` with `omitted: 0`
-is a normal, reachable combination in two documented cases — a depth-capped
-answer and a root-capped one: decide completeness from `truncated`, never
-from `omitted`.
+so they are NOT counted in `omitted`. `omitted` may still be positive on the
+same answer: roots that spend the whole budget leave no slot for level-0
+edges, and those refusals are counted (measured on this tool's own index at
+`--max-nodes 10`: `roots 10, truncated: true, omitted: 124`). So
+`truncated: true` with `omitted: 0` is one reachable pair — the depth-capped
+answer — and not the shape of a root-capped one: decide completeness from
+`truncated`, never from `omitted`.
 
 `notes` is a `[str]` of plain-language lines for the caller to print, and is
 present only when non-empty: on an incomplete answer it carries the cap

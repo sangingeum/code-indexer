@@ -19,8 +19,11 @@
   consume the node budget; when they alone exceed it the walk shows the first
   `cap`, sets `truncated`, and prints `40 definition roots exist for this
   subject, node cap 10 — 30 roots not shown; raise --max-nodes`. Those
-  refusals are not `omitted` (a definition list is not an edge list), so this
-  is a second, documented instance of `truncated: true` with `omitted: 0`.
+  refusals are not `omitted` (a definition list is not an edge list) — but nor
+  is `omitted` `0`: roots that spend the whole budget leave no slot for
+  level-0 edges, and those refusals are counted (`find-callers __init__
+  --max-nodes 10` on this tool's own index: `roots 10, truncated: true,
+  omitted: 124`).
 - **`overview --path-prefix` attributes a name to its in-prefix definition
   again.** `file_fan_in` picked the owning definition over the whole store and
   `build_overview` then filtered to the prefix's files, so a name defined both
