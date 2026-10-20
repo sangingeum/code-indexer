@@ -724,6 +724,148 @@ def test_seeded_reference_list_applies_and_announces_its_node_cap(
     assert not any("node cap" in n for n in payload["notes"])
 
 
+def _many_definitions_rig(tmp_path, monkeypatch, definitions: int = 40):
+    """A project defining ONE name more times than the old 25-row browse cap:
+    `definitions` generated classes, each with a `step` method and nothing
+    that references it. The definition roots ARE the answer here, so a walk
+    handed 25 of them cannot be distinguished from a complete one by its
+    node count alone — which is why the note names the root set (issue #22).
+    """
+    cfg = Config(ollama_url="", qdrant_url="", embed_model="stub",
+                 index_root=str(tmp_path / "state"), stale_ttl=60,
+                 embed_batch=48, upsert_batch=256, max_file_bytes=1048576,
+                 watch_debounce=3, watch_sweep_interval=300)
+    project = tmp_path / "manydefs"
+    project.mkdir()
+    for i in range(definitions):
+        (project / f"models_{i:02d}.py").write_text(
+            f"class Model{i:02d}:\n"
+            f"    def step(self):\n"
+            f"        return {i}\n")
+    core = Core(cfg)
+
+    class StubEmbedder:
+        def dimension(self):
+            return 4
+
+        def embed(self, texts):
+            return [[0.1] * 4 for _ in texts]
+
+        def query_instruction_text(self, q):
+            return q
+
+        def embed_with_errors(self, texts):
+            return [[0.1] * 4 for _ in texts], []
+
+        def close(self):
+            pass
+
+    class StubStore:
+        def collection_exists(self, name):
+            return True
+
+        def create_collection(self, name, dim):
+            pass
+
+        def upsert_points(self, name, points):
+            pass
+
+        def purge_file_points(self, *a, **kw):
+            return 0
+
+        def count_points(self, name):
+            return 0
+
+        def search(self, *a, **kw):
+            return []
+
+    core.embedder = StubEmbedder()  # type: ignore[assignment]
+    core.store = StubStore()  # type: ignore[assignment]
+    core.indexer.embedder = core.embedder  # type: ignore[assignment]
+    core.indexer.store = core.store  # type: ignore[assignment]
+    from code_indexer.registry import Registry
+    reg = Registry(os.path.join(cfg.index_root, "registry.db"))
+    entry = reg.add(str(project), name="manydefs")
+    core.run_index(entry.slug, str(project))
+    monkeypatch.setattr(cli, "_get_core", lambda skip: core)
+    return core, reg, entry, project
+
+
+def test_every_definition_root_reaches_the_walk(tmp_path, monkeypatch):
+    """40 definitions of one name: the walk is handed all 40, not 25.
+
+    The store read behind the roots used to cap at 25, so 15 subtrees were
+    never walked and the answer still said `truncated: false` — issue #22's
+    filed symptom, live on this tool's own index.
+    """
+    core, reg, entry, project = _many_definitions_rig(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["find-callers", "step", "--project",
+                                 str(project), "--max-nodes", "400",
+                                 "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert len(payload["roots"]) == 40, len(payload["roots"])
+    assert payload["truncated"] is False, payload.get("notes")
+    assert payload["omitted"] == 0
+
+    # The same read is what `find-callees` roots at.
+    callees = json.loads(runner.invoke(
+        app, ["find-callees", "step", "--project", str(project),
+              "--max-nodes", "400", "--json"]).stdout)
+    assert len(callees["roots"]) == 40, len(callees["roots"])
+
+
+def test_a_capped_root_list_says_how_many_roots_exist(tmp_path, monkeypatch):
+    """A root set larger than the node cap is cut, and the cut is named.
+
+    The refusals are NOT `omitted`: that field stays "edges examined and
+    refused at the node cap". So a root-capped answer is another instance of
+    the documented `truncated: true, omitted: 0` combination, and `truncated`
+    carries the incompleteness.
+    """
+    core, reg, entry, project = _many_definitions_rig(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["find-callers", "step", "--project",
+                                 str(project), "--max-nodes", "10", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert len(payload["roots"]) == 10, len(payload["roots"])
+    assert payload["truncated"] is True
+    assert payload["omitted"] == 0, payload
+    note = "\n".join(payload["notes"])
+    assert "40 definition roots exist" in note, note
+    assert "node cap 10" in note and "30 roots not shown" in note, note
+    assert "raise --max-nodes" in note, note
+    # ...and the text answer carries the same line on stdout, with the tree.
+    text = runner.invoke(app, ["find-callers", "step", "--project",
+                               str(project), "--max-nodes", "10"])
+    assert "30 roots not shown" in text.stdout
+
+
+def test_find_symbol_exact_name_is_uncapped_and_honours_limit(
+        tmp_path, monkeypatch):
+    """No surface could list all 40 definitions even by asking: exact-name
+    mode never forwarded --limit. Browse mode keeps its default cap."""
+    core, reg, entry, project = _many_definitions_rig(tmp_path, monkeypatch)
+    rows = json.loads(runner.invoke(
+        app, ["find-symbol", "step", "--project", str(project),
+              "--json"]).stdout)
+    assert len(rows) == 40, len(rows)
+    asked = json.loads(runner.invoke(
+        app, ["find-symbol", "step", "--project", str(project),
+              "--limit", "100", "--json"]).stdout)
+    assert len(asked) == 40, len(asked)
+    bounded = json.loads(runner.invoke(
+        app, ["find-symbol", "step", "--project", str(project),
+              "--limit", "3", "--json"]).stdout)
+    assert len(bounded) == 3, len(bounded)
+    # find-definition is the same exact-name read, same answer.
+    text = runner.invoke(app, ["find-definition", "step", "--project",
+                               str(project)])
+    assert text.exit_code == 0, text.output
+    assert len([ln for ln in text.stdout.splitlines() if ln.startswith("- ")]) \
+        == 40
+
+
 def test_mcp_graph_tools_exist():
     import code_indexer.server as server
     assert hasattr(server, "find_callers") and hasattr(server, "find_callees")

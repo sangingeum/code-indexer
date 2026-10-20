@@ -33,6 +33,11 @@ from .registry import ProjectEntry
 
 PROJECT_OPT = typer.Option(None, help="Project path, slug, or name.")
 
+# Browse-mode row cap for `find-symbol` when no name is given (and for its
+# capped substring fallback). Exact-name mode is uncapped unless --limit is
+# passed: an exact name is an answer, not a browse (issue #22).
+_BROWSE_CAP = 25
+
 app = typer.Typer(
     name="code-indexer",
     help="Semantic code index via Ollama + Qdrant (one-shot CLI; no daemon).",
@@ -1336,7 +1341,10 @@ def find_symbol(
         None, "--file", help="Restrict to this file (project-relative)."),
     substring: bool = typer.Option(
         False, "--substring", help="Substring match (browse mode)."),
-    limit: int = typer.Option(25, help="Max rows (browse-mode cap)."),
+    limit: int | None = typer.Option(
+        None, "--limit",
+        help="Max rows. Exact-name mode: every definition unless given. "
+             "Browse mode and the substring fallback: default cap 25."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
     skip_stale_check: bool = SkipOpt,
     fresh: bool = FreshOpt,
@@ -1351,17 +1359,21 @@ def find_symbol(
     m = core.manifest_for(entry.slug)
     try:
         if name:
-            # Unchanged semantics: exact-first, capped substring fallback.
-            rows = m.find_symbols(name, symbol_type=symbol_type, substring=False)
+            # Exact-name mode answers with EVERY definition; --limit is
+            # honoured when the caller asks for a bound (issue #22).
+            rows = m.find_symbols(name, symbol_type=symbol_type,
+                                  substring=False, limit=limit)
             match_label = False
             if not rows:
                 rows = m.find_symbols(
-                    name, symbol_type=symbol_type, substring=True, limit=limit)
+                    name, symbol_type=symbol_type, substring=True,
+                    limit=limit if limit is not None else _BROWSE_CAP)
                 match_label = True
         else:
             # Browse mode (design §2.3): no name clause, filters only.
             rows = m.find_symbols(
-                None, symbol_type=symbol_type, file=file_filter, limit=limit)
+                None, symbol_type=symbol_type, file=file_filter,
+                limit=limit if limit is not None else _BROWSE_CAP)
             match_label = False
         if not rows:
             msg = (f"no symbols matching {name!r}" if name
@@ -1405,7 +1417,7 @@ def find_definition(
     core.maybe_refresh(entry.slug, entry.path, force=fresh)
     m = core.manifest_for(entry.slug)
     try:
-        rows = m.find_symbols(name, substring=False)
+        rows = m.definitions_of(name)
         if not rows:
             msg = f"no exact-match symbols named {name!r}"
             if core.schema_migrated(entry):

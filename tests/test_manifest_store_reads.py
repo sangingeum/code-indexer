@@ -101,6 +101,28 @@ def test_import_rows_is_complete_and_ordered(tmp_path):
         m.close()
 
 
+def test_definitions_of_returns_every_definition_row(tmp_path):
+    """The definition-roots read has no browse cap (issue #22).
+
+    Forty definitions of one name is not a browse; a caller that wants a
+    bound asks for one, and the order is total so a capped read is a
+    reproducible prefix.
+    """
+    m = _manifest(tmp_path)
+    try:
+        for i in range(40):
+            path = f"defs/mod_{i:02d}.py"
+            _add_file(m, path, symbols=[_definition(path, "shared")])
+        rows = m.definitions_of("shared")
+        assert len(rows) == 40, len(rows)
+        assert [r.file for r in rows] == sorted(r.file for r in rows)
+        # The browse cap is still available to a caller that names one.
+        assert len(m.find_symbols("shared", limit=25)) == 25
+        assert m.find_symbols("shared", limit=None) == rows
+    finally:
+        m.close()
+
+
 def test_file_fan_in_matches_a_manual_per_file_count(tmp_path):
     """The aggregate equals a hand count of the same store, including the
     rules: imports into a file count; a reference from the file itself does

@@ -20,7 +20,11 @@ Caps are honest. An edge this walk examined and refused because the node cap
 was reached is counted in ``GraphResult.omitted`` and the answer is marked
 ``truncated``; a depth cap that stops a frontier which still has unvisited
 edges adds a "deeper references exist" line. An incomplete answer always says
-so — it is never indistinguishable from a complete one.
+so — it is never indistinguishable from a complete one. Definition roots
+consume that same node budget: a root list longer than the cap is shown cut,
+with a note naming how many roots exist and how many are not shown, and its
+refusals are NOT counted in ``omitted`` (a definition list is not an edge
+list).
 
 Output is an indented compact tree; JSON carries the edges plus the two
 top-level truncation fields (``truncated``, ``omitted``).
@@ -103,6 +107,22 @@ def _depth_note(depth: int, what: str) -> str:
             f"{depth}; raise --depth to see them")
 
 
+def _root_cap_note(total: int, cap: int) -> str:
+    """The truncation line for a definition-root list cut by the node cap.
+
+    A definition list is not an edge list, so its refused rows are NOT counted
+    into ``omitted`` (which stays "edges examined and refused"). ``truncated``
+    remains the completeness flag, so this note is how the real situation is
+    named: how many roots exist, how many were shown, and the only knob that
+    helps.
+    """
+    hidden = total - cap
+    return (f"{total} definition {_plural(total, 'root', 'roots')} "
+            f"{_plural(total, 'exists', 'exist')} for this subject, node cap "
+            f"{cap} — {hidden} {_plural(hidden, 'root', 'roots')} not shown; "
+            "raise --max-nodes")
+
+
 def _site_key(file: str, line: int | None, frm: str | None,
               relationship: str) -> tuple:
     """Call-site identity: the SITE, not the enclosing symbol."""
@@ -158,8 +178,7 @@ def _expand_callees(core, m: Manifest, file: str, symbol: str | None
 
 
 def _definer_of(m: Manifest, name: str) -> str | None:
-    rows = m.find_symbols(name, substring=False)
-    files = sorted({r.file for r in rows})
+    files = sorted({r.file for r in m.definitions_of(name)})
     return files[0] if len(files) == 1 else None
 
 
@@ -202,7 +221,7 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
         if "." in name:
             qualifier, member = name.rsplit(".", 1)
         if qualifier:
-            q_rows = m.find_symbols(qualifier, substring=False)
+            q_rows = m.definitions_of(qualifier)
             if q_rows:
                 defs = ", ".join(f"{r.file}:{r.start_line}"
                                  for r in q_rows[:3])
@@ -221,10 +240,17 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
                 target = name
         else:
             target = member
-        roots = [GraphNode(file=r.file, symbol=r.name, line=r.start_line,
-                           relationship="definition", confidence="ast")
-                 for r in m.find_symbols(target, substring=False)]
-        if not roots:
+        all_roots = [GraphNode(file=r.file, symbol=r.name, line=r.start_line,
+                               relationship="definition", confidence="ast")
+                     for r in m.definitions_of(target)]
+        # Roots consume the node budget like every other node. A root set
+        # larger than the cap is shown cut, and SAID to be cut — a definition
+        # list is not an edge list, so the refusals are not `omitted`.
+        roots = all_roots[:max_nodes] if max_nodes >= 0 else []
+        root_capped = len(roots) < len(all_roots)
+        if root_capped:
+            notes.append(_root_cap_note(len(all_roots), max_nodes))
+        if not all_roots:
             # No definition row: seed from the reference rows this command
             # reads, and say plainly that the index holds no definition.
             # The store hands over every row; the node cap is applied HERE and
@@ -303,7 +329,8 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
         if depth_capped:
             notes.append(_depth_note(stopped_level, "references"))
         return GraphResult(nodes=result, notes=notes,
-                           truncated=bool(omitted or depth_capped),
+                           truncated=bool(omitted or depth_capped
+                                          or root_capped),
                            omitted=omitted)
     finally:
         m.close()
@@ -326,9 +353,13 @@ def find_callees(core, slug: str, name: str, depth: int = 2,
     omitted = 0
     depth_capped = False
     try:
-        roots = [GraphNode(file=r.file, symbol=r.name, line=r.start_line,
-                           relationship="definition", confidence="ast")
-                 for r in m.find_symbols(name, substring=False)]
+        all_roots = [GraphNode(file=r.file, symbol=r.name, line=r.start_line,
+                               relationship="definition", confidence="ast")
+                     for r in m.definitions_of(name)]
+        roots = all_roots[:max_nodes] if max_nodes >= 0 else []
+        root_capped = len(roots) < len(all_roots)
+        if root_capped:
+            notes.append(_root_cap_note(len(all_roots), max_nodes))
         seen: set[tuple] = {_root_key(n.file, n.symbol) for n in roots}
         frontier = list(roots)
         result: list[GraphNode] = list(roots)
@@ -367,7 +398,8 @@ def find_callees(core, slug: str, name: str, depth: int = 2,
         if depth_capped:
             notes.append(_depth_note(stopped_level, "callees"))
         return GraphResult(nodes=result, notes=notes,
-                           truncated=bool(omitted or depth_capped),
+                           truncated=bool(omitted or depth_capped
+                                          or root_capped),
                            omitted=omitted)
     finally:
         m.close()

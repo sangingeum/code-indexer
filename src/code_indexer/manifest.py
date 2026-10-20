@@ -290,12 +290,18 @@ class Manifest:
                     "source, signature, visibility FROM symbols")
 
     def find_symbols(self, name: str | None, symbol_type: str | None = None,
-                     substring: bool = False, limit: int = 25,
+                     substring: bool = False, limit: int | None = 25,
                      file: str | None = None) -> list[SymbolRow]:
         """Exact-first (ast rows above regex rows); optional capped substring tier.
 
         name=None is browse mode (design §2.3): --type/--file filters only,
-        capped by limit.
+        capped by ``limit``. ``limit=None`` is the WHOLE read — a definition
+        list is an answer, not a sample, so ``definitions_of`` uses it and the
+        caller above owns whatever cap it applies (issue #22).
+
+        The order key ends in ``file`` so it is total: ``(name, start_line)``
+        alone is not, and a capped read is only a reproducible prefix when no
+        tie can straddle the cut.
         """
         clauses: list[str] = []
         args: list = []
@@ -314,10 +320,27 @@ class Manifest:
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += (" ORDER BY CASE source WHEN 'ast' THEN 0 ELSE 1 END, "
-                "name, start_line LIMIT ?")
-        args.append(limit)
+                "name, start_line, file")
+        if limit is not None:
+            sql += " LIMIT ?"
+            args.append(limit)
         return [SymbolRow(*row) for row in
                 self._conn.execute(sql, args).fetchall()]
+
+    def definitions_of(self, name: str,
+                       symbol_type: str | None = None) -> list[SymbolRow]:
+        """EVERY definition row of this exact name — never a capped sample.
+
+        This is the read behind a graph walk's definition roots, the
+        resolution of a dotted subject's qualifier, and ``_definer_of``.
+        A name can have many definitions (40 ``__init__`` rows on one live
+        index), and a walk handed 25 of them walks 25 subtrees while
+        certifying the answer as complete — issue #22's filed symptom. The
+        graph layer applies and announces its own node cap on the returned
+        roots; the store does not decide how many definitions exist.
+        """
+        return self.find_symbols(name, symbol_type=symbol_type,
+                                 substring=False, limit=None)
 
     def symbols_with_files(self) -> tuple[dict[str, ManifestFile], list[SymbolRow]]:
         """All files + all symbols for the skeleton projection (design §2.1).
