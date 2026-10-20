@@ -1208,10 +1208,7 @@ class Core:
                 with open(abs_path, encoding="utf-8", errors="replace") as f:
                     live_text = f.read()
                 live_chunks = ts_chunker.chunk_text(rel, live_text)
-                fresh_rows = [
-                    c for c in live_chunks
-                    if c.symbol == symbol or
-                    (c.symbol and c.symbol.endswith("." + symbol))]
+                fresh_rows = [c for c in live_chunks if c.symbol == symbol]
                 if fresh_rows:
                     ranges = [(max(1, c.start_line - context_lines),
                                c.end_line + context_lines)

@@ -24,6 +24,7 @@ import pytest  # noqa: E402
 from typer.testing import CliRunner  # noqa: E402
 
 from code_indexer import evalharness  # noqa: E402
+from code_indexer import ts_chunker  # noqa: E402
 from code_indexer.cli import app  # noqa: E402
 from code_indexer.config import Config  # noqa: E402
 from code_indexer.core import Core  # noqa: E402
@@ -207,6 +208,41 @@ def test_re_resolved_symbol_mode_returns_every_definition(repeated_rig):
     assert data["re_resolved"] is True
     assert data["stale"] is False
     assert len(data["segments"]) == 6
+
+
+# ---------------------------------------------------------------------------
+# the exact-name rule: extraction stores no dotted name, so none is matched
+# ---------------------------------------------------------------------------
+
+def test_re_resolved_symbol_mode_matches_the_exact_name_only(
+        tmp_path, monkeypatch):
+    """A live chunk named ``pkg.prepare`` is not a match for ``prepare``.
+
+    Extraction stores the leaf of a qualified name (C#) and the last part of
+    a ``Foo::bar`` declarator (C++), so a dotted symbol never reaches the
+    store and the changed-file re-resolve path must not invent a dotted
+    match either: the exact name is the whole rule.
+    """
+    files = {"dotted.py": "def unrelated():\n    return 0\n"}
+    core, reg, entry, project, cfg = _build_rig(tmp_path, monkeypatch, files)
+    try:
+        target = project / "dotted.py"
+        target.write_text("# edited\n" + files["dotted.py"])
+
+        class DottedChunk:
+            symbol = "pkg.prepare"
+            start_line = 10
+            end_line = 12
+
+        monkeypatch.setattr(ts_chunker, "chunk_text",
+                            lambda rel, text: [DottedChunk()])
+        with pytest.raises(ValueError, match="not indexed in dotted.py"):
+            core.code_context(entry, "dotted.py", symbol=SHARED_NAME)
+    finally:
+        reg.close()
+        import code_indexer.cli as cli
+        cli._core = None
+        cli._core_skip = False
 
 
 if __name__ == "__main__":  # pragma: no cover

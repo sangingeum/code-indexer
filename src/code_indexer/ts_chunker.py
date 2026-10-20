@@ -283,8 +283,10 @@ def _symbol_from_node(node, data: bytes) -> str | None:
         name_node = node.child_by_field_name("name")
         if name_node.type == "qualified_name":
             # C# `namespace Estate.Sim {}` names the field with a
-            # qualified_name node — take its full dotted text (find_symbol
-            # callers can match either the full name or the leaf).
+            # qualified_name node. Only the LEAF is ever stored — this
+            # returns the last dotted part, and no dotted symbol name
+            # reaches the store — so `find_symbol` and every other caller
+            # match the leaf, and only the leaf.
             full = data[name_node.start_byte:name_node.end_byte].decode(
                 "utf-8", "replace")
             return full.split(".")[-1] if "." in full else full

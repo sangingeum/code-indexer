@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased] — symbol-mode follow-ups
+
+- **Symbol mode's changed-file path matches the exact name only (issue #24).**
+  The re-resolve path accepted a live chunk whose symbol was the requested
+  name **or** ended with `.` + the name. Extraction never stores a dotted
+  name — C# takes the leaf of a `qualified_name`, C++ the last part of a
+  `Foo::bar` declarator — so the suffix branch could never fire: a read-only
+  count over the eleven manifest tables on the development host found zero
+  dotted symbol names. The branch is deleted; the exact-name comparison is
+  the whole rule, with no replacement heuristic and no cap. The extractor
+  comment in `ts_chunker.py` now states what is stored — the leaf — instead
+  of what a caller might wish to match, and a test pins the changed-file
+  rule against a live chunk named `pkg.prepare`. No reindex is owed: no
+  stored row changes.
+
 ## [Unreleased] — get-code-context symbol resolution
 
 - **`get-code-context --symbol` finds a definition whose row sorts past the
