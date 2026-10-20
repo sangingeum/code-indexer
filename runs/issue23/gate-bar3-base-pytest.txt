@@ -1,3 +1,8 @@
+# Publication note: paths elided. The pytest temporary-directory path in the
+# traceback below is an absolute host path carrying the host user name; it is
+# replaced with <pytest tmp>. Every other byte of the capture is unchanged. The
+# unmodified capture is kept in the local evidence store for this round,
+# outside the repository.
 .FFFFF                                                                   [100%]
 =================================== FAILURES ===================================
 _________________ test_symbol_mode_resolves_a_row_past_the_cap _________________
@@ -14,7 +19,7 @@ tests/test_symbol_resolution.py:146:
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
 
 self = <code_indexer.core.Core object at 0x7d896eb0b440>
-entry = ProjectEntry(path='/tmp/pytest-of-keum/pytest-59/test_symbol_mode_resolves_a_ro0/proj', slug='symbolres', created_at=1792535943.243863, name='symbolres')
+entry = ProjectEntry(path='<pytest tmp>', slug='symbolres', created_at=1792535943.243863, name='symbolres')
 file = 'late_definition.py', start_line = None, end_line = None
 symbol = 'prepare', context_lines = 0
 

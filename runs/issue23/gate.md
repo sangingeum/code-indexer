@@ -6,7 +6,7 @@ Verdict: **PASS**
 - Commits: both `%G? = G` (signed), `origin/main` = `c5d60fb` (local `HEAD` equals it).
 - Verifier: the QA gate. Gate run on the live index of this checkout, read-only
   (`--skip-stale-check` on every inspection). No source or test was edited.
-- Issue #23 remains **open**; board card T-000014 was read-only for this leg.
+- Issue #23 remains **open**; the gate's card was read-only for this leg.
 
 ## Evidence files (this directory)
 
@@ -195,9 +195,10 @@ Run, not read (`gate-bar8-shape.txt`), against the live index:
   during this gate; the index was left untouched (reindex is not mine to run).
   Bar 1/2 are unaffected because every symbol row exercised still matches the
   file's current content at the cited lines.
-- The brief describes the JSON object as exactly `file`/`stale`/`re_resolved`/`segments`;
+- The dispatching round's description gives the JSON object as exactly `file`/`stale`/`re_resolved`/`segments`;
   measured it is those four plus a pre-existing `schema` key. Identical at base,
-  so it is not a change from this fix — noted only so the brief and the tool
+  so it is not a change from this fix — noted only so the dispatching round's
+  description and the tool
   agree.
 - `index-status` takes a path argument and offers neither `--project` nor
   `--json`; used the path form. No tool defect observed.

@@ -1,13 +1,18 @@
-### bar3: base build f9e819b (f9e819b), importing /home/keum/dev/athena/code-indexer-base-issue23/src/code_indexer/__init__.py
-$ code-indexer get-code-context src/code_indexer/registry.py --symbol __init__ --project /home/keum/dev/athena/code-indexer --skip-stale-check
+# Publication note: paths elided. The base worktree's import path and the
+# --project argument of the three commands below are absolute host paths; they
+# are replaced with <base worktree> and <checkout> respectively. Every other
+# byte of the capture is unchanged. The unmodified capture is kept in the local
+# evidence store for this round, outside the repository.
+### bar3: base build f9e819b (f9e819b), importing <base worktree>/src/code_indexer/__init__.py
+$ code-indexer get-code-context src/code_indexer/registry.py --symbol __init__ --project <checkout> --skip-stale-check
 InternalError: symbol '__init__' not indexed in src/code_indexer/registry.py
 rc=1
 
-$ code-indexer get-code-context src/code_indexer/doctor.py --symbol __init__ --project /home/keum/dev/athena/code-indexer --skip-stale-check
+$ code-indexer get-code-context src/code_indexer/doctor.py --symbol __init__ --project <checkout> --skip-stale-check
 InternalError: symbol '__init__' not indexed in src/code_indexer/doctor.py
 rc=1
 
-$ code-indexer get-code-context src/code_indexer/embedder.py --symbol __init__ --project /home/keum/dev/athena/code-indexer --skip-stale-check
+$ code-indexer get-code-context src/code_indexer/embedder.py --symbol __init__ --project <checkout> --skip-stale-check
 --- src/code_indexer/embedder.py:39-56 ---
    39|     def __init__(self, host: str, model: str, batch_size: int = 48,
    40|                  retries: int = DEFAULT_RETRIES, timeout: int = DEFAULT_TIMEOUT,
