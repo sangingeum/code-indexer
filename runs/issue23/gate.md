@@ -4,7 +4,7 @@ Verdict: **PASS**
 
 - Under test: `81f0c8c` (fix) + `c5d60fb` (record), tip `c5d60fb`, base `f9e819b`.
 - Commits: both `%G? = G` (signed), `origin/main` = `c5d60fb` (local `HEAD` equals it).
-- Verifier: vera. Gate run on the live index of this checkout, read-only
+- Verifier: the QA gate. Gate run on the live index of this checkout, read-only
   (`--skip-stale-check` on every inspection). No source or test was edited.
 - Issue #23 remains **open**; board card T-000014 was read-only for this leg.
 
@@ -53,9 +53,9 @@ estimated; all of them pass now.
 
 ### Bar 3 — the pre-fix failure is real, not asserted — PASS
 
-Genuine base build: `git worktree add --detach /home/keum/dev/athena/code-indexer-base-issue23 f9e819b`,
+Genuine base build: `git worktree add --detach <base worktree at f9e819b> f9e819b`,
 `uv sync --frozen`, `uv run python -c "import code_indexer; print(code_indexer.__file__)"`
-→ `/home/keum/dev/athena/code-indexer-base-issue23/src/code_indexer/__init__.py`
+→ `<base worktree at f9e819b>/src/code_indexer/__init__.py`
 (its own venv, its own source — not the editable install of the tip checkout).
 The base build was pointed at the same live index with `--project`.
 
@@ -205,7 +205,7 @@ Run, not read (`gate-bar8-shape.txt`), against the live index:
 ## Repro commands (copy-pasteable)
 
 ```bash
-cd /home/keum/dev/athena/code-indexer
+cd <checkout>
 code-indexer get-code-context src/code_indexer/registry.py --symbol __init__ --skip-stale-check; echo rc=$?
 code-indexer get-code-context src/code_indexer/doctor.py   --symbol __init__ --skip-stale-check; echo rc=$?
 code-indexer get-code-context src/code_indexer/embedder.py --symbol __init__ --skip-stale-check; echo rc=$?
