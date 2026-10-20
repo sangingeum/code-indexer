@@ -1,0 +1,3 @@
+vivarium-sim: files=474 same_keys=True mismatches=0 total_aggregate=127740 total_manual=127740
+b1b7f48b: files=316 same_keys=True mismatches=0 total_aggregate=393122 total_manual=393122
+verdict: MATCH

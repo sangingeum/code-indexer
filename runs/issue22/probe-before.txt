@@ -1,0 +1,15 @@
+vivarium-sim: refs=608055 imports=488 names_gt_200=499 file_from_pairs_gt_200=282 pairA=10258 the=18493
+  top names: [('the', 18493), ('pairA', 10258), ('pairB', 10258)]
+  callers_of(limit=200) answers 1.9% of pairA
+b1b7f48b: refs=934672 imports=12 names_gt_200=848 file_from_pairs_gt_200=451 pairA=1 the=55650
+  top names: [('the', 55650), ('and', 16692), ('The', 10122)]
+  callers_of(limit=200) answers 20000.0% of pairA
+code-indexer: refs=49785 imports=1193 names_gt_200=32 file_from_pairs_gt_200=33 pairA=0 the=1188
+  top names: [('the', 1188), ('str', 1124), ('files', 800)]
+  pairA: absent
+calc-engine: refs=13569 imports=505 names_gt_200=6 file_from_pairs_gt_200=6 pairA=0 the=226
+  top names: [('calc', 317), ('str', 249), ('the', 226)]
+  pairA: absent
+tackboard: refs=19909 imports=512 names_gt_200=7 file_from_pairs_gt_200=7 pairA=0 the=535
+  top names: [('str', 778), ('the', 535), ('and', 396)]
+  pairA: absent

@@ -1,0 +1,280 @@
+FFFFF.....F..........FFF......................................FF.        [100%]
+=================================== FAILURES ===================================
+______________ test_callers_of_returns_the_whole_store_by_default ______________
+
+tmp_path = PosixPath('<tmp>/test_callers_of_returns_the_wh0')
+
+    def test_callers_of_returns_the_whole_store_by_default(tmp_path):
+        m = _manifest(tmp_path)
+        try:
+            _add_file(m, "target.py", symbols=[_definition("target.py", "pairA")])
+            for i in range(OVER_CAP):
+                path = f"caller_{i:03d}.py"
+                _add_file(m, path, refs=[(i + 1, f"call_{i}", "pairA", "call",
+                                          None)])
+            rows = m.callers_of("pairA")
+>           assert len(rows) == OVER_CAP, len(rows)
+E           AssertionError: 200
+E           assert 200 == 250
+E            +  where 200 = len([{'file': 'caller_000.py', 'line': 1, 'from_symbol': 'call_0', 'relationship': 'call', ...}, {'file': 'caller_001.py',...onship': 'call', ...}, {'file': 'caller_005.py', 'line': 6, 'from_symbol': 'call_5', 'relationship': 'call', ...}, ...])
+
+tests/test_manifest_store_reads.py:55: AssertionError
+____________ test_callees_of_file_symbol_returns_the_whole_fan_out _____________
+
+tmp_path = PosixPath('<tmp>/test_callees_of_file_symbol_re0')
+
+    def test_callees_of_file_symbol_returns_the_whole_fan_out(tmp_path):
+        m = _manifest(tmp_path)
+        try:
+            refs = [(i + 1, "hub", f"target_{i:03d}", "call", None)
+                    for i in range(OVER_CAP)]
+            _add_file(m, "hub.py", symbols=[_definition("hub.py", "hub")],
+                      refs=refs)
+            by_symbol = m.callees_of_file_symbol("hub.py", "hub")
+>           assert len(by_symbol) == OVER_CAP, len(by_symbol)
+E           AssertionError: 200
+E           assert 200 == 250
+E            +  where 200 = len([{'line': 1, 'to_name': 'target_000', 'relationship': 'call', 'confidence': 'ast', ...}, {'line': 2, 'to_name': 'targe...'confidence': 'ast', ...}, {'line': 6, 'to_name': 'target_005', 'relationship': 'call', 'confidence': 'ast', ...}, ...])
+
+tests/test_manifest_store_reads.py:73: AssertionError
+___________________ test_import_rows_is_complete_and_ordered ___________________
+
+tmp_path = PosixPath('<tmp>/test_import_rows_is_complete_a0')
+
+    def test_import_rows_is_complete_and_ordered(tmp_path):
+        m = _manifest(tmp_path)
+        try:
+            paths = [f"pkg/mod_{i:02d}.py" for i in range(30)]
+            # Inserted in reverse: insertion order is not the answer, and is not
+            # even a stable subset when a read is capped.
+            for path in reversed(paths):
+                _add_file(m, path, imports=[("pkg.base", "pkg/base.py",
+                                             "python", 1)])
+            rows = m.import_rows()
+            assert len(rows) == len(paths), len(rows)
+>           assert [r["file"] for r in rows] == sorted(paths)
+E           AssertionError: assert ['pkg/mod_29....d_24.py', ...] == ['pkg/mod_00....d_05.py', ...]
+E             
+E             At index 0 diff: 'pkg/mod_29.py' != 'pkg/mod_00.py'
+E             Use -v to get more diff
+
+tests/test_manifest_store_reads.py:97: AssertionError
+_______________ test_file_fan_in_matches_a_manual_per_file_count _______________
+
+tmp_path = PosixPath('<tmp>/test_file_fan_in_matches_a_man0')
+
+    def test_file_fan_in_matches_a_manual_per_file_count(tmp_path):
+        """The aggregate equals a hand count of the same store, including the
+        rules: imports into a file count; a reference from the file itself does
+        not; a name defined in two files belongs to the first definition."""
+        m = _manifest(tmp_path)
+        try:
+            _add_file(m, "dup_a.py", symbols=[_definition("dup_a.py", "dup_fn")])
+            _add_file(m, "dup_b.py", symbols=[_definition("dup_b.py", "dup_fn")])
+            _add_file(m, "hot.py", symbols=[_definition("hot.py", "hot_fn")])
+            _add_file(m, "cold.py", symbols=[_definition("cold.py", "cold_fn")])
+            _add_file(m, "imported.py")
+    
+            refs_by_file: dict[str, list[tuple]] = {}
+            # Insertion order puts the SMALL counts first and the big one last, so
+            # a sample taken from the front of the table cannot produce the answer.
+            refs_by_file["cold.py"] = [(9, "cold_fn", "cold_fn", "call", None)]
+            refs_by_file["a.py"] = [(1, "use_cold", "cold_fn", "call", None),
+                                    (2, "use_dup", "dup_fn", "call", None)]
+            refs_by_file["b.py"] = [(1, "use_cold", "cold_fn", "call", None),
+                                    (2, "use_dup", "dup_fn", "call", None)]
+            for i in range(OVER_CAP):
+                refs_by_file.setdefault(f"users/hot_{i:03d}.py", []).append(
+                    (1, f"use_hot_{i}", "hot_fn", "call", None))
+            for path, refs in refs_by_file.items():
+                _add_file(m, path, refs=refs)
+    
+            _add_file(m, "import_one.py",
+                      imports=[("imported", "imported.py", "python", 1)])
+            _add_file(m, "import_two.py",
+                      imports=[("imported", "imported.py", "python", 1),
+                               ("imported", "imported.py", "python", 2)])
+            _add_file(m, "self_import.py",
+                      imports=[("self_import", "self_import.py", "python", 1)])
+    
+            # Manual count, from the fixture's own declared rows.
+            expected: dict[str, int] = {}
+            for path, refs in refs_by_file.items():
+                for (_line, _frm, to_name, _rel, _recv) in refs:
+                    target = "dup_a.py" if to_name == "dup_fn" else \
+                        {"hot_fn": "hot.py", "cold_fn": "cold.py"}[to_name]
+                    if path != target:
+                        expected[target] = expected.get(target, 0) + 1
+            expected["imported.py"] = 3  # two import rows + one
+    
+>           got = dict(m.file_fan_in())
+                       ^^^^^^^^^^^^^
+E           AttributeError: 'Manifest' object has no attribute 'file_fan_in'
+
+tests/test_manifest_store_reads.py:148: AttributeError
+__________________ test_file_fan_in_does_not_stop_at_a_sample __________________
+
+tmp_path = PosixPath('<tmp>/test_file_fan_in_does_not_stop0')
+
+    def test_file_fan_in_does_not_stop_at_a_sample(tmp_path):
+        """5,100 references to one file's symbol: a 5,000-row sample would report
+        5,000 and, with no ORDER BY, not even a stable 5,000."""
+        m = _manifest(tmp_path)
+        try:
+            _add_file(m, "defs/wide.py",
+                      symbols=[_definition("defs/wide.py", "wide_fn")])
+            _add_file(m, "defs/narrow.py",
+                      symbols=[_definition("defs/narrow.py", "narrow_fn")])
+            _add_file(m, "defs/narrow_user.py",
+                      refs=[(1, "u", "narrow_fn", "call", None)])
+            rows = [(i + 1, f"call_{i}", "wide_fn", "call", None)
+                    for i in range(5100)]
+            _add_file(m, "defs/wide_user.py", refs=rows)
+>           counts = dict(m.file_fan_in())
+                          ^^^^^^^^^^^^^
+E           AttributeError: 'Manifest' object has no attribute 'file_fan_in'
+
+tests/test_manifest_store_reads.py:171: AttributeError
+___________ test_hotspot_fan_in_counts_the_whole_store_not_a_sample ____________
+
+rig = (<code_indexer.core.Core object at 0x75b5e9b24f20>, <code_indexer.registry.Registry object at 0x75b5ea49d940>, Project...at=1792506399.6919546, name='ovproj'), PosixPath('<tmp>/test_hotspot_fan_in_counts_the0/proj'))
+
+    def test_hotspot_fan_in_counts_the_whole_store_not_a_sample(rig):
+        """Hotspots are computed by the store, not read off a 5,000-row sample.
+    
+        The fixture gains 5,100 references to one defined name; the reported
+        fan-in must move by exactly 5,100. A sampled scan could move it by at
+        most 5,000 — and, with no ORDER BY beneath it, not reliably even that.
+        """
+        core, reg, entry, project = rig
+        m = core.manifest_for(entry.slug)
+        try:
+            from code_indexer.overview import build_overview
+    
+            def helper_fan_in() -> int | None:
+                data = build_overview(m, str(project))
+                for h in data["hotspots"]["fan_in"]:
+                    if h["file"] == "pkg/helpers.py":
+                        return h["fan_in"]
+                return None
+    
+            baseline = helper_fan_in()
+            assert baseline is not None
+            rows = [(i + 1, f"call_{i}", "refresh_token", "call", None)
+                    for i in range(5100)]
+            m.replace_file_refs("generated/callers.py", rows, "ast")
+>           assert helper_fan_in() == baseline + 5100
+E           assert 4986 == (2 + 5100)
+E            +  where 4986 = <function test_hotspot_fan_in_counts_the_whole_store_not_a_sample.<locals>.helper_fan_in at 0x75b5e99e2a20>()
+
+tests/test_overview.py:194: AssertionError
+_________________ test_impact_reports_the_per_name_store_bound _________________
+
+tmp_path = PosixPath('<tmp>/test_impact_reports_the_per_na0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x75b5e9b28f80>
+
+    def test_impact_reports_the_per_name_store_bound(tmp_path, monkeypatch):
+        """A caller list cut by the per-name read says so, in the graph
+        vocabulary: `truncated` + `omitted`, never a silent short list."""
+        core, entry, changed_data = _impact_rig(tmp_path, monkeypatch,
+                                                caller_files=60)
+        imp = changed.impact(core, entry.slug, changed_data, max_nodes=100)
+        entry_data = imp["app.py"]
+>       assert len(entry_data["callers"]) == changed.CALLERS_PER_NAME
+                                             ^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'code_indexer.changed' has no attribute 'CALLERS_PER_NAME'
+
+tests/test_changed_symbols.py:330: AttributeError
+__________________ test_impact_reports_the_shared_node_budget __________________
+
+tmp_path = PosixPath('<tmp>/test_impact_reports_the_shared0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x75b5e9b2c050>
+
+    def test_impact_reports_the_shared_node_budget(tmp_path, monkeypatch):
+        """Both bounds are in play; a node budget below the per-name read counts
+        what it refused too."""
+        core, entry, changed_data = _impact_rig(tmp_path, monkeypatch,
+                                                caller_files=60)
+        imp = changed.impact(core, entry.slug, changed_data, max_nodes=5)
+        entry_data = imp["app.py"]
+        assert len(entry_data["callers"]) == 5
+>       assert entry_data["truncated"] is True
+               ^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'truncated'
+
+tests/test_changed_symbols.py:345: KeyError
+____________ test_impact_reports_no_bound_when_the_list_is_complete ____________
+
+tmp_path = PosixPath('<tmp>/test_impact_reports_no_bound_w0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x75b5e9b36ed0>
+
+    def test_impact_reports_no_bound_when_the_list_is_complete(
+            tmp_path, monkeypatch):
+        """The pin in the other direction: a complete impact list claims nothing."""
+        core, entry, changed_data = _impact_rig(tmp_path, monkeypatch,
+                                                caller_files=3)
+        imp = changed.impact(core, entry.slug, changed_data, max_nodes=40)
+        entry_data = imp["app.py"]
+        assert len(entry_data["callers"]) == 3
+>       assert entry_data["truncated"] is False
+               ^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'truncated'
+
+tests/test_changed_symbols.py:359: KeyError
+________ test_every_call_site_above_the_old_store_cap_is_in_the_answer _________
+
+tmp_path = PosixPath('<tmp>/test_every_call_site_above_the0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x75b5e9966c00>
+
+    def test_every_call_site_above_the_old_store_cap_is_in_the_answer(
+            tmp_path, monkeypatch):
+        """250 call sites: the store used to hand the walk 200 and say nothing."""
+        core, reg, entry, project = _wide_rig(tmp_path, monkeypatch)
+        result = runner.invoke(app, ["find-callers", "pairA", "--project",
+                                     str(project), "--max-nodes", "400",
+                                     "--json"])
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        sites = [n for n in _walk_json(payload) if n["relationship"] == "call"]
+>       assert len(sites) == 250, len(sites)
+E       AssertionError: 200
+E       assert 200 == 250
+E        +  where 200 = len([{'file': 'callers_0.py', 'symbol': 'caller_0_000', 'line': 2, 'relationship': 'call', ...}, {'file': 'callers_0.py', ...nship': 'call', ...}, {'file': 'callers_0.py', 'symbol': 'caller_0_005', 'line': 17, 'relationship': 'call', ...}, ...])
+
+tests/test_graph.py:694: AssertionError
+________ test_seeded_reference_list_applies_and_announces_its_node_cap _________
+
+tmp_path = PosixPath('<tmp>/test_seeded_reference_list_app0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x75b5e9967cb0>
+
+    def test_seeded_reference_list_applies_and_announces_its_node_cap(
+            tmp_path, monkeypatch):
+        """The no-definition seed path reads the whole store and caps HERE.
+    
+        Before the store stopped capping, this path returned the store's 200 rows
+        and claimed a complete answer; it must not replace that with an unbounded
+        answer either — the walk's own cap decides, and reports.
+        """
+        core, reg, entry, project = _wide_rig(tmp_path, monkeypatch)
+        capped = runner.invoke(app, ["find-callers", "ghost_fn", "--project",
+                                     str(project), "--max-nodes", "40", "--json"])
+        assert capped.exit_code == 0, capped.output
+        payload = json.loads(capped.stdout)
+>       assert len(payload["roots"]) == 40
+E       AssertionError: assert 200 == 40
+E        +  where 200 = len([{'file': 'callers_0.py', 'symbol': 'caller_0_000', 'line': 3, 'relationship': 'call', ...}, {'file': 'callers_0.py', ...nship': 'call', ...}, {'file': 'callers_0.py', 'symbol': 'caller_0_005', 'line': 18, 'relationship': 'call', ...}, ...])
+
+tests/test_graph.py:712: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_manifest_store_reads.py::test_callers_of_returns_the_whole_store_by_default
+FAILED tests/test_manifest_store_reads.py::test_callees_of_file_symbol_returns_the_whole_fan_out
+FAILED tests/test_manifest_store_reads.py::test_import_rows_is_complete_and_ordered
+FAILED tests/test_manifest_store_reads.py::test_file_fan_in_matches_a_manual_per_file_count
+FAILED tests/test_manifest_store_reads.py::test_file_fan_in_does_not_stop_at_a_sample
+FAILED tests/test_overview.py::test_hotspot_fan_in_counts_the_whole_store_not_a_sample
+FAILED tests/test_changed_symbols.py::test_impact_reports_the_per_name_store_bound
+FAILED tests/test_changed_symbols.py::test_impact_reports_the_shared_node_budget
+FAILED tests/test_changed_symbols.py::test_impact_reports_no_bound_when_the_list_is_complete
+FAILED tests/test_graph.py::test_every_call_site_above_the_old_store_cap_is_in_the_answer
+FAILED tests/test_graph.py::test_seeded_reference_list_applies_and_announces_its_node_cap
+11 failed, 54 passed in 7.13s

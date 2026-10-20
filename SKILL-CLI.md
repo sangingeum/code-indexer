@@ -162,7 +162,7 @@ code-indexer get-code-context src/f.hpp --start-line 40 --end-line 80   # or --s
 code-indexer semantic-search "query" [--project P] [--limit 8] [--file-filter '*.py'] [--symbol-type class] [--language python] [--ranking vector|metadata|hybrid] [--mode hybrid|dense|lexical] [--rerank heuristic|none] [--per-file N] [--max-chars N | --max-tokens N] [--context-lines N] [--format text|compact|json] [--json] [--fresh]
 
 # edits
-code-indexer changed-symbols [--project P] [--base HEAD] [--head REF] [--staged] [--include-untracked] [--impact] [--depth 1] [--max-nodes 40] [--json]   # post-edit diff -> symbols
+code-indexer changed-symbols [--project P] [--base HEAD] [--head REF] [--staged] [--include-untracked] [--impact] [--depth 1] [--max-nodes 40] [--json]   # post-edit diff -> symbols; --impact lists callers + candidate tests, and its json reports truncated/omitted per file
 
 # lifecycle
 code-indexer index-status /path/repo [--refresh]
@@ -331,10 +331,9 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
   gains the same two fields). `truncated` is the completeness flag; `omitted`
   counts node-cap refusals only and is `0` on a depth-capped answer, so read
   `truncated`, never `omitted`, to decide whether an answer is complete. The
-  promise is scoped to these three graph walks: the store reads one layer
-  beneath them still cap silently (issue #22), so a walk fed from a store
-  read above its own limit can be short with no trace. In the text tree the
-  result gains a `note:` line naming the cap and the count, e.g.
+  store reads beneath these walks cap nothing at all (see "Store reads"
+  below), so a short answer is a cap this walk applied and announced. In the
+  text tree the result gains a `note:` line naming the cap and the count, e.g.
   `note: node cap 4 reached — 61 more reference edges not shown (a lower
   bound: a refused edge is counted but never expanded, so its own edges are
   not walked, and a depth cap on the same answer can cut more); raise
@@ -481,6 +480,19 @@ custom name. Two selector spellings exist:
 Lifecycle commands (`index-status`, `reindex-project`, `remove-project`,
 `lookup-project`, `index-more`) take the project as a positional path
 argument instead of a flag.
+
+## Store reads (no silent caps)
+
+The manifest store hands over everything it holds. `Manifest.callers_of`,
+`callees_of_file_symbol` and `import_rows` take `limit: int | None = None`,
+and `None` — the default — means the **whole store read**, not a large
+number. A cap belongs to the layer above, which can announce it: the graph
+walks count what their `--max-nodes` refused in `omitted`, `overview`
+computes hotspots from one SQL aggregate instead of a row sample, and
+`changed-symbols --impact` reports its own per-name read and shared node
+budget as `truncated`/`omitted` per file. An explicit `limit` stays available
+to a caller that wants a bounded read — and that caller is then responsible
+for saying so in its own output.
 
 ## Key rules
 

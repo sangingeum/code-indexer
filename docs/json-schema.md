@@ -52,6 +52,33 @@ outline: `{"schema": 1, "file": str, "lang": str, "declarations": [{"type",
 Project map dict (project, files, loc, languages, directories,
 entry_points, tests, config_files, hotspots) + `schema: 1`.
 
+`hotspots.fan_in` is `[{"file": str, "fan_in": int}]`, the top ten by a
+**complete** per-file count: resolved imports into the file plus references
+to a name that file defines, self-references excluded. It is a count, never a
+sample of the reference table, so two runs over one index agree exactly.
+
+## changed-symbols --json
+
+The changed map plus `schema`:
+
+```json
+{"schema": 1, "<file>": {"kind": str, "symbols": [sym...],
+ "removed_symbols": [sym...], "files": [str]},
+ "impact": {"<file>": {"callers": [caller...], "candidate_tests": [str],
+                       "truncated": bool, "omitted": int}}}
+```
+
+`impact` is present only with `--impact`. caller =
+`{"symbol", "file", "from", "line", "confidence"}`, where `symbol` is the
+changed symbol the caller references.
+
+In an impact entry, `truncated` is the completeness flag for that file's
+caller list and `omitted` counts the reference rows its bounds refused — the
+per-name store read and the shared `--max-nodes` budget. It is a count of rows
+withheld, never a population total, and it is the same pair of names the graph
+commands use, so one rule reads every incomplete answer: decide completeness
+from `truncated`.
+
 ## doctor --json
 
 `{"checks": [{"status": "ok|warn|fail", "name": str, "detail": str}],

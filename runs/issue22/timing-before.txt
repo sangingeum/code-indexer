@@ -1,0 +1,5 @@
+# before: PYTHONPATH=<base-worktree>/src
+find-callers pairA (vivarium-sim): runs=[0.9, 0.869, 0.855] median=0.869s
+find-callers the (b1b7f48b): runs=[0.885, 0.945, 0.895] median=0.895s
+overview (vivarium-sim): runs=[0.939, 0.878, 0.885] median=0.885s
+overview (b1b7f48b): runs=[0.891, 0.883, 0.9] median=0.891s

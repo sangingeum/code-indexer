@@ -1,0 +1,5 @@
+# after: PYTHONPATH=<repo>/src
+find-callers pairA (vivarium-sim): runs=[0.903, 0.886, 0.887] median=0.887s
+find-callers the (b1b7f48b): runs=[1.025, 1.029, 1.017] median=1.025s
+overview (vivarium-sim): runs=[1.087, 1.097, 1.066] median=1.087s
+overview (b1b7f48b): runs=[1.483, 1.486, 1.482] median=1.483s
