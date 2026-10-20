@@ -243,6 +243,125 @@ def test_impact_lists_callers(git_repo, tmp_path, monkeypatch):
     assert "tests/test_app.py" in tests
 
 
+def _impact_rig(tmp_path, monkeypatch, caller_files: int):
+    """A git repo whose staged diff removes `old_fn`, with `caller_files`
+    files that reference it — the shape `changed-symbols --impact` reads."""
+    from code_indexer.config import Config
+    from code_indexer.core import Core
+    from code_indexer.registry import Registry
+
+    repo = tmp_path / "impactrepo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "t@example.com")
+    _git(repo, "config", "user.name", "T")
+    (repo / "app.py").write_text(PY_V1)
+    (repo / "tests").mkdir()
+    (repo / "tests" / "test_app.py").write_text(
+        "import app\n\n\ndef test_keep():\n    assert app.keep() == 1\n")
+    for i in range(caller_files):
+        (repo / f"caller_{i:03d}.py").write_text(
+            "import app\n\n\napp.old_fn()\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "with callers")
+    (repo / "app.py").write_text(PY_V2)
+    _git(repo, "add", "-A")
+
+    cfg = Config(ollama_url="", qdrant_url="", embed_model="stub",
+                 index_root=str(tmp_path / "state"), stale_ttl=60,
+                 embed_batch=48, upsert_batch=256, max_file_bytes=1048576,
+                 watch_debounce=3, watch_sweep_interval=300)
+    core = Core(cfg)
+
+    class StubEmbedder:
+        def dimension(self):
+            return 4
+
+        def embed(self, texts):
+            return [[0.1] * 4 for _ in texts]
+
+        def query_instruction_text(self, q):
+            return q
+
+        def embed_with_errors(self, texts):
+            return [[0.1] * 4 for _ in texts], []
+
+        def close(self):
+            pass
+
+    class StubStore:
+        def collection_exists(self, name):
+            return True
+
+        def create_collection(self, name, dim):
+            pass
+
+        def upsert_points(self, name, points):
+            pass
+
+        def purge_file_points(self, *a, **kw):
+            return 0
+
+        def count_points(self, name):
+            return 0
+
+        def search(self, *a, **kw):
+            return []
+
+    core.embedder = StubEmbedder()  # type: ignore[assignment]
+    core.store = StubStore()  # type: ignore[assignment]
+    core.indexer.embedder = core.embedder  # type: ignore[assignment]
+    core.indexer.store = core.store  # type: ignore[assignment]
+    reg = Registry(os.path.join(cfg.index_root, "registry.db"))
+    entry = reg.add(str(repo), name="impactproj")
+    core.run_index(entry.slug, str(repo))
+    changed_data = changed.changed_symbols(str(repo), base="HEAD", head=None,
+                                           staged=True)
+    return core, entry, changed_data
+
+
+def test_impact_reports_the_per_name_store_bound(tmp_path, monkeypatch):
+    """A caller list cut by the per-name read says so, in the graph
+    vocabulary: `truncated` + `omitted`, never a silent short list."""
+    core, entry, changed_data = _impact_rig(tmp_path, monkeypatch,
+                                            caller_files=60)
+    imp = changed.impact(core, entry.slug, changed_data, max_nodes=100)
+    entry_data = imp["app.py"]
+    assert len(entry_data["callers"]) == changed.CALLERS_PER_NAME
+    assert entry_data["truncated"] is True
+    assert entry_data["omitted"] == 60 - changed.CALLERS_PER_NAME
+    out = changed.render(changed_data, imp)
+    assert "more caller references not shown" in out
+
+
+def test_impact_reports_the_shared_node_budget(tmp_path, monkeypatch):
+    """Both bounds are in play; a node budget below the per-name read counts
+    what it refused too."""
+    core, entry, changed_data = _impact_rig(tmp_path, monkeypatch,
+                                            caller_files=60)
+    imp = changed.impact(core, entry.slug, changed_data, max_nodes=5)
+    entry_data = imp["app.py"]
+    assert len(entry_data["callers"]) == 5
+    assert entry_data["truncated"] is True
+    # 10 rows refused at the per-name read + 45 of the 50 rows it returned
+    # refused at the budget = 55 of the 60 rows in the store.
+    assert entry_data["omitted"] == 60 - 5
+
+
+def test_impact_reports_no_bound_when_the_list_is_complete(
+        tmp_path, monkeypatch):
+    """The pin in the other direction: a complete impact list claims nothing."""
+    core, entry, changed_data = _impact_rig(tmp_path, monkeypatch,
+                                            caller_files=3)
+    imp = changed.impact(core, entry.slug, changed_data, max_nodes=40)
+    entry_data = imp["app.py"]
+    assert len(entry_data["callers"]) == 3
+    assert entry_data["truncated"] is False
+    assert entry_data["omitted"] == 0
+    assert "more caller references not shown" not in changed.render(
+        changed_data, imp)
+
+
 def test_mcp_changed_symbols_tool_exists():
     import code_indexer.server as server
     assert hasattr(server, "changed_symbols")

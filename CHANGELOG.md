@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased] — changed-symbols reports its own bounds (issue #22)
+
+- **`changed-symbols --impact` says when its caller list is cut (issue #22).**
+  The impact list has two bounds and reported neither: a per-name store read
+  (`callers_of(name, limit=50)`) and a shared node budget across the whole
+  diff (`max_nodes`). Both were applied in silence, so a payload listing five
+  callers read exactly like a symbol called five times. Each file entry in
+  `impact` now carries `truncated: <bool>` and `omitted: <int>` — the same
+  vocabulary `find-callers` / `find-callees` / `deps` use, so a consumer reads
+  one signal, not two kinds of truncation — and the text renderer prints
+  `impact: N more caller references not shown ...` beside the callers it did
+  print. `omitted` is a count of reference rows the bounds refused: the
+  per-name read's refusals come from one aggregate (`ref_relationship_counts`)
+  and the budget's are counted as they are skipped. It is a count of rows
+  withheld, never a total for the symbols the diff did not name.
+  The per-name read keeps its cap on purpose: a diff can name many symbols and
+  the impact list is a navigation aid, not a graph walk — it is now simply a
+  cap that speaks.
+
 ## [Unreleased] — the store reads hand over everything (issue #22)
 
 - **No store read caps silently any more, and `overview` hotspots are computed

@@ -227,10 +227,22 @@ def _candidate_tests(file: str, names: set[str]) -> set[str]:
     return candidates
 
 
+# `changed-symbols` is the one caller that keeps a bounded store read: a diff
+# can name many symbols and the impact list is a navigation aid, not a graph
+# walk. Both of its bounds — this per-name read and the shared node budget —
+# are counted and reported (`truncated` / `omitted`), never applied silently.
+CALLERS_PER_NAME = 50
+
+
 def impact(core, slug: str, changed: dict, depth: int = 1,
            max_nodes: int = 40) -> dict:
     """Attach direct callers/referencing symbols + candidate tests for
-    modified/removed symbols, from the graph tables (ast + heuristic)."""
+    modified/removed symbols, from the graph tables (ast + heuristic).
+
+    Each file's entry carries `truncated` (the caller list is incomplete) and
+    `omitted` (how many reference rows the bounds refused) — the same
+    vocabulary the graph commands use, so a consumer reads one signal.
+    """
     m: Manifest = core.manifest_for(slug)
     try:
         all_syms = m.all_symbols()
@@ -251,10 +263,20 @@ def impact(core, slug: str, changed: dict, depth: int = 1,
             if not targets:
                 continue
             callers: list[dict] = []
+            omitted = 0
             for name in targets:
-                for edge in m.callers_of(name, limit=50):
+                rows = m.callers_of(name, limit=CALLERS_PER_NAME)
+                # What the per-name read refused, from one aggregate rather
+                # than a second row read.
+                population = sum(n for _rel, n
+                                 in m.ref_relationship_counts(name))
+                omitted += max(0, population - len(rows))
+                for edge in rows:
                     if budget <= 0:
-                        break
+                        # Refused at the shared node budget: counted, not
+                        # dropped in silence.
+                        omitted += 1
+                        continue
                     callers.append({"symbol": name,
                                     "file": edge["file"],
                                     "from": edge["from_symbol"],
@@ -263,8 +285,10 @@ def impact(core, slug: str, changed: dict, depth: int = 1,
                     budget -= 1
             tests = sorted(_match_tests(
                 _candidate_tests(file, set(targets)), _indexed_files(m)))
-            out[file] = {"callers": callers[:max_nodes],
-                         "candidate_tests": tests}
+            out[file] = {"callers": callers,
+                         "candidate_tests": tests,
+                         "truncated": bool(omitted),
+                         "omitted": omitted}
         return out
     finally:
         m.close()
@@ -323,4 +347,9 @@ def render(changed: dict, impact_data: dict | None = None) -> str:
                              f" ({c['confidence']})")
             for t in imp.get("candidate_tests", [])[:3]:
                 lines.append(f"  candidate test: {t}")
+            if imp.get("omitted"):
+                lines.append(
+                    f"  impact: {imp['omitted']} more caller references not "
+                    "shown (the per-name read and the shared node budget cut; "
+                    "raise --max-nodes for more)")
     return "\n".join(lines) if lines else "no changes"
