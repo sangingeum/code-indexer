@@ -773,6 +773,12 @@ class Core:
         if re.fullmatch(r"[A-Za-z_][\w:.]*", ident):
             m = self.manifest_for(entry.slug)
             try:
+                # find_symbols caps this read at 25 rows, and the pin below
+                # takes 3. The cap cannot change that answer: the read's order
+                # key is total, so 3 of 25 and an uncapped read pin the same
+                # three (3 of 25 under a total key). Same-name rows are not
+                # filtered after the cut here — cf. the get-code-context
+                # --symbol lookup, where the file filter runs after the cap.
                 exact = [r for r in m.find_symbols(ident, substring=False)]
             finally:
                 m.close()

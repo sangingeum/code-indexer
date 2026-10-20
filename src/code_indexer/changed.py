@@ -326,8 +326,9 @@ def _impact_bound_note(imp: dict) -> str:
     The two bounds have different remedies, so a note that blames both and
     advises `--max-nodes` is wrong for whichever one actually fired. The
     shared node budget answers to `--max-nodes`; the per-name read does not —
-    it is `CALLERS_PER_NAME`, and one symbol's whole fan-in is what
-    `find-callers` is for.
+    it is `CALLERS_PER_NAME`, so the remedy is the walk that asks for one
+    symbol with a budget big enough to cover it:
+    `find-callers <symbol> --max-nodes N`.
     """
     bounds = imp.get("bounds") or {}
     per_name = int(bounds.get("per_name") or 0)
@@ -337,8 +338,8 @@ def _impact_bound_note(imp: dict) -> str:
         parts.append(
             f"{per_name} refused by the per-name read cap of "
             f"{CALLERS_PER_NAME} callers per symbol (raise --max-nodes does "
-            "not affect that bound; run find-callers <symbol> for one "
-            "symbol's whole fan-in)")
+            "not affect that bound; run find-callers <symbol> --max-nodes N "
+            "with an N big enough to cover one symbol's fan-in)")
     if budget:
         parts.append(
             f"{budget} refused by the shared node budget of "

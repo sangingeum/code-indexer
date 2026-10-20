@@ -529,10 +529,12 @@ class Manifest:
         so in its own output.
 
         The order key ``(file, line, relationship, to_name, receiver)`` is
-        total — the first four columns are the row's primary key — so a capped
-        read is a reproducible prefix of the full read and no tie group can
-        straddle the cut. ``(file, line)`` alone was not: a live index has
-        73,911 lines carrying more than one reference.
+        total — its first four columns are the table's primary-key column set
+        (``(file, line, to_name, relationship)``, a different order) and the
+        fifth is the receiver — so a capped read is a reproducible prefix of
+        the full read and no tie group can straddle the cut. ``(file, line)``
+        alone was not: a live index has 73,911 lines carrying more than one
+        reference.
         """
         sql = ("SELECT file, line, from_symbol, relationship, confidence,"
                " receiver FROM refs WHERE to_name = ?"

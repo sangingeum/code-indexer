@@ -114,7 +114,10 @@ def _root_cap_note(total: int, cap: int) -> str:
     into ``omitted`` (which stays "edges examined and refused"). ``truncated``
     remains the completeness flag, so this note is how the real situation is
     named: how many roots exist, how many were shown, and the only knob that
-    helps.
+    helps. A hidden root's subtree is never walked, so the sibling edge count
+    covers the roots that were shown only — it does not include the edges the
+    hidden roots would have contributed, and it must not be read as the size
+    of everything hidden.
     """
     hidden = total - cap
     return (f"{total} definition {_plural(total, 'root', 'roots')} "
