@@ -55,6 +55,30 @@ UNVERIFIED = "unverified"
 UNVERIFIED_REASON = "embedder-unreachable"
 
 
+def _merge_symbol_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """One contiguous span per run of ranges that overlap or touch.
+
+    Symbol mode answers "where is this definition". Extraction stores a
+    decorated definition as two rows — the decorator line and the declaration
+    line, with the same end line — so one definition would otherwise surface
+    as two overlapping ranges and a caller counting segments would count it
+    twice. Ranges of the one requested name that overlap or are adjacent are
+    merged into a single span; genuinely disjoint ranges stay separate. The
+    merge is part of the answer, never a silent convenience: it is stated in
+    ``Core.code_context`` and in SKILL-CLI.md.
+
+    Returns the spans ordered by start line.
+    """
+    merged: list[tuple[int, int]] = []
+    for start, end in sorted(ranges):
+        if merged and start <= merged[-1][1] + 1:
+            prev_start, prev_end = merged[-1]
+            merged[-1] = (prev_start, max(prev_end, end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
 class Core:
     """Stateful core: owns config, registry, embedder, store, indexer.
 
@@ -1188,8 +1212,14 @@ class Core:
         name and file filters run in one uncapped read, so a row that sorts
         past ``find_symbols``' default cap is still found, and a name with
         more than five matching rows in one file is not shortened
-        (issue #23). Rows are not definitions: a decorated definition
-        contributes two rows, so it surfaces as two overlapping ranges.
+        (issue #23). Rows are not definitions, so the ranges of the requested
+        name that OVERLAP OR TOUCH are merged into one contiguous span before
+        segments are built (issue #26): a decorated definition is extracted
+        as two rows (decorator line + declaration line, same end line) and
+        surfaces as ONE segment with one honest range, while genuinely
+        disjoint ranges stay separate. The merge is stated here and in
+        SKILL-CLI.md — it is part of the answer, never a silent
+        normalisation. Spans are returned in start-line order.
         """
         rel = file.lstrip("/")
         abs_path = os.path.normpath(os.path.join(entry.path, rel))
@@ -1230,6 +1260,10 @@ class Core:
                         f"error: symbol {symbol!r} not indexed in {rel}")
                 ranges = [(max(1, r.start_line - context_lines),
                            r.end_line + context_lines) for r in rows]
+            # One decorated definition is stored as two rows (decorator line
+            # + declaration line); merge same-name ranges that overlap or
+            # touch so a definition answers with one span (issue #26).
+            ranges = _merge_symbol_ranges(ranges)
         elif start_line is not None:
             end = end_line if end_line is not None else start_line
             ranges.append((max(1, start_line - context_lines),

@@ -52,6 +52,26 @@ DISJOINT_FILE = (
 )
 
 
+# One decorated definition long enough that the chunker splits it: the
+# decorator line and the declaration line land in different chunks, so
+# extraction stores TWO rows for the one definition — same end line, starts
+# one line apart. That is the shape measured on cli.py's `get_code_context`.
+_DECORATED_FIELDS = "\n".join(
+    f"    field_{i}: str = typer.Option(None, help='value {i}')"
+    for i in range(18))
+DECORATED_FILE = (
+    "def decorator(fn):\n"
+    "    return fn\n"
+    "\n"
+    "\n"
+    "@decorator\n"
+    "def prepare(\n"
+    f"{_DECORATED_FIELDS}\n"
+    "):\n"
+    "    return 1\n"
+)
+
+
 def _repeated_definitions(count: int) -> str:
     return "".join(f"def prepare():\n    return {i}\n\n\n" for i in range(count))
 
@@ -144,6 +164,18 @@ def repeated_rig(tmp_path, monkeypatch):
 def disjoint_rig(tmp_path, monkeypatch):
     """One label, two rows in ONE file, with genuinely disjoint ranges."""
     files = {"disjoint_rows.py": DISJOINT_FILE}
+    core, reg, entry, project, cfg = _build_rig(tmp_path, monkeypatch, files)
+    yield core, reg, entry, project, cfg
+    reg.close()
+    import code_indexer.cli as cli
+    cli._core = None
+    cli._core_skip = False
+
+
+@pytest.fixture()
+def decorated_rig(tmp_path, monkeypatch):
+    """One decorated definition — two stored rows, one definition."""
+    files = {"decorated.py": DECORATED_FILE}
     core, reg, entry, project, cfg = _build_rig(tmp_path, monkeypatch, files)
     yield core, reg, entry, project, cfg
     reg.close()
@@ -301,6 +333,36 @@ def test_eval_scores_a_hit_inside_a_later_row(disjoint_rig):
     between_rows = {"file": "disjoint_rows.py", "symbol": None,
                     "start_line": gap, "end_line": gap}
     assert evalharness._hit_correct(core, entry, between_rows, rel) is False
+
+
+def test_a_decorated_definition_is_one_segment(decorated_rig):
+    """Two stored rows for one decorated definition answer as ONE range.
+
+    A caller counting segments to count definitions must not overcount. The
+    merge is the answer's stated rule: overlapping or touching same-name
+    ranges collapse to one span, so here the decorator-line row and the
+    declaration-line row become the single span of the whole definition
+    (issue #26).
+    """
+    core, reg, entry, project, cfg = decorated_rig
+    m = core.manifest_for(entry.slug)
+    try:
+        rows = m.find_symbols(SHARED_NAME, substring=False,
+                              file="decorated.py", limit=None)
+    finally:
+        m.close()
+    assert len(rows) == 2, [(r.start_line, r.end_line) for r in rows]
+    first, second = sorted((r.start_line, r.end_line) for r in rows)
+    assert first[1] == second[1]  # decorator line + declaration line
+    assert second[0] > first[0]
+
+    data = core.code_context(entry, "decorated.py", symbol=SHARED_NAME)
+    assert len(data["segments"]) == 1
+    segment = data["segments"][0]
+    assert (segment["start_line"], segment["end_line"]) == (first[0], first[1])
+    body = "\n".join(segment["lines"])
+    assert "@decorator" in body
+    assert "def prepare(" in body
 
 
 if __name__ == "__main__":  # pragma: no cover

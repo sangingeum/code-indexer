@@ -25,6 +25,20 @@
   hit inside the second row scoring correct. The unscoped past-the-cap
   fixture still passes. No reindex is owed: the eval reads rows the store
   already holds.
+- **One decorated definition answers as one range (issue #26).** Symbol mode
+  returned every matching symbol row, and one decorated definition
+  contributes two rows (the decorator line and the declaration line, same end
+  line) — `cli.py` `get_code_context` came back as `1435-1452, 1436-1452`, so
+  a caller counting segments overcounted definitions. Ranges of the requested
+  name that overlap or touch are now merged into one contiguous span per run
+  before segments are built: the decorator pair collapses to one span, while
+  genuinely disjoint ranges stay separate. The rule is stated in the
+  `code_context` docstring and in `SKILL-CLI.md`, and pinned by a test using
+  a decorated definition (one segment, one honest range). The JSON answer
+  shape (`file` / `stale` / `re_resolved` / `segments`) is unchanged, and the
+  order is unchanged. The eval any-overlap hardening reads rows from the
+  manifest, never segment counts, so it does not depend on this merge. No
+  reindex is owed: the stored rows are what they were.
 
 ## [Unreleased] — get-code-context symbol resolution
 
