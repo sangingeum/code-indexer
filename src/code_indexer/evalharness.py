@@ -117,19 +117,6 @@ def _symbol_ranges(manifest: Any, rel_file: str,
     return [(r.start_line, r.end_line) for r in rows]
 
 
-def _symbol_range(manifest: Any, rel_file: str,
-                  symbol: str) -> tuple[int, int] | None:
-    """The FIRST row's (start_line, end_line), or None when the label is
-    absent from that file.
-
-    A single-span view kept for a caller that wants one range; it says
-    nothing about a label's other rows in the file. Scoring uses
-    ``_symbol_ranges``, which reads every row.
-    """
-    ranges = _symbol_ranges(manifest, rel_file, symbol)
-    return ranges[0] if ranges else None
-
-
 def _hit_correct(core: "Core", entry: Any, hit: dict[str, Any],
                  rel: Relevant) -> bool:
     """File must match; when the label names a symbol, the hit must point at

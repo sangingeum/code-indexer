@@ -4,7 +4,7 @@ An exact-name symbol read defaults to 25 rows. Resolving
 ``get-code-context --symbol`` by reading that capped list and filtering to the
 requested file afterwards silently answers "not indexed in this file" for
 every definition that sorts past the cap — the row is in the store and the
-command denies it. ``evalharness._symbol_range`` had the same shape and
+command denies it. ``evalharness._symbol_ranges`` had the same shape and
 mis-scored eval runs on the same name population.
 
 These fixtures put one name in more definitions than the cap, with the target
@@ -234,10 +234,10 @@ def test_eval_symbol_range_resolves_a_row_past_the_cap(wide_rig):
     core, reg, entry, project, cfg = wide_rig
     m = core.manifest_for(entry.slug)
     try:
-        rng = evalharness._symbol_range(m, "late_definition.py", SHARED_NAME)
+        ranges = evalharness._symbol_ranges(m, "late_definition.py", SHARED_NAME)
     finally:
         m.close()
-    assert rng == (5, 6)
+    assert ranges == [(5, 6)]
 
 
 # ---------------------------------------------------------------------------
