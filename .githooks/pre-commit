@@ -1,0 +1,10 @@
+#!/bin/sh
+# Publishing hygiene gate: block a commit that would publish an absolute host
+# path, an internal profile name, or a board card id.
+# Activate once per clone: git config core.hooksPath .githooks
+set -eu
+
+root=$(git rev-parse --show-toplevel)
+
+git diff --cached --name-only -z --diff-filter=ACMR |
+    xargs -0 -r python3 "$root/scripts/publishing_hygiene_lint.py" --root "$root" --paths

@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased] — publishing hygiene
+
+- **The publishing rules are now a mechanical check (issue #27).**
+  `scripts/publishing_hygiene_lint.py` (stdlib only) scans every tracked path
+  and fails on three classes: absolute host paths — in capture data too, since
+  a path from the machine that ran a capture is never publishable — plus
+  internal profile names (held as sha256 digests, so the check forbids the
+  names without publishing the roster; `--hash-name NAME` extends the set) and
+  board card ids, both governed in authored surfaces only. Capture data under
+  `runs/` keeps its payload: it is quoted evidence about another repository.
+  Files skipped (binary, over 2 MB, tool/cache directories) are counted, so a
+  skip is never a silent pass. `tests/test_publishing_hygiene.py` runs the
+  check over the tree and proves each detector fires, and
+  `.githooks/pre-commit` blocks a violating commit (activate with
+  `git config core.hooksPath .githooks`). The records and docstrings the earlier
+  scan found were neutralised in the preceding commit; test fixtures and capture
+  payloads were left as evidence.
+
 ## [Unreleased] — symbol-mode follow-ups
 
 - **Symbol mode's changed-file path matches the exact name only (issue #24).**
