@@ -1,7 +1,7 @@
 # Token-reduction subcommands — design
 
-Status: design (no implementation). Author: solomon, refining the owner's
-proposal in `docs-token-reduction-plan.md`. Target: grace (Python/uv).
+Status: design (no implementation). Written in a design round, refining the
+owner's proposal in `docs-token-reduction-plan.md`. Target stack: Python/uv.
 
 *Superseded in one respect: the manifest tables named below have since
 evolved — schema v6 has ONE reference store, `refs`, replacing `symbol_refs`
@@ -243,7 +243,7 @@ underscore rule only (other languages → public).
 Nothing else re-parses at query time. The staleness/indexing pipeline,
 chunking, and Qdrant side are untouched.
 
-## 4. Implementation notes for grace
+## 4. Implementation notes for the Python implementation
 
 Files touched, in order:
 

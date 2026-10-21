@@ -179,5 +179,5 @@ command of this round.
 
 ## Board
 
-Card `T-000006` read read-only. Issue #22 was **not** closed — gate and review
+The board card was read read-only. Issue #22 was **not** closed — gate and review
 come first.

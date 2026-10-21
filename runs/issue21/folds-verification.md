@@ -1,7 +1,7 @@
 # Issue #21 — narrow re-verification of the fold commit (`ebeb2c8..7b7e2bb`)
 
-Verifier: QA gate (test-engineering role). Date: 2026-10-20. Card: T-000005
-(read-only read).
+Verifier: QA gate (test-engineering role). Date: 2026-10-20. Card: the card that
+carries this leg (read-only read).
 Scope: the fold leg only — `56b0954` (docs/graph fold) and `7b7e2bb` (revert
 sensitivity record). The full gate on the repair (`runs/issue21/gate.md`,
 base `ebeb2c8`) is of record and was **not** re-run. Nothing here re-authors or
@@ -291,6 +291,6 @@ promise points at an open issue #22; the fold diff is publication-clean; and
 the tip is green and warn-clean with the suite count, `EXTRACTION_VERSION` and
 the audited project's fingerprint unchanged.
 
-Card: T-000005.
+Card: the card that carries this leg.
 
 **PASS**

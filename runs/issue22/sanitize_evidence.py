@@ -11,16 +11,21 @@ import re
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
+HOME = Path.home()
 FILES = ["probe-before.txt", "timing-before.txt", "timing-after.txt",
          "verify-fan-in.txt", "pins-fail-on-before.txt"]
 
+# The prefixes are derived from the running checkout, never written down: this
+# file is published with the repository, so a literal path here would leak the
+# machine layout the script exists to rewrite.
 RULES = [
-    (re.compile(r"/home/keum/dev/athena/code-indexer/src"), "<repo>/src"),
-    (re.compile(r"/home/keum/dev/athena/code-indexer"), "<repo>"),
-    (re.compile(r"/tmp/ci-issue22-before-0b66431/src"), "<base-worktree>/src"),
-    (re.compile(r"/tmp/ci-issue22-before-0b66431"), "<base-worktree>"),
+    (re.compile(re.escape(str(REPO_ROOT / "src"))), "<repo>/src"),
+    (re.compile(re.escape(str(REPO_ROOT))), "<repo>"),
     (re.compile(r"/tmp/pytest-of-[^/\s]+/pytest-\d+"), "<tmp>"),
-    (re.compile(r"/home/keum"), "<home>"),
+    (re.compile(r"/tmp/[^/\s]+/src"), "<base-worktree>/src"),
+    (re.compile(r"/tmp/[^/\s]+"), "<base-worktree>"),
+    (re.compile(re.escape(str(HOME))), "<home>"),
 ]
 
 

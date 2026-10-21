@@ -135,6 +135,6 @@ uvx ruff check src tests           -> All checks passed!
 5922dbb test(graph): pin the two-note root cap and browse mode's default 25   %G?=G
 ```
 
-Issue #22 is **not** closed by this leg. Board card T-000012 was read only
-(`tack --db ~/.hermes/state/tackboard/code-indexer.sqlite3 show T-000012`);
+Issue #22 is **not** closed by this leg. The board card was read only
+(`tack --db ~/.hermes/state/tackboard/code-indexer.sqlite3 show <card>`);
 no board writes.

@@ -291,7 +291,7 @@ unbounded seeds now gets 40 and a note — right, and stated in the changelog.
 ## Gate record
 
 `runs/issue22/gate.md` does not exist at `1139a1e`, is not in the working tree,
-and its board card (**T-000007**) is still `in_progress`; the gate worker's state
+and the board card that carries this leg is still `in_progress`; the gate worker's state
 directory holds only `alive`/`owner`. I ruled on the bars as carried in the
 dispatch (490 passed / 2 deselected, the four medians, the 19,183 re-read, 11
 revert-sensitive pins) and did not re-run them. The gate record must land before
@@ -299,7 +299,7 @@ revert-sensitive pins) and did not re-run them. The gate record must land before
 
 ## Board
 
-Card **T-000008** read read-only (`in_progress`, `claimed_by: butler`).
+The board card was read read-only (`in_progress`, claimed by the dispatching role).
 
 ## Final verdict
 

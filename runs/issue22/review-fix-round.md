@@ -8,7 +8,7 @@ Base for "before": `58473d9`; older comparisons where the brief asks for them
 
 My earlier findings at `5ee5154` stand as written and are not re-litigated here.
 This leg judges only the changed surfaces, against the eight rules in the
-dispatch. Butler evidence is of record and was not re-run except where a claim
+dispatch. Dispatch evidence is of record and was not re-run except where a claim
 was verifiable in one live read.
 
 ## Verdict per item
@@ -173,4 +173,4 @@ same family and must not be allowed to falsify the corrected doc claim a second
 time: file it before the next release notes tick "no store read under these
 walks caps silently".
 
-DB card reviewed: **T-000011** (read-only; no writes).
+DB card reviewed: the card that carries this leg (read-only; no writes).

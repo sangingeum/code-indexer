@@ -349,5 +349,5 @@ Minor, same round if cheap: the six-line text preview, the non-total
 
 ## Board
 
-Card `T-000007` (verification gate for the issue #22 store-read repair), read
+The board card (verification gate for the issue #22 store-read repair) was read
 read-only. Issue #22 stays open: this gate is a FAIL.

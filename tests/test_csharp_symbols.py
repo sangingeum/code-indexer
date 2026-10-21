@@ -99,7 +99,7 @@ def cs_project():
 
 
 def test_csharp_method_symbols_found(cs_project):
-    """Regression (solomon review, C# recall gap): find-symbol missed
+    """Regression (review round, C# recall gap): find-symbol missed
     method-level symbols in C# — classes resolved, methods did not.
     Root cause: the csharp grammar's method_declaration / constructor
     nodes were not in the AST unit set, and class bodies were not walked
@@ -114,7 +114,7 @@ def test_csharp_method_symbols_found(cs_project):
 
 
 def test_csharp_user_typed_return_type(cs_project):
-    """Regression (butler-verified vs real repo, CrimeSurface.cs:171):
+    """Regression (verified against a real repository, CrimeSurface.cs:171):
     _symbol_from_node's first-identifier pass matched the return-type
     identifier BEFORE the name-field pass, so a method with a user-typed
     return value (`public static HostileActVerdict Evaluate(...)`) was

@@ -502,9 +502,9 @@ this leg's.
 
 ## Board
 
-Card `T-000010` (narrow re-verification of the issue #22 blocker fix), read
-read-only: status `in_progress`, claimed by the orchestrator, dependency
-`T-000009` satisfied. No board write was made by this leg.
+The board card (narrow re-verification of the issue #22 blocker fix) was read
+read-only: status `in_progress`, claimed by the orchestrator, its dependency
+satisfied. No board write was made by this leg.
 
 Issue #22 does not close on this verdict: its five declared surfaces are clean,
 but the bar's "no surface answers from 25" clause is not met until the

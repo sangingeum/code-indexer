@@ -1,6 +1,6 @@
 """Query-path staleness tests: quiet by default, --refresh opt-in.
 
-Covers solomon-review finding 3: the default staleness pass used to run a
+Covers review finding 3: the default staleness pass used to run a
 mid-query re-index (latency + log noise). Now: within TTL it's a no-op;
 --refresh forces a pass; --skip-stale-check stays a hard skip.
 """
