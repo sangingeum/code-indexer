@@ -1,0 +1,31 @@
+home = /home/<account>
+
+== runs/issue22/sanitize_evidence.py (6 rules)
+  comma              REDACTED  <home>,
+  closing-paren      REDACTED  <home>)
+  colon              REDACTED  <home>:
+  semicolon          REDACTED  <home>;
+  full-stop          untouched /home/<account>.
+  space              REDACTED  <home> 
+  end-of-line        REDACTED  <home>
+  quote              REDACTED  '<home>'
+  sibling-account    untouched /home/<account>2/src/app.py
+  sibling-hyphen     untouched /home/<account>-backup/x
+  sibling-underscore untouched /home/<account>_x
+  sibling-dot        untouched /home/<account>.bak
+  subpath            REDACTED  <home>/src/app.py
+
+== runs/issue22/reverify/sanitize_capture.py (4 rules)
+  comma              REDACTED  <home>,
+  closing-paren      REDACTED  <home>)
+  colon              REDACTED  <home>:
+  semicolon          REDACTED  <home>;
+  full-stop          untouched /home/<account>.
+  space              REDACTED  <home> 
+  end-of-line        REDACTED  <home>
+  quote              REDACTED  '<home>'
+  sibling-account    untouched /home/<account>2/src/app.py
+  sibling-hyphen     untouched /home/<account>-backup/x
+  sibling-underscore untouched /home/<account>_x
+  sibling-dot        untouched /home/<account>.bak
+  subpath            REDACTED  <home>/src/app.py

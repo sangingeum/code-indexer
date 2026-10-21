@@ -1,0 +1,9 @@
+committed digests              : 11
+unique digests                 : 11
+well-formed (64 lowercase hex) : True
+resolved to a roster role      : 9 / 9
+resolved to the orchestrator   : 1 / 1
+resolved to the local account  : 1 / 1
+digests explained              : 11 / 11
+dead digests (no name)         : 0
+control labels matching        : 0 / 3 (expected 0)

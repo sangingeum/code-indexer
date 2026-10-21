@@ -1,0 +1,5 @@
+fresh load              : 11 digests, probe present = False
+after injection         : 12 digests, probe present = True
+next load               : 11 digests, probe present = False
+first object still 12?  : True
+module ids differ       : True

@@ -1,0 +1,25 @@
+total matching lines            : 38
+files touched                   : 14
+touched files are all capture data under runs/ : True
+   15  runs/issue22/reverify/prefix-evidence.txt
+   10  runs/issue22/pins-fail-on-before-fix-round.txt
+    2  runs/issue22/folds/revert-sensitivity.txt
+    1  runs/issue22/reverify/tip-overview-b1b7f48b-docs_.json
+    1  runs/issue22/reverify/base-overview-vivarium-sim-docs_.json
+    1  runs/issue22/before-prefix-overview-b1b7f48b.json
+    1  runs/issue22/reverify/tip-overview-vivarium-sim-docs_.json
+    1  runs/issue22/reverify/base-overview-b1b7f48b-docs_.json
+    1  runs/issue22/before-prefix-overview-vivarium-sim.json
+    1  runs/issue22/reverify/tip-overview-vivarium-sim-docs_verification.json
+    1  runs/issue27-publishing-hygiene/captures/bar4-neutralisation-diff.txt
+    1  runs/issue22/after-prefix-overview-vivarium-sim.json
+    1  runs/issue22/reverify/base-overview-vivarium-sim-docs_verification.json
+    1  runs/issue22/after-prefix-overview-b1b7f48b.json
+by token:
+   22  role[9]
+   16  role[4]
+   15  role[0]
+   12  local-account
+   11  role[8]
+    8  role[3]
+    1  role[2]

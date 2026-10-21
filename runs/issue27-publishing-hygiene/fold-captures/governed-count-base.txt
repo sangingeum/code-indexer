@@ -1,0 +1,30 @@
+tracked paths at the base commit : 279
+authored under the old whitelist  : 254
+ungoverned under the old whitelist: 25
+ungoverned under the shipped rule : 167
+breakdown of the old gap by suffix:
+  (none)   4
+  .err     11
+  .jsonl   1
+  .lock    1
+  .scm     8
+  still capture-only: .githooks/pre-commit
+  still capture-only: .github/ISSUE_TEMPLATE/agent-report.yml
+  still capture-only: .github/workflows/ci.yml
+  still capture-only: .gitignore
+  still capture-only: .python-version
+  still capture-only: AGENT.md
+  still capture-only: CHANGELOG.md
+  still capture-only: LICENSE
+  still capture-only: README.md
+  still capture-only: SKILL-CLI.md
+  still capture-only: docs/audit.md
+  still capture-only: docs/json-schema.md
+  still capture-only: docs/languages.md
+  still capture-only: docs/semantic-search-contextual-headers.md
+  still capture-only: docs/semantic-search-ranking-diversification.md
+  still capture-only: docs/subcommand-design.md
+  still capture-only: docs/token-reduction-plan.md
+  still capture-only: eval/queries.jsonl
+  still capture-only: pyproject.toml
+  still capture-only: runs/issue21/folds-verification.md

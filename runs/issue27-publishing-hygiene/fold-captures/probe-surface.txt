@@ -1,0 +1,15 @@
+throwaway root: /tmp/hygiene-surface-fu6_s50a
+case                     authored  capture  exit classes
+runs/note.md             True      False    1    absolute-host-path,board-card-id  ok
+runs/note.txt            False     True     1    absolute-host-path  ok
+runs/cap.json            False     True     1    absolute-host-path  ok
+runs/cap.log             False     True     1    absolute-host-path  ok
+runs/cap.jsonl           False     True     1    absolute-host-path  ok
+runs/cap.err             False     True     1    absolute-host-path  ok
+runs/cap.out             False     True     1    absolute-host-path  ok
+runs/weird.dat           True      False    1    absolute-host-path,board-card-id  ok
+runs/noextension         True      False    1    absolute-host-path,board-card-id  ok
+.githooks/pre-commit     True      False    1    absolute-host-path,board-card-id  ok
+plain.txt                True      False    1    absolute-host-path,board-card-id  ok
+clean.md                 exit=0 publishing hygiene: scanned=1 skipped=0 violations=0 (untracked files are out of scope)
+runs/clean.txt           exit=0 publishing hygiene: scanned=1 skipped=0 violations=0 (untracked files are out of scope)

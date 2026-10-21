@@ -1,0 +1,8 @@
+ .github/workflows/ci.yml                  |  2 +-
+ AGENT.md                                  | 20 ++++---
+ CHANGELOG.md                              |  4 +-
+ runs/issue22/reverify/sanitize_capture.py |  8 ++-
+ runs/issue22/sanitize_evidence.py         |  9 ++-
+ scripts/publishing_hygiene_lint.py        | 58 ++++++++++++-------
+ tests/test_publishing_hygiene.py          | 93 ++++++++++++++++++++++++-------
+ 7 files changed, 143 insertions(+), 51 deletions(-)

@@ -1,0 +1,387 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index b684a2c..269b985 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -21,7 +21,7 @@ jobs:
+         run: uv sync --frozen
+ 
+       - name: Lint (ruff)
+-        run: uvx ruff check src tests
++        run: uvx ruff check src tests scripts
+ 
+       - name: Test (offline suite; live-backend tests excluded)
+         run: uv run pytest -m "not live"
+diff --git a/AGENT.md b/AGENT.md
+index 63fc891..d4e3657 100644
+--- a/AGENT.md
++++ b/AGENT.md
+@@ -6,7 +6,7 @@ Semantic code index over Ollama embeddings + Qdrant, exposed as a one-shot CLI
+ ## Build / test / run
+ 
+ - Test: `uv run pytest tests/ -q -W error` (warn-clean is the house bar).
+-- Lint: `uvx ruff check src tests`.
++- Lint: `uvx ruff check src tests scripts`.
+ - Publishing hygiene: `uv run python scripts/publishing_hygiene_lint.py` — the
+   mechanical form of the publishing rules. It scans every tracked path
+   (`git ls-files`; untracked local evidence is out of scope by design) and
+@@ -14,15 +14,21 @@ Semantic code index over Ollama embeddings + Qdrant, exposed as a one-shot CLI
+   `scanned=/skipped=/violations=`. Three classes: `absolute-host-path` (a
+   machine path is never publishable, capture data included; a short allow-list
+   of synthetic fixture accounts is exempt, and so is pattern text — a segment
+-  beginning with `[`, `{` or `<`), and — in authored surfaces only —
++  beginning with `[`, `{` or `<`, the last because angle brackets are this
++  house's published spelling for host-specific text), and — in authored
++  surfaces only, meaning every tracked file **except** capture data —
+   `internal-profile-name` (held as sha256 digests; `--hash-name NAME` prints one
+-  to add) and `board-card-id`. Authored surfaces are `.md .py .sh .yml .yaml
+-  .toml .cs`; capture data (`runs/` with `.json`, `.txt`, `.log`) keeps its
+-  payload because it is quoted evidence about another repository. `--paths P…`
+-  scans explicit paths. Offline test: `tests/test_publishing_hygiene.py`.
++  to add) and `board-card-id`. Capture data is a file under `runs/` with a
++  `.json`, `.txt`, `.log`, `.err`, `.out` or `.jsonl` suffix: it keeps its
++  payload because it is quoted evidence about another repository. A record
++  `.md` under `runs/` is therefore authored and governed. `--paths P…` scans
++  explicit paths. Offline test: `tests/test_publishing_hygiene.py`.
+ - Pre-commit hook: `.githooks/pre-commit` runs the same check over the staged
+   files and blocks the commit on a violation. Activate it in a clone with
+-  `git config core.hooksPath .githooks`.
++  `git config core.hooksPath .githooks`. It is the opt-in local early warning,
++  not the enforcement: CI enforces the rule through the offline suite
++  (`tests/test_publishing_hygiene.py`), and the hook's plain `python3` call is
++  valid only while the lint stays stdlib.
+ - Run from source: `uv run code-indexer <command>`.
+ - Installed CLI on this host: `~/.local/bin/code-indexer` (uv tool; reinstall
+   with `uv tool install --force .` after merged changes to test live).
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 4e45a28..5b516ae 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -16,7 +16,9 @@
+   `.githooks/pre-commit` blocks a violating commit (activate with
+   `git config core.hooksPath .githooks`). The records and docstrings the earlier
+   scan found were neutralised in the preceding commit; test fixtures and capture
+-  payloads were left as evidence.
++  payloads were left as evidence. CI enforces the rule through that offline
++  suite; the hook is the opt-in local early warning, and its plain `python3`
++  call is valid only while the lint stays stdlib.
+ 
+ ## [Unreleased] — symbol-mode follow-ups
+ 
+diff --git a/runs/issue22/reverify/sanitize_capture.py b/runs/issue22/reverify/sanitize_capture.py
+index e771cf3..3beef36 100644
+--- a/runs/issue22/reverify/sanitize_capture.py
++++ b/runs/issue22/reverify/sanitize_capture.py
+@@ -28,11 +28,17 @@ HOME = Path.home()
+ # Repository first: this checkout usually lives under the account home, and its
+ # paths deserve the more specific placeholder. Only these two prefixes are
+ # rewritten; anything else is a foreign path.
++#
++# The account home carries a boundary as a negative lookahead: the next
++# character must not be a path or account-name character, so a neighbouring
++# account (`/home/name2`) is left alone. A list of allowed followers instead
++# would miss `,`, `)`, `:`, `;` and a closing full stop — the places paths end
++# in prose — and a miss here publishes the very path this helper removes.
+ RULES = [
+     (re.compile(r"/tmp/pytest-of-[^/\s'\"]+"), "<pytest-tmp>"),
+     (re.compile(r"/tmp/ci22-[a-z]+"), "<base-worktree>"),
+     (re.compile(re.escape(str(REPO_ROOT))), "<repo>"),
+-    (re.compile(re.escape(str(HOME)) + r"(?=/|\s|[\"']|$)"), "<home>"),
++    (re.compile(re.escape(str(HOME)) + r"(?![A-Za-z0-9._-])"), "<home>"),
+ ]
+ 
+ 
+diff --git a/runs/issue22/sanitize_evidence.py b/runs/issue22/sanitize_evidence.py
+index 4024a93..83e2e80 100644
+--- a/runs/issue22/sanitize_evidence.py
++++ b/runs/issue22/sanitize_evidence.py
+@@ -19,13 +19,20 @@ FILES = ["probe-before.txt", "timing-before.txt", "timing-after.txt",
+ # The prefixes are derived from the running checkout, never written down: this
+ # file is published with the repository, so a literal path here would leak the
+ # machine layout the script exists to rewrite.
++#
++# The account home carries a boundary: the next character must not be a path or
++# account-name character, so a neighbouring account (`/home/name2`) is left
++# alone. It is expressed as a negative lookahead because the alternative — a
++# list of characters that may follow — misses the places paths actually end in
++# prose (`,`, `)`, `:`, `;`, a closing full stop), and a miss here is
++# under-redaction, the one direction this helper must not fail in.
+ RULES = [
+     (re.compile(re.escape(str(REPO_ROOT / "src"))), "<repo>/src"),
+     (re.compile(re.escape(str(REPO_ROOT))), "<repo>"),
+     (re.compile(r"/tmp/pytest-of-[^/\s]+/pytest-\d+"), "<tmp>"),
+     (re.compile(r"/tmp/[^/\s]+/src"), "<base-worktree>/src"),
+     (re.compile(r"/tmp/[^/\s]+"), "<base-worktree>"),
+-    (re.compile(re.escape(str(HOME))), "<home>"),
++    (re.compile(re.escape(str(HOME)) + r"(?![A-Za-z0-9._-])"), "<home>"),
+ ]
+ 
+ 
+diff --git a/scripts/publishing_hygiene_lint.py b/scripts/publishing_hygiene_lint.py
+index 7dc92c4..79f19b8 100644
+--- a/scripts/publishing_hygiene_lint.py
++++ b/scripts/publishing_hygiene_lint.py
+@@ -12,12 +12,19 @@ out of published content. This script enforces them mechanically:
+                           alice and bob. A segment that *begins* with `[`, `{`
+                           or `<` is pattern text — a regex character class, a
+                           brace placeholder or an angle placeholder — not a
+-                          real path, and is not reported. A segment that merely
+-                          carries another metacharacter is still a candidate
+-                          account name and is reported: `$`, `+`, `,`, `-` and
+-                          `_` all occur in real account names, and a machine
+-                          account conventionally ends in `$`. Windows user
+-                          paths and smb shares are caught too.
++                          real path, and is not reported. The angle-bracket
++                          exemption is a house convention, not a guess: angle
++                          brackets are the published spelling for host-specific
++                          text (`<home>/...`, `<repo>/...`), the records this
++                          repository publishes depend on that spelling, and no
++                          real account begins with one on any host this
++                          repository is built on. The rule governs prose as much
++                          as code, so the exemption is stated at that level. A
++                          segment that merely carries another metacharacter is
++                          still a candidate account name and is reported: `$`,
++                          `+`, `,`, `-` and `_` all occur in real account
++                          names, and a machine account conventionally ends in
++                          `$`. Windows user paths and smb shares are caught too.
+   internal-profile-name   internal profile names are forbidden in authored
+                           surfaces. The names are held as sha256 digests, so
+                           the check forbids them without publishing the roster
+@@ -27,13 +34,17 @@ out of published content. This script enforces them mechanically:
+   board-card-id           internal board card ids (a T- prefix plus six digits)
+                           are forbidden in authored surfaces.
+ 
+-Surface split. "Authored" means the file types prose, code, scripts, CI config
+-and records are written in: .md, .py, .sh, .yml, .yaml, .toml, .cs. Capture
+-data — a .json, .txt or .log file under runs/ — is quoted evidence about
+-another repository: its payload keeps whatever names it holds, because
+-redacting it would falsify the record. Absolute host paths are the exception
+-and are checked in capture data as well: a path belonging to the machine that
+-ran a capture is never legitimate, whatever file holds it.
++Surface split. Authored is the complement of capture — everything except
++capture data: every tracked text file is governed by the name and card-id
++rules unless it is capture data. Capture data is a file under runs/ whose
++suffix is .json, .txt, .log, .err, .out or .jsonl: it is quoted evidence about
++another repository, and its payload keeps whatever names it holds, because
++redacting it would falsify the record. Everything else is authored, including
++the types prose, code, scripts, CI config and records are written in (.md, .py,
++.sh, .yml, .yaml, .toml, .cs) and the files that carry no suffix at all.
++Absolute host paths are the exception and are checked in capture data as well:
++a path belonging to the machine that ran a capture is never legitimate,
++whatever file holds it.
+ 
+ Discovery. By default every tracked path is scanned (`git ls-files` at the
+ repository root). Untracked local evidence is out of scope by design — a file
+@@ -58,13 +69,14 @@ from pathlib import Path
+ 
+ MAX_BYTES = 2 * 1024 * 1024
+ SKIP_DIR_NAMES = frozenset({".git", ".venv", ".pytest_cache", ".ruff_cache"})
+-AUTHORED_SUFFIXES = frozenset({".md", ".py", ".sh", ".yml", ".yaml", ".toml", ".cs"})
+-CAPTURE_SUFFIXES = frozenset({".json", ".txt", ".log"})
++CAPTURE_SUFFIXES = frozenset({".json", ".txt", ".log", ".err", ".out", ".jsonl"})
+ CAPTURE_ROOT = "runs"
+ 
+-# Synthetic account-home directories that unit-test fixtures may use. These are
+-# not real accounts on any host this repository is built on: the watcher tests
+-# cover-overlap checks use a pair of single-letter roots.
++# Fixture account-home segments the publishing rules allow unit tests to use.
++# These are fixture conventions, not accounts: x, y, user, example, test, alice
++# and bob. The single-letter pair x and y is called out because the watcher
++# tests' cover-overlap checks use exactly those two roots as their homes, so a
++# future tidy-up that drops them would fail those tests rather than the rule.
+ SYNTHETIC_SEGMENTS = frozenset(
+     {"x", "y", "user", "example", "test", "alice", "bob"})
+ 
+@@ -107,13 +119,17 @@ def _digest(name: str) -> str:
+ 
+ 
+ def _is_authored(rel: Path) -> bool:
+-    """True for the surfaces the name and card-id rules govern."""
+-    if rel.suffix.lower() not in AUTHORED_SUFFIXES:
+-        return False
++    """True for every surface the name and card-id rules govern.
++
++    Authored is the complement of capture: everything except capture data. The
++    rule fails closed — a file type nobody anticipated is governed rather than
++    silently exempt, and the only exemption is a capture payload under runs/.
++    """
+     return not _is_capture(rel)
+ 
+ 
+ def _is_capture(rel: Path) -> bool:
++    """True for a capture payload: quoted evidence under runs/."""
+     parts = rel.parts
+     if not parts or parts[0] != CAPTURE_ROOT:
+         return False
+diff --git a/tests/test_publishing_hygiene.py b/tests/test_publishing_hygiene.py
+index c3f48cb..cac252d 100644
+--- a/tests/test_publishing_hygiene.py
++++ b/tests/test_publishing_hygiene.py
+@@ -6,11 +6,19 @@ rules. This module keeps it honest in both directions:
+ - the tracked tree is clean, so the rule needs nobody's memory;
+ - each detector actually fires, so a green tree is not a green because the
+   check stopped working;
+-- the surface split holds: authored records are governed, capture data keeps
+-  its payload except for absolute host paths.
+-
+-Fixtures are assembled at run time on purpose: a literal host path or profile
+-name in this file would trip the very check it exercises.
++- the surface split holds: every authored surface is governed — a record under
++  `runs/` included — and capture data keeps its payload except for absolute
++  host paths.
++
++Fixtures are assembled at run time on purpose: a literal host path or a
++roster name in this file would trip the very check it exercises. The name rule
++is pinned by injecting a synthetic digest into the loaded module's set, so
++this file never spends the secrecy the digest roster buys.
++
++One import is deliberate: the sanitiser test loads
++`runs/issue22/reverify/sanitize_capture.py`, a historical record artifact
++committed with the round that produced it. Nothing else imports it — it is
++evidence, not a library, and the test exists so the artifact keeps working.
+ """
+ 
+ from __future__ import annotations
+@@ -18,6 +26,7 @@ from __future__ import annotations
+ import hashlib
+ import importlib.util
+ import os
++import re
+ from pathlib import Path
+ 
+ import pytest
+@@ -29,9 +38,17 @@ CAPTURE_SANITIZER = REPO / "runs" / "issue22" / "reverify" / "sanitize_capture.p
+ # Assembled, never written as a literal (see the module docstring).
+ HOST_PATH = os.sep.join(["", "home", "hygiene" + "probe", "src", "app.py"])
+ SYNTHETIC_PATH = os.sep.join(["", "home", "x", "proj"])
+-INTERNAL_NAME = "sol" + "omon"
+ CARD_ID = "T-" + f"{1:06d}"
+ 
++# A probe name that is not on the protected roster. Its digest is injected into
++# the loaded module, so the matching path is tested without naming anyone the
++# digest list protects.
++PROBE_NAME = "injected" + "probe"
++
++# The roster the digest set shipped with: at least this many entries must
++# remain, and each must be a whole sha256 digest.
++ROSTER_SIZE_AT_INTRODUCTION = 11
++
+ # Home-path segments that must be reported. Every one of these is a plausible
+ # real account name, and three of them carry a character the former
+ # metacharacter exemption swallowed outright (`$`, `+`, `,`); the rest pin the
+@@ -61,17 +78,20 @@ def _home_path(segment: str) -> str:
+     return os.sep.join(["", "home", segment]) + "/"
+ 
+ 
+-
+-def _lint():
++def _lint(probe_name: str | None = None):
+     spec = importlib.util.spec_from_file_location("publishing_hygiene_lint", SCRIPT)
+     assert spec is not None and spec.loader is not None
+     module = importlib.util.module_from_spec(spec)
+     spec.loader.exec_module(module)
++    if probe_name is not None:
++        digest = hashlib.sha256(probe_name.lower().encode()).hexdigest()
++        setattr(module, "PROFILE_NAME_DIGESTS", frozenset(
++            set(module.PROFILE_NAME_DIGESTS) | {digest}))
+     return module
+ 
+ 
+-def _scan(path: Path, rel: str) -> list[str]:
+-    found = _lint()._scan(path, Path(rel))
++def _scan(path: Path, rel: str, probe_name: str | None = None) -> list[str]:
++    found = _lint(probe_name)._scan(path, Path(rel))
+     assert found is not None, f"{rel} was skipped unexpectedly"
+     return found
+ 
+@@ -100,14 +120,14 @@ def test_tracked_tree_is_clean(capsys):
+ def test_absolute_host_path_and_name_are_flagged(tmp_path):
+     record = tmp_path / "record.md"
+     record.write_text(
+-        f"Evidence: {HOST_PATH}\nAuthor note: {INTERNAL_NAME} reviewed this.\n",
++        f"Evidence: {HOST_PATH}\nAuthor note: {PROBE_NAME} reviewed this.\n",
+         encoding="utf-8",
+     )
+-    found = _scan(record, "record.md")
++    found = _scan(record, "record.md", PROBE_NAME)
+     assert _classes(found) == {"absolute-host-path", "internal-profile-name"}
+     assert [line.split(":")[1] for line in found] == ["1", "2"]
+     # The report names the class, never the forbidden name itself.
+-    assert INTERNAL_NAME not in "\n".join(found)
++    assert PROBE_NAME not in "\n".join(found)
+ 
+ 
+ def test_synthetic_fixture_is_not_flagged(tmp_path):
+@@ -128,24 +148,54 @@ def test_card_id_is_flagged_in_records_only(tmp_path):
+     record.write_text(f"Card {CARD_ID} was read only.\n", encoding="utf-8")
+     assert _classes(_scan(record, "record.md")) == {"board-card-id"}
+ 
+-    capture = tmp_path / "runs" / "capture.json"
++    # Capture-side fixture carries the capture suffix, so the exemption is
++    # pinned to the directory rule rather than to a file type the rule never
++    # governed.
++    capture = tmp_path / "runs" / "capture.txt"
+     capture.parent.mkdir()
+-    capture.write_text(f'{{"board": "{CARD_ID}"}}\n', encoding="utf-8")
+-    assert _scan(capture, "runs/capture.json") == []
++    capture.write_text(f"board: {CARD_ID}\n", encoding="utf-8")
++    assert _scan(capture, "runs/capture.txt") == []
++
++
++def test_record_under_runs_is_governed(tmp_path):
++    """A Markdown record under `runs/` is authored, not capture data.
++
++    This is the regression that would republish cleaned round records: a
++    directory-shaped exemption would let every record under `runs/` through.
++    """
++    record = tmp_path / "runs" / "issue27-publishing-hygiene" / "review.md"
++    record.parent.mkdir(parents=True)
++    record.write_text(
++        f"Note: {PROBE_NAME} reviewed this. Card {CARD_ID}.\n", encoding="utf-8")
++    found = _scan(record, "runs/issue27-publishing-hygiene/review.md", PROBE_NAME)
++    assert _classes(found) == {"internal-profile-name", "board-card-id"}
++    assert [line.split(":")[1] for line in found] == ["1", "1"]
+ 
+ 
+ def test_capture_keeps_names_but_not_host_paths(tmp_path):
+     capture = tmp_path / "runs" / "capture.txt"
+     capture.parent.mkdir()
+     capture.write_text(
+-        f"{INTERNAL_NAME}/review-2026-09-25.md\n{HOST_PATH}\n",
++        f"{PROBE_NAME}/review-2026-09-25.md\n{HOST_PATH}\n",
+         encoding="utf-8",
+     )
+-    found = _scan(capture, "runs/capture.txt")
++    found = _scan(capture, "runs/capture.txt", PROBE_NAME)
+     assert _classes(found) == {"absolute-host-path"}
+     assert [line.split(":")[1] for line in found] == ["2"]
+ 
+ 
++def test_digest_roster_is_well_formed():
++    """Every digest is 64 lowercase hex and the set has not shrunk.
++
++    A hand-pasted digest that is wrong or truncated would silently stop
++    matching, so the shape is asserted rather than assumed.
++    """
++    digests = _lint().PROFILE_NAME_DIGESTS
++    assert len(digests) >= ROSTER_SIZE_AT_INTRODUCTION
++    for digest in digests:
++        assert re.fullmatch(r"[0-9a-f]{64}", digest), digest
++
++
+ def test_hash_name_prints_the_digest(capsys):
+     assert _lint().main(["--hash-name", "example"]) == 0
+     assert capsys.readouterr().out.strip() == hashlib.sha256(b"example").hexdigest()
+@@ -177,7 +227,12 @@ def test_pattern_text_segments_are_exempt(tmp_path, label, segment):
+ 
+ def test_capture_sanitizer_rewrites_only_this_hosts_prefixes():
+     """The sanitiser placeholders this checkout and this account home, and
+-    leaves a foreign machine's path exactly as it found it."""
++    leaves a foreign machine's path exactly as it found it.
++
++    The sanitiser is loaded from `runs/issue22/reverify/` on purpose: it is a
++    historical record artifact kept working, not an importable utility (see the
++    module docstring).
++    """
+     sanitize = _sanitizer().sanitize_capture
+     repo_path = str(REPO / "src" / "code_indexer" / "cli.py")
+     home_path = str(Path.home() / ("elsewhere" + "-checkout") / "uv.lock")

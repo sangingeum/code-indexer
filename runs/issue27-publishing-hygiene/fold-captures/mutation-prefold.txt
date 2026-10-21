@@ -1,0 +1,8 @@
+pre-fold module (6996126):
+  PASS  record .md under runs/ is governed         got=True wanted=True
+  FAIL  suffixless hook is governed                got=False wanted=True
+  FAIL  plain .txt outside runs/ is governed       got=False wanted=True
+  FAIL  runs/*.err is capture                      got=False wanted=True
+  FAIL  runs/*.jsonl is capture                    got=False wanted=True
+  FAIL  runs/*.out is capture                      got=False wanted=True
+new assertions failing on the pre-fold rule: 5/6
