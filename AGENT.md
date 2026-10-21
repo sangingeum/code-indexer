@@ -21,7 +21,11 @@ Semantic code index over Ollama embeddings + Qdrant, exposed as a one-shot CLI
   to add) and `board-card-id`. Capture data is a file under `runs/` with a
   `.json`, `.txt`, `.log`, `.err`, `.out` or `.jsonl` suffix: it keeps its
   payload because it is quoted evidence about another repository. A record
-  `.md` under `runs/` is therefore authored and governed. `--paths P…` scans
+  `.md` under `runs/` is therefore authored and governed. **A capture about
+  this repository is not exempt in spirit:** the exemption exists because the
+  payload is somebody else's data, so a capture that quotes this repo's own
+  removed text must mask the token itself (`<role>`, `<card-id>`, `<repo>`)
+  before it is committed; the raw capture stays local. `--paths P…` scans
   explicit paths. Offline test: `tests/test_publishing_hygiene.py`.
 - Pre-commit hook: `.githooks/pre-commit` runs the same check over the staged
   files and blocks the commit on a violation. Activate it in a clone with

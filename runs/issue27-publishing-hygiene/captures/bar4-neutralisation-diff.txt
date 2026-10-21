@@ -91,7 +91,7 @@ index e4b0498..1f443cb 100644
  
  My earlier findings at `5ee5154` stand as written and are not re-litigated here.
  This leg judges only the changed surfaces, against the eight rules in the
--dispatch. Butler evidence is of record and was not re-run except where a claim
+-dispatch. <role> evidence is of record and was not re-run except where a claim
 +dispatch. Dispatch evidence is of record and was not re-run except where a claim
  was verifiable in one live read.
  
@@ -163,6 +163,12 @@ index d99998e..4024a93 100644
 +    (re.compile(r"/tmp/[^/\s]+/src"), "<base-worktree>/src"),
 +    (re.compile(r"/tmp/[^/\s]+"), "<base-worktree>"),
 +    (re.compile(re.escape(str(HOME))), "<home>"),
- ]
- 
+]
+
+
+# masked: the quoted removed line above carries the role token as <role>; the
+# raw capture is kept in the local evidence store. Everything else is unmodified.
+# Reason: this capture quotes THIS repository's removed text, so the capture
+# exemption (which exists for quoted data from other trees) does not cover it.
+
  
