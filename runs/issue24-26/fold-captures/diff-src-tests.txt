@@ -1,0 +1,214 @@
+diff --git a/src/code_indexer/core.py b/src/code_indexer/core.py
+index 088d02a..9cba68f 100644
+--- a/src/code_indexer/core.py
++++ b/src/code_indexer/core.py
+@@ -55,7 +55,8 @@ UNVERIFIED = "unverified"
+ UNVERIFIED_REASON = "embedder-unreachable"
+ 
+ 
+-def _merge_symbol_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
++def _merge_symbol_ranges(
++        ranges: list[tuple[int, int]]) -> list[tuple[int, int, int]]:
+     """One contiguous span per run of ranges that overlap or touch.
+ 
+     Symbol mode answers "where is this definition". Extraction stores a
+@@ -64,23 +65,24 @@ def _merge_symbol_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]
+     as two overlapping ranges and a caller counting segments would count it
+     twice. Ranges of the one requested name that overlap or are adjacent are
+     merged into a single span; genuinely disjoint ranges stay separate. The
+-    merge is part of the answer, never a silent convenience: it is stated in
+-    ``Core.code_context`` and in SKILL-CLI.md.
++    merge is part of the answer, never a silent convenience.
+ 
+     Callers pass the rows' OWN ranges — the caller merges first and applies
+     ``--context-lines`` padding to each surviving span afterwards. Padding
+     before the merge would let two definitions a few lines apart touch and
+     collapse into one span covering the code between them.
+ 
+-    Returns the spans ordered by start line.
++    Returns ``(start, end, symbol_rows)`` per span, ordered by start line:
++    ``symbol_rows`` is the number of rows folded into that span, so a caller
++    can report the merge instead of leaving it implicit.
+     """
+-    merged: list[tuple[int, int]] = []
++    merged: list[tuple[int, int, int]] = []
+     for start, end in sorted(ranges):
+         if merged and start <= merged[-1][1] + 1:
+-            prev_start, prev_end = merged[-1]
+-            merged[-1] = (prev_start, max(prev_end, end))
++            prev_start, prev_end, folded = merged[-1]
++            merged[-1] = (prev_start, max(prev_end, end), folded + 1)
+         else:
+-            merged.append((start, end))
++            merged.append((start, end, 1))
+     return merged
+ 
+ 
+@@ -1225,9 +1227,11 @@ class Core:
+         disjoint ranges stay separate. The rows' own ranges are merged
+         first, then ``context_lines`` padding is applied to each surviving
+         span — identity is decided on the definitions, so ``--context-lines``
+-        cannot change how many segments answer. The merge is stated here and
+-        in SKILL-CLI.md — it is part of the answer, never a silent
+-        normalisation. Spans are returned in start-line order.
++        cannot change how many segments answer. Each segment carries
++        ``symbol_rows``, the number of stored rows it merged, so the merge is
++        auditable and never silent; a definition nested inside another of the
++        same name is absorbed by the outer span. It is part of the answer,
++        never a silent normalisation. Spans are returned in start-line order.
+         """
+         rel = file.lstrip("/")
+         abs_path = os.path.normpath(os.path.join(entry.path, rel))
+@@ -1237,7 +1241,9 @@ class Core:
+             raise ValueError(f"error: file not found: {abs_path}")
+ 
+         changed = self.file_changed_since_index(entry, rel)
+-        ranges: list[tuple[int, int]] = []
++        # (start, end, symbol_rows): symbol_rows is the number of stored rows
++        # folded into the span, and None in line mode, which merges nothing.
++        ranges: list[tuple[int, int, int | None]] = []
+         re_resolved = False
+         if symbol:
+             # The rows' OWN ranges, before any --context-lines padding.
+@@ -1275,12 +1281,12 @@ class Core:
+             # fuse two genuinely disjoint definitions that sit a few lines
+             # apart into one span that contains the code between them, making
+             # the segment count depend on a display flag.
+-            ranges = [(max(1, s - context_lines), e + context_lines)
+-                      for s, e in _merge_symbol_ranges(own_ranges)]
++            ranges = [(max(1, s - context_lines), e + context_lines, n)
++                      for s, e, n in _merge_symbol_ranges(own_ranges)]
+         elif start_line is not None:
+             end = end_line if end_line is not None else start_line
+             ranges.append((max(1, start_line - context_lines),
+-                           end + context_lines))
++                           end + context_lines, None))
+         else:
+             raise ValueError(
+                 "error: provide --start-line/--end-line or --symbol")
+@@ -1289,18 +1295,21 @@ class Core:
+             lines = f.readlines()
+         total = len(lines)
+         segments = []
+-        for s, e in ranges:
++        for s, e, symbol_rows in ranges:
++            segment: dict[str, Any] = {"start_line": s, "end_line": e}
++            if symbol_rows is not None:
++                # Symbol mode reports the merge so it is never silent; line
++                # mode's shape is unchanged.
++                segment["symbol_rows"] = symbol_rows
+             if s > total:
+-                segments.append({"start_line": s, "end_line": e,
+-                                 "error": f"start_line {s} beyond end of "
+-                                          f"file ({total} lines)"})
++                segment["error"] = (f"start_line {s} beyond end of "
++                                    f"file ({total} lines)")
++                segments.append(segment)
+                 continue
+             s2, e2 = max(1, s), min(total, e)
+-            segments.append({
+-                "start_line": s, "end_line": e,
+-                "lines": [f"{i:>5}| {lines[i - 1].rstrip()}"
+-                          for i in range(s2, e2 + 1)],
+-            })
++            segment["lines"] = [f"{i:>5}| {lines[i - 1].rstrip()}"
++                                for i in range(s2, e2 + 1)]
++            segments.append(segment)
+         stale = changed and not re_resolved
+         if stale:
+             logger.warning(
+diff --git a/src/code_indexer/evalharness.py b/src/code_indexer/evalharness.py
+index 213a412..4d15edb 100644
+--- a/src/code_indexer/evalharness.py
++++ b/src/code_indexer/evalharness.py
+@@ -117,19 +117,6 @@ def _symbol_ranges(manifest: Any, rel_file: str,
+     return [(r.start_line, r.end_line) for r in rows]
+ 
+ 
+-def _symbol_range(manifest: Any, rel_file: str,
+-                  symbol: str) -> tuple[int, int] | None:
+-    """The FIRST row's (start_line, end_line), or None when the label is
+-    absent from that file.
+-
+-    A single-span view kept for a caller that wants one range; it says
+-    nothing about a label's other rows in the file. Scoring uses
+-    ``_symbol_ranges``, which reads every row.
+-    """
+-    ranges = _symbol_ranges(manifest, rel_file, symbol)
+-    return ranges[0] if ranges else None
+-
+-
+ def _hit_correct(core: "Core", entry: Any, hit: dict[str, Any],
+                  rel: Relevant) -> bool:
+     """File must match; when the label names a symbol, the hit must point at
+diff --git a/tests/test_csharp_symbols.py b/tests/test_csharp_symbols.py
+index a95d005..1ce53a3 100644
+--- a/tests/test_csharp_symbols.py
++++ b/tests/test_csharp_symbols.py
+@@ -147,8 +147,11 @@ def test_csharp_type_kinds(cs_project):
+     assert cs_project.find_symbols("ThreatProfile", symbol_type="struct")
+     assert cs_project.find_symbols("IThreatSource", symbol_type="interface")
+     assert cs_project.find_symbols("ThreatRecord")
+-    ns = cs_project.find_symbols("Estate.Sim", symbol_type="namespace")
+-    assert ns or cs_project.find_symbols("Sim", symbol_type="namespace")
++    assert cs_project.find_symbols("Sim", symbol_type="namespace"), \
++        "the leaf of a qualified namespace is the stored name"
++    assert not cs_project.find_symbols("Estate.Sim",
++                                      symbol_type="namespace"), \
++        "the dotted qualified name is never stored"
+ 
+ 
+ def test_csharp_methods_not_swallowed_by_class(cs_project):
+diff --git a/tests/test_symbol_resolution.py b/tests/test_symbol_resolution.py
+index 06f309d..d0a81a7 100644
+--- a/tests/test_symbol_resolution.py
++++ b/tests/test_symbol_resolution.py
+@@ -4,7 +4,7 @@ An exact-name symbol read defaults to 25 rows. Resolving
+ ``get-code-context --symbol`` by reading that capped list and filtering to the
+ requested file afterwards silently answers "not indexed in this file" for
+ every definition that sorts past the cap — the row is in the store and the
+-command denies it. ``evalharness._symbol_range`` had the same shape and
++command denies it. ``evalharness._symbol_ranges`` had the same shape and
+ mis-scored eval runs on the same name population.
+ 
+ These fixtures put one name in more definitions than the cap, with the target
+@@ -234,10 +234,10 @@ def test_eval_symbol_range_resolves_a_row_past_the_cap(wide_rig):
+     core, reg, entry, project, cfg = wide_rig
+     m = core.manifest_for(entry.slug)
+     try:
+-        rng = evalharness._symbol_range(m, "late_definition.py", SHARED_NAME)
++        ranges = evalharness._symbol_ranges(m, "late_definition.py", SHARED_NAME)
+     finally:
+         m.close()
+-    assert rng == (5, 6)
++    assert ranges == [(5, 6)]
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -359,11 +359,17 @@ def test_a_decorated_definition_is_one_segment(decorated_rig):
+     data = core.code_context(entry, "decorated.py", symbol=SHARED_NAME)
+     assert len(data["segments"]) == 1
+     segment = data["segments"][0]
++    assert segment["symbol_rows"] == 2
+     assert (segment["start_line"], segment["end_line"]) == (first[0], first[1])
+     body = "\n".join(segment["lines"])
+     assert "@decorator" in body
+     assert "def prepare(" in body
+ 
++    # Line mode merges nothing, so the marker is absent from its segments.
++    line_mode = core.code_context(entry, "decorated.py",
++                                  start_line=first[0], end_line=first[1])
++    assert all("symbol_rows" not in seg for seg in line_mode["segments"])
++
+ 
+ # ---------------------------------------------------------------------------
+ # context padding is presentation: it never changes the segment count
+@@ -414,6 +420,8 @@ def test_context_padding_keeps_two_close_definitions_apart(disjoint_rig):
+                              context_lines=2)
+     spans = [(seg["start_line"], seg["end_line"]) for seg in data["segments"]]
+     assert spans == expected, (spans, expected)
++    # Two disjoint rows stay two spans, each merging exactly one row.
++    assert [seg["symbol_rows"] for seg in data["segments"]] == [1, 1]
+ 
+ 
+ def test_context_padding_keeps_every_definition_on_the_live_path(

@@ -1,0 +1,3 @@
+# paths elided - redacted copy of the raw capture.
+# Checkout path written <checkout>. Nothing else changed.
+project=<checkout> state=idle languages_without_ast=[bash, css, html, java, json, kotlin, lua, markdown, php, ruby, rust, swift, toml, yaml]

@@ -1,0 +1,14 @@
+## rg -n '_symbol_range\b' src tests
+NO MATCH
+
+## rg -n '_symbol_range([^s]|$)' src tests
+tests/test_symbol_resolution.py:232:def test_eval_symbol_range_resolves_a_row_past_the_cap(wide_rig):
+
+## rg -n '_symbol_ranges' src tests
+src/code_indexer/evalharness.py:100:def _symbol_ranges(manifest: Any, rel_file: str,
+src/code_indexer/evalharness.py:134:    ranges = _symbol_ranges(core.manifest_for(entry.slug), rel.file,
+src/code_indexer/core.py:58:def _merge_symbol_ranges(
+src/code_indexer/core.py:1285:                      for s, e, n in _merge_symbol_ranges(own_ranges)]
+tests/test_symbol_resolution.py:7:command denies it. ``evalharness._symbol_ranges`` had the same shape and
+tests/test_symbol_resolution.py:237:        ranges = evalharness._symbol_ranges(m, "late_definition.py", SHARED_NAME)
+tests/test_symbol_resolution.py:314:        ranges = evalharness._symbol_ranges(m, "disjoint_rows.py",

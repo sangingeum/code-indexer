@@ -1,0 +1,19 @@
+# fold commit signatures at tip 7ea6b63
+7ea6b63594e964ae6e98375927fa7d6828ad9656 G feat(symbol-mode): report symbol_rows so the merge is never silent
+297297237ff869d955cc58194fef6b7ee6b23ba0 G refactor(eval): prune the single-span wrapper the scoring path no longer uses
+e4dbcde12dd57514dd386271c3c14d4dde66c9fb G docs(symbol-mode): fold the review's wording and record findings
+
+# surface diff names
+M	CHANGELOG.md
+M	SKILL-CLI.md
+M	docs/json-schema.md
+M	runs/issue24-26/gate-verification.md
+M	src/code_indexer/core.py
+M	src/code_indexer/evalharness.py
+M	tests/test_csharp_symbols.py
+M	tests/test_symbol_resolution.py
+
+# head
+7ea6b63594e964ae6e98375927fa7d6828ad9656
+# branch
+main

@@ -1,0 +1,33 @@
+{
+  "file": "src/code_indexer/cli.py",
+  "stale": false,
+  "re_resolved": false,
+  "segments": [
+    {
+      "start_line": 1435,
+      "end_line": 1452,
+      "symbol_rows": 2,
+      "lines": [
+        " 1435| @app.command(name=\"get-code-context\")",
+        " 1436| def get_code_context(",
+        " 1437|     file: str = typer.Argument(..., help=\"File path relative to the project root.\"),",
+        " 1438|     project: str = typer.Option(",
+        " 1439|         None, \"--project\", \"--name\",",
+        " 1440|         help=\"Project path, slug, or name (--project X or --name X).\"),",
+        " 1441|     start_line: int = typer.Option(None, help=\"Start line (with --end-line).\"),",
+        " 1442|     end_line: int = typer.Option(None, help=\"End line.\"),",
+        " 1443|     symbol: str = typer.Option(None, help=\"Resolve range(s) via this symbol.\"),",
+        " 1444|     context_lines: int = typer.Option(0, help=\"Pad each range by N lines.\"),",
+        " 1445|     json_output: bool = typer.Option(False, \"--json\", help=\"JSON output (carries stale/re_resolved).\"),",
+        " 1446|     skip_stale_check: bool = SkipOpt,",
+        " 1447|     fresh: bool = FreshOpt,",
+        " 1448| ) -> None:",
+        " 1449|     \"\"\"Retrieve ONLY the relevant source lines instead of whole files.",
+        " 1450| ",
+        " 1451|     Stale-safe: when the file changed since indexing, symbol mode re-resolves",
+        " 1452|     the symbol against the live file (fresh lines); line mode returns the"
+      ]
+    }
+  ],
+  "schema": 1
+}

@@ -1,0 +1,20 @@
+{
+  "file": "src/code_indexer/cli.py",
+  "stale": false,
+  "re_resolved": false,
+  "segments": [
+    {
+      "start_line": 1435,
+      "end_line": 1440,
+      "lines": [
+        " 1435| @app.command(name=\"get-code-context\")",
+        " 1436| def get_code_context(",
+        " 1437|     file: str = typer.Argument(..., help=\"File path relative to the project root.\"),",
+        " 1438|     project: str = typer.Option(",
+        " 1439|         None, \"--project\", \"--name\",",
+        " 1440|         help=\"Project path, slug, or name (--project X or --name X).\"),"
+      ]
+    }
+  ],
+  "schema": 1
+}

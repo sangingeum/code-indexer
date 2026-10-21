@@ -1,0 +1,114 @@
+# paths elided - redacted copy of the raw capture.
+# Checkout path written <checkout>. Nothing else changed.
+{
+  "project": "<checkout>",
+  "files": [
+    {
+      "file": "src/code_indexer/store.py",
+      "lang": "python",
+      "size": 7454,
+      "total_symbols": 14,
+      "symbols": [
+        {
+          "name": "point_id",
+          "type": "function",
+          "start_line": 34,
+          "end_line": 36,
+          "signature": "def point_id(project: str, file: str, chunk_index: int) -> str:"
+        },
+        {
+          "name": "Store",
+          "type": "class",
+          "start_line": 39,
+          "end_line": 61,
+          "signature": "class Store:"
+        },
+        {
+          "name": "__init__",
+          "type": "function",
+          "start_line": 40,
+          "end_line": 42,
+          "signature": "def __init__(self, url: str, upsert_batch: int = 256):"
+        },
+        {
+          "name": "collection_exists",
+          "type": "function",
+          "start_line": 44,
+          "end_line": 45,
+          "signature": "def collection_exists(self, name: str) -> bool:"
+        },
+        {
+          "name": "create_collection",
+          "type": "function",
+          "start_line": 47,
+          "end_line": 59,
+          "signature": "def create_collection(self, name: str, dim: int) -> None:"
+        },
+        {
+          "name": "drop_collection",
+          "type": "function",
+          "start_line": 61,
+          "end_line": 62,
+          "signature": "def drop_collection(self, name: str) -> None:"
+        },
+        {
+          "name": "list_collections",
+          "type": "function",
+          "start_line": 64,
+          "end_line": 75,
+          "signature": "def list_collections(self) -> set[str]:"
+        },
+        {
+          "name": "physical_name",
+          "type": "function",
+          "start_line": 77,
+          "end_line": 90,
+          "signature": "def physical_name(self, name: str) -> str | None:"
+        },
+        {
+          "name": "_alias_exists",
+          "type": "function",
+          "start_line": 92,
+          "end_line": 97,
+          "signature": "def _alias_exists(self, alias_name: str) -> bool:"
+        },
+        {
+          "name": "swap_collection",
+          "type": "function",
+          "start_line": 99,
+          "end_line": 116,
+          "signature": "def swap_collection(self, tmp: str, target: str) -> None:"
+        },
+        {
+          "name": "upsert_points",
+          "type": "function",
+          "start_line": 125,
+          "end_line": 128,
+          "signature": "def upsert_points(self, name: str, points: list[PointStruct]) -> int:"
+        },
+        {
+          "name": "purge_file_points",
+          "type": "function",
+          "start_line": 130,
+          "end_line": 151,
+          "signature": "def purge_file_points(self, name: str, project: str, file: str,"
+        },
+        {
+          "name": "count_points",
+          "type": "function",
+          "start_line": 157,
+          "end_line": 161,
+          "signature": "def count_points(self, name: str) -> int:"
+        },
+        {
+          "name": "search",
+          "type": "function",
+          "start_line": 163,
+          "end_line": 180,
+          "signature": "def search(self, name: str, vector: list[float], limit: int = 8,"
+        }
+      ]
+    }
+  ],
+  "schema": 1
+}

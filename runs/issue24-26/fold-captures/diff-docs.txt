@@ -1,0 +1,128 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 67083c8..21e8b6b 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -34,20 +34,21 @@
+   before segments are built: the decorator pair collapses to one span, while
+   genuinely disjoint ranges stay separate. The rule is stated in the
+   `code_context` docstring and in `SKILL-CLI.md`, and pinned by a test using
+-  a decorated definition (one segment, one honest range). The JSON answer
+-  shape (`file` / `stale` / `re_resolved` / `segments`) is unchanged, and the
+-  order is unchanged. The eval any-overlap hardening reads rows from the
+-  manifest, never segment counts, so it does not depend on this merge. No
+-  reindex is owed: the stored rows are what they were.
++  a decorated definition (one segment, one honest range). Each symbol-mode
++  segment now carries `symbol_rows`, the number of stored rows it merged, so
++  the merge is visible in the answer instead of implicit in the range. The
++  field is additive — `schema: 1` is unchanged, and line-range mode's segment
++  shape is unchanged. The order is unchanged. The eval any-overlap hardening
++  reads rows from the manifest, never segment counts, so it does not depend on
++  this merge. No reindex is owed: the stored rows are what they were.
+ - **The merge runs on the rows' own ranges, then `--context-lines` pads each
+-  merged span (issue #26).** `code_context` padded every row's range with
+-  `context_lines` before calling `_merge_symbol_ranges`, whose adjacency test
+-  (`start <= previous_end + 1`) then fused two genuinely disjoint definitions
+-  of the requested name that sit a few lines apart: with `--context-lines 2`
+-  and definitions four lines apart, the padded windows touch and the whole
+-  file collapsed into one segment that included the code between the
+-  definitions. The order is now identity first, presentation second — the
+-  rows' own ranges are merged, then `context_lines` is applied to each
++  merged span (issue #26).** `_merge_symbol_ranges`' adjacency test (`start <=
++  previous_end + 1`) fuses any two windows that touch, so merging AFTER
++  padding would fuse two genuinely disjoint definitions of the requested name
++  that sit a few lines apart: with `--context-lines 2` the padded windows
++  touch and the whole file would answer as one segment including the code
++  between the definitions. The order is identity first, presentation second —
++  the rows' own ranges are merged, then `context_lines` is applied to each
+   surviving span — so a display flag no longer changes how many segments
+   answer. Line-range mode is unchanged. Pinned by three tests: six
+   definitions four lines apart answer as six padded spans, two disjoint
+diff --git a/SKILL-CLI.md b/SKILL-CLI.md
+index 862fd2e..30bc934 100644
+--- a/SKILL-CLI.md
++++ b/SKILL-CLI.md
+@@ -374,7 +374,13 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
+   afterwards: identity is decided on the definitions, so padding never
+   changes how many segments answer. The merge is part of the answer, never a
+   hidden convenience: counting segments counts definitions. Spans are listed
+-  in start-line order.
++  in start-line order. Padded spans of nearby definitions may overlap: a
++  segment is a padded definition, not a disjoint window, so concatenating
++  segment bodies can repeat lines. `--context-lines` never changes how many
++  segments answer. Each segment in symbol mode also carries `symbol_rows`,
++  the number of stored rows it merged, so the merge is auditable rather than
++  silent; a definition nested inside another of the same name is absorbed by
++  the outer span.
+ - **index-status / doctor / sweep-orphans / reindex-project / remove-project / watch / unwatch** — index
+   lifecycle. Two state vocabularies (see "State meanings" above): the
+   **pass state** `idle | indexing | never-indexed | error` describes indexing
+@@ -552,13 +558,13 @@ receiver for refs.
+   answers from that file's own symbol rows (name and file filtered in one
+   uncapped read, every matching range returned — a definition past
+   `find-symbol`'s 25-row default is not reported as absent — and then the
+-  ranges of that one name that overlap or touch merged into one span each, so
+-  a decorated definition answers as one segment; the rows' own ranges merge
+-  first and `--context-lines` padding is applied to each merged span after,
+-  so padding never changes the segment count); line-range mode on
+-  a changed file returns the requested lines plus a one-line `Warning: ...`
+-  on stderr (exit 0) and `stale: true` in JSON. Search hits carry `file_hash`
+-  and `indexed_at`.
++  ranges of that one name that overlap or touch are merged into one span per
++  contiguous run, so a decorated definition answers as one segment; the rows'
++  own ranges merge first and `--context-lines` padding is applied to each
++  merged span after, so padding never changes the segment count); line-range
++  mode on a changed file returns the requested lines plus a one-line
++  `Warning: ...` on stderr (exit 0) and `stale: true` in JSON. Search hits
++  carry `file_hash` and `indexed_at`.
+ - Workflow: `semantic-search` -> `find-symbol`/`find-definition` ->
+   `get-code-context --symbol`. Never read whole files.
+ - First index of a big repo is slow (~1.2 docs/s GPU-hosted); check
+diff --git a/docs/json-schema.md b/docs/json-schema.md
+index 2cd428a..599b4ed 100644
+--- a/docs/json-schema.md
++++ b/docs/json-schema.md
+@@ -43,10 +43,21 @@ outline: `{"schema": 1, "file": str, "lang": str, "declarations": [{"type",
+ 
+ ```json
+ {"schema": 1, "file": str, "stale": bool, "re_resolved": bool,
+- "segments": [{"start_line", "end_line", "text", "symbol"|null,
+-               "error"|missing}]}
++ "segments": [{"start_line": int, "end_line": int, "lines": [str],
++               "symbol_rows": int,   (symbol mode only)
++               "error": str}]}       (instead of "lines", when the start
++                                      line is past the end of the file)
+ ```
+ 
++`lines` holds the rendered `NNNNN| text` rows of the segment, in file order.
++A segment whose `start_line` is beyond the end of the file carries `error` in
++place of `lines`.
++
++`symbol_rows` is the number of stored symbol rows the span merged — 2 for a
++decorated definition, 1 for a plain one. It appears in `--symbol` mode only,
++where the merge happens: line-range mode merges nothing and its segment shape
++is unchanged. The field is additive; `schema` stays `1`.
++
+ ## overview --json
+ 
+ Project map dict (project, files, loc, languages, directories,
+diff --git a/runs/issue24-26/gate-verification.md b/runs/issue24-26/gate-verification.md
+index 5ab4fa2..ec7b9ff 100644
+--- a/runs/issue24-26/gate-verification.md
++++ b/runs/issue24-26/gate-verification.md
+@@ -66,9 +66,13 @@ whose symbol is `pkg.prepare` (`runs/issue24-26/probe-tip.txt`):
+ | tip `4b5aa16` | refused: `error: symbol 'prepare' not indexed in dotted.py` |
+ | base `8254894` | answered: `segments=1 spans=[(10, 12)] re_resolved=True` |
+ 
+-So the suffix branch was live behaviour on the changed-file path, not merely
+-dead code: on the base the command answered a symbol that is not the requested
+-name. Tip refuses it.
++So the branch's rule was real on the changed-file path even though no stored
++row could reach it: the probe hands the base tree a live chunk whose symbol is
++`pkg.prepare` — a row extraction never produces — and the base answers it,
++while the tip refuses it. The issue's "can never fire" therefore stands for
++every indexed file, and deleting the branch changes no real answer; what the
++differential adds is proof that the rule being deleted was the suffix match
++and nothing else.
+ 
+ Test-level pin, stated plainly: `test_re_resolved_symbol_mode_matches_the_exact_name_only`
+ in `tests/test_symbol_resolution.py` monkeypatches `ts_chunker.chunk_text` to

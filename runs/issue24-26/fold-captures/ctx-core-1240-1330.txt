@@ -1,0 +1,92 @@
+--- src/code_indexer/core.py:1240-1330 ---
+ 1240|         if not os.path.isfile(abs_path):
+ 1241|             raise ValueError(f"error: file not found: {abs_path}")
+ 1242| 
+ 1243|         changed = self.file_changed_since_index(entry, rel)
+ 1244|         # (start, end, symbol_rows): symbol_rows is the number of stored rows
+ 1245|         # folded into the span, and None in line mode, which merges nothing.
+ 1246|         ranges: list[tuple[int, int, int | None]] = []
+ 1247|         re_resolved = False
+ 1248|         if symbol:
+ 1249|             # The rows' OWN ranges, before any --context-lines padding.
+ 1250|             own_ranges: list[tuple[int, int]] = []
+ 1251|             if changed:
+ 1252|                 # Re-resolve against the live file; the manifest rows are
+ 1253|                 # stale by definition here.
+ 1254|                 with open(abs_path, encoding="utf-8", errors="replace") as f:
+ 1255|                     live_text = f.read()
+ 1256|                 live_chunks = ts_chunker.chunk_text(rel, live_text)
+ 1257|                 fresh_rows = [c for c in live_chunks if c.symbol == symbol]
+ 1258|                 if fresh_rows:
+ 1259|                     own_ranges = [(c.start_line, c.end_line)
+ 1260|                                   for c in fresh_rows]
+ 1261|                     re_resolved = True
+ 1262|             if not own_ranges:
+ 1263|                 core_manifest = self.manifest_for(entry.slug)
+ 1264|                 try:
+ 1265|                     # Scoped in SQL: the name filter AND the file filter are
+ 1266|                     # the same read, uncapped. Filtering a capped exact-name
+ 1267|                     # read in Python dropped a file whose row sorted past the
+ 1268|                     # cap (issue #23: registry.py's __init__ is row 26 of 40).
+ 1269|                     rows = core_manifest.find_symbols(
+ 1270|                         symbol, substring=False, file=rel, limit=None)
+ 1271|                 finally:
+ 1272|                     core_manifest.close()
+ 1273|                 if not rows:
+ 1274|                     raise ValueError(
+ 1275|                         f"error: symbol {symbol!r} not indexed in {rel}")
+ 1276|                 own_ranges = [(r.start_line, r.end_line) for r in rows]
+ 1277|             # Identity first, presentation second: the rows' own ranges are
+ 1278|             # merged into one span per run (a decorated definition is two
+ 1279|             # rows, issue #26), and only then is the --context-lines padding
+ 1280|             # applied to each surviving span. Padding before the merge would
+ 1281|             # fuse two genuinely disjoint definitions that sit a few lines
+ 1282|             # apart into one span that contains the code between them, making
+ 1283|             # the segment count depend on a display flag.
+ 1284|             ranges = [(max(1, s - context_lines), e + context_lines, n)
+ 1285|                       for s, e, n in _merge_symbol_ranges(own_ranges)]
+ 1286|         elif start_line is not None:
+ 1287|             end = end_line if end_line is not None else start_line
+ 1288|             ranges.append((max(1, start_line - context_lines),
+ 1289|                            end + context_lines, None))
+ 1290|         else:
+ 1291|             raise ValueError(
+ 1292|                 "error: provide --start-line/--end-line or --symbol")
+ 1293| 
+ 1294|         with open(abs_path, encoding="utf-8", errors="replace") as f:
+ 1295|             lines = f.readlines()
+ 1296|         total = len(lines)
+ 1297|         segments = []
+ 1298|         for s, e, symbol_rows in ranges:
+ 1299|             segment: dict[str, Any] = {"start_line": s, "end_line": e}
+ 1300|             if symbol_rows is not None:
+ 1301|                 # Symbol mode reports the merge so it is never silent; line
+ 1302|                 # mode's shape is unchanged.
+ 1303|                 segment["symbol_rows"] = symbol_rows
+ 1304|             if s > total:
+ 1305|                 segment["error"] = (f"start_line {s} beyond end of "
+ 1306|                                     f"file ({total} lines)")
+ 1307|                 segments.append(segment)
+ 1308|                 continue
+ 1309|             s2, e2 = max(1, s), min(total, e)
+ 1310|             segment["lines"] = [f"{i:>5}| {lines[i - 1].rstrip()}"
+ 1311|                                 for i in range(s2, e2 + 1)]
+ 1312|             segments.append(segment)
+ 1313|         stale = changed and not re_resolved
+ 1314|         if stale:
+ 1315|             logger.warning(
+ 1316|                 "file changed since last index; line numbers may be shifted")
+ 1317|         return {
+ 1318|             "file": rel,
+ 1319|             "stale": stale,
+ 1320|             "re_resolved": re_resolved,
+ 1321|             "segments": segments,
+ 1322|         }
+ 1323| 
+ 1324|     def format_outline(self, data: dict[str, Any], fmt: str = "text") -> str:
+ 1325|         """Dense outline render (§2.2): one declaration per line."""
+ 1326|         if fmt == "json":
+ 1327|             return json.dumps(dict(data, schema=1), ensure_ascii=False,
+ 1328|                               indent=2)
+ 1329|         lines: list[str] = []
+ 1330|         for d in data["declarations"]:

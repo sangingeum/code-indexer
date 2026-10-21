@@ -1,0 +1,24 @@
+# docs/json-schema.md get-code-context block
+
+outline: `{"schema": 1, "file": str, "lang": str, "declarations": [{"type",
+"name", "start_line", "end_line", "signature"|null, ...}]}`.
+
+## get-code-context --json
+
+```json
+{"schema": 1, "file": str, "stale": bool, "re_resolved": bool,
+ "segments": [{"start_line": int, "end_line": int, "lines": [str],
+               "symbol_rows": int,   (symbol mode only)
+               "error": str}]}       (instead of "lines", when the start
+                                      line is past the end of the file)
+```
+
+`lines` holds the rendered `NNNNN| text` rows of the segment, in file order.
+A segment whose `start_line` is beyond the end of the file carries `error` in
+place of `lines`.
+
+`symbol_rows` is the number of stored symbol rows the span merged — 2 for a
+decorated definition, 1 for a plain one. It appears in `--symbol` mode only,
+where the merge happens: line-range mode merges nothing and its segment shape
+is unchanged. The field is additive; `schema` stays `1`.
+

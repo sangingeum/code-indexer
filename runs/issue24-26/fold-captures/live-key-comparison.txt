@@ -1,0 +1,8 @@
+# live payload keys, symbol mode (7ea6b63)
+{"top":["file","re_resolved","schema","segments","stale"],"segment_keys":[["end_line","lines","start_line","symbol_rows"]]}
+# live payload keys, line mode (7ea6b63)
+{"top":["file","re_resolved","schema","segments","stale"],"segment_keys":[["end_line","lines","start_line"]]}
+# outline --json
+{"schema":1,"top":["declarations","file","schema"]}
+# skeleton --json
+{"schema":1,"top":["files","project","schema"]}

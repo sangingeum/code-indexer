@@ -1,0 +1,42 @@
+--- src/code_indexer/core.py:55-95 ---
+   55| UNVERIFIED_REASON = "embedder-unreachable"
+   56| 
+   57| 
+   58| def _merge_symbol_ranges(
+   59|         ranges: list[tuple[int, int]]) -> list[tuple[int, int, int]]:
+   60|     """One contiguous span per run of ranges that overlap or touch.
+   61| 
+   62|     Symbol mode answers "where is this definition". Extraction stores a
+   63|     decorated definition as two rows — the decorator line and the declaration
+   64|     line, with the same end line — so one definition would otherwise surface
+   65|     as two overlapping ranges and a caller counting segments would count it
+   66|     twice. Ranges of the one requested name that overlap or are adjacent are
+   67|     merged into a single span; genuinely disjoint ranges stay separate. The
+   68|     merge is part of the answer, never a silent convenience.
+   69| 
+   70|     Callers pass the rows' OWN ranges — the caller merges first and applies
+   71|     ``--context-lines`` padding to each surviving span afterwards. Padding
+   72|     before the merge would let two definitions a few lines apart touch and
+   73|     collapse into one span covering the code between them.
+   74| 
+   75|     Returns ``(start, end, symbol_rows)`` per span, ordered by start line:
+   76|     ``symbol_rows`` is the number of rows folded into that span, so a caller
+   77|     can report the merge instead of leaving it implicit.
+   78|     """
+   79|     merged: list[tuple[int, int, int]] = []
+   80|     for start, end in sorted(ranges):
+   81|         if merged and start <= merged[-1][1] + 1:
+   82|             prev_start, prev_end, folded = merged[-1]
+   83|             merged[-1] = (prev_start, max(prev_end, end), folded + 1)
+   84|         else:
+   85|             merged.append((start, end, 1))
+   86|     return merged
+   87| 
+   88| 
+   89| class Core:
+   90|     """Stateful core: owns config, registry, embedder, store, indexer.
+   91| 
+   92|     One instance per process, shared by the MCP adapter and the CLI. All
+   93|     mutating passes run under the per-project flock, so concurrent one-shot
+   94|     invocations (4 parallel CLI searches, server + CLI together) serialize:
+   95|     exactly one indexer pass runs, others report 'indexing in progress'.
