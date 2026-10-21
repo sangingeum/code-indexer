@@ -1,0 +1,3 @@
+# paths elided: the absolute checkout path is shown as <repo>; the captured
+# values (state, languages_without_ast) are unchanged.
+project=<repo> state=idle languages_without_ast=[bash, css, html, java, json, kotlin, lua, markdown, php, ruby, rust, swift, toml, yaml]
