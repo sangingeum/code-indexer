@@ -66,9 +66,13 @@ whose symbol is `pkg.prepare` (`runs/issue24-26/probe-tip.txt`):
 | tip `4b5aa16` | refused: `error: symbol 'prepare' not indexed in dotted.py` |
 | base `8254894` | answered: `segments=1 spans=[(10, 12)] re_resolved=True` |
 
-So the suffix branch was live behaviour on the changed-file path, not merely
-dead code: on the base the command answered a symbol that is not the requested
-name. Tip refuses it.
+So the branch's rule was real on the changed-file path even though no stored
+row could reach it: the probe hands the base tree a live chunk whose symbol is
+`pkg.prepare` — a row extraction never produces — and the base answers it,
+while the tip refuses it. The issue's "can never fire" therefore stands for
+every indexed file, and deleting the branch changes no real answer; what the
+differential adds is proof that the rule being deleted was the suffix match
+and nothing else.
 
 Test-level pin, stated plainly: `test_re_resolved_symbol_mode_matches_the_exact_name_only`
 in `tests/test_symbol_resolution.py` monkeypatches `ts_chunker.chunk_text` to

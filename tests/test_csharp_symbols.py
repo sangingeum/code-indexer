@@ -147,8 +147,11 @@ def test_csharp_type_kinds(cs_project):
     assert cs_project.find_symbols("ThreatProfile", symbol_type="struct")
     assert cs_project.find_symbols("IThreatSource", symbol_type="interface")
     assert cs_project.find_symbols("ThreatRecord")
-    ns = cs_project.find_symbols("Estate.Sim", symbol_type="namespace")
-    assert ns or cs_project.find_symbols("Sim", symbol_type="namespace")
+    assert cs_project.find_symbols("Sim", symbol_type="namespace"), \
+        "the leaf of a qualified namespace is the stored name"
+    assert not cs_project.find_symbols("Estate.Sim",
+                                      symbol_type="namespace"), \
+        "the dotted qualified name is never stored"
 
 
 def test_csharp_methods_not_swallowed_by_class(cs_project):

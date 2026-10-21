@@ -374,7 +374,10 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
   afterwards: identity is decided on the definitions, so padding never
   changes how many segments answer. The merge is part of the answer, never a
   hidden convenience: counting segments counts definitions. Spans are listed
-  in start-line order.
+  in start-line order. Padded spans of nearby definitions may overlap: a
+  segment is a padded definition, not a disjoint window, so concatenating
+  segment bodies can repeat lines. `--context-lines` never changes how many
+  segments answer.
 - **index-status / doctor / sweep-orphans / reindex-project / remove-project / watch / unwatch** — index
   lifecycle. Two state vocabularies (see "State meanings" above): the
   **pass state** `idle | indexing | never-indexed | error` describes indexing
@@ -552,13 +555,13 @@ receiver for refs.
   answers from that file's own symbol rows (name and file filtered in one
   uncapped read, every matching range returned — a definition past
   `find-symbol`'s 25-row default is not reported as absent — and then the
-  ranges of that one name that overlap or touch merged into one span each, so
-  a decorated definition answers as one segment; the rows' own ranges merge
-  first and `--context-lines` padding is applied to each merged span after,
-  so padding never changes the segment count); line-range mode on
-  a changed file returns the requested lines plus a one-line `Warning: ...`
-  on stderr (exit 0) and `stale: true` in JSON. Search hits carry `file_hash`
-  and `indexed_at`.
+  ranges of that one name that overlap or touch are merged into one span per
+  contiguous run, so a decorated definition answers as one segment; the rows'
+  own ranges merge first and `--context-lines` padding is applied to each
+  merged span after, so padding never changes the segment count); line-range
+  mode on a changed file returns the requested lines plus a one-line
+  `Warning: ...` on stderr (exit 0) and `stale: true` in JSON. Search hits
+  carry `file_hash` and `indexed_at`.
 - Workflow: `semantic-search` -> `find-symbol`/`find-definition` ->
   `get-code-context --symbol`. Never read whole files.
 - First index of a big repo is slow (~1.2 docs/s GPU-hosted); check

@@ -64,8 +64,7 @@ def _merge_symbol_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]
     as two overlapping ranges and a caller counting segments would count it
     twice. Ranges of the one requested name that overlap or are adjacent are
     merged into a single span; genuinely disjoint ranges stay separate. The
-    merge is part of the answer, never a silent convenience: it is stated in
-    ``Core.code_context`` and in SKILL-CLI.md.
+    merge is part of the answer, never a silent convenience.
 
     Callers pass the rows' OWN ranges — the caller merges first and applies
     ``--context-lines`` padding to each surviving span afterwards. Padding
@@ -1225,9 +1224,8 @@ class Core:
         disjoint ranges stay separate. The rows' own ranges are merged
         first, then ``context_lines`` padding is applied to each surviving
         span — identity is decided on the definitions, so ``--context-lines``
-        cannot change how many segments answer. The merge is stated here and
-        in SKILL-CLI.md — it is part of the answer, never a silent
-        normalisation. Spans are returned in start-line order.
+        cannot change how many segments answer. It is part of the answer,
+        never a silent normalisation. Spans are returned in start-line order.
         """
         rel = file.lstrip("/")
         abs_path = os.path.normpath(os.path.join(entry.path, rel))
