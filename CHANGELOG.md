@@ -16,7 +16,9 @@
   `.githooks/pre-commit` blocks a violating commit (activate with
   `git config core.hooksPath .githooks`). The records and docstrings the earlier
   scan found were neutralised in the preceding commit; test fixtures and capture
-  payloads were left as evidence.
+  payloads were left as evidence. CI enforces the rule through that offline
+  suite; the hook is the opt-in local early warning, and its plain `python3`
+  call is valid only while the lint stays stdlib.
 
 ## [Unreleased] — symbol-mode follow-ups
 

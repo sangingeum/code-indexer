@@ -6,7 +6,7 @@ Semantic code index over Ollama embeddings + Qdrant, exposed as a one-shot CLI
 ## Build / test / run
 
 - Test: `uv run pytest tests/ -q -W error` (warn-clean is the house bar).
-- Lint: `uvx ruff check src tests`.
+- Lint: `uvx ruff check src tests scripts`.
 - Publishing hygiene: `uv run python scripts/publishing_hygiene_lint.py` — the
   mechanical form of the publishing rules. It scans every tracked path
   (`git ls-files`; untracked local evidence is out of scope by design) and
@@ -25,7 +25,10 @@ Semantic code index over Ollama embeddings + Qdrant, exposed as a one-shot CLI
   explicit paths. Offline test: `tests/test_publishing_hygiene.py`.
 - Pre-commit hook: `.githooks/pre-commit` runs the same check over the staged
   files and blocks the commit on a violation. Activate it in a clone with
-  `git config core.hooksPath .githooks`.
+  `git config core.hooksPath .githooks`. It is the opt-in local early warning,
+  not the enforcement: CI enforces the rule through the offline suite
+  (`tests/test_publishing_hygiene.py`), and the hook's plain `python3` call is
+  valid only while the lint stays stdlib.
 - Run from source: `uv run code-indexer <command>`.
 - Installed CLI on this host: `~/.local/bin/code-indexer` (uv tool; reinstall
   with `uv tool install --force .` after merged changes to test live).

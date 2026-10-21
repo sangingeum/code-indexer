@@ -21,7 +21,7 @@ jobs:
         run: uv sync --frozen
 
       - name: Lint (ruff)
-        run: uvx ruff check src tests
+        run: uvx ruff check src tests scripts
 
       - name: Test (offline suite; live-backend tests excluded)
         run: uv run pytest -m "not live"
