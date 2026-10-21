@@ -13,7 +13,8 @@ Semantic code index over Ollama embeddings + Qdrant, exposed as a one-shot CLI
   reports `path:line: class: detail` per violation, then
   `scanned=/skipped=/violations=`. Three classes: `absolute-host-path` (a
   machine path is never publishable, capture data included; a short allow-list
-  of synthetic fixture accounts is exempt), and — in authored surfaces only —
+  of synthetic fixture accounts is exempt, and so is pattern text — a segment
+  beginning with `[`, `{` or `<`), and — in authored surfaces only —
   `internal-profile-name` (held as sha256 digests; `--hash-name NAME` prints one
   to add) and `board-card-id`. Authored surfaces are `.md .py .sh .yml .yaml
   .toml .cs`; capture data (`runs/` with `.json`, `.txt`, `.log`) keeps its

@@ -24,12 +24,42 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 SCRIPT = REPO / "scripts" / "publishing_hygiene_lint.py"
+CAPTURE_SANITIZER = REPO / "runs" / "issue22" / "reverify" / "sanitize_capture.py"
 
 # Assembled, never written as a literal (see the module docstring).
 HOST_PATH = os.sep.join(["", "home", "hygiene" + "probe", "src", "app.py"])
 SYNTHETIC_PATH = os.sep.join(["", "home", "x", "proj"])
 INTERNAL_NAME = "sol" + "omon"
 CARD_ID = "T-" + f"{1:06d}"
+
+# Home-path segments that must be reported. Every one of these is a plausible
+# real account name, and three of them carry a character the former
+# metacharacter exemption swallowed outright (`$`, `+`, `,`); the rest pin the
+# ordinary account-name characters the rule must keep treating as a path.
+REPORTED_ACCOUNT_SEGMENTS = {
+    "plain": "probe" + "account",
+    "dotted": "probe" + "." + "account",
+    "trailing-dollar": "probe" + "$",
+    "plus": "probe" + "+" + "account",
+    "comma": "probe" + "," + "account",
+    "dash": "probe" + "-" + "account",
+    "underscore": "probe" + "_" + "account",
+    "bracket-not-leading": "probe" + "]",
+}
+
+# Segments that are pattern text and stay exempt: only a LEADING `[`, `{` or
+# `<` earns the exemption, which is all the tree's one such line needs.
+EXEMPT_SEGMENT_LEADERS = {
+    "regex-character-class": "[" + "a-z0-9" + "]" + "+",
+    "brace-placeholder": "{" + "account" + "}",
+    "angle-placeholder": "<" + "account" + ">",
+}
+
+
+def _home_path(segment: str) -> str:
+    """A host home path built from a segment, with no literal path in the file."""
+    return os.sep.join(["", "home", segment]) + "/"
+
 
 
 def _lint():
@@ -44,6 +74,15 @@ def _scan(path: Path, rel: str) -> list[str]:
     found = _lint()._scan(path, Path(rel))
     assert found is not None, f"{rel} was skipped unexpectedly"
     return found
+
+
+def _sanitizer():
+    spec = importlib.util.spec_from_file_location(
+        "sanitize_capture", CAPTURE_SANITIZER)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _classes(found: list[str]) -> set[str]:
@@ -110,3 +149,43 @@ def test_capture_keeps_names_but_not_host_paths(tmp_path):
 def test_hash_name_prints_the_digest(capsys):
     assert _lint().main(["--hash-name", "example"]) == 0
     assert capsys.readouterr().out.strip() == hashlib.sha256(b"example").hexdigest()
+
+
+@pytest.mark.parametrize(
+    ("label", "segment"), sorted(REPORTED_ACCOUNT_SEGMENTS.items()))
+def test_account_name_shapes_are_reported(tmp_path, label, segment):
+    """A segment is a candidate account name whatever it carries, unless it
+    begins with `[`, `{` or `<` — so `$`, `+`, `,`, `-` and `_` segments fire,
+    and a bracket that merely appears inside the segment does not exempt it."""
+    record = tmp_path / "record.md"
+    home = _home_path(segment)
+    record.write_text(f"path: {home}src/app.py\n", encoding="utf-8")
+    assert _scan(record, "record.md") == [
+        f"record.md:1: absolute-host-path: {home}"], label
+
+
+@pytest.mark.parametrize(
+    ("label", "segment"), sorted(EXEMPT_SEGMENT_LEADERS.items()))
+def test_pattern_text_segments_are_exempt(tmp_path, label, segment):
+    """A segment beginning with `[`, `{` or `<` is a regex class or a
+    placeholder, not an account, and stays unreported."""
+    record = tmp_path / "record.md"
+    record.write_text(f"pattern: {_home_path(segment)}src/app.py\n",
+                      encoding="utf-8")
+    assert _scan(record, "record.md") == [], label
+
+
+def test_capture_sanitizer_rewrites_only_this_hosts_prefixes():
+    """The sanitiser placeholders this checkout and this account home, and
+    leaves a foreign machine's path exactly as it found it."""
+    sanitize = _sanitizer().sanitize_capture
+    repo_path = str(REPO / "src" / "code_indexer" / "cli.py")
+    home_path = str(Path.home() / ("elsewhere" + "-checkout") / "uv.lock")
+    foreign_path = os.sep.join(
+        ["", "home", "foreign" + "account", "checkout", "README.md"])
+    text = f"repo {repo_path}\nhome {home_path}\nforeign {foreign_path}\n"
+    assert sanitize(text) == (
+        "repo <repo>/src/code_indexer/cli.py\n"
+        "home <home>/elsewhere-checkout/uv.lock\n"
+        f"foreign {foreign_path}\n"
+    )

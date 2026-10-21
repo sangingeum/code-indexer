@@ -9,11 +9,15 @@ out of published content. This script enforces them mechanically:
                           allow-list of synthetic account-home directories is
                           exempt, because unit tests need plausible fixtures:
                           the account segments x, y, user, example, test,
-                          alice and bob. A segment that looks like a
-                          placeholder or a regex fragment (it carries a
-                          metacharacter) is pattern text, not a real path, and
-                          is not reported. Windows user paths and smb shares
-                          are caught too.
+                          alice and bob. A segment that *begins* with `[`, `{`
+                          or `<` is pattern text — a regex character class, a
+                          brace placeholder or an angle placeholder — not a
+                          real path, and is not reported. A segment that merely
+                          carries another metacharacter is still a candidate
+                          account name and is reported: `$`, `+`, `,`, `-` and
+                          `_` all occur in real account names, and a machine
+                          account conventionally ends in `$`. Windows user
+                          paths and smb shares are caught too.
   internal-profile-name   internal profile names are forbidden in authored
                           surfaces. The names are held as sha256 digests, so
                           the check forbids them without publishing the roster
@@ -89,9 +93,13 @@ SMB_RE = re.compile(r"(?i)smb:/{2}")
 CARD_ID_RE = re.compile(r"\b" + "T" + r"-[0-9]{6}\b")
 TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
 
-# A home-path segment carrying one of these is pattern text or a placeholder
-# (a regex character class, a brace placeholder), not a real account name.
-_PLACEHOLDER_CHARS = frozenset("[]{}()<>*+?^$|\\,")
+# A home-path segment is pattern text only when it BEGINS with one of these: a
+# regex character class, a brace placeholder, or an angle placeholder. Nothing
+# else is exempt — a metacharacter anywhere else in the segment is no evidence
+# of pattern text, because real account names carry `$` (machine accounts end
+# in it), `+`, `,`, `-` and `_`. Such a segment stays a candidate path and is
+# reported.
+_PATTERN_LEADING_CHARS = ("[", "{", "<")
 
 
 def _digest(name: str) -> str:
@@ -129,7 +137,7 @@ def _check_absolute_path(line: str) -> list[str]:
         segment = match.group(1)
         if segment.lower() in SYNTHETIC_SEGMENTS:
             continue
-        if any(char in _PLACEHOLDER_CHARS for char in segment):
+        if segment.startswith(_PATTERN_LEADING_CHARS):
             continue
         details.append(match.group(0))
     for pattern in (WINDOWS_USER_RE, SMB_RE):
