@@ -1,0 +1,50 @@
+# paths elided - redacted copy of the raw capture.
+# Host checkout paths are written <checkout>, scratch worktrees
+# <base worktree> / <pre-pad worktree>, and pytest temp dirs <tmp>.
+# The unmodified capture is kept in the local evidence store outside this
+# repository. Nothing else in this file was changed.
+wrote <checkout>/runs/issue24-26/eval-report.json
+eval project=<checkout> mode=lexical queries=42
+  recall@1=0.2143  recall@5=0.3571  mrr=0.2798  ndcg@10=0.2997  mean_latency_s=0.0009  p95_latency_s=0.0017
+  q-concept-01: rank=miss latency=0.0015s ~63tok
+  q-concept-02: rank=miss latency=0.0009s ~63tok
+  q-concept-03: rank=miss latency=0.001s ~63tok
+  q-concept-04: rank=miss latency=0.0009s ~63tok
+  q-concept-05: rank=miss latency=0.0007s ~0tok
+  q-concept-06: rank=miss latency=0.0007s ~0tok
+  q-concept-07: rank=miss latency=0.0006s ~0tok
+  q-concept-08: rank=miss latency=0.0008s ~0tok
+  q-concept-09: rank=miss latency=0.0007s ~0tok
+  q-concept-10: rank=miss latency=0.0008s ~0tok
+  q-concept-11: rank=miss latency=0.0007s ~0tok
+  q-concept-12: rank=miss latency=0.0007s ~0tok
+  q-ident-01: rank=1 latency=0.0022s ~710tok
+  q-ident-02: rank=2 latency=0.0007s ~331tok
+  q-ident-03: rank=2 latency=0.0009s ~333tok
+  q-ident-04: rank=1 latency=0.0006s ~205tok
+  q-ident-05: rank=1 latency=0.0009s ~549tok
+  q-ident-06: rank=2 latency=0.0011s ~709tok
+  q-ident-07: rank=1 latency=0.0009s ~272tok
+  q-ident-08: rank=miss latency=0.0017s ~695tok
+  q-ident-09: rank=1 latency=0.0007s ~68tok
+  q-ident-10: rank=4 latency=0.0006s ~337tok
+  q-ident-11: rank=1 latency=0.0009s ~345tok
+  q-ident-12: rank=2 latency=0.0008s ~267tok
+  q-file-01: rank=1 latency=0.0015s ~704tok
+  q-file-02: rank=2 latency=0.0014s ~680tok
+  q-file-03: rank=miss latency=0.0005s ~0tok
+  q-file-04: rank=1 latency=0.0017s ~698tok
+  q-file-05: rank=1 latency=0.0011s ~546tok
+  q-file-06: rank=miss latency=0.0008s ~342tok
+  q-how-01: rank=miss latency=0.0006s ~0tok
+  q-how-02: rank=miss latency=0.0006s ~0tok
+  q-how-03: rank=miss latency=0.0008s ~73tok
+  q-how-04: rank=miss latency=0.0005s ~0tok
+  q-how-05: rank=miss latency=0.0006s ~0tok
+  q-how-06: rank=miss latency=0.0005s ~0tok
+  q-how-07: rank=miss latency=0.0005s ~0tok
+  q-how-08: rank=miss latency=0.0005s ~0tok
+  q-how-09: rank=miss latency=0.0005s ~0tok
+  q-how-10: rank=miss latency=0.0006s ~0tok
+  q-how-11: rank=miss latency=0.0006s ~0tok
+  q-how-12: rank=miss latency=0.0007s ~0tok

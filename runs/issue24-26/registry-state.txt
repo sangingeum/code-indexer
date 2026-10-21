@@ -1,0 +1,7 @@
+# paths elided - redacted copy of the raw capture.
+# Host checkout paths are written <checkout>, scratch worktrees
+# <base worktree> / <pre-pad worktree>, and pytest temp dirs <tmp>.
+# The unmodified capture is kept in the local evidence store outside this
+# repository. Nothing else in this file was changed.
+$ code-indexer list-projects  (filtered to this project)
+- path=<checkout> slug=code-indexer state=idle files=324 chunks=1940 last_indexed=2026-10-21 08:52:17

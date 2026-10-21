@@ -1,0 +1,10 @@
+$ rg -n "endswith|full name|dotted" src/code_indexer/core.py src/code_indexer/ts_chunker.py
+src/code_indexer/ts_chunker.py:287:            # returns the last dotted part, and no dotted symbol name
+exit=0
+
+$ rg -n "rows\[0\]|_symbol_range" src/code_indexer/evalharness.py
+100:def _symbol_ranges(manifest: Any, rel_file: str,
+120:def _symbol_range(manifest: Any, rel_file: str,
+127:    ``_symbol_ranges``, which reads every row.
+129:    ranges = _symbol_ranges(manifest, rel_file, symbol)
+147:    ranges = _symbol_ranges(core.manifest_for(entry.slug), rel.file,

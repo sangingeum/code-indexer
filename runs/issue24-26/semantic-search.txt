@@ -1,0 +1,13 @@
+# paths elided - redacted copy of the raw capture.
+# Host checkout paths are written <checkout>, scratch worktrees
+# <base worktree> / <pre-pad worktree>, and pytest temp dirs <tmp>.
+# The unmodified capture is kept in the local evidence store outside this
+# repository. Nothing else in this file was changed.
+<checkout>::src/code_indexer/core.py:58-75  _merge_symbol_ranges  0.7218
+<checkout>::src/code_indexer/core.py:737-1530  code_context, _fuse_lexical_dense, _fuse_lexical_dense, code_context  0.6282
+<checkout>::src/code_indexer/changed.py:119-141  symbols_in_ranges  0.6279
+<checkout>::src/code_indexer/ranking.py:244-264  merge_overlapping  0.6079
+<checkout>::SKILL-CLI.md:211-226  range  0.5856
+<checkout>::src/code_indexer/evalharness.py:100-149  _symbol_ranges, _symbol_range, _hit_correct  0.5734
+<checkout>::tests/test_result_shaping.py:45-66  test_merge_overlapping_same_file, test_merge_adjacent_within_gap, test_no_merge_far_apart_or_cross_file  0.5716
+<checkout>::tests/test_symbol_resolution.py:176-184  test_eval_symbol_range_resolves_a_row_past_the_cap  0.5684

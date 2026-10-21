@@ -1,0 +1,6 @@
+# paths elided - redacted copy of the raw capture.
+# Host checkout paths are written <checkout>, scratch worktrees
+# <base worktree> / <pre-pad worktree>, and pytest temp dirs <tmp>.
+# The unmodified capture is kept in the local evidence store outside this
+# repository. Nothing else in this file was changed.
+project=<checkout> state=idle languages_without_ast=[bash, css, html, java, json, kotlin, lua, markdown, php, ruby, rust, swift, toml, yaml]

@@ -1,0 +1,38 @@
+$ git diff --name-only 8254894..4b5aa16
+CHANGELOG.md
+SKILL-CLI.md
+src/code_indexer/core.py
+src/code_indexer/evalharness.py
+src/code_indexer/ts_chunker.py
+tests/test_symbol_resolution.py
+
+$ git diff 8254894..4b5aa16 | rg -n "EXTRACTION_VERSION|CHUNKER_VERSION|schema"
+(no match)
+
+$ git diff 8254894..4b5aa16 | rg -n "re_resolved|\"file\"|\"stale\"|segments"
+37:+  a caller counting segments overcounted definitions. Ranges of the requested
+39:+  before segments are built: the decorator pair collapses to one span, while
+43:+  shape (`file` / `stale` / `re_resolved` / `segments`) is unchanged, and the
+56:+  surviving span — so a display flag no longer changes how many segments
+84:+  changes how many segments answer. The merge is part of the answer, never a
+85:+  hidden convenience: counting segments counts definitions. Spans are listed
+117:+    as two overlapping ranges and a caller counting segments would count it
+151:+        segments are built (issue #26): a decorated definition is extracted
+157:+        cannot change how many segments answer. The merge is stated here and
+165:         re_resolved = False
+186:                     re_resolved = True
+264:     if hit.get("file") != rel.file:
+383:@@ -209,5 +265,172 @@ def test_re_resolved_symbol_mode_returns_every_definition(repeated_rig):
+384:     assert len(data["segments"]) == 6
+391:+def test_re_resolved_symbol_mode_matches_the_exact_name_only(
+442:+    inside_second = {"file": "disjoint_rows.py", "symbol": None,
+446:+    inside_first = {"file": "disjoint_rows.py", "symbol": None,
+452:+    between_rows = {"file": "disjoint_rows.py", "symbol": None,
+460:+    A caller counting segments to count definitions must not overcount. The
+479:+    assert len(data["segments"]) == 1
+480:+    segment = data["segments"][0]
+492:+    """Six definitions four lines apart stay SIX segments when padded.
+504:+    spans = [(seg["start_line"], seg["end_line"]) for seg in data["segments"]]
+534:+    spans = [(seg["start_line"], seg["end_line"]) for seg in data["segments"]]
+546:+    assert data["re_resolved"] is True
+547:+    spans = [(seg["start_line"], seg["end_line"]) for seg in data["segments"]]

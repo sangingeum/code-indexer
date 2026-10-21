@@ -1,0 +1,21 @@
+# paths elided - redacted copy of the raw capture.
+# Host checkout paths are written <checkout>, scratch worktrees
+# <base worktree> / <pre-pad worktree>, and pytest temp dirs <tmp>.
+# The unmodified capture is kept in the local evidence store outside this
+# repository. Nothing else in this file was changed.
+code_indexer module: <base worktree>/src/code_indexer/__init__.py
+python: 3.12.12
+[10/21/26 09:00:40] INFO     registry migrated: added nullable    registry.py:85
+[25] rows of 'repeated' in disjoint_rows.py: [(2, 3), (5, 6)]
+[25] hit inside FIRST row 2-3 correct: True
+[25] hit inside SECOND row 5-6 correct: False
+[25] hit in the GAP between rows (line 4) correct: False
+[25] capped read rows: 25; whole definition read: 26
+[25] _symbol_range for the 26th row's file: [(5, 6)]
+[10/21/26 09:00:41] INFO     registry migrated: added nullable    registry.py:85
+[26] decorated rows in store: [(5, 14), (6, 14)]
+[26] decorated segments: 2 spans=[(5, 14), (6, 14)]
+[26] six definitions, no padding: 6 spans=[(1, 2), (5, 6), (9, 10), (13, 14), (17, 18), (21, 22)]
+[26] six definitions, --context-lines 6: 6 spans=[(1, 8), (1, 12), (3, 16), (7, 20), (11, 24), (15, 28)]
+[26] two close definitions, --context-lines 2: 2 spans=[(1, 5), (3, 8)]
+[24] dotted live row answered --symbol prepare: segments=1 spans=[(10, 12)] re_resolved=True

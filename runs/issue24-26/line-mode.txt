@@ -1,0 +1,13 @@
+[10/21/26 09:00:49] WARNING  file changed since last index; line    core.py:1306
+                             numbers may be shifted                             
+--- src/code_indexer/core.py:1203-1212 ---
+ 1203|     def code_context(self, entry: ProjectEntry, file: str,
+ 1204|                      start_line: int | None = None,
+ 1205|                      end_line: int | None = None,
+ 1206|                      symbol: str | None = None,
+ 1207|                      context_lines: int = 0) -> dict[str, Any]:
+ 1208|         """Stale-safe get_code_context.
+ 1209| 
+ 1210|         Symbol mode: when the file changed since indexing, re-resolve the
+ 1211|         symbol against the LIVE file with tree-sitter and return fresh line
+ 1212|         ranges (stale stays false — the answer is current). Line mode: the
