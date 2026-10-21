@@ -12,12 +12,19 @@ out of published content. This script enforces them mechanically:
                           alice and bob. A segment that *begins* with `[`, `{`
                           or `<` is pattern text — a regex character class, a
                           brace placeholder or an angle placeholder — not a
-                          real path, and is not reported. A segment that merely
-                          carries another metacharacter is still a candidate
-                          account name and is reported: `$`, `+`, `,`, `-` and
-                          `_` all occur in real account names, and a machine
-                          account conventionally ends in `$`. Windows user
-                          paths and smb shares are caught too.
+                          real path, and is not reported. The angle-bracket
+                          exemption is a house convention, not a guess: angle
+                          brackets are the published spelling for host-specific
+                          text (`<home>/...`, `<repo>/...`), the records this
+                          repository publishes depend on that spelling, and no
+                          real account begins with one on any host this
+                          repository is built on. The rule governs prose as much
+                          as code, so the exemption is stated at that level. A
+                          segment that merely carries another metacharacter is
+                          still a candidate account name and is reported: `$`,
+                          `+`, `,`, `-` and `_` all occur in real account
+                          names, and a machine account conventionally ends in
+                          `$`. Windows user paths and smb shares are caught too.
   internal-profile-name   internal profile names are forbidden in authored
                           surfaces. The names are held as sha256 digests, so
                           the check forbids them without publishing the roster
@@ -27,13 +34,17 @@ out of published content. This script enforces them mechanically:
   board-card-id           internal board card ids (a T- prefix plus six digits)
                           are forbidden in authored surfaces.
 
-Surface split. "Authored" means the file types prose, code, scripts, CI config
-and records are written in: .md, .py, .sh, .yml, .yaml, .toml, .cs. Capture
-data — a .json, .txt or .log file under runs/ — is quoted evidence about
-another repository: its payload keeps whatever names it holds, because
-redacting it would falsify the record. Absolute host paths are the exception
-and are checked in capture data as well: a path belonging to the machine that
-ran a capture is never legitimate, whatever file holds it.
+Surface split. Authored is the complement of capture — everything except
+capture data: every tracked text file is governed by the name and card-id
+rules unless it is capture data. Capture data is a file under runs/ whose
+suffix is .json, .txt, .log, .err, .out or .jsonl: it is quoted evidence about
+another repository, and its payload keeps whatever names it holds, because
+redacting it would falsify the record. Everything else is authored, including
+the types prose, code, scripts, CI config and records are written in (.md, .py,
+.sh, .yml, .yaml, .toml, .cs) and the files that carry no suffix at all.
+Absolute host paths are the exception and are checked in capture data as well:
+a path belonging to the machine that ran a capture is never legitimate,
+whatever file holds it.
 
 Discovery. By default every tracked path is scanned (`git ls-files` at the
 repository root). Untracked local evidence is out of scope by design — a file
@@ -58,13 +69,14 @@ from pathlib import Path
 
 MAX_BYTES = 2 * 1024 * 1024
 SKIP_DIR_NAMES = frozenset({".git", ".venv", ".pytest_cache", ".ruff_cache"})
-AUTHORED_SUFFIXES = frozenset({".md", ".py", ".sh", ".yml", ".yaml", ".toml", ".cs"})
-CAPTURE_SUFFIXES = frozenset({".json", ".txt", ".log"})
+CAPTURE_SUFFIXES = frozenset({".json", ".txt", ".log", ".err", ".out", ".jsonl"})
 CAPTURE_ROOT = "runs"
 
-# Synthetic account-home directories that unit-test fixtures may use. These are
-# not real accounts on any host this repository is built on: the watcher tests
-# cover-overlap checks use a pair of single-letter roots.
+# Fixture account-home segments the publishing rules allow unit tests to use.
+# These are fixture conventions, not accounts: x, y, user, example, test, alice
+# and bob. The single-letter pair x and y is called out because the watcher
+# tests' cover-overlap checks use exactly those two roots as their homes, so a
+# future tidy-up that drops them would fail those tests rather than the rule.
 SYNTHETIC_SEGMENTS = frozenset(
     {"x", "y", "user", "example", "test", "alice", "bob"})
 
@@ -107,13 +119,17 @@ def _digest(name: str) -> str:
 
 
 def _is_authored(rel: Path) -> bool:
-    """True for the surfaces the name and card-id rules govern."""
-    if rel.suffix.lower() not in AUTHORED_SUFFIXES:
-        return False
+    """True for every surface the name and card-id rules govern.
+
+    Authored is the complement of capture: everything except capture data. The
+    rule fails closed — a file type nobody anticipated is governed rather than
+    silently exempt, and the only exemption is a capture payload under runs/.
+    """
     return not _is_capture(rel)
 
 
 def _is_capture(rel: Path) -> bool:
+    """True for a capture payload: quoted evidence under runs/."""
     parts = rel.parts
     if not parts or parts[0] != CAPTURE_ROOT:
         return False

@@ -28,11 +28,17 @@ HOME = Path.home()
 # Repository first: this checkout usually lives under the account home, and its
 # paths deserve the more specific placeholder. Only these two prefixes are
 # rewritten; anything else is a foreign path.
+#
+# The account home carries a boundary as a negative lookahead: the next
+# character must not be a path or account-name character, so a neighbouring
+# account (`/home/name2`) is left alone. A list of allowed followers instead
+# would miss `,`, `)`, `:`, `;` and a closing full stop — the places paths end
+# in prose — and a miss here publishes the very path this helper removes.
 RULES = [
     (re.compile(r"/tmp/pytest-of-[^/\s'\"]+"), "<pytest-tmp>"),
     (re.compile(r"/tmp/ci22-[a-z]+"), "<base-worktree>"),
     (re.compile(re.escape(str(REPO_ROOT))), "<repo>"),
-    (re.compile(re.escape(str(HOME)) + r"(?=/|\s|[\"']|$)"), "<home>"),
+    (re.compile(re.escape(str(HOME)) + r"(?![A-Za-z0-9._-])"), "<home>"),
 ]
 
 

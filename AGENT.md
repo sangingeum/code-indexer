@@ -14,12 +14,15 @@ Semantic code index over Ollama embeddings + Qdrant, exposed as a one-shot CLI
   `scanned=/skipped=/violations=`. Three classes: `absolute-host-path` (a
   machine path is never publishable, capture data included; a short allow-list
   of synthetic fixture accounts is exempt, and so is pattern text — a segment
-  beginning with `[`, `{` or `<`), and — in authored surfaces only —
+  beginning with `[`, `{` or `<`, the last because angle brackets are this
+  house's published spelling for host-specific text), and — in authored
+  surfaces only, meaning every tracked file **except** capture data —
   `internal-profile-name` (held as sha256 digests; `--hash-name NAME` prints one
-  to add) and `board-card-id`. Authored surfaces are `.md .py .sh .yml .yaml
-  .toml .cs`; capture data (`runs/` with `.json`, `.txt`, `.log`) keeps its
-  payload because it is quoted evidence about another repository. `--paths P…`
-  scans explicit paths. Offline test: `tests/test_publishing_hygiene.py`.
+  to add) and `board-card-id`. Capture data is a file under `runs/` with a
+  `.json`, `.txt`, `.log`, `.err`, `.out` or `.jsonl` suffix: it keeps its
+  payload because it is quoted evidence about another repository. A record
+  `.md` under `runs/` is therefore authored and governed. `--paths P…` scans
+  explicit paths. Offline test: `tests/test_publishing_hygiene.py`.
 - Pre-commit hook: `.githooks/pre-commit` runs the same check over the staged
   files and blocks the commit on a violation. Activate it in a clone with
   `git config core.hooksPath .githooks`.
