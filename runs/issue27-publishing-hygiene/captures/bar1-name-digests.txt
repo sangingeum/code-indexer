@@ -1,0 +1,24 @@
+committed digests: 11
+
+candidate -> digest match:
+  <role-01>       70d98166acace7c3…  MATCH
+  <role-02>        e010fd1ce1acc173…  MATCH
+  <role-03>         eda508206872a406…  MATCH
+  <role-04>       084328c53a9de563…  MATCH
+  <role-05>      8b63510ba2c2ce7f…  MATCH
+  <role-06>         c7f6d322bc205f26…  MATCH
+  <role-07>         55579b557896d0ce…  MATCH
+  <role-08>         c541435befefd132…  MATCH
+  <role-09>         b9f633dc43572056…  MATCH
+  <role-10>       accb7fc4d0144dca…  MATCH
+  <role-11>         3c28d0b1b4e92843…  MATCH
+  default      37a8eec1ce19687d…  no
+  hermes       8cfde6efdfc4ed5a…  no
+  <forge-login>   10e65b41d053bc18…  no
+
+candidates matching a digest : 11
+digests explained            : 11 / 11
+dead digests (no name)       : 0
+candidates with no digest    : ['default', 'hermes', '<forge-login>']
+
+BAR1=PASS

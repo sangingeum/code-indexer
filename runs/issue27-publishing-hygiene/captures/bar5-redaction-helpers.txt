@@ -1,0 +1,40 @@
+$ python3 <helper-copy>/runs/issue22/sanitize_evidence.py
+exit=1 stdout='sanitized probe-before.txt' stderr='Traceback (most recent call last):\n  File "<helper-copy>/runs/issue22/sanitize_evidence.py", line 43, in <module>\n    main()\n  File "<helper-copy>/runs/issue22/sanitize_evidence.py", line 35, in main\n    text = path.read_text()\n           ^^^^^^^^^^^^^^^^\n  File "<home>/.local/share/uv/python/cpython-3.12.12-linux-x86_64-gnu/lib/python3.12/pathlib.py", line 1027, in read_text\n    with self.open(mode=\'r\', encoding=encoding, errors=errors) as f:\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File "<home>/.local/share/uv/python/cpython-3.12.12-linux-x86_64-gnu/lib/python3.12/pathlib.py", line 1013, in open\n    return io.open(self, mode, buffering, encoding, errors, newline)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: \'<helper-copy>/runs/issue22/timing-before.txt\''
+
+--- before ---
+1 repo src      : <helper-copy>/src/code_indexer/cli.py
+2 repo plain    : <helper-copy>/docs/README.md
+3 pytest tmp    : /tmp/pytest-of-someone/pytest-17/test_walk0
+4 worktree src  : /tmp/ci-issue22-before-0b66431/src/code_indexer/store.py
+5 worktree plain: /tmp/ci-issue22-before-0b66431/tests/test_store.py
+6 home          : <repo>/uv.lock
+7 foreign home  : /home/<account>/foreign/checkout/README.md
+8 relative      : src/code_indexer/cli.py (must not move)
+
+--- after ---
+1 repo src      : <repo>/src/code_indexer/cli.py
+2 repo plain    : <repo>/docs/README.md
+3 pytest tmp    : <tmp>/test_walk0
+4 worktree src  : <base-worktree>/src/code_indexer/store.py
+5 worktree plain: <base-worktree>/tests/test_store.py
+6 home          : <home>/dev/<role-04>/code-indexer/uv.lock
+7 foreign home  : /home/<account>/foreign/checkout/README.md
+8 relative      : src/code_indexer/cli.py (must not move)
+
+$ python3 <helper-copy>/reverify/sanitize_capture.py <helper-copy>/raw.txt <helper-copy>/out.txt
+exit=0 stdout='sanitized <helper-copy>/raw.txt -> <helper-copy>/out.txt (5 lines)' stderr=''
+
+--- before ---
+tmp_path = /tmp/pytest-of-someone/pytest-3/test_x0
+pytest tmp   : /tmp/pytest-of-someone/pytest-3/test_x0/probe.txt
+worktree     : /tmp/ci22-abc/src/code_indexer/store.py
+home (this)  : <repo>/runs/out.txt
+home (other) : /home/<account>/foreign/checkout/README.md
+assert 12 == 12
+
+--- after ---
+pytest tmp   : <pytest-tmp>/pytest-3/test_x0/probe.txt
+worktree     : <base-worktree>/src/code_indexer/store.py
+home (this)  : <repo>
+home (other) : <repo>
+assert 12 == 12

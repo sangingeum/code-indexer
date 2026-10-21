@@ -1,0 +1,110 @@
+commit fc2af934c42dbd777940a83fce2f2647ac909d49
+Author: <forge-login> <<forge-email>>
+Date:   Wed Oct 21 10:04:01 2026 +0900
+
+    docs(hygiene): remove internal names and card ids from published records
+    
+    Neutralise the three classes a full scan of tracked content found, per #27:
+    
+    - design doc header and section 4 name roles, not people (target stack
+      Python/uv); every technical statement and the superseded note unchanged.
+    - three test docstrings attribute findings to a review round rather than to
+      a profile; test behaviour untouched.
+    - seven round records under runs/ carried board card ids; each id becomes the
+      neutral phrase that reads in place, and no line with technical content was
+      dropped. The same records no longer name the dispatching role.
+    - the historical redaction helper derives its prefixes at run time from its
+      own location (repository root) and the account home, and its /tmp rules are
+      generic; behaviour for the files it targets is unchanged.
+    
+    Capture data keeps its payload: /home/x/... fixtures in tests/test_watcher.py
+    stay as they are, and runs/ captures are not rewritten.
+
+diff --git a/docs/subcommand-design.md b/docs/subcommand-design.md
+index cd1d7df..9db4cc6 100644
+--- a/docs/subcommand-design.md
++++ b/docs/subcommand-design.md
+@@ -1,7 +1,7 @@
+ # Token-reduction subcommands — design
+ 
+-Status: design (no implementation). Author: <role-05>, refining the owner's
+-proposal in `docs-token-reduction-plan.md`. Target: <role-02> (Python/uv).
++Status: design (no implementation). Written in a design round, refining the
++owner's proposal in `docs-token-reduction-plan.md`. Target stack: Python/uv.
+ 
+ *Superseded in one respect: the manifest tables named below have since
+ evolved — schema v6 has ONE reference store, `refs`, replacing `symbol_refs`
+@@ -243,7 +243,7 @@ underscore rule only (other languages → public).
+ Nothing else re-parses at query time. The staleness/indexing pipeline,
+ chunking, and Qdrant side are untouched.
+ 
+-## 4. Implementation notes for <role-02>
++## 4. Implementation notes for the Python implementation
+ 
+ Files touched, in order:
+ 
+diff --git a/runs/issue22/sanitize_evidence.py b/runs/issue22/sanitize_evidence.py
+index d99998e..4024a93 100644
+--- a/runs/issue22/sanitize_evidence.py
++++ b/runs/issue22/sanitize_evidence.py
+@@ -11,16 +11,21 @@ import re
+ from pathlib import Path
+ 
+ HERE = Path(__file__).resolve().parent
++REPO_ROOT = Path(__file__).resolve().parents[2]
++HOME = Path.home()
+ FILES = ["probe-before.txt", "timing-before.txt", "timing-after.txt",
+          "verify-fan-in.txt", "pins-fail-on-before.txt"]
+ 
++# The prefixes are derived from the running checkout, never written down: this
++# file is published with the repository, so a literal path here would leak the
++# machine layout the script exists to rewrite.
+ RULES = [
+-    (re.compile(r"<repo>/src"), "<repo>/src"),
+-    (re.compile(r"<repo>"), "<repo>"),
+-    (re.compile(r"/tmp/ci-issue22-before-0b66431/src"), "<base-worktree>/src"),
+-    (re.compile(r"/tmp/ci-issue22-before-0b66431"), "<base-worktree>"),
++    (re.compile(re.escape(str(REPO_ROOT / "src"))), "<repo>/src"),
++    (re.compile(re.escape(str(REPO_ROOT))), "<repo>"),
+     (re.compile(r"/tmp/pytest-of-[^/\s]+/pytest-\d+"), "<tmp>"),
+-    (re.compile(r"<home>"), "<home>"),
++    (re.compile(r"/tmp/[^/\s]+/src"), "<base-worktree>/src"),
++    (re.compile(r"/tmp/[^/\s]+"), "<base-worktree>"),
++    (re.compile(re.escape(str(HOME))), "<home>"),
+ ]
+ 
+ 
+diff --git a/tests/test_csharp_symbols.py b/tests/test_csharp_symbols.py
+index 1ce53a3..dce6005 100644
+--- a/tests/test_csharp_symbols.py
++++ b/tests/test_csharp_symbols.py
+@@ -99,7 +99,7 @@ def cs_project():
+ 
+ 
+ def test_csharp_method_symbols_found(cs_project):
+-    """Regression (<role-05> review, C# recall gap): find-symbol missed
++    """Regression (review round, C# recall gap): find-symbol missed
+     method-level symbols in C# — classes resolved, methods did not.
+     Root cause: the csharp grammar's method_declaration / constructor
+     nodes were not in the AST unit set, and class bodies were not walked
+@@ -114,7 +114,7 @@ def test_csharp_method_symbols_found(cs_project):
+ 
+ 
+ def test_csharp_user_typed_return_type(cs_project):
+-    """Regression (<role-10>-verified vs real repo, CrimeSurface.cs:171):
++    """Regression (verified against a real repository, CrimeSurface.cs:171):
+     _symbol_from_node's first-identifier pass matched the return-type
+     identifier BEFORE the name-field pass, so a method with a user-typed
+     return value (`public static HostileActVerdict Evaluate(...)`) was
+diff --git a/tests/test_query_staleness.py b/tests/test_query_staleness.py
+index da1d192..165ae3f 100644
+--- a/tests/test_query_staleness.py
++++ b/tests/test_query_staleness.py
+@@ -1,6 +1,6 @@
+ """Query-path staleness tests: quiet by default, --refresh opt-in.
+ 
+-Covers <role-05>-review finding 3: the default staleness pass used to run a
++Covers review finding 3: the default staleness pass used to run a
+ mid-query re-index (latency + log noise). Now: within TTL it's a no-op;
+ --refresh forces a pass; --skip-stale-check stays a hard skip.
+ """

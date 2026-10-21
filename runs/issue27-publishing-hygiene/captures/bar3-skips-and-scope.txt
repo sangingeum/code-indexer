@@ -1,0 +1,13 @@
+git status for the probe: '?? runs/vera27-untracked-probe.md'  (untracked)
+
+$ uv run python scripts/publishing_hygiene_lint.py   # default, tracked tree
+publishing hygiene: scanned=266 skipped=0 violations=0 (untracked files are out of scope)
+exit=0
+
+$ ... --paths runs/vera27-untracked-probe.md   # same file, explicit
+runs/vera27-untracked-probe.md:1: absolute-host-path: /home/<account>/
+runs/vera27-untracked-probe.md:2: board-card-id: <card-id>
+publishing hygiene: scanned=1 skipped=0 violations=2 (untracked files are out of scope)
+exit=1
+
+probe removed; exists=False

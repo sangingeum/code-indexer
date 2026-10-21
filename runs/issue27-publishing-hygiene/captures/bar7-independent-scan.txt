@@ -1,0 +1,40 @@
+tracked files       : 266
+authored surfaces   : 151
+capture payloads    : 90
+
+absolute POSIX home paths : 12
+  tests/test_watcher.py:598:    assert cli._covers(["/home/x/proj"],
+  tests/test_watcher.py:599:                       [("proj", "/home/x/proj")]) is True
+  tests/test_watcher.py:600:    assert cli._covers(["/home/x/proj"],
+  tests/test_watcher.py:601:                       [("proj", "/home/x/proj/sub/dir")]) is True
+  tests/test_watcher.py:602:    assert cli._covers(["/home/x/proj"],
+  tests/test_watcher.py:603:                       [("proj", "/home/x/other")]) is False
+  tests/test_watcher.py:604:    assert cli._covers(["/home/x/proj", "/home/y"],
+  tests/test_watcher.py:605:                       [("a", "/home/x/proj"), ("b", "/home/y/z")]) is True
+  tests/test_watcher.py:606:    assert cli._covers(["/home/x/proj"],
+  tests/test_watcher.py:607:                       [("a", "/home/x/proj"), ("b", "/home/y/z")]) is False
+  tests/test_watcher.py:609:    assert cli._covers(["/home/x/proj"],
+  tests/test_watcher.py:610:                       [("proj", "/home/x/project-x")]) is False
+windows user paths        : 0
+smb shares                : 0
+
+name tokens in authored surfaces (case-insensitive, whole word):
+  <name-1>   hits=0
+  <name-2>   hits=0
+  <name-3>   hits=0
+  <name-4>   hits=0
+  <name-5>   hits=0
+  <name-6>   hits=0
+  <name-7>   hits=0
+  <name-8>   hits=0
+  <name-9>   hits=0
+  <name-10>  hits=0
+  <name-11>  hits=0
+  TOTAL authored name hits: 0
+
+board card ids in authored surfaces : 0
+
+capture payloads: name tokens retained (evidence intact):
+  capture name-token lines: 84
+  sample capture line (first hit, path+token redacted):
+    runs/issue22/reverify/base-overview-vivarium-sim-docs_.json:1:{"project": "vivarium-sim", "files": 324, "loc": 188566, "languages": [{"language": "markdown", "files": 183, "loc": 40533, "share": 56.5}, {"language": "json", "files": 74, "loc": 134371, "share": 22.8}, {"language": "csx", "files": 40, "loc": 12929, "share": 12.3}, {"language": "python", "files": 13, "loc": 361, "share": 4.0}, {"language": "text", "files": 13, "loc": 367, "share": 4.0}, {"language": "log", "files": 1, "loc": 5, "share": 0.3}], "directories": [{"dir": "docs", "files": 324, "symbols": 387}], "entry_points": ["docs/verification/scripts/<role-06>-inertness-mirror-fixture.py:main"], "tests": {"files": [], "count": 0, "framework_hint": []}, "config_files": [], "hotspots": {"fan_in": [{"file": "docs/verification/adr-0037-pawn-set-registration-round-2026-10-11.md", "fan_in": 184}, {"file": "docs/verification/<role-06>-sweep-run-family-sweep-62e321b.md", "fan_in": 40}, {"file": "docs/review/two-axis-review-cohort-axis-implementation-<role-05>.md", "fan_in": 36}, {"file": "docs/verification/combined-variant-arc-run-<name-2>-2026-09-25.md", "fan_in": 35}, {"file": "docs/verification/scripts/<name-2>-combined-variant-S-relief-capped-at-accrual-driver.csx", "fan_in": 34}, {"file": "docs/verification/refactor-r4-candidate3-rulesetloader-clearance-<role-06>-2026-09-27.md", "fan_in": 28}, {"file": "docs/refactoring/scoping-report-<name-2>-2026-09-27.md", "fan_in": 25}, {"file": "docs/verification/<role-06>-prerun-clearance-run2c-38c64bd.md", "fan_in": 22}, {"file": "docs/verification/refactor-r5a-candidate2-subround2a-invariant-evaluator-clearance-<role-06>-2026-09-27.md", "fan_in": 21}, {"file": "docs/review/two-axis-review-adr-0025-machinery-<role-05>.md", "fan_in": 19}], "size": [{"file": "docs/verification/layer-c-cohort-run-2e-arc-end-predictive-check.json", "loc": 14310}, {"file": "docs/verification/layer-c-cohort-run-2f-arc-end-predictive-check.json", "loc": 14310}, {"file": "docs/verification/layer-c-cohort-run-2c-discriminator-booking-census.json", "loc": 13321}, {"file": "docs/verification/layer-c-cohort-run-2d-discriminator-booking-census.json", "loc": 13321}, {"file": "docs/verification/layer-c-cohort-run-2c-discriminator-snapshot.json", "loc": 13319}, {"file": "docs/verification/layer-c-cohort-run-2d-discriminator-snapshot.json", "loc": 13319}, {"file": "docs/verification/layer-c-cohort-run-2d-arc-end-predictive-check.json", "loc": 12281}, {"file": "docs/verification/layer-c-cohort-run-2d-booking-time-windows.json", "loc": 10251}, {"file": "docs/verification/live-posture-both-arcs-2026-09-24/run2f-separator-rows.json", "loc": 8218}, {"file": "docs/verification/live-posture-both-arcs-2026-09-24/mixed-roster-separator-rows.json", "loc": 8209}]}}

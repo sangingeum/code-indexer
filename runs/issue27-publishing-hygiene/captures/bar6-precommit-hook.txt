@@ -1,0 +1,27 @@
+$ git ls-files -s .githooks/pre-commit
+100755 01a7fdd620063bd461257853cfe1709b19042a8d 0	.githooks/pre-commit
+
+$ git config core.hooksPath
+.githooks
+
+$ git add note.md && git commit -m "probe: violating file"   # staged file with a home path
+note.md:1: absolute-host-path: /home/<account>/
+publishing hygiene: scanned=1 skipped=0 violations=1 (untracked files are out of scope)
+exit=1
+
+$ git add note.md && git commit -m "probe: clean file"
+publishing hygiene: scanned=1 skipped=0 violations=0 (untracked files are out of scope)
+[main 9cf8329] probe: clean file
+ 1 file changed, 1 insertion(+)
+ create mode 100644 note.md
+exit=0
+
+$ git add note2.md && git commit -m "probe: name and card"
+note2.md:1: internal-profile-name: forbidden internal name at column 14
+note2.md:2: board-card-id: <card-id>
+publishing hygiene: scanned=1 skipped=0 violations=2 (untracked files are out of scope)
+exit=1
+
+$ git log --format=%h %s -n 2
+9cf8329 probe: clean file
+d851d52 chore(hygiene): enforce the publishing rules with a lint script and test

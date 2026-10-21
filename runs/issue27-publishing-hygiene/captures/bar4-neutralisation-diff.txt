@@ -1,0 +1,168 @@
+commit fc2af934c42dbd777940a83fce2f2647ac909d49
+Author: <forge-login> <<forge-email>>
+Date:   Wed Oct 21 10:04:01 2026 +0900
+
+    docs(hygiene): remove internal names and card ids from published records
+    
+    Neutralise the three classes a full scan of tracked content found, per #27:
+    
+    - design doc header and section 4 name roles, not people (target stack
+      Python/uv); every technical statement and the superseded note unchanged.
+    - three test docstrings attribute findings to a review round rather than to
+      a profile; test behaviour untouched.
+    - seven round records under runs/ carried board card ids; each id becomes the
+      neutral phrase that reads in place, and no line with technical content was
+      dropped. The same records no longer name the dispatching role.
+    - the historical redaction helper derives its prefixes at run time from its
+      own location (repository root) and the account home, and its /tmp rules are
+      generic; behaviour for the files it targets is unchanged.
+    
+    Capture data keeps its payload: /home/x/... fixtures in tests/test_watcher.py
+    stay as they are, and runs/ captures are not rewritten.
+
+diff --git a/runs/issue21/folds-verification.md b/runs/issue21/folds-verification.md
+index 7fc629d..a26b0be 100644
+--- a/runs/issue21/folds-verification.md
++++ b/runs/issue21/folds-verification.md
+@@ -1,7 +1,7 @@
+ # Issue #21 — narrow re-verification of the fold commit (`ebeb2c8..7b7e2bb`)
+ 
+-Verifier: QA gate (test-engineering role). Date: 2026-10-20. Card: <card-id>
+-(read-only read).
++Verifier: QA gate (test-engineering role). Date: 2026-10-20. Card: the card that
++carries this leg (read-only read).
+ Scope: the fold leg only — `56b0954` (docs/graph fold) and `7b7e2bb` (revert
+ sensitivity record). The full gate on the repair (`runs/issue21/gate.md`,
+ base `ebeb2c8`) is of record and was **not** re-run. Nothing here re-authors or
+@@ -291,6 +291,6 @@ promise points at an open issue #22; the fold diff is publication-clean; and
+ the tip is green and warn-clean with the suite count, `EXTRACTION_VERSION` and
+ the audited project's fingerprint unchanged.
+ 
+-Card: <card-id>.
++Card: the card that carries this leg.
+ 
+ **PASS**
+diff --git a/runs/issue22/fix-verification.md b/runs/issue22/fix-verification.md
+index aa0344f..be5a816 100644
+--- a/runs/issue22/fix-verification.md
++++ b/runs/issue22/fix-verification.md
+@@ -502,9 +502,9 @@ this leg's.
+ 
+ ## Board
+ 
+-Card `<card-id>` (narrow re-verification of the issue #22 blocker fix), read
+-read-only: status `in_progress`, claimed by the orchestrator, dependency
+-`<card-id>` satisfied. No board write was made by this leg.
++The board card (narrow re-verification of the issue #22 blocker fix) was read
++read-only: status `in_progress`, claimed by the orchestrator, its dependency
++satisfied. No board write was made by this leg.
+ 
+ Issue #22 does not close on this verdict: its five declared surfaces are clean,
+ but the bar's "no surface answers from 25" clause is not met until the
+diff --git a/runs/issue22/folds.md b/runs/issue22/folds.md
+index 2996444..268ed27 100644
+--- a/runs/issue22/folds.md
++++ b/runs/issue22/folds.md
+@@ -135,6 +135,6 @@ uvx ruff check src tests           -> All checks passed!
+ 5922dbb test(graph): pin the two-note root cap and browse mode's default 25   %G?=G
+ ```
+ 
+-Issue #22 is **not** closed by this leg. Board card <card-id> was read only
+-(`tack --db ~/.hermes/state/tackboard/code-indexer.sqlite3 show <card-id>`);
++Issue #22 is **not** closed by this leg. The board card was read only
++(`tack --db ~/.hermes/state/tackboard/code-indexer.sqlite3 show <card>`);
+ no board writes.
+diff --git a/runs/issue22/gate/gate.md b/runs/issue22/gate/gate.md
+index 51cd92b..becf0ef 100644
+--- a/runs/issue22/gate/gate.md
++++ b/runs/issue22/gate/gate.md
+@@ -349,5 +349,5 @@ Minor, same round if cheap: the six-line text preview, the non-total
+ 
+ ## Board
+ 
+-Card `<card-id>` (verification gate for the issue #22 store-read repair), read
++The board card (verification gate for the issue #22 store-read repair) was read
+ read-only. Issue #22 stays open: this gate is a FAIL.
+diff --git a/runs/issue22/review-fix-round.md b/runs/issue22/review-fix-round.md
+index e4b0498..1f443cb 100644
+--- a/runs/issue22/review-fix-round.md
++++ b/runs/issue22/review-fix-round.md
+@@ -8,7 +8,7 @@ Base for "before": `58473d9`; older comparisons where the brief asks for them
+ 
+ My earlier findings at `5ee5154` stand as written and are not re-litigated here.
+ This leg judges only the changed surfaces, against the eight rules in the
+-dispatch. Butler evidence is of record and was not re-run except where a claim
++dispatch. Dispatch evidence is of record and was not re-run except where a claim
+ was verifiable in one live read.
+ 
+ ## Verdict per item
+@@ -173,4 +173,4 @@ same family and must not be allowed to falsify the corrected doc claim a second
+ time: file it before the next release notes tick "no store read under these
+ walks caps silently".
+ 
+-DB card reviewed: **<card-id>** (read-only; no writes).
++DB card reviewed: the card that carries this leg (read-only; no writes).
+diff --git a/runs/issue22/review.md b/runs/issue22/review.md
+index a24d93a..6ecd18a 100644
+--- a/runs/issue22/review.md
++++ b/runs/issue22/review.md
+@@ -291,7 +291,7 @@ unbounded seeds now gets 40 and a note — right, and stated in the changelog.
+ ## Gate record
+ 
+ `runs/issue22/gate.md` does not exist at `1139a1e`, is not in the working tree,
+-and its board card (**<card-id>**) is still `in_progress`; the gate worker's state
++and the board card that carries this leg is still `in_progress`; the gate worker's state
+ directory holds only `alive`/`owner`. I ruled on the bars as carried in the
+ dispatch (490 passed / 2 deselected, the four medians, the 19,183 re-read, 11
+ revert-sensitive pins) and did not re-run them. The gate record must land before
+@@ -299,7 +299,7 @@ revert-sensitive pins) and did not re-run them. The gate record must land before
+ 
+ ## Board
+ 
+-Card **<card-id>** read read-only (`in_progress`, `claimed_by: <role-10>`).
++The board card was read read-only (`in_progress`, claimed by the dispatching role).
+ 
+ ## Final verdict
+ 
+diff --git a/runs/issue22/round.md b/runs/issue22/round.md
+index 73356d3..4ac24d4 100644
+--- a/runs/issue22/round.md
++++ b/runs/issue22/round.md
+@@ -179,5 +179,5 @@ command of this round.
+ 
+ ## Board
+ 
+-Card `<card-id>` read read-only. Issue #22 was **not** closed — gate and review
++The board card was read read-only. Issue #22 was **not** closed — gate and review
+ come first.
+diff --git a/runs/issue22/sanitize_evidence.py b/runs/issue22/sanitize_evidence.py
+index d99998e..4024a93 100644
+--- a/runs/issue22/sanitize_evidence.py
++++ b/runs/issue22/sanitize_evidence.py
+@@ -11,16 +11,21 @@ import re
+ from pathlib import Path
+ 
+ HERE = Path(__file__).resolve().parent
++REPO_ROOT = Path(__file__).resolve().parents[2]
++HOME = Path.home()
+ FILES = ["probe-before.txt", "timing-before.txt", "timing-after.txt",
+          "verify-fan-in.txt", "pins-fail-on-before.txt"]
+ 
++# The prefixes are derived from the running checkout, never written down: this
++# file is published with the repository, so a literal path here would leak the
++# machine layout the script exists to rewrite.
+ RULES = [
+-    (re.compile(r"<repo>/src"), "<repo>/src"),
+-    (re.compile(r"<repo>"), "<repo>"),
+-    (re.compile(r"/tmp/ci-issue22-before-0b66431/src"), "<base-worktree>/src"),
+-    (re.compile(r"/tmp/ci-issue22-before-0b66431"), "<base-worktree>"),
++    (re.compile(re.escape(str(REPO_ROOT / "src"))), "<repo>/src"),
++    (re.compile(re.escape(str(REPO_ROOT))), "<repo>"),
+     (re.compile(r"/tmp/pytest-of-[^/\s]+/pytest-\d+"), "<tmp>"),
+-    (re.compile(r"<home>"), "<home>"),
++    (re.compile(r"/tmp/[^/\s]+/src"), "<base-worktree>/src"),
++    (re.compile(r"/tmp/[^/\s]+"), "<base-worktree>"),
++    (re.compile(re.escape(str(HOME))), "<home>"),
+ ]
+ 
+ 

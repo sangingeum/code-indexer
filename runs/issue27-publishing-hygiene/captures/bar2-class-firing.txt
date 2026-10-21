@@ -1,0 +1,53 @@
+
+$ (cd <repo> && uv run python <repo>/scripts/publishing_hygiene_lint.py --root <scan-root> --paths posix-plain.md)
+[posix-plain.md] exit=1
+posix-plain.md:1: absolute-host-path: /home/<account>/
+publishing hygiene: scanned=1 skipped=0 violations=1 (untracked files are out of scope)
+
+$ (cd <repo> && uv run python <repo>/scripts/publishing_hygiene_lint.py --root <scan-root> --paths posix-dotted.md)
+[posix-dotted.md] exit=1
+posix-dotted.md:1: absolute-host-path: /home/<dotted-account>/
+publishing hygiene: scanned=1 skipped=0 violations=1 (untracked files are out of scope)
+
+$ (cd <repo> && uv run python <repo>/scripts/publishing_hygiene_lint.py --root <scan-root> --paths windows.md)
+[windows.md] exit=1
+windows.md:1: absolute-host-path: <windows-user-root>\
+publishing hygiene: scanned=1 skipped=0 violations=1 (untracked files are out of scope)
+
+$ (cd <repo> && uv run python <repo>/scripts/publishing_hygiene_lint.py --root <scan-root> --paths share.md)
+[share.md] exit=1
+share.md:1: absolute-host-path: <smb-share>
+publishing hygiene: scanned=1 skipped=0 violations=1 (untracked files are out of scope)
+
+$ (cd <repo> && uv run python <repo>/scripts/publishing_hygiene_lint.py --root <scan-root> --paths name.md)
+[name.md] exit=1
+name.md:1: internal-profile-name: forbidden internal name at column 14
+publishing hygiene: scanned=1 skipped=0 violations=1 (untracked files are out of scope)
+
+$ (cd <repo> && uv run python <repo>/scripts/publishing_hygiene_lint.py --root <scan-root> --paths card.md)
+[card.md] exit=1
+card.md:1: board-card-id: <card-id>
+publishing hygiene: scanned=1 skipped=0 violations=1 (untracked files are out of scope)
+
+$ (cd <repo> && uv run python <repo>/scripts/publishing_hygiene_lint.py --root <scan-root> --paths clean.md)
+[clean.md] exit=0
+publishing hygiene: scanned=1 skipped=0 violations=0 (untracked files are out of scope)
+
+--- capture surface: runs/capture.txt (name must not fire, path must) ---
+
+$ (cd <repo> && uv run python <repo>/scripts/publishing_hygiene_lint.py --root <scan-root> --paths runs/capture.txt)
+[runs/capture.txt] exit=1
+runs/capture.txt:2: absolute-host-path: /home/<account>/
+publishing hygiene: scanned=1 skipped=0 violations=1 (untracked files are out of scope)
+
+--- skips: binary + >2MB, counts must show skipped=2 ---
+
+$ (cd <repo> && uv run python <repo>/scripts/publishing_hygiene_lint.py --root <scan-root> --paths blob.md huge.md clean.md)
+[skips] exit=0
+publishing hygiene: scanned=1 skipped=2 violations=0 (untracked files are out of scope)
+
+--- untracked file out of scope by default (repo is not a git root here) ---
+
+$ (cd <repo> && uv run python <repo>/scripts/publishing_hygiene_lint.py --root <scan-root>)
+[outside git root] exit=2
+publishing hygiene: cannot list tracked files: Command '['git', '-C', '<scan-root>', 'ls-files', '-z']' returned non-zero exit status 128.

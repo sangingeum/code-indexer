@@ -1,0 +1,25 @@
+$ uv run python scripts/publishing_hygiene_lint.py
+publishing hygiene: scanned=266 skipped=0 violations=0 (untracked files are out of scope)
+exit=0
+
+$ uv run python scripts/publishing_hygiene_lint.py --hash-name example
+50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c
+exit=0
+
+$ uv run python scripts/publishing_hygiene_lint.py --help
+usage: publishing_hygiene_lint [-h] [--paths P [P ...]] [--root DIR]
+                               [--hash-name NAME]
+
+Check published content for absolute host paths, internal profile names and
+board card ids. By default every tracked path is scanned (git ls-files);
+untracked local evidence is out of scope by design.
+
+options:
+  -h, --help         show this help message and exit
+  --paths P [P ...]  scan these paths instead of the tracked tree
+  --root DIR         repository root (default: current directory)
+  --hash-name NAME   print the digest to add to the forbidden-name set
+
+Synthetic account-home fixtures are allowed for these account segments only:
+alice, bob, example, test, user, x, y.
+exit=0
