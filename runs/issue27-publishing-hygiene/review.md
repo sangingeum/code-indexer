@@ -23,9 +23,9 @@ Eleven published records neutralised (`fc2af93`), the mechanical check
 (`d851d52`: lint, offline test, pre-commit hook, brief and changelog), and the
 correction leg (`7de9059`: narrowed path exemption, second helper rewritten).
 Whole-round file surface confirmed with `changed-symbols --base 6d4f740`:
-eleven files in `fc2af93`, five in `d851d52`, four in `7de9059`, no overlap
-outside the lint and its test. No file under `src/` and no schema change: the
-tool's behaviour is out of scope and untouched.
+eleven files in `fc2af93`, five in `d851d52`, four in `7de9059`, and the only
+files touched twice are the lint, its test and the brief. No file under `src/`
+and no schema change: the tool's behaviour is out of scope and untouched.
 
 ## Standards axis
 
@@ -40,8 +40,8 @@ whether it should exist.
 The line itself is drawn where it belongs. Capture data under `runs/` is quoted
 evidence about a studied repository; redacting it would falsify the record, and
 a check that demanded it would be wrong. Names and card ids are authored
-material and are governed everywhere they appear as prose — including Markdown
-under `runs/`, which is exactly where the residue was.
+material and are governed in every authored suffix — including Markdown under
+`runs/`, which is exactly where the residue was.
 
 The implementation, however, is not the surface split it documents. It is a
 suffix whitelist:
@@ -329,7 +329,7 @@ dead surface; it is the exemption's own history.
 faithful.** The residue is gone at the tip and the cleaned set is exactly the
 set that was violating; the mechanical check is real, offline, CI-enforced, and
 cannot pass vacuously on the class it was built for; the gate's ten bars hold
-and its routes were fixed rather than inherited.
+and its two findings were routed and fixed at the tip rather than inherited.
 
 The reservations are about shape, not substance. The surface split is
 documented as a directory rule and implemented as a suffix whitelist, leaving
