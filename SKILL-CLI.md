@@ -377,7 +377,10 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
   in start-line order. Padded spans of nearby definitions may overlap: a
   segment is a padded definition, not a disjoint window, so concatenating
   segment bodies can repeat lines. `--context-lines` never changes how many
-  segments answer.
+  segments answer. Each segment in symbol mode also carries `symbol_rows`,
+  the number of stored rows it merged, so the merge is auditable rather than
+  silent; a definition nested inside another of the same name is absorbed by
+  the outer span.
 - **index-status / doctor / sweep-orphans / reindex-project / remove-project / watch / unwatch** — index
   lifecycle. Two state vocabularies (see "State meanings" above): the
   **pass state** `idle | indexing | never-indexed | error` describes indexing

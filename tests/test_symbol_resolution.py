@@ -359,10 +359,16 @@ def test_a_decorated_definition_is_one_segment(decorated_rig):
     data = core.code_context(entry, "decorated.py", symbol=SHARED_NAME)
     assert len(data["segments"]) == 1
     segment = data["segments"][0]
+    assert segment["symbol_rows"] == 2
     assert (segment["start_line"], segment["end_line"]) == (first[0], first[1])
     body = "\n".join(segment["lines"])
     assert "@decorator" in body
     assert "def prepare(" in body
+
+    # Line mode merges nothing, so the marker is absent from its segments.
+    line_mode = core.code_context(entry, "decorated.py",
+                                  start_line=first[0], end_line=first[1])
+    assert all("symbol_rows" not in seg for seg in line_mode["segments"])
 
 
 # ---------------------------------------------------------------------------
@@ -414,6 +420,8 @@ def test_context_padding_keeps_two_close_definitions_apart(disjoint_rig):
                              context_lines=2)
     spans = [(seg["start_line"], seg["end_line"]) for seg in data["segments"]]
     assert spans == expected, (spans, expected)
+    # Two disjoint rows stay two spans, each merging exactly one row.
+    assert [seg["symbol_rows"] for seg in data["segments"]] == [1, 1]
 
 
 def test_context_padding_keeps_every_definition_on_the_live_path(

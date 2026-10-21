@@ -34,11 +34,13 @@
   before segments are built: the decorator pair collapses to one span, while
   genuinely disjoint ranges stay separate. The rule is stated in the
   `code_context` docstring and in `SKILL-CLI.md`, and pinned by a test using
-  a decorated definition (one segment, one honest range). The JSON answer
-  shape (`file` / `stale` / `re_resolved` / `segments`) is unchanged, and the
-  order is unchanged. The eval any-overlap hardening reads rows from the
-  manifest, never segment counts, so it does not depend on this merge. No
-  reindex is owed: the stored rows are what they were.
+  a decorated definition (one segment, one honest range). Each symbol-mode
+  segment now carries `symbol_rows`, the number of stored rows it merged, so
+  the merge is visible in the answer instead of implicit in the range. The
+  field is additive — `schema: 1` is unchanged, and line-range mode's segment
+  shape is unchanged. The order is unchanged. The eval any-overlap hardening
+  reads rows from the manifest, never segment counts, so it does not depend on
+  this merge. No reindex is owed: the stored rows are what they were.
 - **The merge runs on the rows' own ranges, then `--context-lines` pads each
   merged span (issue #26).** `_merge_symbol_ranges`' adjacency test (`start <=
   previous_end + 1`) fuses any two windows that touch, so merging AFTER

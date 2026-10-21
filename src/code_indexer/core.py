@@ -55,7 +55,8 @@ UNVERIFIED = "unverified"
 UNVERIFIED_REASON = "embedder-unreachable"
 
 
-def _merge_symbol_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
+def _merge_symbol_ranges(
+        ranges: list[tuple[int, int]]) -> list[tuple[int, int, int]]:
     """One contiguous span per run of ranges that overlap or touch.
 
     Symbol mode answers "where is this definition". Extraction stores a
@@ -71,15 +72,17 @@ def _merge_symbol_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]
     before the merge would let two definitions a few lines apart touch and
     collapse into one span covering the code between them.
 
-    Returns the spans ordered by start line.
+    Returns ``(start, end, symbol_rows)`` per span, ordered by start line:
+    ``symbol_rows`` is the number of rows folded into that span, so a caller
+    can report the merge instead of leaving it implicit.
     """
-    merged: list[tuple[int, int]] = []
+    merged: list[tuple[int, int, int]] = []
     for start, end in sorted(ranges):
         if merged and start <= merged[-1][1] + 1:
-            prev_start, prev_end = merged[-1]
-            merged[-1] = (prev_start, max(prev_end, end))
+            prev_start, prev_end, folded = merged[-1]
+            merged[-1] = (prev_start, max(prev_end, end), folded + 1)
         else:
-            merged.append((start, end))
+            merged.append((start, end, 1))
     return merged
 
 
@@ -1224,7 +1227,10 @@ class Core:
         disjoint ranges stay separate. The rows' own ranges are merged
         first, then ``context_lines`` padding is applied to each surviving
         span — identity is decided on the definitions, so ``--context-lines``
-        cannot change how many segments answer. It is part of the answer,
+        cannot change how many segments answer. Each segment carries
+        ``symbol_rows``, the number of stored rows it merged, so the merge is
+        auditable and never silent; a definition nested inside another of the
+        same name is absorbed by the outer span. It is part of the answer,
         never a silent normalisation. Spans are returned in start-line order.
         """
         rel = file.lstrip("/")
@@ -1235,7 +1241,9 @@ class Core:
             raise ValueError(f"error: file not found: {abs_path}")
 
         changed = self.file_changed_since_index(entry, rel)
-        ranges: list[tuple[int, int]] = []
+        # (start, end, symbol_rows): symbol_rows is the number of stored rows
+        # folded into the span, and None in line mode, which merges nothing.
+        ranges: list[tuple[int, int, int | None]] = []
         re_resolved = False
         if symbol:
             # The rows' OWN ranges, before any --context-lines padding.
@@ -1273,12 +1281,12 @@ class Core:
             # fuse two genuinely disjoint definitions that sit a few lines
             # apart into one span that contains the code between them, making
             # the segment count depend on a display flag.
-            ranges = [(max(1, s - context_lines), e + context_lines)
-                      for s, e in _merge_symbol_ranges(own_ranges)]
+            ranges = [(max(1, s - context_lines), e + context_lines, n)
+                      for s, e, n in _merge_symbol_ranges(own_ranges)]
         elif start_line is not None:
             end = end_line if end_line is not None else start_line
             ranges.append((max(1, start_line - context_lines),
-                           end + context_lines))
+                           end + context_lines, None))
         else:
             raise ValueError(
                 "error: provide --start-line/--end-line or --symbol")
@@ -1287,18 +1295,21 @@ class Core:
             lines = f.readlines()
         total = len(lines)
         segments = []
-        for s, e in ranges:
+        for s, e, symbol_rows in ranges:
+            segment: dict[str, Any] = {"start_line": s, "end_line": e}
+            if symbol_rows is not None:
+                # Symbol mode reports the merge so it is never silent; line
+                # mode's shape is unchanged.
+                segment["symbol_rows"] = symbol_rows
             if s > total:
-                segments.append({"start_line": s, "end_line": e,
-                                 "error": f"start_line {s} beyond end of "
-                                          f"file ({total} lines)"})
+                segment["error"] = (f"start_line {s} beyond end of "
+                                    f"file ({total} lines)")
+                segments.append(segment)
                 continue
             s2, e2 = max(1, s), min(total, e)
-            segments.append({
-                "start_line": s, "end_line": e,
-                "lines": [f"{i:>5}| {lines[i - 1].rstrip()}"
-                          for i in range(s2, e2 + 1)],
-            })
+            segment["lines"] = [f"{i:>5}| {lines[i - 1].rstrip()}"
+                                for i in range(s2, e2 + 1)]
+            segments.append(segment)
         stale = changed and not re_resolved
         if stale:
             logger.warning(
