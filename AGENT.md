@@ -34,8 +34,9 @@ Semantic code index over Ollama embeddings + Qdrant, exposed as a one-shot CLI
   (`tests/test_publishing_hygiene.py`), and the hook's plain `python3` call is
   valid only while the lint stays stdlib.
 - Run from source: `uv run code-indexer <command>`.
-- Installed CLI on this host: `~/.local/bin/code-indexer` (uv tool; reinstall
-  with `uv tool install --force .` after merged changes to test live).
+- Installed CLI on this host: `~/.local/bin/code-indexer` (uv tool; an editable
+  install of this checkout, so it runs the working tree and needs no reinstall
+  after merged changes).
 - Watchdog is a **main dependency** (moved out of the former opt-in `watch`
   dependency-group: its polling fallback was a silent CPU hog). Only the
   `watch` subcommand imports it (lazy import, fallback kept for robustness).

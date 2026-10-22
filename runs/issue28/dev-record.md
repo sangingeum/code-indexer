@@ -19,8 +19,13 @@ dual option `--project` / `--name` used by the other project-scoped commands.
 Both spellings flow through the single resolver `_resolve(core, project or
 path)`, so a path, a slug, or a registered custom name all resolve the same
 way. **When both are given the flag wins**; the help text on the option and
-on the positional argument states this. The positional form stays mandatory
-for compatibility: the MCP server invokes `["index-status", path]`.
+on the positional argument states this. The positional form stays supported
+for compatibility: the MCP server still invokes `["index-status", path]`.
+
+With neither selector the argument being optional makes the empty call
+well-defined: the command resolves by cwd when exactly one registered project
+matches it, and otherwise exits 1 with a clear error listing the registered
+projects (`multiple projects registered — pass project (path, slug, or name)`).
 
 The output line now reports `project={entry.path}`, the resolved canonical
 path, so a slug or name invocation still names the project path. The command
@@ -50,7 +55,8 @@ before.
   → 13 passed in 0.77s.
 - Lint: `uvx ruff check src tests scripts` → All checks passed.
 - Publishing hygiene: `uv run python scripts/publishing_hygiene_lint.py`
-  → scanned=298 skipped=0 violations=0.
+  → scanned=298 when this lint ran; 299 once this record was tracked and 300 at
+  the current tip after the gate record; skipped=0 violations=0.
 - Live selector check against the registered repo:
   `code-indexer index-status --project code-indexer --skip-stale-check`,
   the same command with `--name code-indexer`, and the positional form all
@@ -61,3 +67,7 @@ before.
 None. The change is additive: no query path, index pass, schema, or MCP tool
 signature changed. The only observable difference is that `index-status`
 accepts the flag spellings and prints the resolved canonical path.
+
+Post-gate folds: the gate's four doc-only folds were applied in this commit —
+the positional-form wording, the no-selector behaviour note, the hygiene count
+annotation, and the stale `AGENT.md` install sentence.
