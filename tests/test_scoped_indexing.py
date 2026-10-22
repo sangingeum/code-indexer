@@ -191,5 +191,57 @@ def test_cli_scoped_search_json_still_works(rig):
     assert '"schema": 1' in result.output
 
 
+# --- index-status project selector (issue #28) -----------------------------
+
+def _register_monoproj(core, reg, project):
+    result = runner.invoke(app, ["add-project", str(project),
+                                 "--name", "monoproj"])
+    assert result.exit_code == 0, result.output
+    return reg.get_by_name("monoproj")
+
+
+def test_index_status_accepts_project_flag(rig):
+    core, reg, cfg, project = rig
+    _register_monoproj(core, reg, project)
+    result = runner.invoke(app, ["index-status", "--project", str(project)])
+    assert result.exit_code == 0, result.output
+    assert "state=" in result.output
+
+
+def test_index_status_positional_form_still_works(rig):
+    core, reg, cfg, project = rig
+    entry = _register_monoproj(core, reg, project)
+    result = runner.invoke(app, ["index-status", str(project)])
+    assert result.exit_code == 0, result.output
+    assert f"project={entry.path}" in result.output
+
+
+def test_index_status_resolves_slug_and_name_via_flag(rig):
+    core, reg, cfg, project = rig
+    entry = _register_monoproj(core, reg, project)
+    for selector in (entry.slug, "monoproj"):
+        result = runner.invoke(app, ["index-status", "--project", selector])
+        assert result.exit_code == 0, result.output
+        assert f"project={entry.path}" in result.output
+
+
+def test_index_status_flag_wins_when_both_given(rig, tmp_path):
+    core, reg, cfg, project = rig
+    first = _register_monoproj(core, reg, project)
+    second_dir = tmp_path / "second"
+    second_dir.mkdir()
+    (second_dir / "mod.py").write_text("def other_symbol():\n    return 2\n")
+    result = runner.invoke(app, ["add-project", str(second_dir),
+                                 "--name", "otherproj"])
+    assert result.exit_code == 0, result.output
+    second = reg.get_by_name("otherproj")
+    # Positional points at the first project; the flag names the second.
+    result = runner.invoke(app, ["index-status", str(project),
+                                 "--project", "otherproj"])
+    assert result.exit_code == 0, result.output
+    assert f"project={second.path}" in result.output
+    assert f"project={first.path}" not in result.output
+
+
 if __name__ == "__main__":  # pragma: no cover
     sys.exit(pytest.main([__file__, "-v"]))

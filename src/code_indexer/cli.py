@@ -616,7 +616,13 @@ def semantic_search(
 
 @app.command(name="index-status")
 def index_status(
-    path: str = typer.Argument(..., help="Registered project path."),
+    path: str = typer.Argument(
+        None, help="Registered project path (optional; --project wins when "
+                   "both are given)."),
+    project: str = typer.Option(
+        None, "--project", "--name",
+        help="Project path, slug, or name. Takes precedence over the "
+             "positional PATH when both are given."),
     skip_stale_check: bool = SkipOpt,
     refresh: bool = RefreshOpt,
 ) -> None:
@@ -643,15 +649,15 @@ def index_status(
     not "could not tell".
     """
     core = _get_core(skip_stale_check)
-    path = os.path.abspath(os.path.expanduser(path))
-    entry = core.registry.get_by_path(path)
-    if entry is None:
-        _die(f"error: not registered: {path}")
+    # Both spellings reach the same resolver: a path, a slug, or a custom name.
+    # The --project/--name flag wins when both are given; the positional PATH
+    # is the historical form the MCP server still uses.
+    entry = _resolve(core, project or path)
     refresh_result = (core.maybe_refresh(entry.slug, entry.path, force=True)
                       if refresh else {"state": "not-requested"})
     st = core.state_for(entry.slug)
     state = core.effective_state(entry.slug, st.get("state", "idle"))
-    parts = [f"project={path}", f"state={state}"]
+    parts = [f"project={entry.path}", f"state={state}"]
     # The pass state says nothing about whether the index still matches the
     # current configuration. Query paths refuse on a mismatch (ConfigError)
     # and list-projects/doctor already call it needs-reindex; index-status

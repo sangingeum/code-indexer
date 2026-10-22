@@ -36,9 +36,12 @@ executable). Verify with `code-indexer list-projects`.
 code-indexer add-project /path/to/repo        # register + initial index (foreground)
 code-indexer semantic-search "auth token refresh" --project /path/to/repo --format compact
 code-indexer overview --project /path/to/repo # project map for orientation
-code-indexer index-status /path/to/repo       # indexing state
+code-indexer index-status --project /path/to/repo  # indexing state
 code-indexer watch /path/to/repo --background # keep the index fresh (opt-in)
 ```
+
+`index-status` accepts the project as `--project` / `--name` or as a
+positional path; the flag wins when both are given.
 
 The agent workflow (overview → skeleton → search → get-code-context) is in
 [SKILL-CLI.md](SKILL-CLI.md).
@@ -181,7 +184,7 @@ Run `code-indexer doctor` — one line per check (`ok|warn|fail <name>:
 INDEX_ROOT writability + disk, SQLite integrity, watcher pidfile/locks, and
 per-project fingerprint status. Symptom → action:
 
-- Searches misbehave / empty results → `doctor`, then `index-status <path>`.
+- Searches misbehave / empty results → `doctor`, then `index-status --project <path>` (the positional `<path>` form still works).
 - `ConfigError: index ... was built with ...` → `needs-reindex`; owner runs
   `reindex-project`.
 - `never-indexed` after a killed `add-project` → `reindex-project`.

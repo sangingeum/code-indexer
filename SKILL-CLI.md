@@ -165,7 +165,7 @@ code-indexer semantic-search "query" [--project P] [--limit 8] [--file-filter '*
 code-indexer changed-symbols [--project P] [--base HEAD] [--head REF] [--staged] [--include-untracked] [--impact] [--depth 1] [--max-nodes 40] [--json]   # post-edit diff -> symbols; --impact lists callers + candidate tests, prints the first six as `(+N more)`, and names the bound its list hit; json reports truncated/omitted/bounds per file
 
 # lifecycle
-code-indexer index-status /path/repo [--refresh]
+code-indexer index-status [--project P | --name P | /path/repo] [--refresh]
 code-indexer doctor [--json]              # health check; exit 1 on any fail
 code-indexer sweep-orphans /path/repo [--apply] [--json]   # residue rows for deleted files; dry-run by default
 code-indexer reindex-project /path/repo   # full rebuild, foreground
@@ -509,9 +509,11 @@ custom name. Two selector spellings exist:
   the positional `PATH_PREFIX` (then the cwd) is matched against registered
   projects; the most-specific containing project wins.
 
-Lifecycle commands (`index-status`, `reindex-project`, `remove-project`,
-`lookup-project`, `index-more`) take the project as a positional path
-argument instead of a flag.
+Lifecycle commands (`reindex-project`, `remove-project`, `lookup-project`,
+`index-more`) take the project as a positional path argument instead of a
+flag. `index-status` accepts either spelling: its historical positional
+path, or `--project` / `--name` (path, slug, or custom name); the flag
+wins when both are given. The positional form stays MCP-compatible.
 
 ## Store reads (no silent caps)
 
