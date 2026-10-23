@@ -77,9 +77,11 @@ still work and are pinned by the existing MCP tests.
 
 ## Tests added
 
-`tests/test_lifecycle_selector.py` — 24 tests, one group per command:
+`tests/test_lifecycle_selector.py` — 24 tests when this record was written (27
+after the review folds added hash-slug coverage), one group per command:
 
-- flag accepted; positional still works; flag wins when both are given;
+- flag accepted; positional still works; flag wins when both are given (for the
+  three commands where both spellings can be supplied);
   slug and name resolve; not-found semantics; mutating commands refuse to
   guess from cwd; `lookup-project` prints not-registered and exits 0; empty
   lookup resolves by cwd; `index-more` historical form, flag form, ambiguity
@@ -91,6 +93,9 @@ The MCP server tests needed no change: the positional call shapes were
 already pinned.
 
 ## Verification
+
+Counts below are the dev leg's point-in-time figures; after the review folds
+the tip reports 27 targeted tests, 564 passed and hygiene `scanned=306`.
 
 - `uv run pytest tests/ -q -W error` — 561 passed, 2 deselected.
 - `uvx ruff check src tests scripts` — all checks passed.
