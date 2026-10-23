@@ -5,11 +5,16 @@ remaining lifecycle commands now accept the same dual selector: a positional
 path or a `--project` / `--name` flag, both resolved through the one registry
 lookup that understands a path, a slug, or a custom name.
 
-## Selector semantics (all four commands)
+## Selector semantics
 
-- The flag wins when both spellings are given.
+- For `reindex-project`, `remove-project` and `lookup-project` the flag wins
+  when both are given. `index-more` accepts `<project> <subpath>` or
+  `--project <project> <subpath>` and rejects the flag plus two positionals
+  as ambiguous.
 - Path, slug, and custom name all resolve, exactly as for `index-status`.
-- The positional form remains supported and stays the MCP call shape.
+- The positional forms remain the MCP call shape for `lookup-project`,
+  `remove-project`, `index-status` and `reindex-project`; `index-more` has
+  no MCP tool.
 - No selector ever reaches a second resolver: every selector goes through
   `core.resolve_entry`, wrapped by `_resolve` for commands that hard-fail and
   called directly by the read-only check.

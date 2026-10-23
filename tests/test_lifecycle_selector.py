@@ -90,8 +90,10 @@ def rig(tmp_path, monkeypatch):
     return core, cfg, project, store
 
 
-def _register(project, name="monoproj", include=None):
-    args = ["add-project", str(project), "--name", name]
+def _register(project, name: str | None = "monoproj", include=None):
+    args = ["add-project", str(project)]
+    if name is not None:
+        args += ["--name", name]
     for glob in include or []:
         args += ["--include", glob]
     result = runner.invoke(app, args)
@@ -129,13 +131,32 @@ def test_lookup_project_positional_form_still_works(rig):
 
 def test_lookup_project_resolves_slug_and_name_via_flag(rig):
     core, cfg, project, _store = rig
-    _register(project)
-    entry = core.registry.get_by_name("monoproj")
-    for selector in (entry.slug, "monoproj"):
+    _register(project, "Mono Repo")
+    entry = core.registry.get_by_path(str(project))
+    assert entry.name == "Mono Repo"
+    assert entry.slug == "Mono_Repo"
+    assert entry.slug != entry.name
+    for selector in (entry.slug, entry.name):
         result = runner.invoke(app, ["lookup-project", "--project", selector])
         assert result.exit_code == 0, result.output
         assert "registered" in result.output
         assert entry.path in result.output
+
+
+def test_lookup_project_resolves_hash_slug_via_flag_and_positional(rig):
+    core, cfg, project, _store = rig
+    _register(project, name=None)
+    entry = core.registry.get_by_path(str(project))
+    assert entry.name is None
+    assert entry.slug != "monoproj"
+    flag = runner.invoke(app, ["lookup-project", "--project", entry.slug])
+    assert flag.exit_code == 0, flag.output
+    assert "registered" in flag.output
+    assert entry.path in flag.output
+    positional = runner.invoke(app, ["lookup-project", str(project)])
+    assert positional.exit_code == 0, positional.output
+    assert "registered" in positional.output
+    assert entry.path in positional.output
 
 
 def test_lookup_project_flag_wins_when_both_given(rig, tmp_path):
@@ -200,13 +221,27 @@ def test_reindex_project_positional_form_still_works(rig, monkeypatch):
 
 def test_reindex_project_resolves_slug_and_name_via_flag(rig, monkeypatch):
     core, cfg, project, _store = rig
-    _register(project)
+    _register(project, "Mono Repo")
     _stub_reindex(core, monkeypatch)
-    entry = core.registry.get_by_name("monoproj")
-    for selector in (entry.slug, "monoproj"):
+    entry = core.registry.get_by_path(str(project))
+    assert entry.slug != entry.name
+    for selector in (entry.slug, entry.name):
         result = runner.invoke(app, ["reindex-project", "--project", selector])
         assert result.exit_code == 0, result.output
-        assert "monoproj:" in result.output
+        assert f"{entry.slug}:" in result.output
+
+
+def test_reindex_project_resolves_hash_slug_via_flag_and_positional(
+        rig, monkeypatch):
+    core, cfg, project, _store = rig
+    _register(project, name=None)
+    _stub_reindex(core, monkeypatch)
+    entry = core.registry.get_by_path(str(project))
+    assert entry.name is None
+    for args in (["--project", entry.slug], [str(project)]):
+        result = runner.invoke(app, ["reindex-project", *args])
+        assert result.exit_code == 0, result.output
+        assert f"{entry.slug}:" in result.output
 
 
 def test_reindex_project_flag_wins_when_both_given(rig, tmp_path, monkeypatch):
@@ -275,14 +310,34 @@ def test_remove_project_positional_form_still_works(rig):
 
 def test_remove_project_resolves_slug_and_name_via_flag(rig):
     core, cfg, project, store = rig
-    _register(project)
-    entry = core.registry.get_by_name("monoproj")
-    for selector in (entry.slug, "monoproj"):
-        _register(project, "monoproj")
+    _register(project, "Mono Repo")
+    entry = core.registry.get_by_path(str(project))
+    assert entry.slug != entry.name
+    for selector in (entry.slug, entry.name):
+        _register(project, "Mono Repo")
         result = runner.invoke(app, ["remove-project", "--project", selector])
         assert result.exit_code == 0, result.output
         assert "removed " in result.output
-        assert core.registry.get_by_name("monoproj") is None
+        assert f"collection idx_{entry.slug} dropped" in result.output
+        assert core.registry.get_by_path(str(project)) is None
+    assert store.dropped == ["idx_Mono_Repo", "idx_Mono_Repo"]
+
+
+def test_remove_project_resolves_hash_slug_via_flag_and_positional(rig):
+    core, cfg, project, store = rig
+    _register(project, name=None)
+    entry = core.registry.get_by_path(str(project))
+    assert entry.name is None
+    flag = runner.invoke(app, ["remove-project", "--project", entry.slug])
+    assert flag.exit_code == 0, flag.output
+    assert "removed " in flag.output
+    assert core.registry.get_by_path(str(project)) is None
+    _register(project, name=None)
+    positional = runner.invoke(app, ["remove-project", str(project)])
+    assert positional.exit_code == 0, positional.output
+    assert "removed " in positional.output
+    assert core.registry.get_by_path(str(project)) is None
+    assert store.dropped == [f"idx_{entry.slug}", f"idx_{entry.slug}"]
 
 
 def test_remove_project_flag_wins_when_both_given(rig, tmp_path):

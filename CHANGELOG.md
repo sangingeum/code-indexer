@@ -5,10 +5,15 @@
 - **Lifecycle commands share `index-status`'s project selector (issue #29).**
   `reindex-project`, `remove-project`, `lookup-project` and `index-more` now
   accept the project as a positional path **or** as `--project` / `--name`
-  (path, slug, or custom name); the flag wins when both are given. Every
+  (path, slug, or custom name). For `reindex-project`, `remove-project` and
+  `lookup-project` the flag wins when both are given; `index-more` accepts
+  `<project> <subpath>` or `--project <project> <subpath>` and rejects the
+  flag plus two positionals as ambiguous. Every
   selector reaches the one registry resolver, so the four commands behave
   like `index-status` instead of being positional-only. The positional forms
-  are unchanged and remain the MCP server's call shape. Mutating commands —
+  remain the MCP call shape for `lookup-project`, `remove-project`,
+  `index-status` and `reindex-project`; `index-more` has no MCP tool.
+  Mutating commands —
   `reindex-project`, `remove-project` and `index-more` — never guess a
   project from the working directory: with neither spelling they exit with a
   usage error that lists the registered projects. `lookup-project`, being a
