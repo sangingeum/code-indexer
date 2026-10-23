@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased] — lifecycle selector surface
+
+- **Lifecycle commands share `index-status`'s project selector (issue #29).**
+  `reindex-project`, `remove-project`, `lookup-project` and `index-more` now
+  accept the project as a positional path **or** as `--project` / `--name`
+  (path, slug, or custom name); the flag wins when both are given. Every
+  selector reaches the one registry resolver, so the four commands behave
+  like `index-status` instead of being positional-only. The positional forms
+  are unchanged and remain the MCP server's call shape. Mutating commands —
+  `reindex-project`, `remove-project` and `index-more` — never guess a
+  project from the working directory: with neither spelling they exit with a
+  usage error that lists the registered projects. `lookup-project`, being a
+  read-only check, may still resolve by cwd on an empty call and keeps its
+  print-and-exit-0 not-registered behavior. `index-more` supports both
+  `index-more <project> <subpath>` and `index-more --project <project>
+  <subpath>`, and rejects `--project` plus two positionals as ambiguous.
+
 ## [Unreleased] — publishing hygiene
 
 - **The publishing rules are now a mechanical check (issue #27).**

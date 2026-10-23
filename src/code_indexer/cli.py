@@ -83,6 +83,31 @@ def _resolve(core: Core, project: str | None,
     return entry
 
 
+def _usage_die(msg: str) -> NoReturn:
+    """Emit one ArgumentError line (usage/argument error, exit code 2)."""
+    from .errors import ArgumentError, fail
+    fail(ArgumentError(msg))
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _require_selector(core: Core, project: str | None, path: str | None,
+                      command: str) -> str:
+    """Return an explicit selector for a mutating command, or exit.
+
+    Mutating commands never infer a project from the working directory: with
+    neither a flag nor a positional selector they name what is registered and
+    stop, so a destructive or scope-widening call can never widen to
+    "whatever cwd happens to be in".
+    """
+    selector = project or path
+    if selector:
+        return selector
+    entries = core.registry.list_projects()
+    listing = ", ".join(e.path for e in entries) or "none"
+    _usage_die(f"{command} needs an explicit project — pass a path, slug, or "
+               f"name (positional or --project/--name); registered projects: {listing}")
+
+
 def _echo_index_result(slug: str, result: dict) -> None:
     """Render one run_index outcome; 'indexing' means another process held
     the flock — that process performs the pass (exactly-one-pass rule)."""
@@ -419,16 +444,41 @@ def add_project(
 
 @app.command()
 def index_more(
-    path: str = typer.Argument(..., help="Registered project path."),
-    subpath: str = typer.Argument(..., help="Subtree to add to the scope."),
+    first: str = typer.Argument(
+        None, help="Registered project path (or the subpath when --project "
+                   "is given)."),
+    second: str = typer.Argument(
+        None, help="Subtree to add to the scope (historical two-argument "
+                   "form only)."),
+    project: str = typer.Option(
+        None, "--project", "--name",
+        help="Project path, slug, or name. Takes precedence over the "
+             "positional selector when both are given."),
     skip_stale_check: bool = SkipOpt,
 ) -> None:
     """Extend a project's indexed scope with another subtree.
 
     The new glob is appended to the manifest's scope_include and an
-    incremental pass indexes the newly-covered files."""
+    incremental pass indexes the newly-covered files.
+
+    Two selector spellings are supported: ``index-more <project> <subpath>``
+    (historical) and ``index-more --project <project> <subpath>``. Combining
+    the flag with two positionals is ambiguous and rejected.
+    """
     core = _get_core(skip_stale_check)
-    entry = _resolve(core, path)
+    if project:
+        if second is not None:
+            _usage_die("index-more got --project plus two positionals — use "
+                 "--project <project> <subpath> or <project> <subpath>, not both")
+        selector, subpath = project, first
+    else:
+        selector, subpath = first, second
+    selector = _require_selector(core, selector, None, "index-more")
+    if not subpath:
+        _usage_die("index-more needs a subpath to add — "
+             "index-more <project> <subpath> or "
+             "index-more --project <project> <subpath>")
+    entry = _resolve(core, selector)
     m = core.manifest_for(entry.slug)
     try:
         current = [ln for ln in (m.get_meta("scope_include") or "")
@@ -444,7 +494,13 @@ def index_more(
 
 @app.command()
 def remove_project(
-    path: str = typer.Argument(..., help="Project path (or slug/name)."),
+    path: str = typer.Argument(
+        None, help="Registered project path (optional; --project wins when "
+                   "both are given)."),
+    project: str = typer.Option(
+        None, "--project", "--name",
+        help="Project path, slug, or name. Takes precedence over the "
+             "positional PATH when both are given."),
     skip_stale_check: bool = SkipOpt,
 ) -> None:
     """Deregister a project and DELETE its collection + manifest + registry
@@ -452,7 +508,9 @@ def remove_project(
     import glob as _glob
     import shutil as _shutil
     core = _get_core(skip_stale_check)
-    path = os.path.abspath(os.path.expanduser(path))
+    selector = _require_selector(core, project, path, "remove-project")
+    entry = _resolve(core, selector)
+    path = entry.path
     entry = core.registry.remove(path)
     if entry is None:
         _die(f"error: not registered: {path}")
@@ -494,18 +552,26 @@ def list_projects(skip_stale_check: bool = SkipOpt) -> None:
 
 @app.command(name="lookup-project")
 def lookup_project(
-    path: str = typer.Argument(..., help="Project path to check."),
+    path: str = typer.Argument(
+        None, help="Registered project path (optional; --project wins when "
+                   "both are given)."),
+    project: str = typer.Option(
+        None, "--project", "--name",
+        help="Project path, slug, or name. Takes precedence over the "
+             "positional PATH when both are given."),
     skip_stale_check: bool = SkipOpt,
 ) -> None:
-    """Check whether a project is registered (no indexing triggered)."""
+    """Check whether a project is registered (no indexing triggered).
+
+    A check, not an error path: an unregistered selector prints
+    ``not registered: <path>`` and exits 0. With no selector at all the
+    read-only cwd resolution used by ``index-status`` applies.
+    """
     core = _get_core(skip_stale_check)
-    raw = os.path.abspath(os.path.expanduser(path))
-    entry = core.registry.get_by_path(raw)
+    selector = project or path
+    entry, _err = core.resolve_entry(selector)
     if entry is None:
-        real = os.path.realpath(raw)
-        if real != raw:
-            entry = core.registry.get_by_path(real)
-    if entry is None:
+        raw = os.path.abspath(os.path.expanduser(selector or os.getcwd()))
         typer.echo(f"not registered: {raw}")
         return
     typer.echo(f"registered {core.status_summary(entry)} collection=idx_{entry.slug}")
@@ -791,7 +857,13 @@ def sweep_orphans(
 
 @app.command(name="reindex-project")
 def reindex_project(
-    path: str = typer.Argument(..., help="Registered project path."),
+    path: str = typer.Argument(
+        None, help="Registered project path (optional; --project wins when "
+                   "both are given)."),
+    project: str = typer.Option(
+        None, "--project", "--name",
+        help="Project path, slug, or name. Takes precedence over the "
+             "positional PATH when both are given."),
     skip_stale_check: bool = SkipOpt,
 ) -> None:
     """Force a full rebuild of a project's index (runs foreground in the CLI).
@@ -800,10 +872,8 @@ def reindex_project(
     complete, so search against the old data stays available until the swap.
     This also clears a needs-reindex state (config/fingerprint mismatch)."""
     core = _get_core(skip_stale_check)
-    path = os.path.abspath(os.path.expanduser(path))
-    entry = core.registry.get_by_path(path)
-    if entry is None:
-        _die(f"error: not registered: {path}")
+    selector = _require_selector(core, project, path, "reindex-project")
+    entry = _resolve(core, selector)
     _echo_index_result(entry.slug, core.reindex_with_swap(entry.slug, entry.path))
 
 
