@@ -510,10 +510,13 @@ custom name. Two selector spellings exist:
   projects; the most-specific containing project wins.
 
 Lifecycle commands (`reindex-project`, `remove-project`, `lookup-project`,
-`index-more`) take the project as a positional path argument instead of a
-flag. `index-status` accepts either spelling: its historical positional
-path, or `--project` / `--name` (path, slug, or custom name); the flag
-wins when both are given. The positional form stays MCP-compatible.
+`index-more`) and `index-status` accept either spelling: the historical
+positional path, or `--project` / `--name` (path, slug, or custom name); the
+flag wins when both are given. The positional forms stay MCP-compatible.
+Mutating commands (`reindex-project`, `remove-project`, `index-more`) never
+infer a project from the cwd — with neither spelling they stop and list the
+registered projects. `index-more` takes the subpath as its positional after
+either the project path or the flag.
 
 ## Store reads (no silent caps)
 

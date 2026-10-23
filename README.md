@@ -40,8 +40,10 @@ code-indexer index-status --project /path/to/repo  # indexing state
 code-indexer watch /path/to/repo --background # keep the index fresh (opt-in)
 ```
 
-`index-status` accepts the project as `--project` / `--name` or as a
-positional path; the flag wins when both are given.
+`index-status` and the lifecycle commands (`reindex-project`,
+`remove-project`, `lookup-project`, `index-more`) accept the project as
+`--project` / `--name` or as a positional path; the flag wins when both are
+given. The mutating commands never guess a project from the cwd.
 
 The agent workflow (overview → skeleton → search → get-code-context) is in
 [SKILL-CLI.md](SKILL-CLI.md).
