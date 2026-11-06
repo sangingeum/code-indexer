@@ -91,8 +91,12 @@ LANGUAGES_WITH_AST = frozenset(
 # (issue #12). Previously any identifier call with a string first argument
 # (`alert("hi")`) produced BOTH an `imports` row (kind `require`) and an
 # `includes` reference row; now only `require(...)` does. `require` coverage is
-# unchanged — the false positives are dropped.
-EXTRACTION_VERSION = 4
+# v5: symbol rows carry a line-free identity (qualified name, container and
+# a declaration hash) and files carry a parse verdict, so a row written by the
+# older extractor has neither and cannot be derived from it. Every existing
+# index reports needs-reindex until its ordinary pass runs; that pass is the
+# only thing that can rebuild the rows, and it is not triggered by a read.
+EXTRACTION_VERSION = 5
 
 _INDEX_EXTS = (".ts", ".tsx", ".js", ".jsx")
 

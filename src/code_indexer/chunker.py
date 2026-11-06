@@ -46,6 +46,24 @@ class Chunk:
     symbol_type: str | None = None  # function|method|class|struct|enum|namespace
     signature: str | None = None    # v3: decl text up to body (best-effort)
     node_type: str | None = None    # v3: tree-sitter node type (visibility)
+    container: str | None = None    # v7: qualified name of the enclosing unit
+
+
+def declaration_hash(signature: str | None, first_line: str | None = None) -> str:
+    """sha256 of a declaration's normalized signature (schema v7 identity).
+
+    Normalization is whitespace-collapse: the signature is compared as text,
+    so a definition shifted by a line keeps its hash while a reformat that
+    changes the declaration changes it. Where the chunker produced no
+    signature, the declaration's observed FIRST LINE is hashed instead, so
+    the key stays total for every row (ADR-0002 section 1).
+
+    The ``sha256:`` prefix is the same spelling chunk hashes use, so one hash
+    vocabulary covers the manifest.
+    """
+    basis = signature if signature else (first_line or "")
+    normalized = " ".join(basis.split())
+    return "sha256:" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 def _guess_symbol(line: str) -> str | None:

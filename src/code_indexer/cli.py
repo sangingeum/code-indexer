@@ -1720,7 +1720,15 @@ def find_symbol(
         payload_rows = [
             {"file": r.file, "name": r.name, "type": r.symbol_type,
              "start_line": r.start_line, "end_line": r.end_line,
-             "signature": r.signature}
+             "signature": r.signature,
+             # Identity, beside the staleness block's ``index_revision``: the
+             # surrogate id means nothing outside that revision (ADR-0002
+             # section 2), and decl_hash is the durable half.
+             "qualified_name": r.qualified_name,
+             "container": r.container,
+             "language": r.language,
+             "decl_hash": r.decl_hash,
+             "symbol_id": r.symbol_id}
             for r in rows]
         if json_output:
             typer.echo(json.dumps({
@@ -1775,7 +1783,12 @@ def find_definition(
         definitions = [
             {"file": r.file, "name": r.name, "type": r.symbol_type,
              "start_line": r.start_line, "end_line": r.end_line,
-             "confidence": "exact" if r.source == "ast" else "heuristic"}
+             "confidence": "exact" if r.source == "ast" else "heuristic",
+             "qualified_name": r.qualified_name,
+             "container": r.container,
+             "language": r.language,
+             "decl_hash": r.decl_hash,
+             "symbol_id": r.symbol_id}
             for r in rows]
         if json_output:
             typer.echo(json.dumps({"schema": 1, "name": name,

@@ -41,21 +41,23 @@ EARLY_FILE = "def prepare():\n    return 1\n"
 LATE_FILE = "def unrelated():\n    return 0\n\n\ndef prepare():\n    return 2\n"
 
 # One name with two rows in the same file whose ranges do NOT overlap: a
-# duplicate method definition inside one class, both extracted as rows.
+# duplicate method definition inside one class. The two declarations differ by
+# their parameter list, because two byte-identical signatures in one file are
+# ONE symbol under the identity key (decl_hash).
 DISJOINT_FILE = (
     "class Holder:\n"
-    "    def repeated(self):\n"
+    "    def repeated(self, a=1):\n"
     "        return 1\n"
     "\n"
-    "    def repeated(self):\n"
+    "    def repeated(self, b=2):\n"
     "        return 2\n"
 )
 
 
 # One decorated definition long enough that the chunker splits it: the
-# decorator line and the declaration line land in different chunks, so
-# extraction stores TWO rows for the one definition — same end line, starts
-# one line apart. That is the shape measured on cli.py's `get_code_context`.
+# decorator line and the declaration line land in different chunks, i.e. the
+# one declaration is observed twice. The identity key collapses those two
+# observations into one row (same qualified name, kind and declaration hash).
 _DECORATED_FIELDS = "\n".join(
     f"    field_{i}: str = typer.Option(None, help='value {i}')"
     for i in range(18))
@@ -73,7 +75,12 @@ DECORATED_FILE = (
 
 
 def _repeated_definitions(count: int) -> str:
-    return "".join(f"def prepare():\n    return {i}\n\n\n" for i in range(count))
+    # Distinct signatures on purpose: the identity key is
+    # (file, qualified_name, symbol_type, decl_hash), so six byte-identical
+    # ``def prepare():`` rows would be ONE symbol. Each parameter makes the
+    # declaration hash distinct, which is what these tests are about.
+    return "".join(f"def prepare(a{i}):\n    return {i}\n\n\n"
+                   for i in range(count))
 
 
 class StubEmbedder:
@@ -335,14 +342,15 @@ def test_eval_scores_a_hit_inside_a_later_row(disjoint_rig):
     assert evalharness._hit_correct(core, entry, between_rows, rel) is False
 
 
-def test_a_decorated_definition_is_one_segment(decorated_rig):
-    """Two stored rows for one decorated definition answer as ONE range.
+def test_a_decorated_definition_is_one_row_and_one_segment(decorated_rig):
+    """One decorated definition is ONE row and ONE segment.
 
-    A caller counting segments to count definitions must not overcount. The
-    merge is the answer's stated rule: overlapping or touching same-name
-    ranges collapse to one span, so here the decorator-line row and the
-    declaration-line row become the single span of the whole definition
-    (issue #26).
+    The chunker sees the decorator node and the wrapped declaration as two
+    pieces (the unit is oversized and split), and before the identity model
+    that cost two stored rows with near-identical ranges, which callers then
+    had to merge (issue #26). The line-free identity settles it at the store:
+    both observations carry the same qualified name, type and declaration
+    hash, so they are ONE symbol and the first observed range is kept.
     """
     core, reg, entry, project, cfg = decorated_rig
     m = core.manifest_for(entry.slug)
@@ -351,23 +359,24 @@ def test_a_decorated_definition_is_one_segment(decorated_rig):
                               file="decorated.py", limit=None)
     finally:
         m.close()
-    assert len(rows) == 2, [(r.start_line, r.end_line) for r in rows]
-    first, second = sorted((r.start_line, r.end_line) for r in rows)
-    assert first[1] == second[1]  # decorator line + declaration line
-    assert second[0] > first[0]
+    assert len(rows) == 1, [(r.start_line, r.end_line) for r in rows]
+    row = rows[0]
+    # The kept range starts at the decorator line and ends at the declaration.
+    assert (row.start_line, row.end_line) == (5, 23)
+    assert row.signature == "def prepare("
 
     data = core.code_context(entry, "decorated.py", symbol=SHARED_NAME)
     assert len(data["segments"]) == 1
     segment = data["segments"][0]
-    assert segment["symbol_rows"] == 2
-    assert (segment["start_line"], segment["end_line"]) == (first[0], first[1])
+    assert segment["symbol_rows"] == 1
+    assert (segment["start_line"], segment["end_line"]) == (5, 23)
     body = "\n".join(segment["lines"])
     assert "@decorator" in body
     assert "def prepare(" in body
 
     # Line mode merges nothing, so the marker is absent from its segments.
     line_mode = core.code_context(entry, "decorated.py",
-                                  start_line=first[0], end_line=first[1])
+                                  start_line=5, end_line=23)
     assert all("symbol_rows" not in seg for seg in line_mode["segments"])
 
 

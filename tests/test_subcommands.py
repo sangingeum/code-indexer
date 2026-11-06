@@ -119,33 +119,42 @@ def _make_v2_manifest(db_path):
     conn.close()
 
 
-def test_v2_to_v3_migration(tmp_path):
+def test_old_manifest_migrates_to_the_identity_schema(tmp_path):
     db = str(tmp_path / "old.db")
     _make_v2_manifest(db)
     m = Manifest(db)
     try:
         cols = {r[1] for r in m._conn.execute("PRAGMA table_info(symbols)")}
-        assert {"signature", "visibility"} <= cols, "columns not added"
+        assert {"qualified_name", "container", "language", "decl_hash",
+                "id"} <= cols, "identity columns not added"
         # version bumped exactly once (2 -> latest, never regressing)
-        assert m.get_meta("schema_version") == SCHEMA_VERSION == "6"
-        # old rows survive with NULL signature/visibility
-        rows = m.find_symbols("legacy")
-        assert rows and rows[0].signature is None
-        assert rows[0].visibility is None
+        assert m.get_meta("schema_version") == SCHEMA_VERSION == "7"
+        # A pre-7 symbol row cannot be re-keyed on open: qualified_name needs
+        # the container chain the old extractor never stored, and decl_hash
+        # needs a signature the row does not carry. The table is therefore
+        # empty until the ordinary pass (which the extraction-version bump
+        # makes due for every project) repopulates it, and no read answers
+        # from it in the meantime.
+        assert m.find_symbols("legacy") == []
         # v6: ONE reference store. symbol_refs is gone and refs carries
-        # the receiver column; the EXTRACTION_VERSION bump (not this ALTER)
-        # is what flags the index needs-reindex.
+        # the receiver column plus the two staged target columns; the
+        # EXTRACTION_VERSION bump (not this ALTER) is what flags the index
+        # needs-reindex.
         tables = {r[0] for r in m._conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}
         assert "symbol_refs" not in tables
+        # revision 7 also creates the chunk table and the two staged target
+        # columns; the next leg populates them and adds no DDL.
+        chunk_cols = {r[1] for r in m._conn.execute(
+            "PRAGMA table_info(chunks)")}
+        assert {"chunk_hash", "text", "symbol_type"} <= chunk_cols
         ref_cols = {r[1] for r in m._conn.execute("PRAGMA table_info(refs)")}
-        assert "receiver" in ref_cols
+        assert {"receiver", "target_symbol_id", "resolution"} <= ref_cols
         # reopening does not bump again or duplicate the ALTER
         m.close()
         m2 = Manifest(db)
-        assert m2.get_meta("schema_version") == "6"
-        rows2 = m2.find_symbols("legacy")
-        assert rows2 and rows2[0].signature is None
+        assert m2.get_meta("schema_version") == "7"
+        assert m2.find_symbols("legacy") == []
     finally:
         m.close()
 

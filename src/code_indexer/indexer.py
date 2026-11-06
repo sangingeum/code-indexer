@@ -39,6 +39,16 @@ def _chunk_dispatch(path: str, text: str) -> list[Chunk]:
     return ts_chunker.chunk_text(path, text)
 
 
+def _parse_dispatch(path: str, text: str) -> tuple[list[Chunk], str]:
+    """Chunker seam + the file's parse verdict, from ONE parse.
+
+    The verdict is the parser's own (``parsed``/``parse_error``) or
+    ``parse_unavailable`` when the regex fallback ran; it is never inferred
+    from the chunks themselves (ADR-0004 section 7).
+    """
+    return ts_chunker.parse_file(path, text)
+
+
 logger = logging.getLogger("code-indexer.indexer")
 
 
@@ -275,26 +285,28 @@ class Indexer:
         pending_meta: dict[str, tuple[list, list, list, str]] = {}
         # Total chunk count per processed file (for the manifest row).
         file_chunk_counts: dict[str, int] = {}
+        # Parse verdict per processed file (parsed|parse_error|parse_unavailable).
+        file_verdicts: dict[str, str] = {}
         # Approx LOC per processed file (max chunk end_line).
         file_loc_counts: dict[str, int] = {}
         # Files that had at least one chunk queued for embedding.
         to_embed_files: set[str] = set()
 
-        def _process_file(path: str) -> tuple[str, str, list[Chunk], list] | None:
+        def _process_file(path: str) -> tuple[str, str, list[Chunk], list, str] | None:
             """Read + chunk + extract symbols for one file (pure)."""
             f = scanned_map[path]
             try:
                 with open(f.abs_path, encoding="utf-8", errors="replace") as fh:
                     file_text = fh.read()
-                    chunks = _chunk_dispatch(path, file_text)
+                    chunks, verdict = _parse_dispatch(path, file_text)
             except OSError as exc:
                 logger.warning("cannot read %s: %s", path, exc)
                 return None
             syms = ts_chunker.extract_symbols(path, file_text, chunks)
-            return path, file_text, chunks, syms
+            return path, file_text, chunks, syms, verdict
 
         def _record_file(path: str, file_text: str, chunks: list[Chunk],
-                         syms) -> None:
+                         syms, verdict: str) -> None:
             """Apply one parsed file's bookkeeping (main thread only)."""
             nonlocal reused
             # ONE reference writer (v6): tree-sitter queries give confidence
@@ -338,9 +350,10 @@ class Indexer:
                                      getattr(f, "inode", None),
                                      max((c.end_line for c in chunks),
                                          default=0),
-                                     _lang_from_ext(path)))
+                                     _lang_from_ext(path), verdict))
             file_chunk_counts[path] = len(chunks)
             file_loc_counts[path] = max((c.end_line for c in chunks), default=0)
+            file_verdicts[path] = verdict
 
         def _commit_metadata(path: str) -> None:
             """Write a file's symbols, references and imports in ONE place.
@@ -360,7 +373,11 @@ class Indexer:
                            start_line=s["start_line"],
                            end_line=s["end_line"], source=s["source"],
                            signature=s.get("signature"),
-                           visibility=s.get("visibility")) for s in syms])
+                           visibility=s.get("visibility"),
+                           qualified_name=s["qualified_name"],
+                           container=s["container"],
+                           language=_lang_from_ext(path),
+                           decl_hash=s["decl_hash"]) for s in syms])
             manifest.replace_file_refs(path, refs, confidence)
             manifest.replace_file_imports(path, import_rows)
 
@@ -370,7 +387,7 @@ class Indexer:
             for path in process_paths:
                 parsed = _process_file(path)
                 if parsed is not None:
-                    _record_file(parsed[0], parsed[1], parsed[2], parsed[3])
+                    _record_file(parsed[0], parsed[1], parsed[2], parsed[3], parsed[4])
         else:
             # Pipeline: parse the next file in the pool while recording the
             # current one. The embed call itself happens after the loop (one
@@ -382,7 +399,7 @@ class Indexer:
                 for future, path in futures.items():
                     parsed = future.result()
                     if parsed is not None:
-                        _record_file(parsed[0], parsed[1], parsed[2], parsed[3])
+                        _record_file(parsed[0], parsed[1], parsed[2], parsed[3], parsed[4])
 
         # 3) Embed with per-text failure isolation (bisect on batch failure);
         #    commit each file's manifest row + symbols AFTER its points are
@@ -459,7 +476,8 @@ class Indexer:
                     file_chunk_counts.get(path, 0), "ok",
                     getattr(f, "mtime_ns", None),
                     getattr(f, "inode", None),
-                    file_loc_counts.get(path, 0), _lang_from_ext(path))])
+                    file_loc_counts.get(path, 0), _lang_from_ext(path),
+                    file_verdicts.get(path))])
                 files_committed += 1
                 if self.progress_cb is not None:
                     elapsed = max(time.time() - t_embed0, 1e-6)
@@ -488,7 +506,8 @@ class Indexer:
                          scanned_map[path].size, file_chunk_counts.get(path, 0),
                          "ok", getattr(scanned_map[path], "mtime_ns", None),
                          getattr(scanned_map[path], "inode", None),
-                         file_loc_counts.get(path, 0), _lang_from_ext(path))
+                         file_loc_counts.get(path, 0), _lang_from_ext(path),
+                         file_verdicts.get(path))
             for path in file_chunk_counts
             if path not in by_file and path not in all_failed]
         if remaining_rows:
@@ -520,7 +539,8 @@ class Indexer:
                          getattr(scanned_map[p], "mtime_ns", None),
                          getattr(scanned_map[p], "inode", None),
                          old_files[p].loc or 0,
-                         old_files[p].language or _lang_from_ext(p))
+                         old_files[p].language or _lang_from_ext(p),
+                         old_files[p].parse_verdict)
             for p in scanned_map
             if p in old_files and p not in set(added + changed)
         ]

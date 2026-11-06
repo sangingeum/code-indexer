@@ -1,16 +1,43 @@
-"""Per-project SQLite manifest (design §3; schema v3 adds signatures, v4 adds
-the index fingerprint, v6 unifies the reference stores).
+"""Per-project SQLite manifest (schema v3 adds signatures, v4 the index
+fingerprint, v6 unifies the reference stores, v7 gives a symbol a line-free
+identity and a file a parse verdict).
 
 Schema:
-    files(path TEXT PK, content_hash TEXT, size INT, chunk_count INT, status TEXT)
+    files(path TEXT PK, content_hash TEXT, size INT, chunk_count INT,
+          status TEXT, mtime_ns INT, inode INT, loc INT, language TEXT,
+          parse_verdict TEXT)                                          # v7
     meta(key TEXT PK, value TEXT)  # schema_version, last_full_scan, branch,
-                                   # last_indexed, embed_format + v4 fingerprint:
-                                   # embed_model, embed_dim, embed_text_version,
-                                   # chunker_version
-    symbols(file, name, symbol_type, start_line, end_line, source)   # v2
-    symbols.signature, symbols.visibility                            # v3
+                                   # last_indexed, index_revision, embed_format
+                                   # + fingerprint: embed_model, embed_dim,
+                                   # embed_text_version, chunker_version,
+                                   # extraction_version
+    symbols(file, qualified_name, symbol_type, decl_hash,     # v7 key
+            id, name, container, language, start_line, end_line,
+            source, signature, visibility)                        # v7
     refs(file, line, from_symbol, to_name, relationship, confidence,
-         receiver)                                                   # v6
+         receiver, target_symbol_id, resolution)              # v6 / v7
+    chunks(file, chunk_index, start_line, end_line, symbol, symbol_type,
+           chunk_hash, text)                                          # v7
+
+The symbol identity is ``(file, qualified_name, symbol_type, decl_hash)``:
+line-free, so a definition shifted by a line keeps its identity, and two
+overloads differing only by their signature are two rows. ``start_line`` and
+``end_line`` are attributes of the row. ``id`` is a single-column surrogate
+assigned at insert from this manifest's own counter: it is revision-scoped
+by contract, a reparse re-inserts every row, and no consumer may persist it
+(ADR-0002 section 2).
+
+``decl_hash`` is the sha256 of the normalized declaration signature the
+chunker produced; where a row carries no signature, the declaration's
+observed first line (whitespace-normalized) is hashed instead, so the key is
+total for every row. A reformat that changes the signature changes the
+identity — stated, not papered over.
+
+``refs.target_symbol_id`` and ``refs.resolution`` are created by this
+revision and left NULL: population is a later leg (ADR-0002 section 3). The
+``chunks`` table is created here and left empty by this revision: the
+vectors-off pass that populates it is the next leg of the same round, and
+one schema revision covers both (ADR-0001 sections 2 and 3).
 
 The ``refs`` table is the ONE reference store (v6): one writer
 (``graph_extract``), one row shape, one honest relationship and confidence
@@ -25,6 +52,11 @@ NOT part of the key, so two same-name member reads on ONE line with two
 different receivers collapse to the first in document order. That collapse is
 documented in ``graph_extract``; two reads on separate lines are both kept.
 
+``files.parse_verdict`` is one of ``parsed``, ``parse_error`` or
+``parse_unavailable``, read from the parser's own result (``has_error``,
+``is_missing``) — never inferred from the chunker, which cannot fail
+(ADR-0004 section 7).
+
 Opened in WAL mode. All writes are short transactions — safe under the
 per-project lock discipline; WAL allows concurrent readers during indexing.
 """
@@ -38,40 +70,60 @@ from dataclasses import dataclass
 
 logger = logging.getLogger("code-indexer.manifest")
 
-SCHEMA_VERSION = "6"
+SCHEMA_VERSION = "7"
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS files (
+# The statements are executed one at a time inside the migration transaction
+# (executescript would commit the transaction it is handed).
+_SCHEMA = (
+    """CREATE TABLE IF NOT EXISTS files (
     path TEXT PRIMARY KEY,
     content_hash TEXT NOT NULL,
     size INTEGER NOT NULL,
     chunk_count INTEGER NOT NULL DEFAULT 0,
-    status TEXT NOT NULL DEFAULT 'ok'
-);
-CREATE TABLE IF NOT EXISTS meta (
+    status TEXT NOT NULL DEFAULT 'ok',
+    mtime_ns INTEGER,
+    inode INTEGER,
+    loc INTEGER,
+    language TEXT,
+    parse_verdict TEXT
+)""",
+    """CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT
-);
-CREATE TABLE IF NOT EXISTS symbols (
+)""",
+    # v7: line-free identity key + single-column surrogate id.
+    """CREATE TABLE IF NOT EXISTS symbols (
     file TEXT NOT NULL,
-    name TEXT NOT NULL,
+    qualified_name TEXT NOT NULL,
     symbol_type TEXT NOT NULL,
+    decl_hash TEXT NOT NULL,
+    id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    container TEXT,
+    language TEXT,
     start_line INTEGER NOT NULL,
     end_line INTEGER NOT NULL,
     source TEXT NOT NULL DEFAULT 'regex',
-    PRIMARY KEY (file, name, start_line)
-);
-CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);
-CREATE INDEX IF NOT EXISTS idx_symbols_file_start ON symbols(file, start_line);
-CREATE TABLE IF NOT EXISTS imports (
+    signature TEXT,
+    visibility TEXT,
+    PRIMARY KEY (file, qualified_name, symbol_type, decl_hash)
+)""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_symbols_id ON symbols(id)",
+    "CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name)",
+    "CREATE INDEX IF NOT EXISTS idx_symbols_qualified"
+    " ON symbols(qualified_name)",
+    "CREATE INDEX IF NOT EXISTS idx_symbols_container ON symbols(container)",
+    "CREATE INDEX IF NOT EXISTS idx_symbols_file_start"
+    " ON symbols(file, start_line)",
+    """CREATE TABLE IF NOT EXISTS imports (
     file TEXT NOT NULL,
     raw_target TEXT NOT NULL,
     resolved_file TEXT,          -- best-effort project-relative resolution
     kind TEXT NOT NULL,          -- import|include|require|use|...
     line INTEGER NOT NULL,
     PRIMARY KEY (file, raw_target, line)
-);
-CREATE TABLE IF NOT EXISTS refs (
+)""",
+    """CREATE TABLE IF NOT EXISTS refs (
     file TEXT NOT NULL,
     line INTEGER NOT NULL,
     from_symbol TEXT,            -- NULL when the reference is module-level
@@ -79,17 +131,33 @@ CREATE TABLE IF NOT EXISTS refs (
     relationship TEXT NOT NULL,  -- call|type|base_class|member|includes|identifier
     confidence TEXT NOT NULL,    -- ast | heuristic
     receiver TEXT,               -- member-access receiver as written, else NULL
+    target_symbol_id INTEGER,    -- v7: resolved target, NULL until populated
+    resolution TEXT,             -- v7: none|same_file|same_project|backend
     PRIMARY KEY (file, line, to_name, relationship)
-);
-CREATE INDEX IF NOT EXISTS idx_refs_to_name ON refs(to_name);
-CREATE TABLE IF NOT EXISTS index_errors (
+)""",
+    "CREATE INDEX IF NOT EXISTS idx_refs_to_name ON refs(to_name)",
+    """CREATE TABLE IF NOT EXISTS index_errors (
     file TEXT NOT NULL,
     chunk_index INTEGER,
     error TEXT NOT NULL,
     at REAL NOT NULL,
     PRIMARY KEY (file, chunk_index)
-);
-"""
+)""",
+    # v7: chunk text and hash, so a vectors-on pass embeds from the manifest
+    # without reparsing (ADR-0001 section 3). Created here, populated by the
+    # next leg of this round — deliberately unused by this one.
+    """CREATE TABLE IF NOT EXISTS chunks (
+    file TEXT NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    start_line INTEGER NOT NULL,
+    end_line INTEGER NOT NULL,
+    symbol TEXT,
+    symbol_type TEXT,
+    chunk_hash TEXT NOT NULL,
+    text TEXT NOT NULL,
+    PRIMARY KEY (file, chunk_index)
+)""",
+)
 
 
 @dataclass
@@ -103,6 +171,7 @@ class ManifestFile:
     inode: int | None = None
     loc: int | None = None       # v5: approximate line count from spans
     language: str | None = None  # v5: extension-derived language name
+    parse_verdict: str | None = None  # v7: parsed|parse_error|parse_unavailable
 
 
 @dataclass
@@ -115,7 +184,11 @@ class SymbolRow:
     source: str  # 'ast' | 'regex'
     signature: str | None = None  # v3: decl text up to body; NULL tolerated
     visibility: str | None = None  # v3: 'public' | 'private'; NULL → public
-
+    qualified_name: str = ""       # v7: container chain joined to the name
+    container: str | None = None   # v7: parent qualified name, NULL at top
+    language: str | None = None    # v7: copied from files.language
+    decl_hash: str = ""            # v7: sha256 of the normalized signature
+    symbol_id: int | None = None   # v7: revision-scoped surrogate (column id)
 
 class Manifest:
     def __init__(self, db_path: str):
@@ -125,43 +198,48 @@ class Manifest:
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._conn.execute("PRAGMA busy_timeout=5000")
         with self._conn:
-            self._conn.executescript(_SCHEMA)
-            # v2 -> v3 migration: add the two new columns before the version
-            # bump (design §3). Existing rows keep NULL signature/visibility;
-            # readers tolerate NULL (print no signature; treat as public).
-            existing_cols = {
+            # v7 replaces the symbols table instead of altering it: the old key
+            # ``(file, name, start_line)`` is line-bearing, and the new columns
+            # cannot be derived for rows the old extractor wrote —
+            # ``qualified_name`` needs the container chain it never stored, and
+            # ``decl_hash`` needs a signature a legacy row may not carry. The
+            # extraction-version bump (same round) makes every existing index
+            # needs-reindex, so the next ordinary pass repopulates the table
+            # and no read ever answers from the empty one.
+            symbol_cols = {
                 r[1] for r in self._conn.execute("PRAGMA table_info(symbols)")
             }
-            for col in ("signature", "visibility"):
-                if col not in existing_cols:
-                    self._conn.execute(
-                        f"ALTER TABLE symbols ADD COLUMN {col} TEXT")
-            # v4: stat fast-path columns on files (size/mtime_ns/inode from
-            # the last completed pass; NULL on legacy rows -> full hash).
+            if symbol_cols and "decl_hash" not in symbol_cols:
+                self._conn.execute("DROP TABLE symbols")
+            # One statement at a time: executescript() would commit the
+            # transaction around it. Every statement is IF NOT EXISTS, so an
+            # already-revision-7 manifest is left byte-identical here.
+            for statement in _SCHEMA:
+                self._conn.execute(statement)
+            # v4/v5/v7 file columns. NULL on legacy rows until the pass that
+            # rewrites them; readers tolerate NULL.
             file_cols = {
                 r[1] for r in self._conn.execute("PRAGMA table_info(files)")
             }
-            for col, decl in (("mtime_ns", "INTEGER"), ("inode", "INTEGER")):
+            for col, decl in (("mtime_ns", "INTEGER"), ("inode", "INTEGER"),
+                              ("loc", "INTEGER"), ("language", "TEXT"),
+                              ("parse_verdict", "TEXT")):
                 if col not in file_cols:
                     self._conn.execute(
                         f"ALTER TABLE files ADD COLUMN {col} {decl}")
-            # v5: overview columns (approx LOC from the chunk spans; language
-            # from the extension map). NULL on legacy rows until reindexed.
-            for col, decl in (("loc", "INTEGER"), ("language", "TEXT")):
-                if col not in file_cols:
-                    self._conn.execute(
-                        f"ALTER TABLE files ADD COLUMN {col} {decl}")
-            # v6: ONE reference store. Add the receiver column to refs and
-            # drop the retired symbol_refs table. This is a real migration,
-            # not a half-populated idle: the EXTRACTION_VERSION bump flips the
-            # index fingerprint, so every existing index reports
-            # needs-reindex (and refuses queries) until a rebuild re-extracts
-            # the unified rows.
+            # v6/v7 reference columns: the receiver as written (v6), and the
+            # nullable resolved target plus its resolution channel (v7).
+            # Both v7 columns stay NULL in this revision — population is a
+            # later leg (ADR-0002 section 3).
             ref_cols = {
                 r[1] for r in self._conn.execute("PRAGMA table_info(refs)")
             }
-            if ref_cols and "receiver" not in ref_cols:
-                self._conn.execute("ALTER TABLE refs ADD COLUMN receiver TEXT")
+            for col, decl in (("receiver", "TEXT"),
+                              ("target_symbol_id", "INTEGER"),
+                              ("resolution", "TEXT")):
+                if ref_cols and col not in ref_cols:
+                    self._conn.execute(
+                        f"ALTER TABLE refs ADD COLUMN {col} {decl}")
             self._conn.execute("DROP TABLE IF EXISTS symbol_refs")
             # schema_version must actually advance on old manifests
             # (INSERT OR IGNORE would leave v1 stuck forever).
@@ -182,7 +260,7 @@ class Manifest:
     def all_files(self) -> dict[str, ManifestFile]:
         cur = self._conn.execute(
             "SELECT path, content_hash, size, chunk_count, status, "
-            "mtime_ns, inode, loc, language FROM files"
+            "mtime_ns, inode, loc, language, parse_verdict FROM files"
         )
         return {
             row[0]: ManifestFile(*row)
@@ -199,7 +277,8 @@ class Manifest:
     def get_file(self, path: str) -> ManifestFile | None:
         row = self._conn.execute(
             "SELECT path, content_hash, size, chunk_count, status, "
-            "mtime_ns, inode, loc, language FROM files WHERE path = ?",
+            "mtime_ns, inode, loc, language, parse_verdict "
+            "FROM files WHERE path = ?",
             (path,),
         ).fetchone()
         return ManifestFile(*row) if row else None
@@ -208,14 +287,17 @@ class Manifest:
         with self._conn:
             self._conn.executemany(
                 "INSERT INTO files(path, content_hash, size, chunk_count, status, "
-                "mtime_ns, inode, loc, language) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "mtime_ns, inode, loc, language, parse_verdict) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(path) DO UPDATE SET content_hash=excluded.content_hash, "
                 "size=excluded.size, chunk_count=excluded.chunk_count, "
                 "status=excluded.status, mtime_ns=excluded.mtime_ns, "
                 "inode=excluded.inode, loc=excluded.loc, "
-                "language=excluded.language",
+                "language=excluded.language, "
+                "parse_verdict=excluded.parse_verdict",
                 [(r.path, r.content_hash, r.size, r.chunk_count, r.status,
-                  r.mtime_ns, r.inode, r.loc, r.language) for r in rows],
+                  r.mtime_ns, r.inode, r.loc, r.language,
+                  r.parse_verdict) for r in rows],
             )
 
     def delete_files(self, paths: list[str]) -> None:
@@ -267,27 +349,95 @@ class Manifest:
         return out
 
     # -- symbols / refs --------------------------------------------------
-
     def replace_file_symbols(self, file: str, symbols: list[SymbolRow]) -> None:
         """Atomically replace a file's symbol rows.
 
         Delete-before-insert keyed by file: chunk ordering shifts make blind
         upserts duplicate rows. Must be called in the same pass that commits
         the file's manifest row (design: symbols never ahead of vectors).
+
+        Identity fields are completed here so every writer gets a total key:
+        ``qualified_name`` falls back to ``container.name`` (or the bare name
+        at top level), ``decl_hash`` falls back to the hash of the normalized
+        signature, and ``language`` stays NULL only when the caller had none.
+
+        The surrogate ``id`` is assigned from this manifest's own counter, in
+        the same transaction as the insert, and is revision-scoped: a reparse
+        re-inserts every row, so an id means nothing outside the revision that
+        wrote it (ADR-0002 section 2).
         """
+        rows = [self._symbol_row_tuple(file, s, s.symbol_id)
+                for s in symbols]
         with self._conn:
             self._conn.execute("DELETE FROM symbols WHERE file = ?", (file,))
+            if not rows:
+                return
+            base = int(self.get_meta("symbol_id_seq") or "0")
+            high = int(self._conn.execute(
+                "SELECT COALESCE(MAX(id), 0) FROM symbols").fetchone()[0])
+            base = max(base, high)
             self._conn.executemany(
-                "INSERT OR REPLACE INTO symbols(file, name, symbol_type, "
+                "INSERT OR REPLACE INTO symbols(file, qualified_name, "
+                "symbol_type, decl_hash, id, name, container, language, "
                 "start_line, end_line, source, signature, visibility) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                [(s.file, s.name, s.symbol_type, s.start_line, s.end_line,
-                  s.source, s.signature, s.visibility)
-                 for s in symbols],
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(r[0], r[1], r[2], r[3], base + i, r[5], r[6], r[7],
+                  r[8], r[9], r[10], r[11], r[12])
+                 for i, r in enumerate(rows, 1)],
+            )
+            self._conn.execute(
+                "INSERT INTO meta(key, value) VALUES ('symbol_id_seq', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (str(base + len(rows)),),
             )
 
-    _SYMBOL_COLS = ("SELECT file, name, symbol_type, start_line, end_line, "
-                    "source, signature, visibility FROM symbols")
+    @staticmethod
+    def _symbol_row_tuple(file: str, s: SymbolRow,
+                          symbol_id: int | None) -> tuple:
+        """One insert tuple, identity fields completed and in column order."""
+        from .chunker import declaration_hash
+        qualified = s.qualified_name or (
+            f"{s.container}.{s.name}" if s.container else s.name)
+        if s.decl_hash:
+            decl = s.decl_hash
+        elif s.signature:
+            decl = declaration_hash(s.signature)
+        else:
+            # No declaration text at all to hash (extraction always supplies
+            # a signature; a hand-written row may not). The observed range is
+            # then the only basis that keeps two such rows distinct, and
+            # losing a row would be worse than a line-dependent hash here.
+            decl = declaration_hash(
+                None, f"{s.name}:{s.start_line}-{s.end_line}")
+        return (file, qualified, s.symbol_type, decl, symbol_id, s.name,
+                s.container, s.language, s.start_line, s.end_line, s.source,
+                s.signature, s.visibility)
+
+    _SYMBOL_COLS = (
+        "SELECT file, name, symbol_type, start_line, end_line, source, "
+        "signature, visibility, qualified_name, container, language, "
+        "decl_hash, id FROM symbols")
+
+    def index_revision(self) -> str | None:
+        """The revision these rows were written in (``meta.index_revision``).
+
+        Printed beside every ``symbol_id`` so a consumer can tell that the id
+        belongs to that revision and to no other (ADR-0002 section 2).
+        """
+        return self.get_meta("index_revision")
+
+    def parse_verdict_counts(self) -> dict[str, int]:
+        """Files per parse verdict: parsed, parse_error, parse_unavailable.
+
+        Always all three keys, zero when absent — a count that is missing from
+        the answer would read as "no such files" (ADR-0004 section 7).
+        """
+        out = {"parsed": 0, "parse_error": 0, "parse_unavailable": 0}
+        for verdict, n in self._conn.execute(
+                "SELECT parse_verdict, COUNT(*) FROM files GROUP BY 1"):
+            if verdict in out:
+                out[verdict] = int(n)
+        return out
 
     def find_symbols(self, name: str | None, symbol_type: str | None = None,
                      substring: bool = False, limit: int | None = 25,
@@ -320,7 +470,7 @@ class Manifest:
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += (" ORDER BY CASE source WHEN 'ast' THEN 0 ELSE 1 END, "
-                "name, start_line, file")
+                "name, start_line, file, qualified_name, decl_hash")
         if limit is not None:
             sql += " LIMIT ?"
             args.append(limit)
@@ -625,8 +775,7 @@ class Manifest:
 
     def all_symbols(self) -> list[SymbolRow]:
         cur = self._conn.execute(
-            "SELECT file, name, symbol_type, start_line, end_line, source,"
-            " signature, visibility FROM symbols ORDER BY file, start_line")
+            self._SYMBOL_COLS + " ORDER BY file, start_line")
         return [SymbolRow(*row) for row in cur.fetchall()]
 
     def read_git_branch(self, project_root: str) -> str | None:

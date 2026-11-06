@@ -14,8 +14,8 @@ from __future__ import annotations
 import hashlib
 import logging
 
-from .chunker import (Chunk, chunk as fallback_chunk, _guess_symbol,
-                      regex_signature, regex_visibility)
+from .chunker import (Chunk, chunk as fallback_chunk, declaration_hash,
+                      _guess_symbol, regex_signature, regex_visibility)
 
 logger = logging.getLogger("code-indexer.tschunker")
 
@@ -119,36 +119,77 @@ _CALL_NODE_TYPES = {
 }
 
 
+PARSE_PARSED = "parsed"
+PARSE_ERROR = "parse_error"
+PARSE_UNAVAILABLE = "parse_unavailable"
+
+
 def chunk_text(path: str, text: str) -> list[Chunk]:
     """AST chunk via tree-sitter; falls back to regex chunker on failure."""
+    return parse_file(path, text)[0]
+
+
+def parse_file(path: str, text: str) -> tuple[list[Chunk], str]:
+    """Chunks plus the file's parse verdict, from ONE parse of the file.
+
+    The verdict is the parser's own result (ADR-0004 section 7), never the
+    chunker's: ``parse_error`` when the tree carries an error or a missing
+    node, ``parsed`` otherwise, and ``parse_unavailable`` whenever this
+    function cannot stand behind an AST — no grammar pack, no grammar for the
+    extension, a parser exception, or an AST walk that produced no chunks.
+    Every one of those paths takes the regex fallback, and a file that went
+    through it reports ``parse_unavailable``: a failed claim, not a pass.
+    """
     if not _TS_OK:
-        return fallback_chunk(text)
+        return fallback_chunk(text), PARSE_UNAVAILABLE
     ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
     lang = EXT_LANG.get(ext)
     if lang is None:
-        return fallback_chunk(text)
+        return fallback_chunk(text), PARSE_UNAVAILABLE
     try:
         parser = tree_sitter_language_pack.get_parser(lang)
         data = text.encode("utf-8")
         tree = parser.parse(data)
     except Exception as exc:  # noqa: BLE001
         logger.debug("tree-sitter parse failed for %s (%s): %s", path, lang, exc)
-        return fallback_chunk(text)
+        return fallback_chunk(text), PARSE_UNAVAILABLE
 
     chunks: list[Chunk] = []
     root = tree.root_node
-    if root.has_error:
+    verdict = _tree_verdict(root)
+    if verdict == PARSE_ERROR:
         logger.debug("tree-sitter error-tolerant parse for %s — using AST anyway", path)
     # tree-sitter byte offsets index the ENCODED buffer, not the str. Slicing
     # the str with byte offsets corrupts any name after multi-byte chars.
     # Decode each slice from the bytes buffer instead.
     _walk(root, data, chunks)
     if not chunks:
-        return fallback_chunk(text)
+        return fallback_chunk(text), PARSE_UNAVAILABLE
     for i, c in enumerate(chunks):
         c.chunk_index = i
         c.source = "ast"
-    return chunks
+    return chunks, verdict
+
+
+def _tree_verdict(root) -> str:
+    """``parsed`` or ``parse_error`` for one tree, read from the tree itself.
+
+    ``has_error`` is the parser's own verdict on a recovered tree; the
+    explicit missing-node walk is kept beside it because a missing node is a
+    defect the caller is promised to hear about, whether or not a grammar
+    folds it into ``has_error``.
+    """
+    if root.has_error:
+        return PARSE_ERROR
+    cursor = root.walk()
+    while True:
+        if cursor.node.is_missing:
+            return PARSE_ERROR
+        if cursor.goto_first_child():
+            continue
+        while not cursor.goto_next_sibling():
+            if not cursor.goto_parent():
+                return PARSE_PARSED
 
 
 def _declaration_signature(node, data: bytes) -> str:
@@ -195,8 +236,15 @@ def _visibility_from_name(name: str | None, node_type: str,
     return "public"
 
 
-def _walk(node, data: bytes, out: list[Chunk]) -> None:
-    """Collect declaration units; recurse into non-unit containers."""
+def _walk(node, data: bytes, out: list[Chunk],
+          container: str | None = None) -> None:
+    """Collect declaration units; recurse into non-unit containers.
+
+    ``container`` is the qualified name of the enclosing declaration, threaded
+    down the walk: a method inside ``Core`` is emitted with
+    ``container="Core"``, which is what makes its qualified name
+    ``Core.search`` rather than a bare ``search`` (ADR-0002 section 1).
+    """
     text = None  # decoded lazily only when needed
     for child in node.children:
         if child.type in _UNIT_TYPES:
@@ -206,6 +254,8 @@ def _walk(node, data: bytes, out: list[Chunk]) -> None:
             symbol = _symbol_from_node(child, data)
             sym_type = _TYPE_BY_NODE.get(child.type)
             signature = _declaration_signature(child, data)
+            # The qualified name this unit's children would carry.
+            nested = _join_qualified(container, symbol)
             if len(node_text) > _CHAR_CAP:
                 # Oversized unit: split via fallback on its own text,
                 # adjusting line numbers and preserving symbol on the first.
@@ -230,12 +280,14 @@ def _walk(node, data: bytes, out: list[Chunk]) -> None:
                         symbol_type=sym_type if s.start_line == 1 else None,
                         signature=signature if s.start_line == 1 else None,
                         node_type=child.type if s.start_line == 1 else None,
+                        container=container if s.start_line == 1 else None,
                     ))
                     offset += s.end_line - s.start_line + 1
                 # The split pieces hide any nested units (methods inside a
                 # >1000-char C# class, etc.) from the symbol table — walk the
                 # unit's own body so inner symbols are still extracted.
-                _walk(child, data, out)
+                _walk(child, data, out,
+                      nested if child.type in _CONTAINER_TYPES else container)
             else:
                 h = hashlib.sha256(node_text.encode()).hexdigest()
                 out.append(Chunk(
@@ -243,17 +295,19 @@ def _walk(node, data: bytes, out: list[Chunk]) -> None:
                     start_line=start, end_line=end, chunk_index=0,
                     source="ast", symbol_type=sym_type,
                     signature=signature, node_type=child.type,
+                    container=container,
                 ))
                 # Container types carry nested symbols (methods in a class,
                 # namespaces in a namespace, etc.): recurse so they land in
                 # the symbol table as well. Their chunks are covered by the
                 # container chunk above; this walk is extract-only there.
                 if child.type in _CONTAINER_TYPES:
-                    _walk(child, data, out)
+                    _walk(child, data, out, nested)
         elif child.type in _UNIT_TYPES_EXTRACT_ONLY:
             # Namespace: emit a symbol row via the chunk that _make_chunk
             # would produce ONLY when the body is small; always recurse.
-            if symbol := _symbol_from_node(child, data):
+            symbol = _symbol_from_node(child, data)
+            if symbol:
                 start = child.start_point[0] + 1
                 end = child.end_point[0] + 1
                 node_text = data[child.start_byte:child.end_byte].decode("utf-8", "replace")
@@ -264,12 +318,19 @@ def _walk(node, data: bytes, out: list[Chunk]) -> None:
                         start_line=start, end_line=end, chunk_index=0,
                         source="ast", symbol_type="namespace",
                         signature=_declaration_signature(child, data),
-                        node_type=child.type,
+                        node_type=child.type, container=container,
                     ))
-            _walk(child, data, out)
+            _walk(child, data, out, _join_qualified(container, symbol))
         elif child.child_count:
-            _walk(child, data, out)
+            _walk(child, data, out, container)
     del text
+
+
+def _join_qualified(container: str | None, name: str | None) -> str | None:
+    """``Core.search`` for a nested declaration; the bare name at top level."""
+    if not name:
+        return container
+    return f"{container}.{name}" if container else name
 
 
 def _symbol_from_node(node, data: bytes) -> str | None:
@@ -339,34 +400,54 @@ def _symbol_from_declarator(node, data: bytes) -> str | None:
 def extract_symbols(path: str, text: str, chunks: list[Chunk]) -> list[dict]:
     """Symbol rows derived from the chunk pass itself.
 
-    Returns [{'name', 'symbol_type', 'start_line', 'end_line', 'source',
-    'signature', 'visibility'}]. Chunks carry the type; regex-chunked files
-    get function/class guesses plus best-effort signature/visibility (design
-    §3: signature = first line of the chunk, source stays 'regex').
+    Returns [{'name', 'qualified_name', 'container', 'symbol_type',
+    'start_line', 'end_line', 'source', 'signature', 'visibility',
+    'decl_hash'}]. Regex-chunked files get function/class guesses plus
+    best-effort signature/visibility (design §3: signature = first line of the
+    chunk, source stays 'regex').
+
+    ``qualified_name`` is the container chain the chunk carries joined to the
+    name (``Core.search``); ``container`` is that chain alone, NULL at top
+    level. ``decl_hash`` is the sha256 of the normalized signature, falling
+    back to the declaration's first line when a chunk has none, so the
+    identity key is total for every row (ADR-0002 section 1).
     """
     rows: dict[tuple, dict] = {}
     for c in chunks:
         if not c.symbol:
             continue
         stype = c.symbol_type or _guess_type_regex(c.text) or "function"
-        key = (c.symbol, c.start_line)
-        if key not in rows:
-            if c.source == "ast":
-                signature = c.signature
-                visibility = _visibility_from_name(
-                    c.symbol, c.node_type or "", c.text, stype)
-            else:
-                # Regex-chunked: best-effort (design §3) — first line of the
-                # chunk; Python underscore rule only.
-                signature = regex_signature(c.text)
-                visibility = regex_visibility(c.symbol)
-            rows[key] = {
-                "name": c.symbol, "symbol_type": stype,
-                "start_line": c.start_line, "end_line": c.end_line,
-                "source": c.source,
-                "signature": signature,
-                "visibility": visibility,
-            }
+        qualified = _join_qualified(c.container, c.symbol)
+        if c.source == "ast":
+            signature = c.signature
+            visibility = _visibility_from_name(
+                c.symbol, c.node_type or "", c.text, stype)
+        else:
+            # Regex-chunked: best-effort (design §3) — first line of the
+            # chunk; Python underscore rule only.
+            signature = regex_signature(c.text)
+            visibility = regex_visibility(c.symbol)
+        first_line = c.text.splitlines()[0] if c.text else ""
+        decl = declaration_hash(signature, first_line)
+        # The identity key is line-free, so ONE declaration observed twice (a
+        # decorated definition's outer and inner node, a chunk split) is ONE
+        # row: the first observed range is kept and the duplicate is dropped.
+        # Two declarations that differ only by their signature stay two rows
+        # (the overload case); two byte-identical declarations in one file are
+        # the same symbol by this model.
+        key = (qualified, stype, decl)
+        if key in rows:
+            continue
+        rows[key] = {
+            "name": c.symbol, "qualified_name": qualified,
+            "container": c.container,
+            "symbol_type": stype,
+            "start_line": c.start_line, "end_line": c.end_line,
+            "source": c.source,
+            "signature": signature,
+            "visibility": visibility,
+            "decl_hash": decl,
+        }
     return list(rows.values())
 
 
