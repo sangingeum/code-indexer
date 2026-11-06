@@ -15,11 +15,11 @@ import logging
 import os
 import time
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from .chunker import Chunk
 from .config import Config
 from .embed_text import EMBED_FORMAT, embed_text
-from .embedder import Embedder
 from .fingerprint import (current_fingerprint,
                           fingerprint_mismatches, manifest_newer_than,
                           read_fingerprint, write_fingerprint)
@@ -28,7 +28,10 @@ from .manifest import Manifest, ManifestFile, SymbolRow
 from .scanner import ScannedFile, scan_project
 from . import graph_extract
 from .sensitive import SensitiveReport, file_is_sensitive
-from .store import Store, point_id
+
+if TYPE_CHECKING:  # annotations only: importing this module costs no client
+    from .embedder import Embedder
+    from .store import Store
 
 
 def _chunk_dispatch(path: str, text: str) -> list[Chunk]:
@@ -400,14 +403,16 @@ class Indexer:
                 path, chunk_ = to_embed[idx]
                 manifest.record_index_error(path, chunk_.chunk_index, msg)
                 skipped_errors += 1
-            from qdrant_client.models import PointStruct
+            from .store import point_id
             now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
-            def _point(path: str, chunk_: Chunk, vec: list[float]) -> PointStruct:
-                return PointStruct(
-                    id=point_id(project_path, path, chunk_.chunk_index),
-                    vector=vec,
-                    payload={
+            def _point(path: str, chunk_: Chunk,
+                       vec: list[float]) -> dict[str, Any]:
+                """The point as a plain dict; the store builds the client type."""
+                return {
+                    "id": point_id(project_path, path, chunk_.chunk_index),
+                    "vector": vec,
+                    "payload": {
                         "project": project_path,
                         "file": path,
                         "chunk_index": chunk_.chunk_index,
@@ -421,7 +426,8 @@ class Indexer:
                         "end_line": chunk_.end_line,
                         "snippet": _snippet(chunk_.text),
                         "indexed_at": now,
-                    })
+                    },
+                }
 
             # Group to-embed entries by file, upsert per file, then commit
             # that file's manifest rows — the resumability unit.

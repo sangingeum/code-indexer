@@ -71,6 +71,17 @@ class BackendError(IndexerError):
     exit_code = EXIT_BACKEND
 
 
+class ExtensionUnavailableError(ConfigError):
+    """An optional extra is not installed (ADR-0001 section 1).
+
+    Renders as ``ConfigError: <message>`` because the absence is a
+    configuration fact, and exits 3 because ADR-0003 gives "extension
+    unavailable" that code. One actionable line, no traceback.
+    """
+
+    exit_code = EXIT_BACKEND
+
+
 class RebuildRequiredError(IndexerError):
     """The index was built by a different configuration and must be rebuilt."""
 

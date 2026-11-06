@@ -76,7 +76,9 @@ class StubStore:
 
     def upsert_points(self, name, points):
         for p in points:
-            self.payloads.append(dict(p.payload))
+            # The indexer hands over plain point dicts; the real store builds
+            # the client's point type.
+            self.payloads.append(dict(p["payload"]))
 
     def purge_file_points(self, name, project, path, min_chunk_index=0):
         self.payloads = [p for p in self.payloads if p.get("file") != path

@@ -2,6 +2,10 @@
 
 Per design §8: one collection per project (`idx_{slug}`); remove_project is
 an atomic collection drop. Point payload per §3.
+
+The Qdrant client library is imported at first use, inside ``Store.__init__``
+(ADR-0001 section 1): a core install and the CLI import path must not pay for
+a vector-store client they may not need.
 """
 
 from __future__ import annotations
@@ -10,25 +14,62 @@ import logging
 import uuid
 from typing import Any
 
-from qdrant_client import QdrantClient
-from qdrant_client.models import (
-    AliasOperations,  # noqa: F401 — re-exported for callers
-    CreateAlias,
-    CreateAliasOperation,
-    DeleteAlias,
-    DeleteAliasOperation,
-    Distance,
-    FieldCondition,
-    Filter,
-    MatchValue,
-    PointStruct,
-    VectorParams,
-    Range,
-)
-
 logger = logging.getLogger("code-indexer.store")
 
 NAMESPACE_URL = uuid.NAMESPACE_URL
+
+# Populated by ``_load_qdrant`` at first use; ``None`` until then so a module
+# import of this file costs nothing. Annotations stay strings (future import).
+QdrantClient: Any = None
+AliasOperations: Any = None
+CreateAlias: Any = None
+CreateAliasOperation: Any = None
+DeleteAlias: Any = None
+DeleteAliasOperation: Any = None
+Distance: Any = None
+FieldCondition: Any = None
+Filter: Any = None
+MatchValue: Any = None
+PointStruct: Any = None
+VectorParams: Any = None
+Range: Any = None
+
+
+def _load_qdrant() -> None:
+    """Import the Qdrant client into this module's globals (first use only)."""
+    global QdrantClient, AliasOperations, CreateAlias, CreateAliasOperation
+    global DeleteAlias, DeleteAliasOperation, Distance, FieldCondition, Filter
+    global MatchValue, PointStruct, VectorParams, Range
+    if QdrantClient is not None:
+        return
+    from qdrant_client import QdrantClient as _QdrantClient
+    from qdrant_client.models import (
+        AliasOperations as _AliasOperations,  # noqa: F401 — re-exported
+        CreateAlias as _CreateAlias,
+        CreateAliasOperation as _CreateAliasOperation,
+        DeleteAlias as _DeleteAlias,
+        DeleteAliasOperation as _DeleteAliasOperation,
+        Distance as _Distance,
+        FieldCondition as _FieldCondition,
+        Filter as _Filter,
+        MatchValue as _MatchValue,
+        PointStruct as _PointStruct,
+        Range as _Range,
+        VectorParams as _VectorParams,
+    )
+    QdrantClient = _QdrantClient
+    AliasOperations = _AliasOperations
+    CreateAlias = _CreateAlias
+    CreateAliasOperation = _CreateAliasOperation
+    DeleteAlias = _DeleteAlias
+    DeleteAliasOperation = _DeleteAliasOperation
+    Distance = _Distance
+    FieldCondition = _FieldCondition
+    Filter = _Filter
+    MatchValue = _MatchValue
+    PointStruct = _PointStruct
+    VectorParams = _VectorParams
+    Range = _Range
 
 
 def point_id(project: str, file: str, chunk_index: int) -> str:
@@ -38,6 +79,7 @@ def point_id(project: str, file: str, chunk_index: int) -> str:
 
 class Store:
     def __init__(self, url: str, upsert_batch: int = 256):
+        _load_qdrant()
         self.client = QdrantClient(url=url, timeout=60, check_compatibility=False)
         self.upsert_batch = upsert_batch
 
@@ -122,10 +164,17 @@ class Store:
         if old_physical is not None and old_physical != target:
             self.client.delete_collection(old_physical)
 
-    def upsert_points(self, name: str, points: list[PointStruct]) -> int:
-        for i in range(0, len(points), self.upsert_batch):
-            self.client.upsert(collection_name=name, points=points[i:i + self.upsert_batch])
-        return len(points)
+    def upsert_points(self, name: str, points: list[Any]) -> int:
+        """Upsert points; a plain dict ``{id, vector, payload}`` is accepted.
+
+        The indexer builds payload dicts and hands them over here, so the
+        point type of the client library stays inside this module.
+        """
+        built = [PointStruct(**p) if isinstance(p, dict) else p for p in points]
+        for i in range(0, len(built), self.upsert_batch):
+            self.client.upsert(collection_name=name,
+                               points=built[i:i + self.upsert_batch])
+        return len(built)
 
     def purge_file_points(self, name: str, project: str, file: str,
                           min_chunk_index: int | None = None) -> int:

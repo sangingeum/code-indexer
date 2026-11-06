@@ -88,15 +88,20 @@ name = "code-indexer"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "mcp", extra = ["cli"] },
-    { name = "numpy" },
-    { name = "ollama" },
     { name = "pathspec" },
-    { name = "qdrant-client" },
     { name = "tree-sitter" },
     { name = "tree-sitter-language-pack" },
     { name = "typer" },
     { name = "watchdog" },
+]
+
+[package.optional-dependencies]
+mcp = [
+    { name = "mcp", extra = ["cli"] },
+]
+semantic = [
+    { name = "ollama" },
+    { name = "qdrant-client" },
 ]
 
 [package.dev-dependencies]
@@ -106,16 +111,16 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mcp", extras = ["cli"], specifier = "<2" },
-    { name = "numpy", specifier = "<2" },
-    { name = "ollama", specifier = ">=0.6.2" },
+    { name = "mcp", extras = ["cli"], marker = "extra == 'mcp'", specifier = "<2" },
+    { name = "ollama", marker = "extra == 'semantic'", specifier = ">=0.6.2" },
     { name = "pathspec", specifier = ">=0.12" },
-    { name = "qdrant-client", specifier = "<1.15" },
+    { name = "qdrant-client", marker = "extra == 'semantic'", specifier = "<1.15" },
     { name = "tree-sitter", specifier = "==0.26.0" },
     { name = "tree-sitter-language-pack", specifier = "==1.18.0" },
     { name = "typer", specifier = ">=0.12" },
     { name = "watchdog", specifier = ">=6.0.0" },
 ]
+provides-extras = ["semantic", "mcp"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8.0" }]

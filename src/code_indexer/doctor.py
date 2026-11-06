@@ -21,9 +21,8 @@ import sys
 from dataclasses import dataclass
 from typing import Any
 
-import ollama
-
 from .config import Config
+from .extensions import SEMANTIC_EXTENSION_MESSAGE
 from .fingerprint import (current_fingerprint, fingerprint_mismatches,
                           read_fingerprint)
 
@@ -112,6 +111,13 @@ def check_ollama(cfg: Config, embedder: Any,
     created = False
     client = ollama_client
     if client is None:
+        try:
+            import ollama
+        except ImportError:  # the semantic extra is not installed
+            checks.append(Check(
+                WARN, "ollama-reachable",
+                f"unverified: {SEMANTIC_EXTENSION_MESSAGE} ({cfg.ollama_url})"))
+            return checks, None
         client = ollama.Client(host=cfg.ollama_url, timeout=cfg.ollama_timeout)
         created = True
     try:

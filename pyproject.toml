@@ -1,7 +1,7 @@
 [project]
 name = "code-indexer"
 version = "0.1.0"
-description = "Semantic code search for agents: one-shot CLI + MCP server over Qdrant + Ollama (Linux)"
+description = "Code intelligence for agents: a one-shot CLI that indexes a repository into SQLite and answers structural, lexical and optionally semantic queries"
 readme = "README.md"
 license = "MIT"
 authors = [
@@ -12,11 +12,9 @@ authors = [
 # wheels; qdrant-client 1.14.x (required for check_compatibility) then
 # resolves identically everywhere.
 requires-python = ">=3.12,<3.13"
+# Core is parsing, indexing, lexical and structural query: it installs and
+# runs with no service of any kind (ADR-0001 section 1).
 dependencies = [
-    "mcp[cli]<2",
-    "numpy<2",
-    "ollama>=0.6.2",
-    "qdrant-client<1.15",
     "pathspec>=0.12",
     "tree-sitter==0.26.0",
     "tree-sitter-language-pack==1.18.0",
@@ -25,6 +23,19 @@ dependencies = [
     # silent CPU hog (full hash scan per project per quiet tick) and strictly
     # worse, so every install path carries the real watcher backend.
     "watchdog>=6.0.0",
+]
+
+[project.optional-dependencies]
+# Embedding and vector storage. numpy is deliberately NOT listed here or in
+# the core: it arrives transitively with qdrant-client inside this extra.
+semantic = [
+    "ollama>=0.6.2",
+    "qdrant-client<1.15",
+]
+# The MCP server is an interface choice, not a retrieval capability: it ships
+# as its own extra and is imported only by the code-indexer-mcp entry point.
+mcp = [
+    "mcp[cli]<2",
 ]
 
 [project.scripts]

@@ -17,10 +17,10 @@ import os
 import random
 import time
 
-import ollama
-
 from .embed_text import EMBED_FORMAT
 from .embed_cache import cache_key
+from .errors import ExtensionUnavailableError
+from .extensions import SEMANTIC_EXTENSION_MESSAGE
 from .fingerprint import ConfigError
 
 logger = logging.getLogger("code-indexer.embedder")
@@ -43,8 +43,14 @@ class Embedder:
     def __init__(self, host: str, model: str, batch_size: int = 48,
                  retries: int = DEFAULT_RETRIES, timeout: int = DEFAULT_TIMEOUT,
                  cache=None):
+        try:
+            import ollama
+        except ImportError as exc:  # the extra is not installed
+            raise ExtensionUnavailableError(
+                SEMANTIC_EXTENSION_MESSAGE) from exc
         self._host = host
-        self.client = ollama.Client(host=host, timeout=timeout)
+        self._ollama = ollama
+        self.client = self._ollama.Client(host=host, timeout=timeout)
         self.model = model
         self.batch_size = batch_size
         self.retries = retries
@@ -80,7 +86,7 @@ class Embedder:
             # One-shot probe on a throwaway client, closed immediately: the
             # shared keep-alive pool would otherwise hold a socket open for
             # the process lifetime (ResourceWarning leaks under -W error).
-            probe = ollama.Client(host=self._host, timeout=DEFAULT_TIMEOUT)
+            probe = self._ollama.Client(host=self._host, timeout=DEFAULT_TIMEOUT)
             try:
                 res = self._request_with_retries(probe, ["dimension probe"])
             finally:
@@ -97,7 +103,7 @@ class Embedder:
         chain's backoff before the answer. A failure propagates: the caller
         reports the fingerprint as unverified rather than guessing it.
         """
-        probe = ollama.Client(host=self._host, timeout=QUERY_ATTEMPT_TIMEOUT)
+        probe = self._ollama.Client(host=self._host, timeout=QUERY_ATTEMPT_TIMEOUT)
         try:
             res = probe.embed(model=self.model, input=["dimension probe"],
                               keep_alive="10m")
@@ -122,7 +128,7 @@ class Embedder:
                 text, self.model, self._dim, EMBED_FORMAT))
             if cached is not None:
                 return cached
-        client = ollama.Client(host=self._host, timeout=QUERY_ATTEMPT_TIMEOUT)
+        client = self._ollama.Client(host=self._host, timeout=QUERY_ATTEMPT_TIMEOUT)
         try:
             res = client.embed(model=self.model, input=[text],
                                keep_alive="10m")

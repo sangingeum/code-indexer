@@ -14,16 +14,16 @@ import logging
 import os
 import re
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .config import Config, load_config
-from .embedder import Embedder
-from .errors import BackendError, InternalError, LockedError
+from .errors import (BackendError, ExtensionUnavailableError, InternalError,
+                     LockedError)
+from .extensions import SEMANTIC_EXTENSION_MESSAGE
 from .fingerprint import (ConfigError, current_fingerprint,
                           current_version_stamp, fingerprint_mismatches,
                           mismatch_error, read_fingerprint,
                           rows_staleness_warning)
-from .indexer import Indexer
 from .locks import project_lock
 from .manifest import SCHEMA_VERSION, Manifest, SymbolRow
 from . import ranking
@@ -32,7 +32,11 @@ from . import ts_chunker
 from .registry import ProjectEntry, Registry
 from .scanner import (ScanBudget, ScanBudgetExceeded, ScannedFile,
                       scan_project)
-from .store import Store
+
+if TYPE_CHECKING:  # annotations only: no client library is imported here
+    from .embedder import Embedder
+    from .indexer import Indexer
+    from .store import Store
 
 logger = logging.getLogger("code-indexer.core")
 
@@ -112,12 +116,14 @@ class Core:
         os.makedirs(self.cfg.index_root, exist_ok=True)
         self.skip_stale_check = skip_stale_check
         self.registry = Registry(os.path.join(self.cfg.index_root, "registry.db"))
-        self.embedder = Embedder(self.cfg.ollama_url, self.cfg.embed_model,
-                                 batch_size=self.cfg.embed_batch,
-                                 timeout=self.cfg.ollama_timeout,
-                                 cache=self._embed_cache())
-        self.store = Store(self.cfg.qdrant_url, upsert_batch=self.cfg.upsert_batch)
-        self.indexer = Indexer(self.cfg, self.embedder, self.store)
+        # The two clients of the semantic extra are built on first use, never
+        # here: a core command constructs neither, and an absent extra costs
+        # one actionable line instead of a traceback (ADR-0001 section 1).
+        # They stay plain attributes behind setters, so a test seam can
+        # replace one after construction exactly as before.
+        self._embedder: Embedder | None = None
+        self._store: Store | None = None
+        self._indexer: Indexer | None = None
         # Per-process staleness cache: slug -> last-scan monotonic time.
         self._last_scan: dict[str, float] = {}
         # Indexing state per slug (state, error, last_result) for status.
@@ -129,6 +135,61 @@ class Core:
         # previous probe's verdict.
         self._current_fp: Any = _PROBE_UNSET
         self._current_fp_key: int | None = None
+
+    # -- lazily constructed clients of the semantic extra ------------------
+
+    @property
+    def embedder(self) -> Embedder:
+        """The Ollama embedder, constructed on first use."""
+        if self._embedder is None:
+            self._embedder = self._make_embedder()
+        return self._embedder
+
+    @embedder.setter
+    def embedder(self, value: Embedder | None) -> None:
+        self._embedder = value
+
+    def _make_embedder(self) -> Embedder:
+        try:
+            from .embedder import Embedder as _Embedder
+        except ImportError as exc:  # the semantic extra is not installed
+            raise ExtensionUnavailableError(
+                SEMANTIC_EXTENSION_MESSAGE) from exc
+        return _Embedder(self.cfg.ollama_url, self.cfg.embed_model,
+                         batch_size=self.cfg.embed_batch,
+                         timeout=self.cfg.ollama_timeout,
+                         cache=self._embed_cache())
+
+    @property
+    def store(self) -> Store:
+        """The Qdrant store, constructed on first use."""
+        if self._store is None:
+            self._store = self._make_store()
+        return self._store
+
+    @store.setter
+    def store(self, value: Store | None) -> None:
+        self._store = value
+
+    def _make_store(self) -> Store:
+        try:
+            from .store import Store as _Store
+        except ImportError as exc:  # the semantic extra is not installed
+            raise ExtensionUnavailableError(
+                SEMANTIC_EXTENSION_MESSAGE) from exc
+        return _Store(self.cfg.qdrant_url, upsert_batch=self.cfg.upsert_batch)
+
+    @property
+    def indexer(self) -> Indexer:
+        """The pass engine over the current embedder/store pair."""
+        if self._indexer is None:
+            from .indexer import Indexer as _Indexer
+            self._indexer = _Indexer(self.cfg, self.embedder, self.store)
+        return self._indexer
+
+    @indexer.setter
+    def indexer(self, value: Indexer | None) -> None:
+        self._indexer = value
 
     @staticmethod
     def _embed_cache():
