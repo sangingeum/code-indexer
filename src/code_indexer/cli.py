@@ -2586,6 +2586,52 @@ def plan_validate(
         raise typer.Exit(report["exit_code"])
 
 
+@app.command(name="plan-show")
+def plan_show(
+    ref: str = typer.Argument(..., help="A plan path or sha256:<hex>."),
+    project: str = PROJECT_OPT,
+    plan_dir: str = typer.Option(None, "--plan-dir",
+                                 help="Directory holding plan files."),
+    diff: bool = typer.Option(
+        False, "--diff",
+        help="Print every affected file and the unified diff it would make."),
+    json_output: bool = typer.Option(False, "--json", help="JSON output."),
+) -> None:
+    """Print a plan, and with --diff the change it would make. Writes nothing.
+
+    Without --diff the document prints as it was read, optional and unknown
+    members included -- reading never rewrites a plan, because rewriting it
+    would change its hash. With --diff every affected file prints with a
+    unified diff computed from the plan plus the current bytes; the file
+    preconditions run first, so a stale plan is refused rather than drawn
+    against bytes it never saw.
+    """
+    hunks: list[dict[str, str]] = []
+    try:
+        _core, entry = _plan_entry(project)
+        requested, path = plans.resolve_ref(ref, _plan_dir(entry, plan_dir),
+                                            entry.path)
+        document = plans.load_plan(path)
+        if diff:
+            hunks = plans.preview(document, entry.path)
+    except IndexerError as exc:
+        _json_failure(exc, json_output)
+        return
+    if json_output:
+        payload: dict[str, Any] = {
+            "schema": 1, "plan_id": document.get("plan_id"),
+            "ref": requested, "plan": document}
+        if diff:
+            payload["diff"] = hunks
+        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+    typer.echo(json.dumps(document, ensure_ascii=False, indent=2,
+                          sort_keys=True))
+    for hunk in hunks:
+        typer.echo(f"--- {hunk['path']}")
+        sys.stdout.write(hunk["diff"])
+
+
 # ---------------------------------------------------------------------------
 # eval harness (retrieval-quality gate): CLI-only dev utility, no MCP surface
 # ---------------------------------------------------------------------------

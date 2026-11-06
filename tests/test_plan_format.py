@@ -807,3 +807,66 @@ def test_validate_refuses_a_path_that_is_not_a_plan(plan_rig):
     assert "NotFoundError" in result.stderr
 
 
+# ---------------------------------------------------------------------------
+# plan-show: the plan as read, and the diff it would make, both write-free
+# ---------------------------------------------------------------------------
+
+def test_show_prints_the_plan_and_preserves_unknown_members(plan_rig):
+    path = _prepare(plan_rig)
+    document = plans.load_plan(path)
+    document["notes"] = ["kept verbatim"]
+    document["diagnostics"] = [{"code": "note"}]
+    plans.write_plan(plans.seal(document), plan_rig.plan_dir)
+    for name in os.listdir(plan_rig.plan_dir):
+        if os.path.join(plan_rig.plan_dir, name) != path:
+            os.rename(os.path.join(plan_rig.plan_dir, name), path)
+    resealed = plans.seal(document)
+    with open(path, "wb") as handle:
+        handle.write(plans.canonical_bytes(resealed))
+    before = tree_fingerprint(plan_rig.plan_dir, plan_rig.project / "mod.py")
+    result = runner.invoke(app, ["plan-show", path, "--project", "plansample"])
+    assert result.exit_code == 0, result.output
+    assert tree_fingerprint(plan_rig.plan_dir,
+                            plan_rig.project / "mod.py") == before
+    payload = json.loads(result.stdout)
+    assert payload["notes"] == ["kept verbatim"]
+    assert payload["diagnostics"] == [{"code": "note"}]
+    assert payload["plan_id"] == resealed["plan_id"]
+
+
+def test_show_diff_prints_the_change_and_writes_nothing(plan_rig):
+    path = _prepare(plan_rig)
+    before = tree_fingerprint(plan_rig.plan_dir, plan_rig.project / "mod.py")
+    result = runner.invoke(app, ["plan-show", path, "--project", "plansample",
+                                 "--diff"])
+    assert result.exit_code == 0, result.output
+    assert tree_fingerprint(plan_rig.plan_dir,
+                            plan_rig.project / "mod.py") == before
+    assert "--- a/mod.py" in result.stdout
+    assert "+++ b/mod.py" in result.stdout
+    assert "-    return 1" in result.stdout
+    assert "+    return 41" in result.stdout
+
+
+def test_show_diff_refuses_a_stale_file(plan_rig):
+    path = _prepare(plan_rig)
+    (plan_rig.project / "mod.py").write_text(TWO_FUNCTIONS + "# changed\n")
+    result = runner.invoke(app, ["plan-show", path, "--project", "plansample",
+                                 "--diff"])
+    assert result.exit_code == EXIT_LOCK
+    assert "PlanStale:" in result.stderr
+    assert "+++ b/mod.py" not in result.stdout
+
+
+def test_show_json_carries_the_document_and_the_diff(plan_rig):
+    path = _prepare(plan_rig)
+    result = runner.invoke(app, ["plan-show", path, "--project", "plansample",
+                                 "--diff", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["schema"] == 1
+    assert payload["plan"]["operation"] == "replace_body"
+    assert payload["diff"][0]["path"] == "mod.py"
+    assert "+    return 41" in payload["diff"][0]["diff"]
+
+
