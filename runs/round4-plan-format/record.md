@@ -12,7 +12,8 @@ No apply path in this leg: nothing here writes a source file.
 | `f434a27` | `plan-validate` |
 | `0b85e9b` | `plan-show` and `--diff` |
 | `d506352` | the insertion coordinate fix the refusal capture found, and the closed command roster |
-| the docs commit | SKILL-CLI.md, json-schema.md, CHANGELOG.md, `.gitignore`, this record |
+| `f8863b0` | SKILL-CLI.md, json-schema.md, CHANGELOG.md, `.gitignore`, this record |
+| the commit that carries this line | names the docs commit's SHA in the record |
 
 Every commit is signed (`git log -1 --format='%h %G?'` → `G`) and every
 intermediate tree is green: the tests for a slice land in its commit, and the
