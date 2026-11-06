@@ -59,7 +59,8 @@ The agent workflow (overview → skeleton → search → get-code-context) is in
 ## Architecture
 
 - **Index**: tree-sitter AST chunks (function/class-level, symbol names,
-  schema v3 signatures/visibility) with contextual headers, embedded via
+  schema v7 identity — qualified names and declaration hashes — with stored
+  signatures/visibility) with contextual headers, embedded via
   Ollama into one Qdrant collection per project (`idx_<slug>` / `idx_<name>`).
 - **Manifest** (SQLite, WAL): files, chunks, content hashes, symbol index,
   FTS5 lexical table, index fingerprint.
@@ -128,21 +129,26 @@ Canonical states, the same everywhere (CLI and MCP):
 | `idle` | indexed, no pass running | normal use |
 | `indexing` | a pass is running | wait/retry |
 | `never-indexed` | registered but no completed pass (interrupted `add-project`) | do not trust empty results; tell the owner |
-| `needs-reindex` | index built with a different embed model/dimension/text format/chunker/extraction version | do not run `reindex-project` yourself; report to the owner (queries fail with `ConfigError` until then) |
+| `needs-reindex` | index built with a different embed model/dimension/text format/chunker/extraction version | do not run `reindex-project` yourself; report to the owner (the row-reading surfaces refuse with exit 4 until then) |
 | `error` | last pass failed | run `code-indexer doctor` |
 
 `index-status` reports the **pass state** as `state=`, and — when the index
 was built by a different configuration — adds `fingerprint=needs-reindex
 reason=...`, the same verdict `list-projects`/`doctor` give. A project that
 owes a rebuild therefore never reads as plainly `idle`, and the two surfaces
-never contradict each other. The manifest-only surfaces (`find-references`,
-`find-callers`, `find-callees`, `deps`, `skeleton`, `outline`) still answer on
-such an index, with one stderr warning when the stored rows may predate the
-current extraction code; only `search` refuses. Reaching that verdict needs a
-reachable embedder (a dimension probe), so when the embedder cannot be probed
-`index-status` prints `fingerprint=unverified reason=embedder-unreachable`
-instead of omitting the field — "cannot verify" is its own value, and a
-missing `fingerprint=` field means the index matched.
+never contradict each other. On such an index the surfaces that answer from
+stored rows refuse rather than answer — `find-symbol`, `find-definition`,
+`outline`, `skeleton`, `overview`, `get-code-context`, `find-references`,
+`find-callers`, `find-callees`, `deps` and `changed-symbols` exit 4 with one
+`RebuildRequiredError` line and empty stdout, and `search` refuses the same
+way. `list-projects`, `lookup-project`, `index-status` and `doctor` still
+answer, because they report on the index itself and need no rows. Reaching
+that verdict needs no service: the version keys are compared against
+configuration alone, so `index-status` prints
+`fingerprint=needs-reindex reason=...` without a probe. A project whose other
+keys all match reports `fingerprint=unverified
+reason=embedding-dimension-not-compared` instead — "cannot verify" is its
+own value, never folded into a match.
 
 ## How indexing / staleness works
 
@@ -209,10 +215,13 @@ missing `fingerprint=` field means the index matched.
 | v4 | index fingerprint + stat fast-path columns on `files` | automatic ALTER; fingerprint backfills on next pass |
 | v5 | `files.loc`/`files.language` for `overview`; graph tables (refs/imports for `find-callers`/`find-callees`/`deps`) | automatic ALTER; overview/graph data populate on next reindex |
 | v6 | ONE reference store: `symbol_refs` folded into `refs` (+ a `receiver` column); `csharp` joins the AST-references languages (`EXTRACTION_VERSION` 2) | automatic: `symbol_refs` dropped, `receiver` ALTERed; the extraction-version bump marks every index `needs-reindex` until `reindex-project` |
+| v7 | line-free symbol identity: `qualified_name`, `container`, `language`, `decl_hash` and a revision-scoped `id`; `(file, qualified_name, symbol_type, decl_hash)` becomes the key; staged nullable `refs.target_symbol_id`/`resolution`; the `chunks` table; per-file `parse_verdict` (`EXTRACTION_VERSION` 5) | automatic: the old-key symbols table is re-created empty (its rows cannot be re-keyed), the other columns/tables are created; the extraction-version bump marks every index `needs-reindex` until `reindex-project` |
 | — | FTS5 lexical table (`chunks_fts`, hybrid retrieval) | automatic backfill on next pass |
 
-Current schema version: **6** (auto-migrates on open; `reindex-project`
-backfills derived columns eagerly).
+Current schema version: **7** (auto-migrates on open; `reindex-project`
+backfills derived columns eagerly). The `chunks` table and the two reference
+target columns ship with revision 7 and are populated by the following leg of
+the same round — the schema is paid for once so the migration runs once.
 
 ## Configuration
 
@@ -236,8 +245,8 @@ INDEX_ROOT writability + disk, SQLite integrity, watcher pidfile/locks, and
 per-project fingerprint status. Symptom → action:
 
 - Searches misbehave / empty results → `doctor`, then `index-status --project <path>` (the positional `<path>` form still works).
-- `ConfigError: index ... was built with ...` → `needs-reindex`; owner runs
-  `reindex-project`.
+- `RebuildRequiredError: index ... does not match the current configuration ...`
+  → `needs-reindex`; owner runs `reindex-project`.
 - `never-indexed` after a killed `add-project` → `reindex-project`.
 - Watcher dead → `code-indexer unwatch --all`, then re-run `watch --background`.
 

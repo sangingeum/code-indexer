@@ -182,8 +182,80 @@ because `index-status` needs one `GROUP BY` rather than a join.
 reports the counts the rows carry, including when those rows are about to be
 replaced.
 
-## Refusal matrix — to be completed at step 3
+## Refusal matrix
 
-## Extraction-version bump — to be completed at step 1
+Binding rule: a surface that answers from stored rows refuses a
+`needs-reindex` project — exit 4, EMPTY stdout, exactly one
+`RebuildRequiredError:` line on stderr naming the remedy. Exit codes below are
+the ones the suite observed, per surface, in text mode and in the surface's own
+machine-readable mode (`tests/test_refusal_needs_reindex.py` runs both).
 
-## Left to leg 2 and to round 3 — to be completed at step 4
+| surface | argv used by the test | machine-readable spelling | observed |
+|---|---|---|---|
+| `find-symbol` | `find-symbol Core` | `--json` | 4 / 4, stdout empty |
+| `find-definition` | `find-definition Core` | `--json` | 4 / 4, stdout empty |
+| `outline` | `outline a.py` | `--json` | 4 / 4, stdout empty |
+| `skeleton` | `skeleton` | `--json` | 4 / 4, stdout empty |
+| `get-code-context` | `get-code-context a.py --start-line 1 --end-line 2` | `--json` | 4 / 4, stdout empty |
+| `find-references` | `find-references Core` | `--json` | 4 / 4, stdout empty |
+| `find-callers` | `find-callers main` | `--json` | 4 / 4, stdout empty |
+| `find-callees` | `find-callees main` | `--json` | 4 / 4, stdout empty |
+| `deps` | `deps a.py` | `--format json` (NOT `--json`) | 4 / 4, stdout empty |
+| `changed-symbols` | `changed-symbols` | `--json` | 4 / 4, stdout empty |
+| `overview` | `overview` | `--json` | 4 / 4, stdout empty |
+| `list-projects` | — | `--json` | 0, still answers |
+| `lookup-project` | `<path>` | — | 0, still answers |
+| `index-status` | `<path>` | `--json` | 0, still answers |
+| `doctor` | — | `--json` | never 4; reports its checks |
+
+Three notes the matrix cannot carry:
+
+- `deps` has **no** `--json` flag: ADR-0003 section 7 grants `--json` to five
+  read commands and `deps` is not one of them; its JSON mode is
+  `--format json`. The test uses each command's real spelling (read from
+  `--help`), and adding `--json` to `deps` would be an unratified surface
+  change.
+- `overview` is refused here although the brief's enumerated list stops at
+  ten surfaces: the review's finding named `find-symbol`/`overview` as the
+  defect, and `overview` reads manifest rows like the rest.
+- `--refresh` on a refusing surface runs the pass FIRST and then asserts, so
+  one refresh repairs the project and the command answers normally
+  (`tests/test_refusal_needs_reindex.py` pins that too).
+
+The former stderr warning on these surfaces is gone (`_warn_rows_staleness`
+removed). A caveat printed above an answer still reads as a fact about the
+code; the honest shape is a refusal. `Core.rows_staleness` remains as a
+diagnostic primitive and is still exercised by
+`tests/test_staleness_reporting.py`.
+
+## Left to leg 2 and to round 3
+
+Leg 2 (the service-free pass), explicitly not done here:
+
+- populating `chunks` from the pass (the table ships empty in this revision)
+  and the `--vectors auto|on|off` flag;
+- the three version axes as written policy: `embedding_version` as one
+  composed string, the per-side fingerprint comparison, `vectors=off` on a
+  fresh project, and `semantic-search` refusing a vectors-off project;
+- populating `refs.target_symbol_id` / `refs.resolution` — both columns are
+  created and NULL; the resolution rule (unique target within the scope,
+  never an `identifier/heuristic` row) is ADR-0002 section 3 and belongs to
+  that later leg.
+
+Round 3, not done here: the structural filters on `find-symbol`
+(`--name-pattern`, `--container`, `--language`, `--inherits`, `--has-call`),
+the `evidence:` label, and the ambiguity envelope (`match_count`,
+`ambiguity.candidates[]`, refusal instead of a silent pick).
+
+## Not done, honestly
+
+- `changed-symbols` is refused before it touches git, so its refusal is tested
+  on a non-git throwaway project; the git-repo precondition itself is covered
+  by its own module (`tests/test_changed_symbols.py`), not by this leg.
+- `get-code-context` still computes the staleness verdict twice (the named
+  round-1 residual). The function was not passed through for a two-line fix in
+  this leg, so the residual stays carded for the round-2 gate.
+- The migration replaces pre-7 symbol rows instead of carrying them; a reader
+  of this record should know that is a deliberate data decision, not an
+  oversight (the rows could not be re-keyed, and every read now refuses
+  anyway).

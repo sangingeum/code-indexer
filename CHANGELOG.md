@@ -1,5 +1,44 @@
 # Changelog
 
+## [Unreleased] — symbol identity and parse verdicts
+
+**Breaking, and it is visible on the first query after upgrade.** Symbol rows
+are now keyed by `(file, qualified_name, symbol_type, decl_hash)` — no line
+number in the key — so a definition shifted by a line keeps its identity, two
+overloads that differ only by their signature are two rows, and a row carries
+`qualified_name`, `container`, `language`, `decl_hash` and a revision-scoped
+`symbol_id`. A declaration hash cannot be derived from rows written by the
+previous extractor, so the extraction version moved to 5 and **every project
+reports `needs-reindex` until its ordinary pass runs** (`reindex-project`, or
+the next pass under the new code). That pass is the only remedy, it is not a
+paid operation, and it does not rebuild the vector collection: the embedding
+identity is unchanged and unchanged chunk text re-embeds from the cache.
+
+- **Refusals instead of answers on an obsolete index.** Every surface that
+  answers from stored rows now exits 4 with one `RebuildRequiredError` line on
+  stderr and EMPTY stdout on a `needs-reindex` project: `find-symbol`,
+  `find-definition`, `outline`, `skeleton`, `overview`, `get-code-context`,
+  `find-references`, `find-callers`, `find-callees`, `deps` and
+  `changed-symbols`. Previously only `search` gated, so `find-symbol` and
+  `overview` answered "no symbols" from rows the build would not produce.
+  `list-projects`, `lookup-project`, `index-status` and `doctor` still answer
+  — they need no rows. A machine-readable mode does not soften it: the refusal
+  keeps stdout empty in `--json` (and `deps --format json`) too. `--refresh`
+  still runs the pass first, so it repairs and then answers.
+- **Per-file parse verdicts.** Every indexed file records `parsed`,
+  `parse_error` or `parse_unavailable`, taken from the parser's own result
+  (`has_error`, `is_missing`) and never inferred from the chunker, which cannot
+  fail. A file the regex fallback handled reports `parse_unavailable`, not
+  `parsed`. `index-status` counts the three per project in text
+  (`parse=parsed:N,parse_error:N,parse_unavailable:N`) and in JSON.
+- **Schema revision 7 ships the whole round's DDL.** Besides the identity
+  columns, the revision creates the nullable `refs.target_symbol_id` and
+  `refs.resolution` columns and the `chunks` table. Both are populated by the
+  following leg and are empty here, so the migration and the reparse happen
+  once for the round rather than twice. Migration is automatic on open and
+  idempotent; a pre-7 symbols table is re-created empty because its rows
+  cannot be re-keyed.
+
 ## [Unreleased] — dependency boundary and the narrowed MCP surface
 
 - **Core installs and runs with no service.** `ollama` and `qdrant-client`

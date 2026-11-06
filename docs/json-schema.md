@@ -218,18 +218,40 @@ An unregistered selector answers `registered: false` with its `path` and an
  "fingerprint"|"needs-reindex"|"unverified", "reason"|missing,
  "last_pass"|missing, "progress"|missing, "sensitive_skipped"|missing,
  "scope"|missing, "not_indexed"|missing, "last_errors"|missing,
+ "parsed": int, "parse_error": int, "parse_unavailable": int,
  "note"|missing, <staleness block>}
 ```
 
 The fields the text line prints, under the same names, plus the staleness
-block. A missing `fingerprint` field still means the index matched.
+block. A missing `fingerprint` field still means the index matched. The three
+`parse_*` counts are the per-file parse verdicts (text:
+`parse=parsed:N,parse_error:N,parse_unavailable:N`) and are always all three,
+zero included — a verdict is the parser's own result, never the chunker's
+fallback. `index-status` answers on a `needs-reindex` project by contract.
+
+## find-symbol --json
+
+```json
+{"schema": 1, "symbols": [{"file", "name", "type",
+                  "start_line", "end_line", "signature",
+                  "qualified_name", "container", "language",
+                  "decl_hash", "symbol_id"}],
+ "match": "exact"|"substring"|"browse", <staleness block>}
+```
+
+`schema` stays 1: the identity fields are additive. `container` is `null` at
+top level; `decl_hash` is `sha256:`-prefixed; `symbol_id` is the
+revision-scoped surrogate and belongs to the `index_revision` in the staleness
+block — it is not a durable identifier. No rows is `symbols: []` with exit 0.
 
 ## find-definition --json
 
 ```json
 {"schema": 1, "name": str, "project": str,
  "definitions": [{"file", "name", "type", "start_line", "end_line",
-                  "confidence": "exact"|"heuristic"}],
+                  "confidence": "exact"|"heuristic",
+                  "qualified_name", "container", "language",
+                  "decl_hash", "symbol_id"}],
  <staleness block>}
 ```
 
@@ -263,5 +285,11 @@ the documented single-line staleness Warning.
 
 With `--json`, a failure prints one JSON object to stdout carrying
 `"schema": 1`, `"ErrorType"` and `"error"`, and exits with the taxonomy's
-code; stdout is still empty for the non-JSON read commands (a failed
+code — **except a `needs-reindex` refusal**, which stays a refusal on every
+surface and in every mode: stdout is EMPTY, one `RebuildRequiredError:` line
+(names `reindex-project` for that project) goes to stderr, and the exit is 4.
+A machine-readable mode never turns "these rows are obsolete" into a payload
+that looks like an answer.
+
+stdout is still empty for the non-JSON read commands (a failed
 `semantic-search` writes its one `ErrorType: message` line to stderr).
