@@ -300,3 +300,67 @@ def test_the_default_browse_cap_still_applies_and_is_reported(
     assert payload["match_count"] == len(payload["symbols"]) == 7
     # A filter is still browse mode: no name was given, so no ambiguity block.
     assert "ambiguity" not in payload
+
+
+# ---------------------------------------------------------------------------
+# evidence labels (ADR-0002 section 4, last paragraph)
+# ---------------------------------------------------------------------------
+
+def test_every_candidate_from_an_attributed_filter_carries_evidence(
+        structural_rig):
+    _, _, _, project = structural_rig
+    for args in (("--inherits", "UserManager"),
+                 ("--has-call", "read_all")):
+        payload = _json(project, *args)
+        assert payload["symbols"], args
+        for row in payload["symbols"]:
+            assert row["evidence"] in ("ast", "heuristic", "unknown"), row
+        # These two filters answer from attributed syntax only, so a hit is
+        # attributed syntax.
+        assert {row["evidence"] for row in payload["symbols"]} == {"ast"}
+
+
+def test_a_file_without_an_ast_extractor_reports_unknown_never_absent(
+        structural_rig):
+    """The parse_unavailable path, on files shaped like this repo's docs.
+
+    Three of the four fixture files carry no AST grammar (this repository's
+    own index is 760 of 925 such files), so their symbol rows answer
+    `unknown` — the evidence label exists precisely for them.
+    """
+    core, _, entry, project = structural_rig
+    m = core.read_manifest(entry.slug)
+    try:
+        verdicts = {row.file: row.parse_verdict
+                    for row in m.find_symbols(None, limit=None)}
+    finally:
+        m.close()
+    assert verdicts["widgets.txt"] == "parse_unavailable"
+    assert verdicts["services.py"] == "parsed"
+
+    text_rows = _json(project, "--language", "text")
+    assert [row["name"] for row in text_rows["symbols"]] == [
+        "PipelineDoc", "ReportDoc", "TextWidget"]
+    assert {row["evidence"] for row in text_rows["symbols"]} == {"unknown"}
+
+    # One answer across both kinds of file: the label travels with the row.
+    mixed = _json(project, "--kind", "class")
+    values = [row["evidence"] for row in mixed["symbols"]]
+    assert values.count("unknown") == 3
+    assert values[:3] == ["ast", "ast", "ast"]
+
+
+def test_a_zero_from_an_attributed_filter_is_labelled_not_negated(
+        structural_rig):
+    _, _, _, project = structural_rig
+    payload = _json(project, "--inherits", "NoSuchBase")
+    assert payload["symbols"] == []
+    assert payload["match_count"] == 0
+    note = payload["evidence_note"]
+    assert "unknown" in note and "not absent" in note
+    text = runner.invoke(app, ["find-symbol", "--has-call", "no_such_call",
+                               "--project", str(project)])
+    assert text.exit_code == 0, text.output
+    assert "unknown" in text.output and "not absent" in text.output
+    # The note never claims to have ruled the files out.
+    assert "no symbol carries" in text.output

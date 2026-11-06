@@ -27,6 +27,7 @@ from .extensions import SEMANTIC_EXTENSION_MESSAGE, semantic_available
 from .core import NEEDS_REINDEX, NEVER_INDEXED, UNVERIFIED, Core
 from . import staleness
 from . import vectors
+from . import identity
 from .doctor import run_doctor
 from . import graph
 from . import overview as overview_mod
@@ -1884,20 +1885,33 @@ def find_symbol(
              "container": r.container,
              "language": r.language,
              "decl_hash": r.decl_hash,
-             "symbol_id": r.symbol_id}
+             "symbol_id": r.symbol_id,
+             # Where the answer stands: attributed syntax, a textual scan,
+             # or a file nothing was attributed for. Never absent, so a
+             # caller can tell `unknown` from a negative.
+             "evidence": identity.evidence_of(r)}
             for r in rows]
+        # A zero from an attributed-syntax filter is reported, not converted
+        # into a negative: the files with no AST extractor were not examined.
+        evidence_note = None
+        if (inherits or has_call) and not rows:
+            evidence_note = identity.unattributed_note(
+                inherits or has_call, m.symbol_files_without_ast())
         if json_output:
             typer.echo(json.dumps({
                 "schema": 1, "symbols": payload_rows,
                 "match": ("browse" if not name else
                           "exact" if not match_label else "substring"),
                 "match_count": total, "truncated": truncated,
+                **({"evidence_note": evidence_note} if evidence_note else {}),
                 **block}, ensure_ascii=False, indent=2))
             return
         if not rows:
             msg = (f"no symbols matching {name!r}" if name
                    else "no symbols matching the given filters")
             typer.echo(msg)
+            if evidence_note:
+                typer.echo(evidence_note)
             return
         for r in rows:
             label = ""
@@ -1906,7 +1920,8 @@ def find_symbol(
             conf = "exact" if r.source == "ast" else "heuristic"
             sig = f"  {r.signature}" if r.signature else ""
             typer.echo(f"- {entry.path}::{r.file}:{r.start_line}-{r.end_line} "
-                       f"{r.name} ({r.symbol_type}, confidence={conf}{label})"
+                       f"{r.name} ({r.symbol_type}, confidence={conf}{label}, "
+                       f"evidence={identity.evidence_of(r)})"
                        f"{sig}")
         if truncated:
             cap = limit if limit is not None else _BROWSE_CAP
