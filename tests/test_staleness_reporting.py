@@ -38,8 +38,7 @@ import code_indexer.cli as cli  # noqa: E402
 from code_indexer.cli import app  # noqa: E402
 from code_indexer.config import Config  # noqa: E402
 from code_indexer.core import Core  # noqa: E402
-from code_indexer.fingerprint import (ConfigError, Fingerprint,  # noqa: E402
-                                      rows_staleness_warning)
+from code_indexer.fingerprint import ConfigError  # noqa: E402
 from code_indexer.graph_extract import EXTRACTION_VERSION  # noqa: E402
 from code_indexer.registry import Registry  # noqa: E402
 
@@ -157,28 +156,6 @@ def _text(result) -> str:
 # ---------------------------------------------------------------------------
 # the fingerprint vocabulary (unit)
 # ---------------------------------------------------------------------------
-
-def test_rows_warning_compares_only_version_ordered_keys():
-    """A model/dimension difference is NOT a stored-row staleness: those keys
-    describe vectors, not rows. The asymmetry is deliberate."""
-    recorded = Fingerprint("stub", 4, "contextual-header-v1", 1,
-                           extraction_version=2)
-    # version keys equal, embedding keys differ -> no warning
-    model_changed = Fingerprint("other", 8, "different-format", 1,
-                                extraction_version=2)
-    assert rows_staleness_warning(recorded, model_changed) is None
-    # extraction version older -> warn, naming both values
-    older = Fingerprint("stub", 4, "contextual-header-v1", 1,
-                        extraction_version=3)
-    warning = rows_staleness_warning(recorded, older)
-    assert warning is not None
-    assert "extraction_version: 2 -> 3" in warning
-    assert "older extraction code" in warning
-    # a match -> no warning
-    assert rows_staleness_warning(recorded, recorded) is None
-    # no recorded fingerprint -> nothing to warn about
-    assert rows_staleness_warning(None, older) is None
-
 
 # ---------------------------------------------------------------------------
 # index-status surfaces the fingerprint state

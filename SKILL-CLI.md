@@ -336,9 +336,11 @@ Three version axes, and which bump invalidates what:
 journal-mode write, no DDL, no migration, so a read can destroy nothing. A
 manifest whose recorded schema is older than this build's is reported, not
 upgraded — `index-status` prints `schema=<n>` (`manifest_schema` in `--json`,
-where `schema` is the payload version) beside `rows=absent`, and every row
-surface refuses with the same `RebuildRequiredError` shape and exit 4 until a
-pass runs:
+where `schema` is the payload version), and every row surface refuses with the
+same `RebuildRequiredError` shape and exit 4 until a pass runs. `rows=absent`
+is a separate verdict: a manifest whose rows were written by this build's
+extraction prints `rows=current` even when it records the older revision, so
+`schema=<n>` does not imply `rows=absent`.
 
 ```
 RebuildRequiredError: index for <path> was written at manifest schema 6 and this build reads schema 7; its rows are in an older layout, so this answer would describe an index this build would not produce; run: code-indexer reindex-project <path>

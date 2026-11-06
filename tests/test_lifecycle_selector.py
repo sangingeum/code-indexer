@@ -43,11 +43,31 @@ class StubEmbedder:
 
 
 class StubStore:
+    """In-memory stand-in with the store's two name spaces kept apart.
+
+    ``collections`` holds PHYSICAL names only; ``aliases`` maps an alias to
+    the physical collection it serves. A pass binds the slug's alias; a
+    deleter must resolve it.
+    """
+
     def __init__(self):
         self.dropped: list[str] = []
+        self.collections: set[str] = set()
+        self.aliases: dict[str, str] = {}
 
     def collection_exists(self, name):
         return True
+
+    def collection_names(self):
+        return set(self.collections)
+
+    def physical_name(self, name):
+        if name in self.aliases:
+            return self.aliases[name]
+        return name if self.collection_exists(name) else None
+
+    def drop_alias(self, name):
+        return self.aliases.pop(name, None) is not None
 
     def create_collection(self, name, dim):
         pass
@@ -66,6 +86,10 @@ class StubStore:
 
     def drop_collection(self, name):
         self.dropped.append(name)
+        self.collections.discard(name)
+        for alias, target in list(self.aliases.items()):
+            if target == name:
+                del self.aliases[alias]
 
 
 @pytest.fixture()
@@ -274,6 +298,55 @@ def test_reindex_project_refuses_to_guess_from_cwd(rig, monkeypatch):
     assert "ArgumentError:" in result.output
     assert "needs an explicit project" in result.output
     assert "registered projects:" in result.output
+
+
+def test_remove_project_drops_the_collection_the_alias_serves(rig):
+    """The alias is a name the slug is served under, not the collection.
+
+    The physical collection carries the embedding identity, so the deleter
+    must follow the alias to it — and must not leave the alias dangling.
+    """
+    core, cfg, project, store = rig
+    _register(project)
+    entry = core.registry.get_by_name("monoproj")
+    alias = f"idx_{entry.slug}"
+    physical = f"{alias}__dc5868ea"
+    store.collections.add(physical)
+    store.aliases[alias] = physical
+    result = runner.invoke(app, ["remove-project", "--project", "monoproj"])
+    assert result.exit_code == 0, result.output
+    assert store.dropped == [physical]
+    assert f"collection {physical} dropped" in result.output
+    assert alias not in store.aliases
+    assert physical not in store.collections
+
+
+def test_remove_project_drops_a_collection_from_an_older_identity(rig):
+    core, cfg, project, store = rig
+    _register(project)
+    entry = core.registry.get_by_name("monoproj")
+    alias = f"idx_{entry.slug}"
+    live = f"{alias}__dc5868ea"
+    stale = f"{alias}__0f0f0f0f"
+    store.collections |= {live, stale}
+    store.aliases[alias] = live
+    result = runner.invoke(app, ["remove-project", "--project", "monoproj"])
+    assert result.exit_code == 0, result.output
+    assert store.dropped == [live, stale]
+    assert stale in result.output
+    assert alias not in store.aliases
+
+
+def test_remove_project_with_no_collection_claims_no_drop(rig, monkeypatch):
+    core, cfg, project, store = rig
+    _register(project)
+    monkeypatch.setattr(store, "collection_exists", lambda name: False)
+    result = runner.invoke(app, ["remove-project", "--project", "monoproj"])
+    assert result.exit_code == 0, result.output
+    assert "no vector collection to drop" in result.output
+    assert "dropped" not in result.output
+    assert store.dropped == []
+    assert core.registry.get_by_name("monoproj") is None
     assert str(project) in result.output
 
 

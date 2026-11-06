@@ -102,9 +102,10 @@ header line — still useful ("exists, is empty of declarations").
   `tree` proposal.
 - Data source: **manifest only** — `files` (path, chunk_count→derive line
   estimates are NOT stored; `size` and chunk_count are) joined with
-  `symbols` ordered by `start_line`. Zero re-parsing. If signatures are
-  missing (pre-v3 manifest), emit the migration hint already defined in
-  `core.MIGRATION_HINT`.
+  `symbols` ordered by `start_line`. Zero re-parsing. A pre-v3 manifest
+  carries no signatures and is not read at all: every row surface refuses
+  with `RebuildRequiredError` (exit 4) until a pass rebuilds it, so there
+  is no signature-less answer to render.
 - Ordering: manifest path order (natural, stable). `--limit N` caps
   symbol lines per file (default: unlimited; tree mode ignores it).
 - JSON: `{"file": "...", "lang": "...", "symbols": [{"name","type",

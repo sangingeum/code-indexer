@@ -26,6 +26,7 @@ from .errors import ExtensionUnavailableError
 from .extensions import SEMANTIC_EXTENSION_MESSAGE, semantic_available
 from .core import NEEDS_REINDEX, NEVER_INDEXED, UNVERIFIED, Core
 from . import staleness
+from . import vectors
 from .doctor import run_doctor
 from . import graph
 from . import overview as overview_mod
@@ -714,9 +715,31 @@ def remove_project(
     entry = core.registry.remove(path)
     if entry is None:
         _die(f"error: not registered: {path}")
-    collection = f"idx_{entry.slug}"
-    if core.store.collection_exists(collection):
-        core.store.drop_collection(collection)
+    # The slug is served under the ``idx_<slug>`` alias; the physical
+    # collections behind it carry the embedding identity, and a collection left
+    # from an earlier identity belongs to the same project. Claim all of them,
+    # and a pre-identity plain-slug collection too. The alias goes first, so it
+    # can never outlive the collection it points at.
+    alias = vectors.alias_for(entry.slug)
+    targets: list[str] = []
+    physical = core.store.physical_name(alias)
+    if physical is not None:
+        targets.append(physical)
+    for name in sorted(core.store.collection_names()):
+        if (name == alias or name.startswith(f"{alias}__")) \
+                and name not in targets:
+            targets.append(name)
+    alias_dropped = core.store.drop_alias(alias)
+    for name in targets:
+        core.store.drop_collection(name)
+    if targets:
+        noun = "collection" if len(targets) == 1 else "collections"
+        what = f"{noun} {', '.join(targets)} dropped"
+    elif alias_dropped:
+        what = f"alias {alias} dropped (no physical collection)"
+    else:
+        what = "no vector collection to drop"
+    typer.echo(f"removed {path}: {what}, registry entry deleted")
     for f in _glob.glob(os.path.join(core.cfg.index_root, f"{entry.slug}*")):
         try:
             os.remove(f)
@@ -725,7 +748,6 @@ def remove_project(
     manifest_dir = os.path.join(core.cfg.index_root, entry.slug)
     if os.path.isdir(manifest_dir):
         _shutil.rmtree(manifest_dir, ignore_errors=True)
-    typer.echo(f"removed {path}: collection {collection} dropped, registry entry deleted")
 
 
 @app.command(name="list-projects")

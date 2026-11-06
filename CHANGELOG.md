@@ -6,9 +6,11 @@
 it read-only (`mode=ro`, no journal-mode write, no DDL, no migration), so a
 read can not empty a table. A manifest recorded at an older schema revision
 is REPORTED, not upgraded: `index-status` prints `schema=<n>`
-(`manifest_schema` in `--json`) beside `rows=absent`, and every row surface
-refuses with the existing `RebuildRequiredError` shape — one stderr line,
-exit 4, empty stdout, the remedy named. Migration is a write pass's job, and
+(`manifest_schema` in `--json`), and every row surface refuses with the
+existing `RebuildRequiredError` shape — one stderr line, exit 4, empty
+stdout, the remedy named. `rows=absent` is the separate never-indexed
+verdict; a manifest at an older revision whose rows carry this build's
+stamp reports `rows=current`. Migration is a write pass's job, and
 a pass repopulates the rows it re-created. No revision bump, no DDL change.
 
 - **`semantic-search` refuses a vectors-off project before embedding.** The
@@ -29,8 +31,14 @@ a pass repopulates the rows it re-created. No revision bump, no DDL change.
   `absent` for ever.
 - **Dead surface removed:** `vectors.record_mode`,
   `fingerprint.VECTOR_SIDE_KEYS`, `Manifest.chunks_for_file`, and the four
-  unreachable migration-hint branches. The last-resort declaration hash is
-  line-free, as the identity record promises.
+  unreachable migration-hint branches, plus the callerless
+  `fingerprint.rows_staleness_warning` (the staleness block renders that
+  warning). The last-resort declaration hash is line-free, as the identity
+  record promises.
+- **`remove-project` reclaims the collection its alias serves.** The deleter
+  resolves `idx_<slug>` to the physical collection behind it, drops any
+  collection left from an older embedding identity, removes the alias first
+  (so it cannot outlive the data), and reports only drops it performed.
 
 ## [Unreleased] — a pass that needs no service
 

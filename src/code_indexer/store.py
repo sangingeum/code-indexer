@@ -131,6 +131,23 @@ class Store:
             pass
         return None
 
+    def collection_names(self) -> set[str]:
+        """Every PHYSICAL collection name (aliases excluded)."""
+        return {c.name for c in self.client.get_collections().collections}
+
+    def drop_alias(self, alias_name: str) -> bool:
+        """Delete ``alias_name`` if it is an alias; True when one was removed.
+
+        A deleter must take the alias with it: an alias outliving its
+        collection is a dangling name that still answers ``exists``.
+        """
+        if not self._alias_exists(alias_name):
+            return False
+        self.client.update_collection_aliases(
+            change_aliases_operations=[DeleteAliasOperation(
+                delete_alias=DeleteAlias(alias_name=alias_name))])
+        return True
+
     def _alias_exists(self, alias_name: str) -> bool:
         try:
             return any(a.alias_name == alias_name
