@@ -1,12 +1,12 @@
-"""Multi-project search isolation + dead-registration reporting.
+"""Multi-project search isolation, and reads that dial nothing.
 
 One project whose store cannot answer (a registered project with a missing
 collection — the live `liveproj` shape) must not kill a whole-project
 search: the remaining projects answer, the skipped one is named in a stderr
 warning, and the result reports the count. The fingerprint gate stays fatal
-(a wrong-model index aborts, it is never skipped). `list-projects` surfaces a
-dead registration as `state=error collection=missing` from ONE collection
-listing. Entirely offline: stub embedder/store only.
+(a wrong-model index aborts, it is never skipped). `list-projects` answers
+from the registry and the manifests, so it must not cause a store or an
+embedder to be built. Entirely offline: stub embedder/store only.
 """
 
 from __future__ import annotations
@@ -190,34 +190,33 @@ def test_fingerprint_gate_stays_fatal(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# list-projects: dead registration is visible
+# list-projects: no service contact
 # ---------------------------------------------------------------------------
 
-def test_list_projects_marks_missing_collection(tmp_path, monkeypatch):
+def test_list_projects_answers_without_a_service(tmp_path, monkeypatch):
+    """`list-projects` reads the registry and the manifests, never a service.
+
+    Whether a registered project's collection still exists is a service
+    verdict the manifest does not answer, so the read no longer asks: the
+    check moved to `doctor`, and a read command dials nothing.
+    """
     core, live, dead = _rig(tmp_path)
     _mark_indexed(core, live.slug)
     _mark_indexed(core, dead.slug)
-    core.store = StubStore(collections={f"idx_{live.slug}"})  # type: ignore[assignment]
+    core._store = None      # no stub: any construction would be a service call
+    core._embedder = None
+
+    def refuse(self):
+        raise AssertionError("list-projects constructed a semantic client")
+
+    monkeypatch.setattr(Core, "_make_store", refuse)
+    monkeypatch.setattr(Core, "_make_embedder", refuse)
     monkeypatch.setattr(cli, "_get_core", lambda skip: core)
+
     result = runner.invoke(app, ["list-projects"])
     assert result.exit_code == 0, result.output
-    lines = {ln.split("slug=")[1].split()[0]: ln
-             for ln in result.output.splitlines() if "slug=" in ln}
-    # The dead registration is an error, not a healthy idle.
-    assert "state=error" in lines[dead.slug], lines[dead.slug]
-    assert "collection=missing" in lines[dead.slug], lines[dead.slug]
-    # The project whose collection exists stays idle — no false alarm.
-    assert "state=idle" in lines[live.slug], lines[live.slug]
-    assert "collection=missing" not in lines[live.slug]
-
-
-def test_list_projects_survives_unavailable_listing(tmp_path, monkeypatch):
-    """A store that cannot be listed must not fail the listing command."""
-    core, live, dead = _rig(tmp_path)
-    core.store = StubStore(listing_available=False)  # type: ignore[assignment]
-    monkeypatch.setattr(cli, "_get_core", lambda skip: core)
-    result = runner.invoke(app, ["list-projects"])
-    assert result.exit_code == 0, result.output
+    assert f"slug={live.slug}" in result.output
+    assert "state=idle" in result.output
     assert "collection=missing" not in result.output
 
 

@@ -366,51 +366,44 @@ def test_newer_manifest_defers_the_restamp_and_does_not_reembed(rig, caplog):
 
 
 # ---------------------------------------------------------------------------
-# the unverifiable verdict (issue #18)
+# the unverifiable half, and the probe a read path never makes
 # ---------------------------------------------------------------------------
 
-def test_unreachable_embedder_makes_the_verdict_unverified(rig):
-    """A verdict that cannot be reached is its own value, never a pass.
+def test_matching_keys_are_unverified_without_a_probe(rig):
+    """A verdict a read path cannot reach is its own value, never a pass.
 
-    Reaching the verdict means probing the running configuration (the
-    embedder dimension). With the embedder unreachable there is no way to
-    compare the recorded fingerprint against the running one: that is
-    `unverified`, and `ok` keeps its meaning ("no KNOWN mismatch") so the
-    query-path gate refuses nothing new — the surfaces that need the
-    embedder fail on their own.
+    The recorded embedding dimension has no configured counterpart to
+    compare against without dialling the service, and a read never dials
+    (the last rule of the dependency-boundary decision). Every key a read
+    CAN state matches, so the verdict is `unverified` with its reason —
+    never folded into `ok` — while `ok` stays "no KNOWN mismatch", so the
+    query-path gate refuses nothing new.
     """
     core, reg, entry, project, store = rig
     core.run_index(entry.slug, project)      # a real recorded fingerprint
-    assert core.fingerprint_status(entry)["state"] == "ok"
 
-    core.embedder = UnreachableEmbedder()    # type: ignore[assignment]
     status = core.fingerprint_status(entry)
     assert status["state"] == UNVERIFIED
     assert status["reason"] == UNVERIFIED_REASON
     assert status["ok"] is True
     assert status["recorded"] is not None
-    core.assert_fingerprint_ok(entry)        # unchanged: no new refusal
+
+    # An unreachable embedder changes nothing: the read never asked it.
+    core.embedder = UnreachableEmbedder()    # type: ignore[assignment]
+    assert core.fingerprint_status(entry)["state"] == UNVERIFIED
+    core.assert_fingerprint_ok(entry)        # no new refusal
 
 
 def test_index_status_prints_the_unverified_verdict(rig, monkeypatch):
-    """`index-status` says "cannot verify" instead of saying nothing.
-
-    The field carries the reason, so a missing `fingerprint=` field can only
-    mean a verified match.
-    """
+    """`index-status` says what it could not verify instead of nothing."""
     core, reg, entry, project, store = rig
     core.run_index(entry.slug, project)
     monkeypatch.setattr(cli, "_core", core)
     monkeypatch.setattr(cli, "_core_skip", False)
 
-    verified = runner.invoke(app, ["index-status", entry.path])
-    assert verified.exit_code == 0, verified.output
-    assert "fingerprint=" not in verified.output   # matched: nothing to say
-    assert "state=idle" in verified.output
-
-    core.embedder = UnreachableEmbedder()  # type: ignore[assignment]
-    unverified = runner.invoke(app, ["index-status", entry.path])
-    assert unverified.exit_code == 0, unverified.output
-    assert "fingerprint=unverified reason=embedder-unreachable" in \
-        unverified.output
-    assert "needs-reindex" not in unverified.output
+    result = runner.invoke(app, ["index-status", entry.path])
+    assert result.exit_code == 0, result.output
+    assert "state=idle" in result.output
+    assert (f"fingerprint=unverified reason={UNVERIFIED_REASON}"
+            in result.output)
+    assert "needs-reindex" not in result.output

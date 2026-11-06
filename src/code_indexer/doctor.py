@@ -23,7 +23,7 @@ from typing import Any
 
 from .config import Config
 from .extensions import SEMANTIC_EXTENSION_MESSAGE
-from .fingerprint import (current_fingerprint, fingerprint_mismatches,
+from .fingerprint import (configured_values, probe_free_mismatches,
                           read_fingerprint)
 
 OK = "ok"
@@ -140,6 +140,11 @@ def check_ollama(cfg: Config, embedder: Any,
             FAIL, "ollama-model",
             f"'{cfg.embed_model}' not in Ollama tags; "
             f"run: ollama pull {cfg.embed_model}"))
+    if embedder is None:
+        checks.append(Check(
+            WARN, "ollama-dim",
+            f"unverified: {SEMANTIC_EXTENSION_MESSAGE}"))
+        return checks, None
     try:
         probe_dim = embedder.dimension()
     except Exception as exc:  # noqa: BLE001
@@ -186,6 +191,10 @@ def _collection_dim(client: Any, name: str) -> int | None:
 def check_qdrant(cfg: Config, store: Any, registry: Any,
                  probe_dim: int | None = None) -> list[Check]:
     checks: list[Check] = []
+    if store is None:
+        return [Check(WARN, "qdrant-reachable",
+                      f"unverified: {SEMANTIC_EXTENSION_MESSAGE} "
+                      f"({cfg.qdrant_url})")]
     client = store.client
     try:
         server_version = client.info().version
@@ -420,16 +429,24 @@ def _read_meta_mapping(db_path: str) -> dict[str, Any] | None:
         return None
 
 
-def check_fingerprints(cfg: Config, registry: Any, embedder: Any) -> list[Check]:
-    try:
-        current = current_fingerprint(cfg.embed_model, embedder.dimension())
-    except Exception as exc:  # noqa: BLE001 — backend down
-        return [Check(WARN, "fingerprint",
-                      f"skipped: embedding dimension unavailable ({exc})")]
+def check_fingerprints(cfg: Config, registry: Any) -> list[Check]:
+    """Per-project fingerprint status from the manifests alone.
+
+    The comparison uses the keys this process can state from configuration
+    (the model, the embedded-text format, the chunker and extraction
+    versions) — the same comparison every read command makes, so doctor and
+    the read surfaces cannot disagree. The recorded embedding dimension has
+    no configured counterpart without a probe, so a project whose other keys
+    all match is reported `unverified`, never folded into `ok`: the manifest
+    does not answer that half and doctor does not manufacture it. No client
+    is constructed and no service is contacted here.
+    """
     entries = registry.list_projects()
     if not entries:
         return [Check(OK, "fingerprint", "no projects registered")]
+    configured = configured_values(cfg.embed_model)
     issues: list[str] = []
+    unverified: list[str] = []
     for entry in entries:
         mdir = os.path.join(cfg.index_root, entry.slug, "manifest.db")
         if not os.path.isfile(mdir):
@@ -440,9 +457,17 @@ def check_fingerprints(cfg: Config, registry: Any, embedder: Any) -> list[Check]
         recorded = read_fingerprint(_MetaView(mapping))
         if recorded is None:
             continue  # legacy manifest: backfills on the next pass
-        diffs = fingerprint_mismatches(recorded, current)
+        diffs = probe_free_mismatches(recorded, configured)
         if diffs:
             issues.append(f"{entry.slug} ({entry.path}): {'; '.join(diffs)}")
+        else:
+            unverified.append(entry.slug)
+    if not issues and unverified:
+        return [Check(
+            WARN, "fingerprint",
+            f"unverified — every comparable key matches for {len(unverified)} "
+            f"project(s), but the recorded embedding dimension is not compared "
+            f"here (that needs a probe, and a read path never makes one)")]
     if issues:
         # A watcher left running across a version bump silently re-stamps the
         # fingerprint every sweep, so name it here and state the documented
@@ -466,8 +491,7 @@ def check_fingerprints(cfg: Config, registry: Any, embedder: Any) -> list[Check]
             WARN, "fingerprint",
             "needs-reindex — " + "; ".join(issues)
             + f"; {note}run: code-indexer reindex-project <path>")]
-    return [Check(OK, "fingerprint",
-                  f"{len(entries)} project(s) match the current config")]
+    return [Check(OK, "fingerprint", "no recorded fingerprints to compare")]
 
 
 # ---------------------------------------------------------------------------
@@ -476,6 +500,10 @@ def check_fingerprints(cfg: Config, registry: Any, embedder: Any) -> list[Check]
 
 def run_doctor(cfg: Config, registry: Any, embedder: Any, store: Any,
                ollama_client: Any = None) -> list[Check]:
+    """Every check, in order. ``embedder``/``store`` may be None when the
+    semantic extra is absent: those sections then report the extra's absence
+    as unverified instead of failing, and the local checks still answer.
+    """
     checks: list[Check] = []
     checks += check_runtime()
     ollama_checks, probe_dim = check_ollama(cfg, embedder, ollama_client)
@@ -484,5 +512,5 @@ def run_doctor(cfg: Config, registry: Any, embedder: Any, store: Any,
     checks += check_index_root(cfg)
     checks += check_sqlite(cfg)
     checks += check_locks(cfg)
-    checks += check_fingerprints(cfg, registry, embedder)
+    checks += check_fingerprints(cfg, registry)
     return checks

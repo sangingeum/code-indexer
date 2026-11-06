@@ -39,6 +39,44 @@ FINGERPRINT_KEYS = ("embed_model", "embed_dim", "embed_text_version",
 VERSION_KEYS = ("chunker_version", "extraction_version")
 
 
+# Keys whose configured value is knowable from configuration alone. The
+# embedding dimension is a property of the model and is only knowable by
+# asking the service, so a read path never compares it (ADR-0001 section 1).
+PROBE_FREE_KEYS = ("embed_model", "embed_text_version", "chunker_version",
+                   "extraction_version")
+
+
+def configured_values(embed_model: str) -> dict[str, str]:
+    """The fingerprint keys this process can state without a service.
+
+    These come from configuration and module constants alone: no client is
+    constructed and no round trip is made, so a read command can compare them
+    with the recorded values and report a verdict for free.
+    """
+    return {
+        "embed_model": embed_model,
+        "embed_text_version": EMBED_FORMAT,
+        "chunker_version": str(CHUNKER_VERSION),
+        "extraction_version": str(EXTRACTION_VERSION),
+    }
+
+
+def probe_free_mismatches(recorded: Fingerprint | None,
+                          configured: dict[str, str]) -> list[str]:
+    """Differing probe-free components (empty when none differ).
+
+    ``embed_dim`` is deliberately absent from the comparison: there is no
+    recorded-vs-configured dimension question a read path can answer without
+    a probe, and guessing either side would manufacture a verdict.
+    """
+    if recorded is None:
+        return []
+    recorded_values = dict(recorded.as_items())
+    return [f"{key}: {recorded_values[key]} -> {configured[key]}"
+            for key in PROBE_FREE_KEYS
+            if recorded_values[key] != configured[key]]
+
+
 class ConfigError(Exception):
     """Raised when a project's index does not match the current configuration.
 

@@ -21,6 +21,7 @@ logger = logging.getLogger("code-indexer.cli")
 
 from .errors import fail
 from .errors import classify, IndexerError
+from .extensions import semantic_available
 from .core import (NEEDS_REINDEX, NEVER_INDEXED, UNVERIFIED, Core,
                    MIGRATION_HINT)
 from . import staleness
@@ -151,17 +152,33 @@ def doctor(
     check: ok|warn|fail <name>: <detail>. Exit 1 when any check fails
     (warnings do not fail). Dev/ops surface: deliberately CLI-only, no MCP
     tool — agents use index-status for per-project state. Network calls go
-    only to the configured Ollama/Qdrant URLs."""
+    only to the configured Ollama/Qdrant URLs.
+
+    The per-project fingerprint verdict is reached from the manifests alone
+    (the same comparison every read command makes), so it dials nothing; its
+    embedding-dimension half is reported unverified because the manifest
+    cannot answer it. With the semantic extra absent, the Ollama and Qdrant
+    sections report that absence as unverified instead of dialling or
+    crashing, so doctor still works on a core-only install.
+    """
     core = _get_core(skip_stale_check)
     if refresh:
         # Doctor answers no index query, but its per-project fingerprint
         # checks inspect the index: --refresh refreshes what it inspects.
         for registered in core.registry.list_projects():
             core.refresh(registered)
+    # The semantic extra is optional: with it absent, doctor still answers
+    # every local check and reports each service section as unverified
+    # instead of constructing a client library this install does not have.
+    if semantic_available():
+        embedder = core.embedder
+        store = core.store
+    else:
+        embedder = store = None
     # Reuse the core embedder's own Ollama client when it carries one (keeps
     # doctor on the same configured URL and lets test stubs inject).
-    client = getattr(core.embedder, "client", None)
-    checks = run_doctor(core.cfg, core.registry, core.embedder, core.store,
+    client = getattr(embedder, "client", None)
+    checks = run_doctor(core.cfg, core.registry, embedder, store,
                         ollama_client=client)
     if json_output:
         typer.echo(json.dumps(
@@ -631,11 +648,11 @@ def list_projects(json_output: bool = typer.Option(False, "--json",
                   refresh: bool = RefreshOpt) -> None:
     """List registered projects with per-project index summary.
 
-    A read: it answers from the manifests as of their last passes and
-    reports a staleness verdict per project. One collection listing
-    (physical collections + aliases) is fetched once so a registered project
-    whose collection is gone is reported as `state=error collection=missing`
-    instead of a healthy `idle` — no per-project network round trip.
+    A read: it answers from the registry and the manifests as of their last
+    passes and reports a staleness verdict per project. No service is
+    contacted — not even a collection listing: whether a registered
+    project's collection still exists is a service verdict the manifest does
+    not answer, and ``doctor``'s ``qdrant-missing`` check owns it.
 
     With --json the answer is one object: `projects` holds the fields the
     text lines print plus each project's staleness block, and the top-level
@@ -652,21 +669,16 @@ def list_projects(json_output: bool = typer.Option(False, "--json",
         else:
             typer.echo("no projects registered")
         return
-    try:
-        collections: set[str] | None = core.store.list_collections()
-    except Exception as exc:  # noqa: BLE001 — a dead store must not kill the listing
-        logger.debug("collection listing unavailable: %s", exc)
-        collections = None
     aggregate, blocks = _read_staleness_many(
         core, entries, refresh=refresh, json_output=json_output)
     if json_output:
-        projects = [dict(core.status_fields(e, collections=collections), **b)
+        projects = [dict(core.status_fields(e), **b)
                     for e, b in zip(entries, blocks)]
         typer.echo(json.dumps({"schema": 1, "projects": projects, **aggregate},
                               ensure_ascii=False))
         return
     for e in entries:
-        typer.echo(f"- {core.status_summary(e, collections=collections)}")
+        typer.echo(f"- {core.status_summary(e)}")
 
 
 @app.command(name="lookup-project")
@@ -884,13 +896,14 @@ def index_status(
     project that owes a rebuild never reads as plainly idle here, and the
     two surfaces can never contradict each other.
 
-    Reaching that verdict means probing the running configuration (asking
-    the embedder for its dimension). When the embedder is unreachable the
-    verdict is unverifiable, and the field says so explicitly:
-    `fingerprint=unverified reason=embedder-unreachable`. "Cannot verify"
-    is its own value here — never folded into the pass state and never
-    silently omitted, so a missing `fingerprint=` field means "matched",
-    not "could not tell".
+    That verdict is reached without dialling a service: the keys this process
+    can state from configuration alone are compared with the recorded ones.
+    The recorded embedding dimension has no configured counterpart to compare
+    against without a probe, so a project whose other keys all match reports
+    `fingerprint=unverified reason=embedding-dimension-not-compared`. "Cannot
+    verify" is its own value here — never folded into the pass state and never
+    silently omitted, so a missing `fingerprint=` field means the manifest is
+    legacy and backfills on the next pass.
     """
     core = _get_core(skip_stale_check)
     # Both spellings reach the same resolver: a path, a slug, or a custom name.

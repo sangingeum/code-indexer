@@ -20,9 +20,8 @@ from .config import Config, load_config
 from .errors import (BackendError, ExtensionUnavailableError, InternalError,
                      LockedError)
 from .extensions import SEMANTIC_EXTENSION_MESSAGE
-from .fingerprint import (ConfigError, current_fingerprint,
-                          current_version_stamp, fingerprint_mismatches,
-                          mismatch_error, read_fingerprint,
+from .fingerprint import (ConfigError, configured_values, probe_free_mismatches,
+                          current_version_stamp, read_fingerprint,
                           rows_staleness_warning)
 from .locks import project_lock
 from .manifest import SCHEMA_VERSION, Manifest, SymbolRow
@@ -47,9 +46,6 @@ STALE_TTL_DEFAULT = 60
 # with reason=budget instead of running for minutes.
 QUERY_BUDGET_DEFAULT_S = 30.0
 
-# Sentinel for "the fingerprint probe has not run in this process yet".
-_PROBE_UNSET = object()
-
 # State reported for a registered project whose manifest records no completed
 # indexing pass (interrupted/killed initial add-project, or a pass that never
 # ran). Registry registration alone is not evidence of an indexed project, so
@@ -68,7 +64,10 @@ NEEDS_REINDEX = "needs-reindex"
 # into the pass state and never into the ok state, so an operator can tell
 # "the index is fine" from "I could not tell".
 UNVERIFIED = "unverified"
-UNVERIFIED_REASON = "embedder-unreachable"
+# The reason a read path gives: the recorded dimension has no configured
+# counterpart to compare against without dialling the embedding service, and
+# a read never dials (ADR-0001 section 1, last rule).
+UNVERIFIED_REASON = "embedding-dimension-not-compared"
 
 
 def _merge_symbol_ranges(
@@ -128,13 +127,6 @@ class Core:
         self._last_scan: dict[str, float] = {}
         # Indexing state per slug (state, error, last_result) for status.
         self._index_state: dict[str, dict[str, Any]] = {}
-        # One fingerprint probe per process: a read must not pay a service
-        # round trip per project (and must not pay a retry chain at all).
-        # Keyed on the embedder instance, so a replaced embedder (a test
-        # seam, or a re-probe after --refresh) is never answered from the
-        # previous probe's verdict.
-        self._current_fp: Any = _PROBE_UNSET
-        self._current_fp_key: int | None = None
 
     # -- lazily constructed clients of the semantic extra ------------------
 
@@ -417,38 +409,31 @@ class Core:
             return None, f"error: project not registered: {project}"
         return entry, ""
 
-    def status_summary(self, entry: ProjectEntry,
-                       collections: set[str] | None = None) -> str:
+    def status_summary(self, entry: ProjectEntry) -> str:
         """Human-readable per-project summary (one line, ``key=value``).
 
         The text renderer of ``status_fields``; both surfaces come from the
         same read so the text and JSON answers can never disagree.
         """
-        fields = self.status_fields(entry, collections=collections)
+        fields = self.status_fields(entry)
         parts = [f"path={fields['path']}", f"slug={fields['slug']}",
                  f"state={fields['state']}", f"files={fields['files']}",
                  f"chunks={fields['chunks']}",
                  f"last_indexed={fields['last_indexed']}"]
         if fields.get("reason"):
             parts.append(f"reason={fields['reason']}")
-        if fields.get("collection"):
-            parts.append(f"collection={fields['collection']}")
         if fields.get("note"):
             parts.append(f"note={fields['note']}")
         return " ".join(parts)
 
-    def status_fields(self, entry: ProjectEntry,
-                      collections: set[str] | None = None) -> dict[str, Any]:
+    def status_fields(self, entry: ProjectEntry) -> dict[str, Any]:
         """Structured per-project summary: the fields both renderers carry.
 
-        ``collections`` is an optional shared listing of the names that
-        exist in the store (physical collections + aliases, from
-        ``Store.list_collections``). When given and this project's
-        collection is absent, the project is reported as ``state=error``
-        with a ``collection=missing`` marker instead of a healthy ``idle`` —
-        a dead registration must be visible without running a search that
-        would fail. ``None`` means the caller did not ask, so no per-project
-        network probe is made here.
+        Manifest and registry reads only. Collection membership is a service
+        verdict this read deliberately does not establish (ADR-0001 section 1,
+        last rule): ``doctor`` owns the collection-versus-registry check, and
+        a read command never dials a store to answer a question the manifest
+        does not cover.
         """
         file_count = chunk_count = 0
         last_indexed = None
@@ -479,17 +464,6 @@ class Core:
             reason = fp["reason"]
         if fp["recorded"] is None and last_indexed is not None:
             note = "fingerprint backfills on next index pass"
-        # Dead registration: a project that HAS a completed pass (state idle)
-        # but whose collection is gone — the manifest looks healthy while the
-        # store has nothing for it (e.g. the index root was cleaned under
-        # it). Surface it as an error so an operator sees it without a
-        # search that would otherwise fail per project. A never-indexed
-        # project legitimately has no collection yet and keeps its own state.
-        collection_missing = False
-        if (collections is not None and st == "idle"
-                and f"idx_{entry.slug}" not in collections):
-            st = "error"
-            collection_missing = True
         return {
             "path": entry.path,
             "slug": entry.slug,
@@ -498,7 +472,6 @@ class Core:
             "chunks": chunk_count,
             "last_indexed": last_indexed or "never",
             "reason": reason,
-            "collection": "missing" if collection_missing else None,
             "note": note,
         }
 
@@ -514,42 +487,23 @@ class Core:
     # index fingerprint (v4): mismatch protection
     # ------------------------------------------------------------------
 
-    def _current_fingerprint_or_none(self):
-        """The running configuration's fingerprint, or None when the embed
-        dimension cannot be probed (Ollama unreachable).
-
-        Probed at most once per process with ONE short-timeout attempt: a
-        read must not pay a service round trip (much less the write path's
-        retry chain) to answer, and a fan-out must not pay one per project.
-        Absence of a probe must not turn every offline read into a hard
-        failure -- the fingerprint is then reported ``unverified``.
-        """
-        key = id(self.embedder)
-        if self._current_fp is not _PROBE_UNSET and self._current_fp_key == key:
-            return self._current_fp
-        try:
-            once = getattr(self.embedder, "dimension_once", None)
-            dim = once() if once is not None else self.embedder.dimension()
-            self._current_fp = current_fingerprint(self.cfg.embed_model, dim)
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("fingerprint probe failed: %s", exc)
-            self._current_fp = None
-        self._current_fp_key = key
-        return self._current_fp
+    def configured_fingerprint_values(self) -> dict[str, str]:
+        """Fingerprint keys this process can state without a service."""
+        return configured_values(self.cfg.embed_model)
 
     def fingerprint_status(self, entry: ProjectEntry) -> dict[str, Any]:
         """{'ok': bool, 'state': str, 'reason': str|None, 'recorded': str|None}.
 
-        ``state`` is the fingerprint vocabulary: ``ok`` (the index matches
-        the running configuration, or the manifest is legacy and will be
-        backfilled), ``needs-reindex`` (it verifiably does not match), or
-        ``unverified`` (the running configuration could not be probed —
-        the embedder is unreachable — so there is no verdict to give).
-        ``ok`` stays exactly "no KNOWN mismatch", so the query-path gate
-        (``assert_fingerprint_ok``) refuses what it always refused: a
-        project whose index is merely unverifiable is not turned into a
-        refusal here, because the query paths that need the embedder fail
-        on their own when it is genuinely unreachable.
+        ``state`` is the fingerprint vocabulary: ``ok`` (the manifest is
+        legacy and will be backfilled), ``needs-reindex`` (a key this process
+        can state from configuration alone differs), or ``unverified`` (the
+        probe-free keys match, but the recorded embedding dimension has no
+        configured counterpart to compare against without dialling the
+        service — and a read never dials). ``ok`` stays exactly "no KNOWN
+        mismatch", so the query-path gate (``assert_fingerprint_ok``) refuses
+        what it always refused, and ``unverified`` is never folded into
+        ``ok``: a caller that needs the dimension comparison must ask for it
+        explicitly.
 
         A manifest without a recorded fingerprint (legacy v3) counts as ok:
         the first indexing pass backfills it without forcing a reindex.
@@ -562,23 +516,16 @@ class Core:
                 recorded = read_fingerprint(m)
             finally:
                 m.close()
-        current = self._current_fingerprint_or_none()
         if recorded is None:
             return {"ok": True, "state": "ok", "reason": None,
-                    "recorded": None if recorded is None else recorded.describe()}
-        if current is None:
-            # Cannot verify right now; do not block (queries will fail on
-            # their own if the embedder is truly unreachable). Report the
-            # absence of a verdict as its own state so no caller has to
-            # guess whether a missing field means "fine" or "unknown".
+                    "recorded": None}
+        diffs = probe_free_mismatches(
+            recorded, self.configured_fingerprint_values())
+        if not diffs:
             return {"ok": True, "state": UNVERIFIED, "reason": UNVERIFIED_REASON,
                     "recorded": recorded.describe()}
-        diffs = fingerprint_mismatches(recorded, current)
-        if diffs:
-            return {"ok": False, "state": NEEDS_REINDEX,
-                    "reason": "; ".join(diffs),
-                    "recorded": recorded.describe()}
-        return {"ok": True, "state": "ok", "reason": None,
+        return {"ok": False, "state": NEEDS_REINDEX,
+                "reason": "; ".join(diffs),
                 "recorded": recorded.describe()}
 
     def assert_fingerprint_ok(self, entry: ProjectEntry) -> None:
@@ -586,18 +533,12 @@ class Core:
 
         Query paths call this before spending an embedding round trip on a
         mismatched index; --skip-stale-check does NOT bypass it (a wrong-model
-        query is wrong regardless of staleness).
+        query is wrong regardless of staleness). The comparison uses the keys
+        this process can state without a service, so the gate itself dials
+        nothing and an ``unverified`` project is not turned into a refusal.
         """
         status = self.fingerprint_status(entry)
         if not status["ok"]:
-            current = self._current_fingerprint_or_none()
-            m = self.manifest_for(entry.slug)
-            try:
-                recorded = read_fingerprint(m)
-            finally:
-                m.close()
-            if current is not None and recorded is not None:
-                raise mismatch_error(entry.path, recorded, current)
             raise ConfigError(
                 f"index for {entry.path} does not match the "
                 f"current configuration ({status['reason']}); "

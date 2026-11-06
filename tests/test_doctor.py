@@ -391,7 +391,7 @@ def test_fingerprint_mismatch_warns(env):
     cfg, reg = env
     entry = reg.add(str(tempfile.mkdtemp()), name="proj")
     _write_mismatched_manifest(cfg, entry)
-    checks = check_fingerprints(cfg, reg, StubEmbedder())
+    checks = check_fingerprints(cfg, reg)
     fp = _by_name(checks)["fingerprint"]
     assert fp.status == "warn"
     assert "old-model" in fp.detail and "reindex-project" in fp.detail
@@ -410,7 +410,7 @@ def test_fingerprint_mismatch_names_the_live_watcher(env):
     holder = PidFileLock(pidfile)
     assert holder.acquire() is True
     try:
-        fp = _by_name(check_fingerprints(cfg, reg, StubEmbedder()))["fingerprint"]
+        fp = _by_name(check_fingerprints(cfg, reg))["fingerprint"]
         assert fp.status == "warn"
         assert f"live watcher (pid {os.getpid()})" in fp.detail
         assert "stop all watchers first" in fp.detail
@@ -422,7 +422,7 @@ def test_fingerprint_mismatch_names_the_live_watcher(env):
 def test_fingerprint_match_ok(env):
     cfg, reg = env
     reg.add(str(tempfile.mkdtemp()), name="proj")  # never-indexed: skipped
-    checks = check_fingerprints(cfg, reg, StubEmbedder())
+    checks = check_fingerprints(cfg, reg)
     assert _by_name(checks)["fingerprint"].status == "ok"
 
 
