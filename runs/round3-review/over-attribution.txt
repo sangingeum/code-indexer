@@ -1,0 +1,36 @@
+# frozen read: watcher stopped (pid 340189) before these probes
+
+## index status
+Warning: index is stale (2 files changed since 2026-11-06T22:49:45Z: 2 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project <project-root>
+project=<project-root> state=idle rows=current vectors=on vectors_state=current schema=7 fingerprint=unverified reason=embedding-dimension-not-compared languages_without_ast=[bash, css, html, java, json, kotlin, lua, markdown, php, ruby, rust, swift, toml, yaml] parse=parsed:170,parse_error:0,parse_unavailable:791
+
+## symbol/evidence ledger (read-only, sqlite mode=ro)
+index_revision: ('63',)
+symbols: 2319
+
+parse_verdict_counts: [('parse_unavailable', 791), ('parsed', 170)]
+
+source x verdict (symbol rows): [('ast', 'parsed', 2033), ('regex', 'parse_unavailable', 286)]
+
+call: filter hits=1488  hits sharing (file,name) with another row=37
+
+base_class: filter hits=20  hits sharing (file,name) with another row=0
+
+(file,name) groups with >1 row: 31
+
+refs.from_symbol containing a dot: 0 of 12636
+
+## the 37 rows a call reference is credited to by name-in-file
+rows: 37
+('runs/milestone0/probe_offline.py', 'run', 'Probe', 'function', 39, 'accept,append,time,settimeout,recv,sendall,close,dict,update,monotonic,run,monotonic,round,next,splitlines,strip,next,splitlines,strip')
+('runs/milestone0/probe_offline.py', 'run', None, 'function', 63, 'accept,append,time,settimeout,recv,sendall,close,dict,update,monotonic,run,monotonic,round,next,splitlines,strip,next,splitlines,strip')
+('tests/test_read_contract.py', '__init__', 'RecordingEmbedder', 'function', 39, 'set')
+('tests/test_read_contract.py', '__init__', 'RecordingStore', 'function', 70, 'set')
+('tests/test_search_isolation.py', '__init__', '_Hit', 'function', 42, 'set')
+('tests/test_search_isolation.py', '__init__', 'StubStore', 'function', 76, 'set')
+('tests/test_doctor.py', '__init__', 'StubOllama', 'function', 48, 'list,get,dict,SimpleNamespace')
+('tests/test_doctor.py', '__init__', 'StubStore', 'function', 64, 'list,get,dict,SimpleNamespace')
+('tests/test_concurrency.py', '__init__', 'StubEmbedder', 'function', 30, '__init__,super')
+('tests/test_concurrency.py', 'embed', 'StubEmbedder', 'function', 36, 'append,list,_one')
+('tests/test_concurrency.py', '__init__', 'StubStore', 'function', 42, '__init__,super')
+('tests/test_concurrency.py', '__init__', 'CrashingEmbedder', 'function', 242, '__init__,super')
