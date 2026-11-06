@@ -8,12 +8,17 @@ existing names never change meaning.
 
 ```json
 {"schema": 1, "hits": [hit...], "truncated": bool, "dropped": int,
- "skipped": [{"project": str, "reason": str}...], "skipped_count": int}
+ "skipped": [{"project": str, "reason": str}...], "skipped_count": int,
+ "partial": bool, <staleness block>}
 ```
 
-`skipped` names the projects whose index could not answer, so a JSON consumer
-can tell a partial result from a complete one; `skipped_count` is its length.
-Both are always present (empty list / 0 when nothing was skipped).
+`skipped` names the projects whose index could not answer (or that the 30 s
+wall did not reach — `reason: "budget"`), so a JSON consumer can tell a
+partial result from a complete one; `skipped_count` is its length and
+`partial` is true when it is non-empty. All are always present (empty list /
+0 / false when nothing was skipped). The staleness block is the one described
+below; with `--all-projects` it is the aggregate plus a `staleness` array of
+per-project blocks.
 
 hit (search and hybrid fusion share the contract):
 
@@ -158,10 +163,105 @@ present only when non-empty. A refusal line names its direction
 refusals from both walks; `omitted` is the sum over both. A direction that
 was not requested keeps its empty dict.
 
+## The staleness block (every read answer)
+
+Every JSON answer from a command that reads the index is additive with this
+block (`schema` stays `1`):
+
+```json
+{"stale": bool, "stale_known": bool,
+ "stale_reasons": [{"kind": "modified|added|deleted", "file": str}],
+ "stale_reason_count": int, "index_revision": str|null,
+ "last_indexed": str|null}
+```
+
+`stale_known` false means the verdict is `unknown` (project path absent, no
+completed pass, or the scan exceeded its budget), so `stale: false` alone
+never means "checked and fresh". `stale_reasons` is capped at five while
+`stale_reason_count` is the total before the cap. `index_revision` names the
+pass the answer was read from and `last_indexed` is that pass's timestamp in
+ISO-8601 UTC.
+
+`get-code-context --json` keeps `stale` as its FILE-level field and adds the
+other five fields; the file-level warning line is unchanged.
+
+## list-projects --json
+
+```json
+{"schema": 1, "projects": [project...],
+ "stale": bool, "stale_known": bool, "stale_reasons": [...],
+ "stale_reason_count": int, "index_revision": null, "last_indexed": null}
+```
+
+project = `{"path", "slug", "state", "files", "chunks",
+"last_indexed", "reason"|null, "collection"|"missing"|null, "note"|null}`
+plus that project's own staleness block. The top-level block aggregates them:
+`stale` is true when any project is stale and `stale_known` is true only when
+every verdict was reachable.
+
+## lookup-project --json
+
+```json
+{"schema": 1, "registered": bool, "path": str,
+ "slug"|missing, "state"|missing, "files"|missing, "chunks"|missing,
+ "last_indexed"|missing, "collection"|missing,
+ <staleness block>}
+```
+
+An unregistered selector answers `registered: false` with its `path` and an
+`unknown` staleness block (exit 0 — it is a check, not an error).
+
+## index-status --json
+
+```json
+{"schema": 1, "project": str, "state": str,
+ "fingerprint"|"needs-reindex"|"unverified", "reason"|missing,
+ "last_pass"|missing, "progress"|missing, "sensitive_skipped"|missing,
+ "scope"|missing, "not_indexed"|missing, "last_errors"|missing,
+ "note"|missing, <staleness block>}
+```
+
+The fields the text line prints, under the same names, plus the staleness
+block. A missing `fingerprint` field still means the index matched.
+
+## find-definition --json
+
+```json
+{"schema": 1, "name": str, "project": str,
+ "definitions": [{"file", "name", "type", "start_line", "end_line",
+                  "confidence": "exact"|"heuristic"}],
+ <staleness block>}
+```
+
+No definitions is `definitions: []` with exit 0 (an answer, not a failure).
+
+## find-references --json
+
+```json
+{"schema": 1, "name": str, "project": str, "relationship": str|null,
+ "references": [{"file", "line", "from_symbol", "target",
+                  "relationship", "confidence", "receiver",
+                  "project", "target_confidence"}],
+ "total": int, "unfiltered_count"|missing,
+ "unfiltered_relationships"|missing, <staleness block>}
+```
+
+The two `unfiltered_*` fields appear only when a relationship filter came
+back empty and the store does carry the name under another relationship.
+
 ## Error contract (non-JSON)
 
 Failures print exactly one line `ErrorType: description` to stderr:
-ArgumentError, ConfigError, NotFoundError, BackendError, LockedError,
-InternalError. Exit codes: 0 success, 1 failure, 2 usage (argument) error.
-The only non-verbose stderr output on success is the documented single-line
-stale-file Warning.
+ArgumentError, ConfigError, NotFoundError, BackendError,
+RebuildRequiredError, LockedError, InternalError. Exit codes: 0 success
+(including zero hits), 1 other runtime failure, 2 usage (argument) error,
+3 backend or extension unavailable, 4 the index requires a rebuild, 5 lock
+or concurrency conflict. The only non-verbose stderr output on success is
+the documented single-line staleness Warning.
+
+## Error contract (--json)
+
+With `--json`, a failure prints one JSON object to stdout carrying
+`"schema": 1`, `"ErrorType"` and `"error"`, and exits with the taxonomy's
+code; stdout is still empty for the non-JSON read commands (a failed
+`semantic-search` writes its one `ErrorType: message` line to stderr).

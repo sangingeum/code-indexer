@@ -117,55 +117,72 @@ nonzero status (3) telling you to stop the live watcher first. The message
 "failed to start" never appears for this case — it is reserved for genuine
 startup failures.
 
-## Commands (each accepts --skip-stale-check)
+## Commands (read and write classes)
 
-Global flags: every command accepts `--skip-stale-check` (skip the staleness
-probe / incremental index pass). Exactly seven commands also accept
-`--fresh` (force the hash scan now, ignoring STALE_TTL):
-`semantic-search`, `skeleton`, `outline`, `find-symbol`, `find-definition`,
-`get-code-context`, and `find-references`. It is absent on `find-callers`,
-`find-callees`, `deps`, `overview`, and `changed-symbols`.
-The skip flag only changes behavior where that probe is on the command's
-path — the seven `--fresh` commands above plus `index-status --refresh`. On
-every other command it is accepted and ignored: no probe is on that path.
+Every command is either a **write command** or a **read command**. A write
+command changes the manifest, the vector store or the sources: `add-project`,
+`index-more`, `remove-project`, `reindex-project`, `watch`, `unwatch`, and
+`sweep-orphans --apply` (its default dry run is a read). Every other command
+is a read: it opens no write transaction, runs no index pass, and contacts no
+service to reach a staleness verdict. An invocation carrying `--refresh` is a
+write, because it runs one incremental pass first.
+
+Global flags: every command accepts `--skip-stale-check`, and it is
+**inert**: reads never index, so there is nothing to skip, and reporting
+staleness without repairing it is the default. Exactly seven commands also
+accept `--fresh`: `semantic-search`, `skeleton`, `outline`, `find-symbol`,
+`find-definition`, `get-code-context`, and `find-references`. It is absent on
+`find-callers`, `find-callees`, `deps`, `overview`, and `changed-symbols`.
+On `get-code-context` `--fresh` keeps its meaning — read the live file and
+ignore cached symbol rows — and writes nothing; on the other six it is
+accepted for compatibility and inert.
+
+`--refresh` is accepted by every read command and is the **only flag that
+turns a read into a write**: it takes the per-project flock, runs one
+incremental pass, and answers from the result. A held lock is
+`LockedError: indexing in progress` with exit 5 and no answer on stdout.
+`--refresh` is also accepted by `doctor` (it refreshes each registered
+project's index before the checks run), `eval` (refreshes the evaluated
+project), and accepted-and-inert on `eval-compare`, which reads report files
+rather than an index. No separate `refresh` command exists.
 
 ```bash
 uv run code-indexer <cmd>   # or installed console script
 
 # registry
 code-indexer add-project /path/repo [--name myproj] [--allow-sensitive] [--include 'src/**'] [--priority 'src/main/**']   # register + initial index (foreground)
-code-indexer lookup-project /path/repo                # registration check, no side effects
-code-indexer list-projects                            # per-project index summary
+code-indexer lookup-project /path/repo [--json] [--refresh]   # registration check, no side effects
+code-indexer list-projects [--json] [--refresh]               # per-project index summary + staleness verdict
 code-indexer remove-project /path/repo                # DESTRUCTIVE: drops collection + manifest + registry entry
 code-indexer index-more /path/repo src/subtree        # extend the indexed scope with another subtree
 
 # orientation
-code-indexer overview [--project P] [--path-prefix X] [--max-lines 60] [--json]
-code-indexer skeleton [--project P | --name P] [PATH_PREFIX] [--tree] [--no-signatures] [--limit N] [--json]
+code-indexer overview [--project P] [--path-prefix X] [--max-lines 60] [--json] [--refresh]
+code-indexer skeleton [--project P | --name P] [PATH_PREFIX] [--tree] [--no-signatures] [--limit N] [--json] [--refresh] [--fresh]
 code-indexer map ...      # alias for skeleton
-code-indexer outline [--project P | --name P] FILE [--docstrings] [--json]
+code-indexer outline [--project P | --name P] FILE [--docstrings] [--json] [--refresh] [--fresh]
 code-indexer file-outline ...   # alias for outline
 
 # lookup
-code-indexer find-symbol Name [--project P | --name P] [--type class] [--limit N]   # exact-first: EVERY definition of the name (40 if there are 40); --limit bounds it only when given; the substring tier is a capped fallback
+code-indexer find-symbol Name [--project P | --name P] [--type class] [--limit N] [--json] [--refresh] [--fresh]   # exact-first: EVERY definition of the name (40 if there are 40); --limit bounds it only when given; the substring tier is a capped fallback
 code-indexer find-symbol [--project P | --name P] [--type class] [--file src/x.py] [--substring] [--limit 25]   # browse mode (no name); default cap 25
-code-indexer find-definition Name [--project P | --name P]              # exact match only, every definition
-code-indexer find-references Name [--project P | --name P] [--relationship calls|includes|inherits|references] [--limit 25]   # references from the single store; every row labelled confidence=/receiver=
+code-indexer find-definition Name [--project P | --name P] [--json] [--refresh] [--fresh]   # exact match only, every definition
+code-indexer find-references Name [--project P | --name P] [--relationship calls|includes|inherits|references] [--limit 25] [--json] [--refresh] [--fresh]   # references from the single store; every row labelled confidence=/receiver=; json adds the staleness block
 code-indexer find-callers Name [--project P] [--depth 2] [--max-nodes 40] [--json]   # fan-in over the refs table (ast vs heuristic); dotted Type.Member ok; every CALL SITE is a node; json adds truncated/omitted
 code-indexer find-callees Name [--project P] [--depth 2] [--max-nodes 40] [--json]   # fan-out over the refs table; a TARGET is a node (one target reached twice is one callee)
 code-indexer deps PATH [--project P] [--direction in|out|both] [--depth 2] [--max-nodes 60] [--format tree|edges|json]   # import graph around a file; json keeps the per-level in/out dicts and adds truncated/omitted
 
 # reading
-code-indexer get-code-context src/f.hpp --start-line 40 --end-line 80   # or --symbol Foo::bar [--context-lines N]
+code-indexer get-code-context src/f.hpp --start-line 40 --end-line 80 [--refresh] [--fresh]   # or --symbol Foo::bar [--context-lines N]
 
 # search
-code-indexer semantic-search "query" [--project P] [--limit 8] [--file-filter '*.py'] [--symbol-type class] [--language python] [--ranking vector|metadata|hybrid] [--mode hybrid|dense|lexical] [--rerank heuristic|none] [--per-file N] [--max-chars N | --max-tokens N] [--context-lines N] [--format text|compact|json] [--json] [--fresh]
+code-indexer semantic-search "query" [--project P] [--all-projects] [--limit 8] [--file-filter '*.py'] [--symbol-type class] [--language python] [--ranking vector|metadata|hybrid] [--mode hybrid|dense|lexical] [--rerank heuristic|none] [--per-file N] [--max-chars N | --max-tokens N] [--context-lines N] [--format text|compact|json] [--json] [--fresh]
 
 # edits
 code-indexer changed-symbols [--project P] [--base HEAD] [--head REF] [--staged] [--include-untracked] [--impact] [--depth 1] [--max-nodes 40] [--json]   # post-edit diff -> symbols; --impact lists callers + candidate tests, prints the first six as `(+N more)`, and names the bound its list hit; json reports truncated/omitted/bounds per file
 
 # lifecycle
-code-indexer index-status [--project P | --name P | /path/repo] [--refresh]
+code-indexer index-status [--project P | --name P | /path/repo] [--json] [--refresh]
 code-indexer doctor [--json]              # health check; exit 1 on any fail
 code-indexer sweep-orphans /path/repo [--apply] [--json]   # residue rows for deleted files; dry-run by default
 code-indexer reindex-project /path/repo   # full rebuild, foreground
@@ -178,6 +195,56 @@ code-indexer unwatch --all [--timeout 10] # stop it for every registered project
 code-indexer eval --project P --queries eval/queries.jsonl [--k 1,3,5,10] [--mode dense|lexical|hybrid] [--rerank heuristic|none] [--out FILE]
 code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
 ```
+
+## Staleness, refresh and exit codes
+
+A read answers from the index as of `meta.last_indexed`, never from the
+working tree. Every command that answers from the index reports a verdict:
+`fresh` (nothing differs), `stale` (the tree differs; reasons are
+`modified` / `added` / `deleted` files) or `unknown` (the check could not
+run — the project path is absent, no pass has completed, or the walk
+exceeded its own budget of 5 s / 200,000 entries). `unknown` is never
+reported as `fresh`.
+
+JSON, additive, `schema` stays 1, on every read answer:
+
+| field | meaning |
+|---|---|
+| `stale` | boolean, unchanged meaning; on `get-code-context --json` it keeps its file-level meaning |
+| `stale_known` | boolean; false means the verdict is `unknown`, so `stale: false` alone never means "checked and fresh" |
+| `stale_reasons` | `[{kind: modified\|added\|deleted, file}]`, capped at five |
+| `stale_reason_count` | total count before the cap |
+| `index_revision` | the revision the answer was read from (the pass that wrote it; `last_indexed` on older manifests) |
+| `last_indexed` | timestamp of the pass that wrote the index, ISO-8601 UTC |
+
+Text mode prints exactly ONE stderr line and nothing extra on stdout:
+
+```
+Warning: index is stale (3 files changed since 2026-11-06T22:10:00Z: 2 modified, 1 deleted); answers describe the index, not the tree. Refresh: code-indexer reindex-project <path>
+```
+
+A fresh answer prints nothing extra; an `unknown` answer prints one line
+saying the check did not run. Repair is explicit: `--refresh` (or a pass
+command: `add-project`, `index-more`, `reindex-project`) — no read repairs
+the index on its own.
+
+Exit codes:
+
+| code | meaning |
+|---|---|
+| 0 | success, including zero hits — "no results" is an answer |
+| 1 | any other runtime failure |
+| 2 | usage or argument error |
+| 3 | backend or extension unavailable (nothing reachable or installed) |
+| 4 | the index requires a rebuild (fingerprint mismatch, needs-reindex) |
+| 5 | lock or concurrency conflict — the same meaning filekeeper gives 5 |
+
+"Nothing installed or reachable" is 3; a working provider that does not
+implement the requested operation is 2. A failed query is distinguishable
+from an empty result by both code and stream: `ErrorType: message` goes to
+stderr and stdout stays empty (exit 3/4/5 as above), while a successful
+empty answer prints `no results` on stdout and exits 0. No failure prints a
+traceback.
 
 ## Subcommand reference
 
@@ -215,9 +282,13 @@ code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
   budget (trailing dropped-count line, `truncated`/`dropped` in JSON);
   `--format compact` prints one line per hit
   (`path:start-end  symbol  score`) — prefer compact + get-code-context
-  for agent loops. Multi-project searches fuse
-  per-collection ranks with Reciprocal Rank Fusion (`rrf_score`,
-  `vector_score` keeps the original cosine).
+  for agent loops. The default is ONE project — the containing project
+  inferred from the invocation path; `--all-projects` fans out. The query
+  makes one embedding attempt with a short timeout (no retry chain) and the
+  fan-out stops at a 30 s wall, reporting the projects it did not reach as
+  `skipped` with `reason=budget` (`partial: true` in JSON). A fanned-out
+  answer fuses per-collection ranks with Reciprocal Rank Fusion
+  (`rrf_score`, `vector_score` keeps the original cosine).
   **`--language` values (exhaustive)** — the stored `lang` payload, derived
   from the file extension at index time; filter matches it exactly:
   - AST-parsed via tree-sitter (structured chunks with symbol names):
@@ -556,13 +627,19 @@ receiver for refs.
 
 ## Key rules
 
-- `--skip-stale-check` skips the staleness probe / incremental pass (fast,
-  may serve slightly stale results). Accepted by every command; a no-op
-  where the command's path never runs the probe (see "Global flags"). Default behavior: search/status trigger
-  a re-scan if STALE_TTL (60 s) elapsed; concurrent invocations serialize via
-  a per-project flock — exactly one index pass runs, others print
-  "<slug>: indexing in progress". `--fresh` forces the scan now (ignore
-  STALE_TTL for this call).
+- `--skip-stale-check` is accepted by every command and is **inert**:
+  reads never index, so the default is to REPORT staleness without repairing
+  it (see "Commands" and "Staleness, refresh and exit codes"). `--refresh`
+  is the only flag that turns a read into a write: it takes the per-project
+  flock, runs one incremental pass and answers from the result; a held lock
+  is `LockedError` with exit 5. `--fresh` is accepted on the seven commands
+  listed in the Global flags paragraph; only on `get-code-context` does it
+  still mean "read the live file", and it never writes.
+- A read answer describes the index as of `meta.last_indexed`. Every read
+  that answers from the index prints at most one stderr `Warning: index is
+  stale (...)` line (nothing when fresh, one "did not run" line when the
+  verdict is unknown) and carries the staleness block in JSON. The repair is
+  `--refresh` or a pass command, never an implicit write.
 - `get-code-context` checks the live file hash against the manifest:
   `--symbol` mode re-resolves the symbol on the live file, and otherwise
   answers from that file's own symbol rows (name and file filtered in one

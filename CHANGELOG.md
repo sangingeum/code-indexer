@@ -1,5 +1,36 @@
 # Changelog
 
+## [Unreleased] — read contract
+
+- **Reads stop repairing the index; a failed query stops exiting 0.** Every
+  command is now either a read or a write. A read (`overview`, `skeleton`,
+  `outline`, `find-symbol`, `find-definition`, `find-references`,
+  `find-callers`, `find-callees`, `deps`, `get-code-context`,
+  `semantic-search`, `changed-symbols`, `index-status`, `list-projects`,
+  `lookup-project`, `doctor`, `eval`, `eval-compare`, and `sweep-orphans`'s
+  default dry run) opens no write transaction and runs no index pass; the
+  implicit `STALE_TTL` refresh is gone. An answer describes the index as of
+  `meta.last_indexed` and reports `fresh`, `stale` (with reasons) or
+  `unknown` — one stderr line in text mode, an additive JSON block
+  (`stale`, `stale_known`, `stale_reasons`, `stale_reason_count`,
+  `index_revision`, `last_indexed`; `schema` stays 1) on every read answer.
+  Repair is explicit: `--refresh` (one incremental pass under the
+  per-project flock) or a pass command. `--skip-stale-check` stays accepted
+  everywhere and is inert.
+- **Exit codes are a taxonomy**: 0 success (including zero hits), 1 other
+  runtime failure, 2 usage error, 3 backend/extension unavailable, 4 index
+  requires a rebuild, 5 lock or concurrency conflict. A failed search now
+  exits 3 (was 0) with `BackendError:` on stderr and stdout empty, so a
+  backend outage is distinguishable from an empty result.
+- **Unscoped queries are bounded**: one project by default, `--all-projects`
+  to fan out, one embedding attempt with a short timeout (the retry chain
+  stays on the write path), and a 30 s wall that reports unreached projects
+  as `skipped` with `reason=budget` (`partial: true`).
+- **`--json` on `list-projects`, `lookup-project`, `index-status`,
+  `find-definition` and `find-references`**, carrying the fields the text
+  renderer prints plus `ErrorType` on failure; the five read commands also
+  carry the staleness block.
+
 ## [Unreleased] — lifecycle selector surface
 
 - **Lifecycle commands share `index-status`'s project selector (issue #29).**

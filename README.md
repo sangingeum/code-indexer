@@ -129,13 +129,37 @@ missing `fingerprint=` field means the index matched.
   interrupted, the project stays registered but reports
   `state=never-indexed` (`files=0 chunks=0 last_indexed=never`);
   `reindex-project` builds it.
-- **Staleness**: searches/status trigger a re-scan when `STALE_TTL` (60 s)
-  elapsed. The scan uses a stat fast-path (`size, mtime_ns, inode` match ⇒ no
-  re-hash; `PARANOID_HASH=1` disables it). `--fresh` forces the scan now;
-  `--skip-stale-check` skips the probe. Hits carry `file_hash` and
-  `indexed_at`; `get-code-context` re-resolves `--symbol` on the live file or
-  returns line ranges with a stderr warning and `stale: true` in JSON when
-  the file changed.
+- **Staleness is reported, never repaired by a read.** A read answers from
+  the index as of `meta.last_indexed`, compares the indexed files with the
+  tree (stat identity — `size`, `mtime_ns`, `inode`; content is hashed only
+  for files whose stat changed), and reports `fresh`, `stale` (with reasons,
+  capped at five) or `unknown` (path absent, no completed pass, or the scan
+  exceeded its 5 s / 200,000-entry budget). JSON answers carry `stale`,
+  `stale_known`, `stale_reasons`, `stale_reason_count`, `index_revision` and
+  `last_indexed`; text mode prints exactly one stderr line:
+  `Warning: index is stale (3 files changed since 2026-11-06T22:10:00Z: 2
+  modified, 1 deleted); answers describe the index, not the tree. Refresh:
+  code-indexer reindex-project <path>`. A fresh answer prints nothing extra;
+  an unknown verdict prints one line saying the check did not run.
+- **Repair is explicit.** `--refresh` is the only flag that turns a read
+  into a write: it takes the per-project flock, runs one incremental pass and
+  answers from the result. A held lock is `LockedError: indexing in
+  progress` with exit 5 and no answer. `--skip-stale-check` is accepted by
+  every command and is inert (the default is to report without repairing);
+  `--fresh` still means "read the live file" on `get-code-context` and is
+  inert elsewhere. The watcher and the three pass commands remain the other
+  writers.
+- **Exit codes**: `0` success (including zero hits — "no results" is an
+  answer), `1` other runtime failure, `2` usage/argument error, `3` backend
+  or extension unavailable, `4` the index requires a rebuild, `5` lock or
+  concurrency conflict. A failed query prints `ErrorType: message` on stderr
+  with stdout empty; an empty answer prints `no results` on stdout and exits
+  0, so the two are never confused.
+- **Query cost is bounded**: a search resolves ONE project by default (the
+  containing project inferred from the invocation path), fans out only with
+  `--all-projects`, makes one embedding attempt with a short timeout, and
+  stops a fan-out at a 30 s wall (`skipped` with `reason=budget`,
+  `partial: true`).
 - **Incremental diff**: files are classified by **content hash** (sha256, not
   mtime — branch switches re-index correctly). Only chunks whose hash changed
   are re-embedded; point IDs are deterministic uuid5, so upserts are

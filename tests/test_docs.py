@@ -32,6 +32,8 @@ REPO = Path(__file__).resolve().parent.parent
 README = REPO / "README.md"
 SKILL = REPO / "SKILL-CLI.md"
 PYPROJECT = REPO / "pyproject.toml"
+JSON_SCHEMA = REPO / "docs" / "json-schema.md"
+CHANGELOG = REPO / "CHANGELOG.md"
 
 # Dev/ops utilities documented separately in SKILL-CLI.md (they are in the
 # command block under a dev-utilities comment, but not part of the agent
@@ -386,6 +388,72 @@ def test_no_dangling_see_below():
         assert "see below" not in text.lower(), (
             f"{path.name} still contains a 'see below' reference"
         )
+
+
+# ---------------------------------------------------------------------------
+# 6. the read contract (ADR-0003) is described, not just implemented
+# ---------------------------------------------------------------------------
+
+def test_skill_describes_the_read_write_contract():
+    text = _skill_text()
+    # classification
+    assert "read command" in text and "write command" in text
+    assert "`sweep-orphans --apply`" in text
+    # --skip-stale-check is inert, --refresh is the only write trigger
+    assert "inert" in text
+    assert "only flag that\nturns a read into a write" in text or \
+        "only flag that turns\na read into a write" in text
+    # the staleness block and its text line
+    for field in ("stale", "stale_known", "stale_reasons",
+                  "stale_reason_count", "index_revision", "last_indexed"):
+        assert f"`{field}`" in text, field
+    assert "Warning: index is stale (3 files changed since" in text
+    assert "answers describe the index, not the tree" in text
+    # bounded query
+    assert "--all-projects" in text and "reason=budget" in text
+    assert "partial: true" in text or "`partial`" in text
+    # exit-code table
+    for code in ("| 0 |", "| 1 |", "| 2 |", "| 3 |", "| 4 |", "| 5 |"):
+        assert code in text, code
+    assert "RebuildRequiredError" in text or "requires a rebuild" in text
+
+
+def test_skill_documents_json_on_the_five_read_commands():
+    documented = _documented_commands()
+    for name in ("list-projects", "lookup-project", "index-status",
+                 "find-definition", "find-references"):
+        assert "--json" in documented[name], (name, documented[name])
+
+
+def test_readme_describes_the_read_contract():
+    text = _readme_text()
+    assert "stale_known" in text
+    assert "--refresh" in text and "only flag that turns a read" in text
+    assert "`--skip-stale-check`" in text and "inert" in text
+    assert "`3` backend" in text or "3 backend" in text
+    assert "`--all-projects`" in text
+
+
+def test_json_schema_documents_the_new_answers():
+    text = JSON_SCHEMA.read_text(encoding="utf-8")
+    for heading in ("list-projects --json", "lookup-project --json",
+                    "index-status --json", "find-definition --json",
+                    "find-references --json",
+                    "The staleness block (every read answer)"):
+        assert f"## {heading}" in text, heading
+    for field in ("stale_known", "stale_reason_count", "index_revision",
+                  "last_indexed"):
+        assert field in text, field
+    assert '"schema": 1' in text or "`schema` stays `1`" in text
+
+
+def test_changelog_has_the_read_contract_section():
+    text = CHANGELOG.read_text(encoding="utf-8")
+    assert "## [Unreleased] \u2014 read contract" in text
+    section = text.split("## [Unreleased] \u2014 read contract", 1)[1]
+    section = section.split("\n## ", 1)[0]
+    assert "Reads stop repairing the index" in section
+    assert "failed search" in section and "exits 3" in section
 
 
 if __name__ == "__main__":
