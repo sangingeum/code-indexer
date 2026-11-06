@@ -2542,6 +2542,50 @@ def plan_rename_symbol(
         "plan is written"), json_output)
 
 
+@app.command(name="plan-validate")
+def plan_validate(
+    ref: str = typer.Argument(..., help="A plan path or sha256:<hex>."),
+    project: str = PROJECT_OPT,
+    plan_dir: str = typer.Option(None, "--plan-dir",
+                                 help="Directory holding plan files."),
+    json_output: bool = typer.Option(False, "--json", help="JSON output."),
+) -> None:
+    """Report each structural check of a plan. Writes nothing.
+
+    The ladder is bytes, parse, region arithmetic: the plan's own hash, the
+    schema, the paths, each touched file's hash and declared newline, the
+    node re-derived from the locator, each region's hash, the line/byte
+    cross-check, the ordering, and the parser's verdict per file. It reports;
+    it does not claim -- nothing here says the result compiles or type-checks,
+    and a syntax verdict of parse_unavailable is a failed claim, not a pass.
+
+    A refusal carries ADR-0003's exit code and names the file, the edit and
+    the expected and observed hashes.
+    """
+    try:
+        _core, entry = _plan_entry(project)
+        requested, path = plans.resolve_ref(ref, _plan_dir(entry, plan_dir),
+                                            entry.path)
+        document = plans.load_plan(path)
+    except IndexerError as exc:
+        _json_failure(exc, json_output)
+        return
+    report = plans.validate_plan(document, entry.path, requested=requested)
+    if json_output:
+        typer.echo(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        typer.echo(f"plan {report['plan_id']}")
+        typer.echo(f"identity {report['identity']['verified']} "
+                   f"({', '.join(report['identity']['basis'])})")
+        for check in report["checks"]:
+            detail = f" -- {check['detail']}" if check["detail"] else ""
+            typer.echo(f"- {check['check']}: {check['status']}{detail}")
+        typer.echo(report["caveat"])
+    if not report["passed"]:
+        typer.echo(f"{report['ErrorType']}: {report['error']}", err=True)
+        raise typer.Exit(report["exit_code"])
+
+
 # ---------------------------------------------------------------------------
 # eval harness (retrieval-quality gate): CLI-only dev utility, no MCP surface
 # ---------------------------------------------------------------------------

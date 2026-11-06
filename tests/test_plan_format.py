@@ -703,3 +703,107 @@ def test_a_body_file_is_translated_at_the_input_boundary(tmp_path, plan_rig):
         .read())
     assert document["edits"][0]["new_text"] == "    return 41"
 
+
+# ---------------------------------------------------------------------------
+# plan-validate: it reports, it does not claim, and it writes nothing
+# ---------------------------------------------------------------------------
+
+def _prepare(plan_rig, symbol="one", text="    return 41"):
+    result = runner.invoke(app, [
+        "plan-replace-body", symbol, "--project", "plansample",
+        "--file", "mod.py", "--text", text])
+    assert result.exit_code == 0, result.output
+    return os.path.join(plan_rig.plan_dir, os.listdir(plan_rig.plan_dir)[0])
+
+
+def tree_fingerprint(*paths):
+    """Every file's hash under the given paths: the write-free witness."""
+    seen = {}
+    for path in paths:
+        if os.path.isfile(path):
+            with open(path, "rb") as handle:
+                seen[path] = hashlib.sha256(handle.read()).hexdigest()
+            continue
+        for root, _dirs, names in os.walk(path):
+            for name in names:
+                full = os.path.join(root, name)
+                with open(full, "rb") as handle:
+                    seen[full] = hashlib.sha256(handle.read()).hexdigest()
+    return seen
+
+
+def test_validate_reports_every_check_and_writes_nothing(plan_rig):
+    path = _prepare(plan_rig)
+    before = tree_fingerprint(plan_rig.plan_dir, plan_rig.project / "mod.py")
+    result = runner.invoke(app, ["plan-validate", path,
+                                 "--project", "plansample"])
+    assert result.exit_code == 0, result.output
+    after = tree_fingerprint(plan_rig.plan_dir, plan_rig.project / "mod.py")
+    assert before == after
+    assert "identity structural (file_hash, decl_hash, region_hash)" \
+        in result.stdout
+    for check in ("plan hash", "schema", "paths", "file hash and newline",
+                 "node re-derivation", "region hashes",
+                 "line and byte cross-check", "overlap and ordering"):
+        assert check in result.stdout
+    assert "structural checks only" in result.stdout
+    lowered = "\n".join(line for line in result.stdout.splitlines()
+                         if "structural checks only" not in line).lower()
+    assert '"valid"' not in lowered and "type-checks" not in lowered
+
+
+def test_validate_accepts_a_sha256_reference(plan_rig):
+    path = _prepare(plan_rig)
+    document = plans.load_plan(path)
+    result = runner.invoke(app, ["plan-validate", document["plan_id"],
+                                 "--project", "plansample", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["passed"] is True
+    assert payload["ref"] == document["plan_id"]
+
+
+def test_a_stale_file_refuses_validation_with_exit_five(plan_rig):
+    path = _prepare(plan_rig)
+    (plan_rig.project / "mod.py").write_text(
+        TWO_FUNCTIONS.replace("return 1", "return 9"))
+    result = runner.invoke(app, ["plan-validate", path,
+                                 "--project", "plansample", "--json"])
+    assert result.exit_code == EXIT_LOCK
+    payload = json.loads(result.stdout)
+    assert payload["ErrorType"] == "PlanStale"
+    assert payload["passed"] is False
+    assert "mod.py" in payload["error"]
+    assert "sha256:" in payload["error"]
+
+
+def test_validate_names_the_refusal_on_stderr_without_json(plan_rig):
+    path = _prepare(plan_rig)
+    (plan_rig.project / "mod.py").write_text(TWO_FUNCTIONS + "# changed\n")
+    result = runner.invoke(app, ["plan-validate", path,
+                                 "--project", "plansample"])
+    assert result.exit_code == EXIT_LOCK
+    assert "PlanStale:" in result.stderr
+    assert "structural checks only" in result.stdout
+
+
+def test_a_reference_whose_hash_disagrees_with_the_file_is_refused(plan_rig):
+    path = _prepare(plan_rig)
+    document = plans.load_plan(path)
+    other = "sha256:" + "3" * 64
+    renamed = os.path.join(plan_rig.plan_dir, "3" * 64 + ".json")
+    os.rename(path, renamed)
+    assert document["plan_id"] != other
+    result = runner.invoke(app, ["plan-validate", other,
+                                 "--project", "plansample"])
+    assert result.exit_code == EXIT_USAGE
+    assert "PlanHashMismatch" in result.stderr
+
+
+def test_validate_refuses_a_path_that_is_not_a_plan(plan_rig):
+    result = runner.invoke(app, ["plan-validate", "sha256:" + "4" * 64,
+                                 "--project", "plansample"])
+    assert result.exit_code == EXIT_FAIL
+    assert "NotFoundError" in result.stderr
+
+
