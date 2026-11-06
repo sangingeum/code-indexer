@@ -1,5 +1,37 @@
 # Changelog
 
+## [Unreleased] — a read can destroy nothing
+
+**A read command no longer opens the manifest read-write.** Every read opens
+it read-only (`mode=ro`, no journal-mode write, no DDL, no migration), so a
+read can not empty a table. A manifest recorded at an older schema revision
+is REPORTED, not upgraded: `index-status` prints `schema=<n>`
+(`manifest_schema` in `--json`) beside `rows=absent`, and every row surface
+refuses with the existing `RebuildRequiredError` shape — one stderr line,
+exit 4, empty stdout, the remedy named. Migration is a write pass's job, and
+a pass repopulates the rows it re-created. No revision bump, no DDL change.
+
+- **`semantic-search` refuses a vectors-off project before embedding.** The
+  vectors-off and fingerprint gates now run over the resolved entries BEFORE
+  the query embedding is computed, so the documented `ConfigError` naming
+  `--vectors on` (exit 4) is what a caller sees on a machine with no
+  reachable embedder, instead of the embedder's `BackendError` (exit 3).
+- **The physical collection name always carries the embedding identity.**
+  Every vector-writing pass — full, incremental and vectors-only rebuild —
+  takes its collection from one helper (`idx_<slug>__<identity digest>`) and
+  binds the `idx_<slug>` alias to it; the `__new` scratch name and the
+  plain-slug defaults are gone. A changed identity also forces a re-embed
+  into the new collection rather than reusing a hash cache that describes
+  the old one.
+- **`rows=current` no longer requires chunks.** The row verdict is decided by
+  the completed-pass stamp and the extraction version, so a project whose
+  indexed files legitimately produce no chunks reports `current` instead of
+  `absent` for ever.
+- **Dead surface removed:** `vectors.record_mode`,
+  `fingerprint.VECTOR_SIDE_KEYS`, `Manifest.chunks_for_file`, and the four
+  unreachable migration-hint branches. The last-resort declaration hash is
+  line-free, as the identity record promises.
+
 ## [Unreleased] — a pass that needs no service
 
 **A pass no longer needs either service.** With no embedding or vector service
@@ -25,7 +57,9 @@ embedding on by itself.
   format) and `index_schema_version` (the manifest DDL). An extraction bump
   invalidates rows; an embedding bump builds a NEW collection under the new
   identity, swaps it in and drops the old one, leaving rows intact; a schema
-  bump migrates the manifest on open and leaves the collection intact.
+  bump is migrated by the next WRITE pass and leaves the collection intact
+  (a read reports the recorded schema and refuses rows written at an older
+  revision until that pass runs).
 - **Per-side staleness.** `index-status` reports `rows=current|absent`,
   `vectors=on|off` and `vectors_state=current|absent|stale|error`, in text and
   JSON (`schema` stays 1). A mismatched embedding identity no longer refuses

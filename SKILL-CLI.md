@@ -315,10 +315,14 @@ mode and never turns vectors on by itself.
 
 Turning vectors on for a project whose rows are current **reparses nothing and
 reads no source file**: it embeds the stored chunk text and hash. A pass also
-never mixes vectors across models — the composed embedding identity
+never mixes vectors across models: the composed embedding identity
 (`model/dimension/embedded-text-format`) is stamped into the physical
-collection name, so a changed identity is a NEW collection, swapped in under
-the project's alias and the old one dropped after the swap.
+collection name (`idx_<slug>__<identity digest>`), so a changed identity is a
+NEW collection. **Every** vector-writing pass — a full pass, an incremental
+pass or a vectors-only rebuild — fills that identity-stamped collection and
+then binds the stable `idx_<slug>` alias to it, dropping the superseded one;
+writes name the physical collection, reads resolve the alias. There is no
+`__new` scratch name left and no plain-slug collection.
 
 Three version axes, and which bump invalidates what:
 
@@ -326,7 +330,24 @@ Three version axes, and which bump invalidates what:
 |---|---|---|
 | `extraction_version` | integer in `meta` | stored rows are obsolete: one pass per project (re-embeds from the cache) |
 | `embedding_version` | one string, e.g. `qwen3-embedding:8b/4096/contextual-header-v1` | a NEW collection; rows and their chunk text survive |
-| `index_schema_version` | integer in `meta` | the manifest migrates on open; the collection is untouched |
+| `index_schema_version` | integer in `meta` | the manifest migrates on the next WRITE open (a pass command, the watcher, `--refresh`); the collection is untouched |
+
+**A read never migrates the manifest.** Every read opens it read-only: no
+journal-mode write, no DDL, no migration, so a read can destroy nothing. A
+manifest whose recorded schema is older than this build's is reported, not
+upgraded — `index-status` prints `schema=<n>` (`manifest_schema` in `--json`,
+where `schema` is the payload version) beside `rows=absent`, and every row
+surface refuses with the same `RebuildRequiredError` shape and exit 4 until a
+pass runs:
+
+```
+RebuildRequiredError: index for <path> was written at manifest schema 6 and this build reads schema 7; its rows are in an older layout, so this answer would describe an index this build would not produce; run: code-indexer reindex-project <path>
+```
+
+That migration is not free: a manifest predating the current DDL has its
+symbol table re-created (the old key cannot be re-keyed), so the pass
+repopulates those rows. Nothing is lost that a reparse cannot reconstruct —
+but only a WRITE pass should perform it, which is why reads refuse.
 
 `index-status` reports both sides: `rows=current|absent`, `vectors=on|off`,
 `vectors_state=current|absent|stale|error`. `stale` means the recorded
@@ -334,7 +355,10 @@ embedding identity is not the one this build would write.
 
 **`semantic-search` on a `vectors=off` project refuses** with one
 `ConfigError` line naming the remedy and exit 4 — it never degrades to a
-lexical answer and never returns an empty success:
+lexical answer and never returns an empty success. The refusal is decided
+BEFORE the query is embedded, so it holds on a machine with no reachable
+service too (an unreachable embedder would otherwise answer exit 3
+`BackendError`, which names the wrong cause):
 
 ```
 ConfigError: index for <path> was built with vectors=off; semantic search needs vectors; run: code-indexer reindex-project <path> --vectors on
@@ -346,7 +370,9 @@ answer about text, not a silent substitute for a ranked one.
 ## The refusal contract (`needs-reindex`)
 
 An index built by different extraction code is an index whose stored rows
-this build would not produce. **Every surface that answers from those rows
+this build would not produce. A manifest recorded at an older SCHEMA
+revision is refused the same way (the message names the two revisions).
+**Every surface that answers from those rows
 refuses** — exit 4, stdout EMPTY, one stderr line:
 
 ```
@@ -581,7 +607,8 @@ the command then answers normally.
   passes; the **fingerprint state** `ok | needs-reindex | unverified`
   describes whether the index was built by the current configuration.
   `index-status` prints the pass
-  state as `state=` and, when the fingerprint does not match, adds
+  state as `state=`, the manifest's recorded schema as `schema=<n>` (`none`
+  when there is no manifest yet), and, when the fingerprint does not match, adds
   `fingerprint=needs-reindex reason=<diff>` — the same verdict
   `list-projects`/`lookup-project`/`doctor` give, so the surfaces never
   contradict each other about whether a rebuild is owed. When the running

@@ -29,6 +29,7 @@ from code_indexer.cli import app  # noqa: E402
 from code_indexer.config import Config  # noqa: E402
 from code_indexer.core import Core  # noqa: E402
 from code_indexer.indexer import Indexer  # noqa: E402
+from code_indexer.manifest import Manifest  # noqa: E402
 from code_indexer.registry import Registry  # noqa: E402
 
 runner = CliRunner()
@@ -121,8 +122,14 @@ def rig(tmp_path, monkeypatch):
     core.embedder = embedder  # type: ignore[assignment]
     core.store = store  # type: ignore[assignment]
     core.indexer = Indexer(cfg, embedder, store)  # type: ignore[assignment]
-    core.indexer.index_project(str(project), entry.slug,
-                               core.manifest_for(entry.slug))
+    # Close the writer: the fixture must leave a SETTLED database, or the
+    # byte-identity assertion below would measure this connection's deferred
+    # checkpoint rather than the read's cost.
+    seeding = core.manifest_for(entry.slug)
+    try:
+        core.indexer.index_project(str(project), entry.slug, seeding)
+    finally:
+        seeding.close()
     monkeypatch.setattr(cli, "_get_core", lambda skip: core)
     embedder.calls = 0
     store.calls = 0
@@ -182,7 +189,9 @@ def test_a_read_leaves_the_manifest_byte_identical(rig, args):
 
     A read opens the manifest read-only: no journal-mode write, no DDL, no
     migration. (The logical snapshot above is the writer's contract; this is
-    the reader's: the answer costs the file nothing.)
+    the reader's: the answer costs the file nothing.) The fixture leaves a
+    SETTLED database, so what this compares is the read's cost and not a
+    writer's deferred checkpoint.
     """
     core, entry, project, embedder, store = rig
     db = pathlib.Path(core.cfg.index_root) / entry.slug / "manifest.db"
@@ -190,6 +199,34 @@ def test_a_read_leaves_the_manifest_byte_identical(rig, args):
     result = runner.invoke(app, [*args, "--project", str(project)])
     assert result.exit_code == 0, result.output
     assert hashlib.sha256(db.read_bytes()).hexdigest() == before
+
+
+@pytest.mark.parametrize("args", READ_INVOCATIONS)
+def test_a_read_opens_the_manifest_read_only(rig, args, monkeypatch):
+    """The mechanism behind the byte assertion, asserted directly.
+
+    A byte comparison can only notice a writable open that *costs* the file
+    something (a checkpoint of a pending WAL, a migration). This pins the
+    rule itself: every manifest a read command opens is opened
+    ``writable=False``, so there is no write-capable handle on a read path at
+    all. It is the check that would have caught the manifest-only staleness
+    warning opening the file read-write.
+    """
+    core, entry, project, embedder, store = rig
+    opened: list[tuple[str, bool]] = []
+    original = Manifest.__init__
+
+    def spy(self, db_path, *, writable=True):
+        opened.append((str(db_path), writable))
+        original(self, db_path, writable=writable)
+
+    monkeypatch.setattr(Manifest, "__init__", spy)
+    result = runner.invoke(app, [*args, "--project", str(project)])
+    assert result.exit_code == 0, result.output
+    assert opened, f"{args[0]} opened no manifest"
+    writable_opens = [path for path, writable in opened if writable]
+    assert not writable_opens, (
+        f"{args[0]} opened the manifest write-capable: {writable_opens}")
 
 
 @pytest.mark.parametrize("args", READ_INVOCATIONS)

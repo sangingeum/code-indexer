@@ -1,0 +1,46 @@
+== vectors-off registration, both services at a closed port ==
+add-project exit=0
+registered <project> (slug f29472dc)
+note: vectors=off — rows, symbols, references and chunks are indexed with no service; run reindex-project --vectors on later to embed them
+f29472dc: {"files_indexed": 2, "chunks_embedded": 0, "chunks_reused": 0, "files_deleted": 0, "duration_s": 0.02, "chunks_skipped": 0, "files_committed": 0, "sensitive_skipped": 0}
+
+== CURRENT (revision written by this build) read batch (manifest.db) ==
+sha256 before: af431a6d07aa644087a2f59dfe5699206814f72170d4af10556d1282c08b3e91
+  find-symbol      exit=0 stdout=137B sha256_same=True
+  find-definition  exit=0 stdout=123B sha256_same=True
+  find-references  exit=0 stdout=313B sha256_same=True
+  skeleton         exit=0 stdout=159B sha256_same=True
+  overview         exit=0 stdout=159B sha256_same=True
+  outline          exit=0 stdout=68B sha256_same=True
+sha256 after:  af431a6d07aa644087a2f59dfe5699206814f72170d4af10556d1282c08b3e91
+byte-identical: True
+
+index-status exit=0
+project=<project> state=idle rows=current vectors=off vectors_state=absent schema=7 languages_without_ast=[bash, css, html, java, json, kotlin, lua, markdown, php, ruby, rust, swift, toml, yaml] parse=parsed:2,parse_error:0,parse_unavailable:0
+
+== semantic-search on a vectors-off project, embedder at a closed port ==
+exit=4 stdout=''
+stderr: ConfigError: index for <project> was built with vectors=off; semantic search needs vectors; run: code-indexer reindex-project <project> --vectors on
+
+== PRE-7 manifest: the surface that needs no rows ==
+index-status exit=0
+project=<project> state=never-indexed rows=absent vectors=on vectors_state=absent schema=6 languages_without_ast=[bash, css, html, java, json, kotlin, lua, markdown, php, ruby, rust, swift, toml, yaml] parse=parsed:0,parse_error:0,parse_unavailable:0 note=registered but no indexing pass has completed; run reindex-project to build the index
+
+== PRE-7 (hand-built v6) read batch (manifest.db) ==
+sha256 before: a4e4eb69114cb3ae8f10e36e13ea97d629e8ecb11464da7ddf8161d5d02e5248
+  find-symbol      exit=4 stdout=0B sha256_same=True
+    stderr: RebuildRequiredError: index for <project> was written at manifest schema 6 and this build reads schema 7; its rows are in an older layout, so this answer would describe an index this build would not produce; run: code-indexer reindex-project <project>
+  find-definition  exit=4 stdout=0B sha256_same=True
+    stderr: RebuildRequiredError: index for <project> was written at manifest schema 6 and this build reads schema 7; its rows are in an older layout, so this answer would describe an index this build would not produce; run: code-indexer reindex-project <project>
+  find-references  exit=4 stdout=0B sha256_same=True
+    stderr: RebuildRequiredError: index for <project> was written at manifest schema 6 and this build reads schema 7; its rows are in an older layout, so this answer would describe an index this build would not produce; run: code-indexer reindex-project <project>
+  skeleton         exit=4 stdout=0B sha256_same=True
+    stderr: RebuildRequiredError: index for <project> was written at manifest schema 6 and this build reads schema 7; its rows are in an older layout, so this answer would describe an index this build would not produce; run: code-indexer reindex-project <project>
+  overview         exit=4 stdout=0B sha256_same=True
+    stderr: RebuildRequiredError: index for <project> was written at manifest schema 6 and this build reads schema 7; its rows are in an older layout, so this answer would describe an index this build would not produce; run: code-indexer reindex-project <project>
+  outline          exit=4 stdout=0B sha256_same=True
+    stderr: RebuildRequiredError: index for <project> was written at manifest schema 6 and this build reads schema 7; its rows are in an older layout, so this answer would describe an index this build would not produce; run: code-indexer reindex-project <project>
+sha256 after:  a4e4eb69114cb3ae8f10e36e13ea97d629e8ecb11464da7ddf8161d5d02e5248
+byte-identical: True
+symbol rows after every read: 1
+recorded schema after every read: 6
