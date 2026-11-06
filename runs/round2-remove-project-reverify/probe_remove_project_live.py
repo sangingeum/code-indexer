@@ -218,6 +218,37 @@ def main() -> int:
         check("case B says there was nothing to drop",
               "no vector collection to drop" in message_b, message_b.strip())
 
+        print("\n-- case C: a collection left under the pre-rename plain name ")
+        old_style = os.path.join(root, "oldstyle")
+        os.makedirs(old_style)
+        with open(os.path.join(old_style, "c.py"), "w", encoding="utf-8") as fh:
+            fh.write("def delta():\n    return 4\n")
+        proc = run(env, old_style, "add-project", old_style, "--vectors", "on")
+        slug_c = None
+        for line in proc.stdout.splitlines():
+            if "(slug " in line:
+                slug_c = line.split("(slug ")[1].rstrip(")").strip()
+        slugs.append(slug_c)
+        cols_c, aliases_c = with_slug(slug_c)
+        # Put the store back into the shape a pre-rename index left: one plain
+        # collection named idx_<slug>, no alias at all.
+        cleanup(cols_c, list(aliases_c))
+        api(f"/collections/idx_{slug_c}", "PUT",
+            {"vectors": {"size": 4, "distance": "Cosine"}})
+        cols_c, aliases_c = with_slug(slug_c)
+        print(f"    slug={slug_c} collections={cols_c} aliases={aliases_c}")
+        check("the pre-rename shape is one plain collection, no alias",
+              cols_c == [f"idx_{slug_c}"] and not aliases_c,
+              f"{cols_c}/{aliases_c}")
+        proc = run(env, old_style, "remove-project", old_style)
+        cols_c, aliases_c = with_slug(slug_c)
+        print(f"    after remove-project: collections={cols_c} aliases={aliases_c}")
+        check("the pre-rename collection is reclaimed",
+              not cols_c and not aliases_c, f"{cols_c}/{aliases_c}")
+        check("the printed line names the pre-rename collection",
+              f"collection idx_{slug_c} dropped" in (proc.stdout or ""),
+              (proc.stdout or "").strip())
+
         print("\n-- does Qdrant drop an alias when its collection is deleted? ")
         col = "zzorderaliasprobe_live"
         alias = "zzorderaliasprobe_alias"

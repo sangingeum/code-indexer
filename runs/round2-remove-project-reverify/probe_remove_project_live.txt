@@ -1,0 +1,66 @@
+==========================================================================
+  LIVE  remove-project vs the collections a project owns
+==========================================================================
+  embedding service: http://192.168.1.103:11434   vector store: http://192.168.1.105:6333
+  store before probe: collections=13 aliases=9
+
+-- case A: a pass, an older identity's leftover, then remove 
+  $ code-indexer add-project <workdir>/proj --vectors on  ->  exit=0
+    | registered <workdir>/proj (slug e16d37fb)
+    | e16d37fb: {"files_indexed": 1, "chunks_embedded": 2, "chunks_reused": 0, "files_deleted": 0, "duration_s": 0.61, "chunks_skipped": 0, "files_committed": 1, "sensitive_skipped": 0}
+    slug=e16d37fb
+    after the pass: collections=['idx_e16d37fb__dc5868ea'] aliases={'idx_e16d37fb': 'idx_e16d37fb__dc5868ea'}
+  [ok  ] the pass left an alias over a physical collection — alias -> idx_e16d37fb__dc5868ea
+    points in idx_e16d37fb__dc5868ea: 2
+  [ok  ] the collection carries embedded points — 2
+    seeded a leftover from an older identity: idx_e16d37fb__0f0f0f0f (size=4096, 0 points)
+    before remove-project: collections=['idx_e16d37fb__0f0f0f0f', 'idx_e16d37fb__dc5868ea'] aliases={'idx_e16d37fb': 'idx_e16d37fb__dc5868ea'}
+  [ok  ] two collections carry the slug before the delete — ['idx_e16d37fb__0f0f0f0f', 'idx_e16d37fb__dc5868ea']
+  $ code-indexer remove-project <workdir>/proj  ->  exit=0
+    | removed <workdir>/proj: collections idx_e16d37fb__dc5868ea, idx_e16d37fb__0f0f0f0f dropped, registry entry deleted
+    after remove-project: collections=[] aliases={}
+  [ok  ] every collection the project owned is gone — remaining=[]/{}
+  [ok  ] the alias is gone with them — {}
+  [ok  ] exit 0 — 0
+  [ok  ] the printed line names every dropped collection — claimed vs gone=['idx_e16d37fb__0f0f0f0f', 'idx_e16d37fb__dc5868ea']
+    claimed drops == collections that disappeared: True (2 collection(s))
+  $ code-indexer list-projects --json  ->  exit=0
+    | {"schema": 1, "projects": [], "stale": false, "stale_known": false, "stale_reasons": [], "stale_reason_count": 0, "index_revision": null, "last_indexed": null}
+  [ok  ] the throwaway project is unregistered — e16d37fb
+
+-- case B: a project with no collection 
+  $ code-indexer add-project <workdir>/plain --vectors off  ->  exit=0
+    | registered <workdir>/plain (slug 97786a13)
+    | note: vectors=off — rows, symbols, references and chunks are indexed with no service; run reindex-project --vectors on later to embed them
+    | 97786a13: {"files_indexed": 1, "chunks_embedded": 0, "chunks_reused": 0, "files_deleted": 0, "duration_s": 0.01, "chunks_skipped": 0, "files_committed": 0, "sensitive_skipped": 0}
+    slug=97786a13 collections=[] aliases={}
+  [ok  ] a vectors-off project left no collection — []/{}
+  $ code-indexer remove-project <workdir>/plain  ->  exit=0
+    | removed <workdir>/plain: no vector collection to drop, registry entry deleted
+  [ok  ] case B exit 0 — 0
+  [ok  ] case B claims no drop — removed <workdir>/plain: no vector collection to drop, registry entry deleted
+  [ok  ] case B says there was nothing to drop — removed <workdir>/plain: no vector collection to drop, registry entry deleted
+
+-- case C: a collection left under the pre-rename plain name 
+  $ code-indexer add-project <workdir>/oldstyle --vectors on  ->  exit=0
+    | registered <workdir>/oldstyle (slug 02cca910)
+    | 02cca910: {"files_indexed": 1, "chunks_embedded": 1, "chunks_reused": 0, "files_deleted": 0, "duration_s": 0.54, "chunks_skipped": 0, "files_committed": 1, "sensitive_skipped": 0}
+    slug=02cca910 collections=['idx_02cca910'] aliases={}
+  [ok  ] the pre-rename shape is one plain collection, no alias — ['idx_02cca910']/{}
+  $ code-indexer remove-project <workdir>/oldstyle  ->  exit=0
+    | removed <workdir>/oldstyle: collection idx_02cca910 dropped, registry entry deleted
+    after remove-project: collections=[] aliases={}
+  [ok  ] the pre-rename collection is reclaimed — []/{}
+  [ok  ] the printed line names the pre-rename collection — removed <workdir>/oldstyle: collection idx_02cca910 dropped, registry entry deleted
+
+-- does Qdrant drop an alias when its collection is deleted? 
+    alias zzorderaliasprobe_alias -> zzorderaliasprobe_live before the collection delete
+    alias zzorderaliasprobe_alias -> None after the collection delete
+  [ok  ] the measurement is conclusive either way — zzorderaliasprobe_live
+    conclusion: Qdrant removes a pointing alias by itself, so alias-first is not load-bearing for the end state
+
+  store after probe:  collections=13 aliases=9
+  [ok  ] the store's collection list is back to its pre-probe state — before=['idx_2ed881d8', 'idx_53000ef2__dc5868ea', 'idx_b1b7f48b__new', 'idx_calc-engine__new', 'idx_ci10-v1__new', 'idx_code-indexer__new', 'idx_korean-podcast-feasibility', 'idx_tackboard', 'idx_vector-memory__new', 'idx_vivarium-adr-anna__new', 'idx_vivarium-adr__new', 'idx_vivarium-sim-vera-snapshot', 'idx_vivarium-sim__new'] after=['idx_2ed881d8', 'idx_53000ef2__dc5868ea', 'idx_b1b7f48b__new', 'idx_calc-engine__new', 'idx_ci10-v1__new', 'idx_code-indexer__new', 'idx_korean-podcast-feasibility', 'idx_tackboard', 'idx_vector-memory__new', 'idx_vivarium-adr-anna__new', 'idx_vivarium-adr__new', 'idx_vivarium-sim-vera-snapshot', 'idx_vivarium-sim__new']
+  [ok  ] the store's alias list is back to its pre-probe state — before={'idx_53000ef2': 'idx_53000ef2__dc5868ea', 'idx_b1b7f48b': 'idx_b1b7f48b__new', 'idx_calc-engine': 'idx_calc-engine__new', 'idx_ci10-v1': 'idx_ci10-v1__new', 'idx_code-indexer': 'idx_code-indexer__new', 'idx_vector-memory': 'idx_vector-memory__new', 'idx_vivarium-adr-anna': 'idx_vivarium-adr-anna__new', 'idx_vivarium-adr': 'idx_vivarium-adr__new', 'idx_vivarium-sim': 'idx_vivarium-sim__new'} after={'idx_53000ef2': 'idx_53000ef2__dc5868ea', 'idx_b1b7f48b': 'idx_b1b7f48b__new', 'idx_calc-engine': 'idx_calc-engine__new', 'idx_ci10-v1': 'idx_ci10-v1__new', 'idx_code-indexer': 'idx_code-indexer__new', 'idx_vector-memory': 'idx_vector-memory__new', 'idx_vivarium-adr-anna': 'idx_vivarium-adr-anna__new', 'idx_vivarium-adr': 'idx_vivarium-adr__new', 'idx_vivarium-sim': 'idx_vivarium-sim__new'}
+
+  VERDICT: PASS
