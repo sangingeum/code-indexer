@@ -1,0 +1,6 @@
+$ uv run python runs/round1-reverify/dense_argv_probe.py
+dense -> ["semantic-search", "q", "--limit", "8", "--mode", "dense"]
+hybrid -> ["semantic-search", "q", "--limit", "8", "--mode", "hybrid"]
+lexical -> ["semantic-search", "q", "--limit", "8", "--mode", "lexical"]
+PROBE_OK
+PROBE_EXIT=0

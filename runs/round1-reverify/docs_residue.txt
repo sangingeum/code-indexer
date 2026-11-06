@@ -1,0 +1,7 @@
+$ rg -n "STALE_TTL|transparently runs a staleness|staleness is normally enforced" src SKILL-CLI.md README.md
+SKILL-CLI.md:663:  (default `~/.code-indexer`), `STALE_TTL` (default 60 s, staleness probe),
+src/code_indexer/core.py:285:        force=False), but unconditioned by the STALE_TTL cache — the watch
+RG_EXIT=0
+
+$ rg -n "incremental indexing first" README.md
+RG_EXIT=1

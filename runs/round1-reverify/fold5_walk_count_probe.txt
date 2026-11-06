@@ -1,0 +1,7 @@
+$ uv run pytest runs/round1-reverify/walk_count_probe.py -q -s -W error
+EXIT=0
+WALKS=2
+STDERR=''
+.
+1 passed in 0.16s
+EXIT=0

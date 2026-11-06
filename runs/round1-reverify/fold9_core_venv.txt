@@ -1,0 +1,51 @@
+$ uv venv --clear /tmp/rv-core
+Using CPython 3.12.12
+Creating virtual environment at: /tmp/rv-core
+Activate with: source /tmp/rv-core/bin/activate
+VENV_EXIT=0
+
+$ uv pip install --python /tmp/rv-core/bin/python -e .
+Using Python 3.12.12 environment at: /tmp/rv-core
+Resolved 12 packages in 2ms
+   Building code-indexer @ file://<checkout>
+      Built code-indexer @ file://<checkout>
+Prepared 1 package in 3ms
+Installed 12 packages in 4ms
+ + annotated-doc==0.0.5
+ + code-indexer==0.1.0 (from file://<checkout>)
+ + markdown-it-py==4.2.0
+ + mdurl==0.1.2
+ + pathspec==1.1.1
+ + pygments==2.21.0
+ + rich==15.0.0
+ + shellingham==1.5.4
+ + tree-sitter==0.26.0
+ + tree-sitter-language-pack==1.18.0
+ + typer==0.28.0
+ + watchdog==7.1.0
+INSTALL_EXIT=0
+
+$ /tmp/rv-core/bin/python runs/round1-reverify/semantic_import_probe.py  # must fail: extra absent
+Traceback (most recent call last):
+  File "<checkout>/runs/round1-reverify/semantic_import_probe.py", line 1, in <module>
+    import numpy
+ModuleNotFoundError: No module named 'numpy'
+IMPORT_EXIT=1
+
+$ /tmp/rv-core/bin/code-indexer overview --project code-indexer --max-lines 8
+Warning: index is stale (239 files changed since 2026-11-06T16:23:29Z: 32 modified, 207 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project <checkout>
+project: code-indexer — 609 files, 60488 LOC
+languages:
+  text: 245 files, 10717 LOC (40.2%)
+  python: 191 files, 28028 LOC (31.4%)
+  markdown: 57 files, 11776 LOC (9.4%)
+  json: 56 files, 8707 LOC (9.2%)
+  err: 33 files, 26 LOC (5.4%)
+(truncated)
+OVERVIEW_EXIT=0
+
+$ /tmp/rv-core/bin/code-indexer semantic-search staleness --project code-indexer >stdout.txt 2>stderr.txt
+SEARCH_EXIT=3
+stdout_bytes=0
+--- stderr ---
+ConfigError: the semantic extension is not installed; install code-indexer[semantic]

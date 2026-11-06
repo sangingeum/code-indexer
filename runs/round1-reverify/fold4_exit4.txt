@@ -1,0 +1,10 @@
+$ code-indexer index-status --project liveproj
+Warning: index staleness check did not run (project path absent: /tmp/pytest-of-keum/pytest-193/test_end_to_end_index_and_sear0/liveproj); answers describe the index, not the tree.
+project=/tmp/pytest-of-keum/pytest-193/test_end_to_end_index_and_sear0/liveproj state=idle fingerprint=needs-reindex reason=extraction_version: 1 -> 4 languages_without_ast=[bash, css, html, java, json, kotlin, lua, markdown, php, ruby, rust, swift, toml, yaml]
+STATUS_EXIT=0
+
+$ code-indexer semantic-search staleness --project liveproj  (stdout -> file, stderr -> file)
+SEARCH_EXIT=4
+stdout_bytes=0
+--- stderr ---
+RebuildRequiredError: index for /tmp/pytest-of-keum/pytest-193/test_end_to_end_index_and_sear0/liveproj does not match the current configuration (extraction_version: 1 -> 4); run: code-indexer reindex-project /tmp/pytest-of-keum/pytest-193/test_end_to_end_index_and_sear0/liveproj

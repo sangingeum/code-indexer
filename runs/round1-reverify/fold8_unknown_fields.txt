@@ -1,0 +1,32 @@
+$ code-indexer index-status --project liveproj --json | jq .
+{
+  "project": "/tmp/pytest-of-keum/pytest-193/test_end_to_end_index_and_sear0/liveproj",
+  "state": "idle",
+  "fingerprint": "needs-reindex",
+  "reason": "extraction_version: 1 -> 4",
+  "languages_without_ast": [
+    "bash",
+    "css",
+    "html",
+    "java",
+    "json",
+    "kotlin",
+    "lua",
+    "markdown",
+    "php",
+    "ruby",
+    "rust",
+    "swift",
+    "toml",
+    "yaml"
+  ],
+  "stale": false,
+  "stale_known": false,
+  "stale_reasons": [],
+  "stale_reason_count": 0,
+  "index_revision": "1791027797.5572622",
+  "last_indexed": "2026-10-03T11:43:17Z",
+  "schema": 1
+}
+PIPE_EXIT=0
+--- stderr (one line expected) ---

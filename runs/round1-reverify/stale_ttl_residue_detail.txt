@@ -1,0 +1,52 @@
+=== maybe_refresh anywhere in src ===
+src/code_indexer/core.py:284:        Same core op as maybe_refresh's terminal call (run_index with
+EXIT=0
+
+=== stale_ttl consumers (src+tests) ===
+src/code_indexer/config.py:17:    "stale_ttl": "60",          # seconds; staleness re-scan interval
+src/code_indexer/config.py:34:    stale_ttl: int
+src/code_indexer/config.py:84:        stale_ttl=int(cfg["stale_ttl"]),
+tests/test_subcommands.py:80:                  stale_ttl=60, embed_batch=48, upsert_batch=256,
+tests/test_subcommands.py:465:                 index_root=tempfile.mkdtemp(prefix="ci-prev3-"), stale_ttl=60,
+tests/test_fingerprint.py:115:                  index_root=tmp, stale_ttl=60, embed_batch=48,
+tests/test_evalharness.py:99:                 stale_ttl=60, embed_batch=48, upsert_batch=256,
+tests/test_embed_format.py:60:        index_root=str(tmp_path / "root"), stale_ttl=60, embed_batch=48,
+tests/test_watch.py:63:        index_root=str(tmp_path / "state"), stale_ttl=0, embed_batch=48,
+tests/test_overview.py:47:                 index_root=str(tmp_path / "state"), stale_ttl=60,
+tests/test_fts_hybrid.py:147:                 index_root=str(tmp_path / "state"), stale_ttl=60,
+tests/test_csharp_references.py:89:                 index_root=str(tmp_path / "state"), stale_ttl=60,
+tests/test_probe_free_reads.py:30:                  index_root=str(index_root), stale_ttl=60, embed_batch=48,
+tests/test_search_data_files.py:55:        index_root=str(tmp_path / "root"), stale_ttl=60, embed_batch=48,
+tests/test_stale_safe_context.py:76:                 stale_ttl=0, embed_batch=48, upsert_batch=256,
+tests/test_output_contract.py:248:                 index_root=str(tmp_path / "state"), stale_ttl=60,
+tests/test_watcher.py:76:        index_root=str(tmp_path / "state"), stale_ttl=0, embed_batch=48,
+tests/test_orphan_sweep.py:109:                 index_root=str(root), stale_ttl=60, embed_batch=48,
+tests/test_doctor.py:103:                  embed_model="stub", index_root=str(tmp), stale_ttl=60,
+tests/test_embed_cost.py:150:                 index_root=str(tmp_path / "state"), stale_ttl=60,
+tests/test_csharp_symbols.py:90:                 stale_ttl=60, embed_batch=48, upsert_batch=256,
+tests/test_query_staleness.py:36:                 stale_ttl=60, embed_batch=48, upsert_batch=256,
+tests/test_symbol_resolution.py:124:                 stale_ttl=0, embed_batch=48, upsert_batch=256,
+tests/test_search_isolation.py:118:                 index_root=str(tmp_path / "state"), stale_ttl=60,
+tests/test_graph.py:253:                 index_root=str(tmp_path / "state"), stale_ttl=60,
+tests/test_graph.py:620:                 index_root=str(tmp_path / "state"), stale_ttl=60,
+tests/test_graph.py:739:                 index_root=str(tmp_path / "state"), stale_ttl=60,
+tests/test_lifecycle_selector.py:74:                 index_root=str(tmp_path / "state"), stale_ttl=60,
+tests/test_concurrency.py:87:        index_root=str(tmp_path / "state"), stale_ttl=0, embed_batch=48,
+tests/test_codeintel.py:83:                 index_root=tempfile.mkdtemp(prefix="ci-idx-"), stale_ttl=60,
+tests/test_read_contract.py:104:                 index_root=str(tmp_path / "state"), stale_ttl=60,
+tests/test_result_shaping.py:166:                 index_root=str(tmp_path / "state"), stale_ttl=60,
+tests/test_flag_contract.py:62:                 index_root=str(tmp_path / "state"), stale_ttl=60,
+tests/test_sensitive_exclusion.py:98:                  index_root=tmp, stale_ttl=60, embed_batch=48,
+tests/test_unwatch.py:131:        index_root=str(tmp_path / "state"), stale_ttl=0, embed_batch=48,
+tests/test_reference_surfaces.py:50:                 index_root=str(tmp_path / "state"), stale_ttl=60,
+tests/test_staleness_reporting.py:90:                  index_root=tmp, stale_ttl=60, embed_batch=48,
+tests/test_exit_codes.py:95:                 index_root=str(tmp_path / "state"), stale_ttl=60,
+tests/test_scoped_indexing.py:60:                 index_root=str(tmp_path / "state"), stale_ttl=60,
+tests/test_changed_symbols.py:188:                 index_root=str(tmp_path / "state"), stale_ttl=60,
+tests/test_changed_symbols.py:271:                 index_root=str(tmp_path / "state"), stale_ttl=60,
+tests/test_project_state.py:63:        index_root=str(tmp_path / "state"), stale_ttl=0, embed_batch=48,
+tests/test_extensions.py:125:                 index_root=str(tmp_path / "state"), stale_ttl=60,
+tests/test_langmatrix.py:107:                 index_root=str(tmp_path / "state"), stale_ttl=60,
+
+=== STALE_TTL_DEFAULT anywhere ===
+EXIT=1
