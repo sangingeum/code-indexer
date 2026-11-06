@@ -264,7 +264,7 @@ uv run pytest tests/test_provider_contract.py -q     # the stub passes with no s
                                                      # an absent provider is exit 3, an operation
                                                      # it does not support is exit 2 (ADR-0006 s.3)
 code-indexer --help | rg -c rename-symbol || echo 0  # 0: the command does not exist in phase 1
-uv run pytest tests/test_plan_schema.py -q           # a plan declaring rename_symbol is refused
+uv run pytest tests/test_plan_format.py -q           # a plan declaring rename_symbol is refused
                                                      # (exit 2, UnsupportedOperation, no text edit)
 uv run pytest tests/test_docs.py -q                  # entry document, references, registry and
                                                      # installed copy agree (ADR-0009 section 5)
