@@ -102,14 +102,21 @@ def _ollama_model_names(client: Any) -> list[str]:
 
 
 def check_ollama(cfg: Config, embedder: Any,
-                 ollama_client: Any = None) -> tuple[list[Check], int | None]:
+                 ollama_client: Any = None,
+                 available: bool = True) -> tuple[list[Check], int | None]:
     """Returns (checks, probe_dim) — probe_dim is None when the probe failed.
 
-    The caller threads probe_dim into the Qdrant dim comparison.
+    The caller threads probe_dim into the Qdrant dim comparison. ``available``
+    is the semantic extra's presence: with the extra absent the checks report
+    that absence as unverified and dial nothing.
     """
     checks: list[Check] = []
     created = False
     client = ollama_client
+    if not available:
+        return [Check(
+            WARN, "ollama-reachable",
+            f"unverified: {SEMANTIC_EXTENSION_MESSAGE} ({cfg.ollama_url})")], None
     if client is None:
         try:
             import ollama
@@ -499,14 +506,17 @@ def check_fingerprints(cfg: Config, registry: Any) -> list[Check]:
 # ---------------------------------------------------------------------------
 
 def run_doctor(cfg: Config, registry: Any, embedder: Any, store: Any,
-               ollama_client: Any = None) -> list[Check]:
+               ollama_client: Any = None,
+               semantic: bool = True) -> list[Check]:
     """Every check, in order. ``embedder``/``store`` may be None when the
     semantic extra is absent: those sections then report the extra's absence
-    as unverified instead of failing, and the local checks still answer.
+    as unverified instead of dialling or failing, and the local checks still
+    answer.
     """
     checks: list[Check] = []
     checks += check_runtime()
-    ollama_checks, probe_dim = check_ollama(cfg, embedder, ollama_client)
+    ollama_checks, probe_dim = check_ollama(cfg, embedder, ollama_client,
+                                            available=semantic)
     checks += ollama_checks
     checks += check_qdrant(cfg, store, registry, probe_dim)
     checks += check_index_root(cfg)

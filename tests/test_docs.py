@@ -295,11 +295,23 @@ def test_mcp_tools_in_parity_table():
 
 
 def test_cli_only_commands_labeled():
+    """The commands with no tool are named as CLI-only in the parity list."""
     text = re.search(r"### CLI ↔ MCP parity.*?(?=\n## )", _readme_text(), re.S).group(0)
-    for cmd in ("overview", "index-more", "doctor", "watch", "unwatch"):
-        assert cmd in text and "CLI-only" in text, (
-            f"parity table does not label {cmd} as CLI-only"
-        )
+    assert "**CLI-only**" in text
+    for cmd in ("index-more", "doctor", "watch", "unwatch", "sweep-orphans",
+                "eval"):
+        assert cmd in text, f"parity table does not name {cmd}"
+    # A command with a tool must not be labelled CLI-only.
+    for tool in ("overview", "skeleton", "list_projects"):
+        assert tool not in text.split("**CLI-only**")[1], (
+            f"{tool} is both a tool and labelled CLI-only")
+
+
+def test_mcp_section_documents_the_install_line_and_usage_record():
+    text = _readme_text()
+    assert 'uvx --from "code-indexer[mcp]" code-indexer-mcp' in text
+    assert "mcp-usage.jsonl" in text
+    assert "use the CLI subcommand of the same name" in text
 
 
 # ---------------------------------------------------------------------------

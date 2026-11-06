@@ -269,30 +269,14 @@ re-embed only changed chunks. Qdrant upserts ~550 pts/s. Baseline numbers are
 
 ## MCP client config (Claude Desktop / Hermes / any stdio MCP client)
 
-```json
-{
-  "mcpServers": {
-    "code-indexer": {
-      "command": "uv",
-      "args": [
-        "--directory", "/path/to/code-indexer",
-        "run", "code-indexer-mcp"
-      ],
-      "env": {
-        "OLLAMA_URL": "http://192.168.X.X:11434",
-        "QDRANT_URL": "http://192.168.X.X:6333"
-      }
-    }
-  }
-}
+The server ships in the `mcp` extra. One command runs the released server
+without installing it:
+
+```bash
+uvx --from "code-indexer[mcp]" code-indexer-mcp
 ```
 
-When installed as a tool, point `command` at `code-indexer-mcp` directly
-(installed from the `mcp` extra; no `uv` wrapper). **stdout is reserved for
-the MCP transport** — all log output goes to stderr; never pipe server stdout
-into anything that expects log lines. Listing tools does not require Ollama or
-Qdrant to be reachable, and with the semantic extra absent the server starts
-with the seven tools that need no embedding client.
+Configure the client to launch it:
 
 ```json
 {
@@ -309,10 +293,17 @@ with the seven tools that need no embedding client.
 }
 ```
 
+When installed as a tool (`uv tool install -e ".[mcp]"`), point `command` at
+`code-indexer-mcp` directly (no `uvx` wrapper). **stdout is reserved for the
+MCP transport** — all log output goes to stderr; never pipe server stdout
+into anything that expects log lines. Listing tools does not require Ollama or
+Qdrant to be reachable, and with the semantic extra absent the server starts
+with the seven tools that need no embedding client.
+
 ## Development
 
 ```bash
-uv sync                                  # install deps (.venv, incl. watchdog)
+uv sync --all-extras                     # dev env (.venv, incl. both extras)
 uv run code-indexer-mcp                  # run the stdio MCP server
 uv run code-indexer list-projects        # one-shot CLI (no daemon)
 uv run pytest -m "not live"              # offline suite (CI runs this)
@@ -321,9 +312,10 @@ uv run pytest -m live                    # live-backend tests (needs Ollama/Qdra
 
 Offline tests use fake embedder/store seams (no backends required); live
 tests are marked `live` and deselected by default. Docs drift is guarded by
-`tests/test_docs.py`. Constraints: pins `numpy<2` (1.26.4), `qdrant-client<1.15`,
-`mcp<2`, `tree-sitter==0.26.0`, `tree-sitter-language-pack==1.18.0`
-(older x86-64 CPUs without x86-64-v2; all pure/prebuilt wheels).
+`tests/test_docs.py`. Constraints: core pins `tree-sitter==0.26.0` and
+`tree-sitter-language-pack==1.18.0` (older x86-64 CPUs without x86-64-v2;
+pure/prebuilt wheels). The `semantic` extra pins `qdrant-client<1.15`, whose
+resolution brings `numpy<2` (1.26.4); the `mcp` extra pins `mcp<2`.
 
 ## Upgrading between versions
 

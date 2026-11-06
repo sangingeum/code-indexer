@@ -21,7 +21,8 @@ logger = logging.getLogger("code-indexer.cli")
 
 from .errors import fail
 from .errors import classify, IndexerError
-from .extensions import semantic_available
+from .errors import ExtensionUnavailableError
+from .extensions import SEMANTIC_EXTENSION_MESSAGE, semantic_available
 from .core import (NEEDS_REINDEX, NEVER_INDEXED, UNVERIFIED, Core,
                    MIGRATION_HINT)
 from . import staleness
@@ -84,6 +85,18 @@ def _resolve(core: Core, project: str | None,
         _die(err)
     assert entry is not None
     return entry
+
+
+def _require_semantic() -> None:
+    """Fail with the one extension line before a command touches anything.
+
+    A pass, a query or a watch needs the embedding and vector clients. When
+    the extra is absent the command stops on one actionable line and exit 3
+    instead of half-registering a project or printing a success line first
+    (ADR-0001 section 1).
+    """
+    if not semantic_available():
+        fail(ExtensionUnavailableError(SEMANTIC_EXTENSION_MESSAGE))
 
 
 def _usage_die(msg: str) -> NoReturn:
@@ -179,7 +192,7 @@ def doctor(
     # doctor on the same configured URL and lets test stubs inject).
     client = getattr(embedder, "client", None)
     checks = run_doctor(core.cfg, core.registry, embedder, store,
-                        ollama_client=client)
+                        ollama_client=client, semantic=semantic_available())
     if json_output:
         typer.echo(json.dumps(
             {"checks": [c.to_dict() for c in checks],
@@ -514,6 +527,7 @@ def add_project(
 ) -> None:
     """Register a project directory for semantic indexing (idempotent) and
     run the initial index pass."""
+    _require_semantic()
     core = _get_core(skip_stale_check)
     path = os.path.abspath(os.path.expanduser(path))
     if not os.path.isdir(path):
@@ -578,6 +592,7 @@ def index_more(
     (historical) and ``index-more --project <project> <subpath>``. Combining
     the flag with two positionals is ambiguous and rejected.
     """
+    _require_semantic()
     core = _get_core(skip_stale_check)
     if project:
         if second is not None:
@@ -799,6 +814,7 @@ def semantic_search(
     dropped-count line in text/compact output). A --all-projects answer fuses
     per-collection lists with Reciprocal Rank Fusion instead of comparing raw
     cross-collection cosine."""
+    _require_semantic()
     core = _get_core(skip_stale_check)
     if all_projects and project:
         _usage_die("--all-projects and --project are mutually exclusive; "
@@ -1089,6 +1105,7 @@ def reindex_project(
     The rebuild fills a temporary collection first and swaps it in when
     complete, so search against the old data stays available until the swap.
     This also clears a needs-reindex state (config/fingerprint mismatch)."""
+    _require_semantic()
     core = _get_core(skip_stale_check)
     selector = _require_selector(core, project, path, "reindex-project")
     entry = _resolve(core, selector)
@@ -1927,8 +1944,21 @@ def _main(
 
 
 def main() -> None:
-    """Console-script entry point (``code-indexer``)."""
-    app()
+    """Console-script entry point (``code-indexer``).
+
+    The last-line seam: any exception a command did not handle becomes one
+    taxonomy line on stderr and the taxonomy's exit code, never a traceback
+    (ADR-0003's output contract).
+    """
+    try:
+        app()
+    except SystemExit:
+        raise
+    except KeyboardInterrupt:
+        raise SystemExit(130) from None
+    except BaseException as exc:  # noqa: BLE001 — the shared failure seam
+        logger.info("command failed", exc_info=True)
+        fail(exc)
 
 
 # ---------------------------------------------------------------------------
