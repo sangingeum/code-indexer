@@ -1,6 +1,6 @@
 # ADR-0004: the edit plan and its lifecycle
 
-- Status: proposed (awaiting owner ratification)
+- Status: accepted (owner ratification 2026-11-07)
 - Date: 2026-11-07
 - Deciders: owner (ratification), architecture review
 - Supersedes / Superseded by: --
@@ -148,7 +148,7 @@ None of the three uses the surrogate id, and none needs a range sharper than who
 ## Consequences
 
 - A new artifact family appears, `.code-indexer/plans/`, holding generated documents that must never be committed; ignoring it is an implementation-leg task, named here so it is not forgotten. `plan-apply` is a write command, and the list that says so is ADR-0003 section 1's, which names the plan writers, `plan-apply` and its receipt. That roster is the only place a command's class is stated; this record does not restate it, because a second statement beside a closed list is what produced the contradiction this fold closes.
-- Four commands appear that must carry `--json` from the first commit; the audit section 8 row records thirteen existing commands that do not, and this feature may not join them.
+- Six commands appear that must carry `--json` from the first commit; the audit section 8 row records thirteen existing commands that do not, and this feature may not join them.
 - A plan is executable input, not a human note: a plan file that cannot be validated is a refusal, a plan file edited by hand is a hash mismatch, and since a plan records the tree and not the user's intent, preview is the only place intent is checked -- which is why preview writes nothing and shows every affected file rather than a summary.
 - Tests that must exist: coordinate cross-checking, CRLF, BOM, end-of-file insertion, mixed terminators, non-UTF-8 input, overlap and adjacency, stale refusal at apply, and the ambiguity refusal for two identically-signatured nodes.
 

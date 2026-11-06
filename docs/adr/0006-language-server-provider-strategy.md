@@ -1,6 +1,6 @@
 # ADR-0006: language-server provider strategy
 
-- Status: proposed (awaiting owner ratification)
+- Status: accepted (owner ratification 2026-11-07)
 - Date: 2026-11-07
 - Deciders: owner (ratification), architecture review
 - Supersedes / Superseded by: --
@@ -76,7 +76,7 @@ The tension is stated rather than hidden: C# has twice the indexed file count (8
 - Conversion lives in **one module** in the provider adapter, as two named functions, and nowhere else. A provider answer enters the core through it; nothing downstream sees a UTF-16 position.
 - The conversion is proved per file's `newline` and byte-order-mark state, and its test set is fixed here: a line containing astral-plane characters, a CRLF file, a file with a byte-order mark, an empty last line, and a position whose UTF-16 offset falls inside a surrogate pair (refused, not rounded).
 - **The one boundary test, applied by the adapter to every converted position**: it must land on a byte boundary of the decoded line. A UTF-16 offset that falls inside a surrogate pair, or anywhere the line's decoding cannot place exactly, is refused (`PositionConversionFailed`), because a silently rounded offset is the same defect class as a plan column nobody checks.
-- **A mid-line position is not a failure of that test, and each phase says what it does with one -- this clause is the only place either answer is stated.** Phase 1 has no use for a mid-line position: every structural operation is whole-line, its ranges are line-granular (ADR-0004 section 3) and validation refuses a range that is not whole lines, so one never reaches a phase-1 operation. Phase 2 takes it as the normal case, because a rename edits identifiers inside a line, and expands the edit to the whole lines it touches (section 6). Reading these as two tests -- or as ADR-0004 refusing what this section accepts -- is the misreading this clause exists to end.
+- **A mid-line position is not a failure of that test, and each phase says what it does with one.** Phase 1 has no use for a mid-line position: every structural operation is whole-line, its ranges are line-granular (ADR-0004 section 3) and validation refuses a range that is not whole lines, so one never reaches a phase-1 operation. Phase 2 takes it as the normal case, because a rename edits identifiers inside a line, and expands the edit to the whole lines it touches (section 6). ADR-0004 section 3 states the same two answers from the operation side, which is deliberate: the adapter applies one boundary test and both records must be read as saying so.
 - The conversion's version is recorded in the plan's `provider` member, so a plan written under one conversion is not silently reinterpreted under another.
 
 ### 6. From provider edits to a plan

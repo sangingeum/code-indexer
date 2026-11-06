@@ -1,6 +1,6 @@
 # ADR-0008: the product name
 
-- Status: proposed (awaiting owner ratification)
+- Status: accepted (owner ratification 2026-11-07)
 - Date: 2026-11-07
 - Deciders: owner (ratification), architecture review
 - Supersedes / Superseded by: --

@@ -1,6 +1,6 @@
 # ADR-0009: the agent surface -- skill layout and command documentation
 
-- Status: proposed (awaiting owner ratification)
+- Status: accepted (owner ratification 2026-11-07)
 - Date: 2026-11-07
 - Deciders: owner (ratification), architecture review
 - Supersedes / Superseded by: --
@@ -41,17 +41,19 @@ One file per concern, under `skill/references/`, each addressed by a trigger nam
 
 | Reference | Contents | Trigger in the entry document |
 |---|---|---|
-| `indexing.md` | `add-project`, `index-more`, `remove-project`, `reindex-project`, `sweep-orphans`, `watch`, `unwatch`: flags, defaults, two examples each, what each writes | the task is to build or repair an index |
-| `query.md` | `overview`, `skeleton`, `outline`, `find-*`, `get-code-context`, `deps`, `changed-symbols`, `map`, `file-outline`: flags, defaults, examples | a query answered the wrong shape and its flags need reading |
+| `indexing.md` | `add-project`, `index-more`, `remove-project`, `reindex-project`, `sweep-orphans`, `watch`, `unwatch`, and the project-state surfaces `index-status`, `list-projects`, `lookup-project`, `doctor`: flags, defaults, two examples each, what each writes | the task is to build or repair an index, or to ask what state one is in |
+| `query.md` | `overview`, `skeleton`, `outline`, `find-*`, `get-code-context`, `deps`, `changed-symbols`, `map`, `file-outline`, plus `semantic-search` and the retrieval-quality surfaces `eval` and `eval-compare`: flags, defaults, examples | a query answered the wrong shape and its flags need reading |
 | `plans.md` | the six plan commands, the plan document's members, validation, preview, apply, the receipt and recovery | the task is to change code through a plan |
 | `machine-output.md` | `--json` shapes, schema versions, the staleness block, one `jq` recipe per shape | an agent parses output instead of reading prose |
 | `failures.md` | every exit code with its `ErrorType`s, the cause and the remedy for each | a command failed and the remedy is not obvious from its line |
+
+The two per-command references together cover every registered command: a command whose flags have no home is a defect in this table, not a command the split drops, and check 2 in section 5 fails on one.
 
 Budget per reference: 400 lines and 24 KiB. Each reference opens with the records that govern it (ADR numbers as provenance), because a reference that restates a decision without saying where it is decided cannot be corrected when the decision changes.
 
 ### 3. What is generated and what is written
 
-- **Generated**: each reference's per-command sections -- name, arguments, flags with defaults, the read-or-write class, the JSON shape -- come from the command registry, the same registry the CLI builds its commands from. A hand edit inside a generated block fails the documentation test, and the generator is the only writer of that block.
+- **Generated**: each reference's per-command sections -- name, arguments, flags with defaults, the read-or-write class, the JSON shape -- come from the command registry, the same registry the CLI builds its commands from. And the entry document's roster (name, class, pointer to its reference) is generated from the same registry, so a command cannot exist undocumented and a class cannot drift from ADR-0003 section 1. A hand edit inside a generated block fails the documentation test, and the generator is the only writer of that block.
 - **Written**: the prose -- when to use a command, worked examples, the remedy paragraphs, the failure narrative. Prose that could be generated would be a template, and a template that guesses is worse than a sentence a person wrote.
 - **Not duplicated**: a flag documented in a reference is not restated in the entry document; the roster line names the command and its class and stops there. The exit-code table exists once, in the entry document, and `failures.md` expands it rather than repeating it.
 
@@ -60,14 +62,14 @@ Budget per reference: 400 lines and 24 KiB. Each reference opens with the record
 The tracked `SKILL-CLI.md` and `skill/references/` are the only source. The installed skill directory is a copy, refreshed by whoever cuts a release from the checkout: the release step installs the skill after the documentation test has passed, so the copy is never ahead of the tree it was made from and never behind it by more than one release.
 
 - An agent that finds the installed copy out of date reports it; it does not edit the installed copy, because an edit there is a fork the next install silently deletes.
-- The copy lives in one directory tree with its references, so the entry document's trigger lines resolve inside the installed skill and not only inside the checkout.
+- The copy lives in one directory tree with its references, so the entry document's trigger lines resolve inside the installed skill and not only inside the checkout. Its location is `<skills-root>/code-indexer/`, where `<skills-root>` is the profile's skills directory and is passed to the release step as an argument -- the record names a shape, because a machine path in a published document is a defect (the publishing check). The skill is installed today as a symlink from that directory into the tracked file, and the release step replaces that symlink with a copy of the directory once `skill/references/` exists.
 
 ### 5. What the drift test covers
 
 `tests/test_docs.py` grows six checks, and each one is a defect class that has already happened somewhere in this repository or in ADR-0007's own history:
 
 1. **Roster equality**: the entry document's command roster equals the registry, names and read-or-write classes both.
-2. **Index closure**: every reference the entry document names exists, and every file under `skill/references/` is named by the entry document -- no orphan reference and no dead trigger.
+2. **Index closure**: every reference the entry document names exists, every file under `skill/references/` is named by the entry document, and every registered command is covered by exactly one reference's contents -- no orphan reference, no dead trigger, and no command whose flags have no home.
 3. **Budgets**: the entry document is at most 120 lines and 8 KiB; each reference at most 400 lines and 24 KiB. The failure message prints the measured size against the budget.
 4. **Taxonomy coverage**: every exit code of ADR-0003 section 5 appears in the entry document's table and in `failures.md`.
 5. **Generated blocks**: each generated command block equals the generator's output for that command, so a flag added to the registry and not regenerated fails the suite instead of ageing.
@@ -75,12 +77,14 @@ The tracked `SKILL-CLI.md` and `skill/references/` are the only source. The inst
 
 The MCP tool list stays a separate check (ADR-0007 section 5), in the same module, because it is a different document with a different owner of truth.
 
+The module as it stands finds the documented commands by scanning a fenced block in `SKILL-CLI.md` for lines beginning `code-indexer `, and three of its thirteen tests key on that block. The round that renders the roster from the registry replaces that parser with the registry comparison in the same commit, so the gate cannot fail for a parser the record did not anticipate.
+
 ## Requirements this record resolves
 
 - **The proposal's section 8.2** (a small entry document plus on-demand references) in full: sections 1 and 2 are the split, section 3 is how the two halves stay honest, section 4 is the copy's ownership, section 5 is the drift test the proposal does not ask for but the split needs.
 - **The plan's round 5 skill deliverable**, which no record granted before this one: the split, the budgets and the test are all scheduled there.
 - **Disagreement with the proposal's framing of the skill as documentation**: it is not a document, it is the load path an agent pays for on every task, and a load path needs a budget the way an interface needs a contract. A documentation standard would have said "keep it clear"; this record says 120 lines and 8 KiB and makes the suite enforce it.
-- **Disagreement with ADR-0007 section 5's placement of the parity table**: the table leaves both the skill and the README's prose for a single generated list in the README, because a CLI agent never needs it and the human who installs the extra always does.
+- **Agreement with ADR-0007 section 5, recorded because it reads like a disagreement**: that record already puts the MCP parity table in `README.md` and already says the skill's "no MCP tool" notes can be deleted rather than maintained. This record keeps the same placement for a different reason -- the table is for the human who installs the extra, and a CLI agent never needs it -- and adds only the budget that stops the table returning to the load path.
 
 ## Alternatives considered, and why rejected
 
