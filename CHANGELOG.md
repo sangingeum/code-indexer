@@ -5,8 +5,10 @@
 **The identity model is now a query surface, and an ambiguous name is
 reported instead of guessed.** `find-symbol` gains the structural filters
 over the rows the identity pass already writes — `--kind` (with `--type` and
-`--symbol-type` kept as aliases), `--name-pattern` (a case-sensitive glob the
-name index answers), `--container`, `--visibility`, `--language`,
+`--symbol-type` kept as aliases), `--name-pattern` (a case-sensitive glob
+over the name; no index was added for it — a prefix glob is a range seek on
+the existing name index, and a leading wildcard is a scan of the table, cheap
+at this size), `--container`, `--visibility`, `--language`,
 `--inherits NAME` and `--has-call NAME` — and they compose as AND in one read.
 No schema change, no new index, no reindex: this release is query-only.
 

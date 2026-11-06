@@ -3,8 +3,17 @@
 Round 3 of the overhaul plan, governed by ADR-0002 sections 4 and 5. Query
 only: no schema change, no reindex, no new command. Every command below was
 run against this repository's own index (`<project>`, schema 7,
-`rows=current`); the index was stale by one added test file at the time, which
-the answers report on their own warning line and which changes no symbol row.
+`rows=current`).
+
+**Measured at.** Every population in this document comes from ONE frozen
+read: the standing watcher was stopped (`unwatch --all`, pid 345973), the
+commands below were run at commit `f3d6b1e` against `index_revision=68`, and
+the watcher was restarted afterwards. The index was stale by one added test
+file at capture, which the answers report on their own warning line and which
+changes no symbol row. The raw capture is `runs/round3-folds/measure.txt`.
+The earlier revision of this record quoted filter counts measured at
+`d27fbcb` beside a whole-index ledger first written at `3d93972` — two
+snapshots three commits apart; every number here belongs to the one snapshot.
 
 ## Filters on `find-symbol`
 
@@ -40,29 +49,29 @@ No index was added for any of this.
 
 ```
 $ code-indexer find-symbol --kind class --limit 3
-- <project>::src/code_indexer/watcher.py:140-157 AlreadyRunning (class, confidence=exact)  class AlreadyRunning(Exception):
-- <project>::src/code_indexer/errors.py:52-54 ArgumentError (class, confidence=exact)  class ArgumentError(IndexerError):
-- <project>::src/code_indexer/errors.py:67-71 BackendError (class, confidence=exact)  class BackendError(IndexerError):
-... 3 of 133 matches shown (--limit 3 reached; raise it to see the rest)
+- <project>::src/code_indexer/watcher.py:140-157 AlreadyRunning (class, confidence=exact, evidence=ast)  class AlreadyRunning(Exception):
+- <project>::src/code_indexer/errors.py:57-75 AmbiguousSymbolError (class, confidence=exact, evidence=ast)  class AmbiguousSymbolError(ArgumentError):
+- <project>::src/code_indexer/errors.py:52-54 ArgumentError (class, confidence=exact, evidence=ast)  class ArgumentError(IndexerError):
+... 3 of 137 matches shown (--limit 3 reached; raise it to see the rest)
 
 $ code-indexer find-symbol --container Manifest --limit 4
-- <project>::src/code_indexer/manifest.py:276-293 __init__ (function, confidence=exact)  def __init__(self, db_path: str, *, writable: bool = True):
-- <project>::src/code_indexer/manifest.py:363-366 _file_select (function, confidence=exact)  def _file_select(self) -> str:
-- <project>::src/code_indexer/manifest.py:611-628 _symbol_filters (function, confidence=exact)  def _symbol_filters(self, name: str | None = None,
-- <project>::src/code_indexer/manifest.py:543-560 _symbol_row_tuple (function, confidence=exact)  def _symbol_row_tuple(file: str, s: SymbolRow,
+- <project>::src/code_indexer/manifest.py:276-293 __init__ (function, confidence=exact, evidence=ast)  def __init__(self, db_path: str, *, writable: bool = True):
+- <project>::src/code_indexer/manifest.py:363-366 _file_select (function, confidence=exact, evidence=ast)  def _file_select(self) -> str:
+- <project>::src/code_indexer/manifest.py:611-628 _symbol_filters (function, confidence=exact, evidence=ast)  def _symbol_filters(self, name: str | None = None,
+- <project>::src/code_indexer/manifest.py:543-560 _symbol_row_tuple (function, confidence=exact, evidence=ast)  def _symbol_row_tuple(file: str, s: SymbolRow,
 ... 4 of 49 matches shown (--limit 4 reached; raise it to see the rest)
 
 $ code-indexer find-symbol --visibility private --limit 3
-- <project>::tests/test_output_contract.py:145-147 _Capture (class, confidence=exact)  class _Capture(logging.Handler):
-- <project>::tests/test_indexer_embed_context.py:12-24 _FakeEmbedder (class, confidence=exact)  class _FakeEmbedder:
-- <project>::tests/test_embed_format.py:18-30 _FakeEmbedder (class, confidence=exact)  class _FakeEmbedder:
-... 3 of 372 matches shown (--limit 3 reached; raise it to see the rest)
+- <project>::tests/test_output_contract.py:145-147 _Capture (class, confidence=exact, evidence=ast)  class _Capture(logging.Handler):
+- <project>::tests/test_indexer_embed_context.py:12-24 _FakeEmbedder (class, confidence=exact, evidence=ast)  class _FakeEmbedder:
+- <project>::tests/test_embed_format.py:18-30 _FakeEmbedder (class, confidence=exact, evidence=ast)  class _FakeEmbedder:
+... 3 of 377 matches shown (--limit 3 reached; raise it to see the rest)
 
 $ code-indexer find-symbol --language markdown --limit 3
-- <project>::CHANGELOG.md:71-85 JSON (function, confidence=heuristic)  - **Per-side staleness.** `index-status` reports `rows=current|absent`,
-- <project>::docs/overhaul-baseline-audit.md:211-236 KEY (function, confidence=heuristic)  LINE INTEGER NOT NULL,
-- <project>::docs/subcommand-design.md:211-230 NULL (function, confidence=heuristic)  CHECK in the walk).
-... 3 of 93 matches shown (--limit 3 reached; raise it to see the rest)
+- <project>::docs/overhaul-baseline-audit.md:211-236 KEY (function, confidence=heuristic, evidence=unknown)  line INTEGER NOT NULL,
+- <project>::docs/subcommand-design.md:211-230 NULL (function, confidence=heuristic, evidence=unknown)  check in the walk).
+- <project>::runs/issue27-publishing-hygiene/fold-verification.md:71-93 _is_authored (function, confidence=heuristic, evidence=unknown)
+... 3 of 97 matches shown (--limit 3 reached; raise it to see the rest)
 
 $ code-indexer find-symbol --inherits IndexerError --json | jq '{match_count, truncated, names: [.symbols[].name]}'
 {
@@ -80,12 +89,12 @@ $ code-indexer find-symbol --inherits IndexerError --json | jq '{match_count, tr
 }
 
 $ code-indexer find-symbol --has-call find_symbols --limit 5
-- <project>::src/code_indexer/core.py:1210-1227 _fuse_lexical_dense (function, confidence=exact)  def _fuse_lexical_dense(self, entry: ProjectEntry, query: str,
-- <project>::tests/test_identity.py:132-138 _rows (function, confidence=exact)  def _rows(core: Core, entry, name: str | None = None,
-- <project>::src/code_indexer/evalharness.py:100-117 _symbol_ranges (function, confidence=exact)  def _symbol_ranges(manifest: Any, rel_file: str,
-- <project>::src/code_indexer/core.py:1636-1653 code_context (function, confidence=exact)  def code_context(self, entry: ProjectEntry, file: str,
-- <project>::src/code_indexer/manifest.py:775-788 definitions_of (function, confidence=exact)  def definitions_of(self, name: str,
-... 5 of 25 matches shown (--limit 5 reached; raise it to see the rest)
+- <project>::src/code_indexer/core.py:1210-1227 _fuse_lexical_dense (function, confidence=exact, evidence=ast)  def _fuse_lexical_dense(self, entry: ProjectEntry, query: str,
+- <project>::tests/test_identity.py:132-138 _rows (function, confidence=exact, evidence=ast)  def _rows(core: Core, entry, name: str | None = None,
+- <project>::src/code_indexer/evalharness.py:100-117 _symbol_ranges (function, confidence=exact, evidence=ast)  def _symbol_ranges(manifest: Any, rel_file: str,
+- <project>::src/code_indexer/core.py:1636-1653 code_context (function, confidence=exact, evidence=ast)  def code_context(self, entry: ProjectEntry, file: str,
+- <project>::src/code_indexer/manifest.py:775-788 definitions_of (function, confidence=exact, evidence=ast)  def definitions_of(self, name: str,
+... 5 of 26 matches shown (--limit 5 reached; raise it to see the rest)
 ```
 
 `--inherits` on this repository has two answers worth keeping apart:
@@ -98,7 +107,7 @@ never printed as "no".
 
 ```
 $ code-indexer find-symbol --kind function --container Manifest --has-call find_symbols
-- <project>::src/code_indexer/manifest.py:775-788 definitions_of (function, confidence=exact)  def definitions_of(self, name: str,
+- <project>::src/code_indexer/manifest.py:775-788 definitions_of (function, confidence=exact, evidence=ast)  def definitions_of(self, name: str,
 ```
 
 ### truncation
@@ -109,14 +118,14 @@ exact-name mode), and a capped answer says it was capped:
 ```
 $ code-indexer find-symbol --language python --limit 5 --json | jq '{match_count, shown: (.symbols|length), truncated}'
 {
-  "match_count": 2026,
+  "match_count": 2070,
   "shown": 5,
   "truncated": true
 }
 ```
 
 The same answer in text mode ends with
-`... 5 of 2026 matches shown (--limit 5 reached; raise it to see the rest)`.
+`... 5 of 2070 matches shown (--limit 5 reached; raise it to see the rest)`.
 `match_count` is computed from the SAME clause set as the rows, so a capped
 answer can never quietly disagree with its own population.
 
@@ -141,11 +150,13 @@ $ code-indexer find-symbol --language markdown --limit 3 --json \
 }
 ```
 
-Across the whole index (2,311 symbol rows): `ast` 2,032, `unknown` 279,
-`heuristic` 0. The missing `heuristic` bucket is the honest shape of this
-repository: a textual row only stays `heuristic` inside a file that parsed,
-and here the textual rows all live in the 761 files with no grammar — so they
-are `unknown`, which is the stronger statement.
+Across the whole index (`index_revision=68`, 2,322 symbol rows) the ledger by
+(source, verdict) is exactly `('ast','parsed')` 2,033 and
+`('regex','parse_unavailable')` 289, so the `find-symbol` labels read `ast`
+2,033 and `unknown` 289, `heuristic` 0. The missing `heuristic` bucket is the
+honest shape of this repository: a textual row only stays `heuristic` inside
+a file that parsed, and here the textual rows all live in the 794 files with
+no grammar — so they are `unknown`, which is the stronger statement.
 
 ### absence is not a negative
 
@@ -157,13 +168,13 @@ $ code-indexer find-symbol --inherits Base --json \
     | jq '{match_count, evidence_note}'
 {
   "match_count": 0,
-  "evidence_note": "no symbol carries an attributed reference to 'Base'; 130 file(s) holding symbols have no AST extractor, so their references are unknown, not absent"
+  "evidence_note": "no symbol carries an attributed reference to 'Base'; 137 file(s) holding symbols have no AST extractor, so their references are unknown, not absent"
 }
 ```
 
 `Base` is a test-fixture base class, not a `src/` one, so this repository's
 index truly has no candidate — and the answer still refuses to read as "no":
-130 files could hold the reference and none of them was examined. In text
+137 files could hold the reference and none of them was examined. In text
 mode the same answer prints the sentence after `no symbols matching ...`.
 
 
@@ -216,7 +227,7 @@ fixture case in `tests/test_ambiguity.py` pins the two-candidate version.
 
 ```
 $ code-indexer find-callers find_symbol --max-nodes 8 --json \
-    | jq '{match_count, candidates: (.ambiguity.candidates|length), roots: [.roots[] | {file, line}], targets: [.roots[].children[].targets] | .[0:2]}'
+    | jq '{match_count, candidates: (.ambiguity.candidates|length), roots: [.roots[] | {file, line}], targets: [.roots[].children[].targets] | .[0:2], truncated, omitted}'
 {
   "match_count": 2,
   "candidates": 2,
@@ -227,7 +238,9 @@ $ code-indexer find-callers find_symbol --max-nodes 8 --json \
   "targets": [
     ["src/code_indexer/server.py:198-213", "src/code_indexer/cli.py:1781-1801"],
     ["src/code_indexer/server.py:198-213", "src/code_indexer/cli.py:1781-1801"]
-  ]
+  ],
+  "truncated": true,
+  "omitted": 208
 }
 ```
 
@@ -238,6 +251,12 @@ which definition it means, so it names both rather than picking one. Where
 the store CAN attribute an edge it names one: in the fixture, an import edge
 resolves to the imported file and therefore to exactly one candidate
 (`tests/test_ambiguity.py::test_find_callers_unions_over_both_candidates_and_labels_each_hit`).
+
+(Measured at the base commit: on this index two of `Core`'s nine definition
+roots live in files with no grammar, and this block would label every root
+`confidence: ast` while the ambiguity candidates for the same rows say
+`evidence: unknown` — the one-payload-two-answers defect the follow-up leg
+fixes and records in `runs/round3-folds/record.md`.)
 
 ## What I left
 
@@ -251,7 +270,7 @@ resolves to the imported file and therefore to exactly one candidate
   `*Manager` also has no hit on this repository.
 - **`heuristic` has no rows here.** The label exists for a textual row inside
   a parsed file; this index has none, so the whole-index counts are `ast`
-  2,032 / `unknown` 279. No synthetic example was invented to make the bucket
+  2,033 / `unknown` 289. No synthetic example was invented to make the bucket
   populate.
 - **`ambiguity` is emitted in exact-name mode only.** Browse and
   `--name-pattern` answers report `match_count` and `truncated`; they are not
@@ -281,4 +300,3 @@ All checks passed!
 $ uv run python scripts/publishing_hygiene_lint.py
 publishing hygiene: scanned=620 skipped=0 violations=0
 ```
-(to be filled before the push)

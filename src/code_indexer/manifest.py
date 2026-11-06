@@ -621,9 +621,11 @@ class Manifest:
         """The WHERE clauses every symbol read shares; filters compose (AND).
 
         ``name_pattern`` is a GLOB over the name and stays case-sensitive
-        (shell semantics): ``idx_symbols_name`` answers it, so a prefix
-        pattern is an index range and a suffix pattern an index scan, never a
-        pass over the table.
+        (shell semantics). No index was added for it: the existing name index
+        answers a PREFIX pattern as a range seek, while a leading wildcard
+        cannot be a range and is a scan of ``symbols`` (``SCAN s``) — cheap
+        at this size, and measured rather than assumed. The planner plan is
+        asserted in the tests (``symbol_query_plan``).
 
         ``inherits`` and ``has_call`` are answered from ATTRIBUTED syntax
         only — a ``base_class`` / ``call`` row whose ``from_symbol`` is this

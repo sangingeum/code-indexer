@@ -1,0 +1,67 @@
+### index_revision
+{
+  "index_revision": "68",
+  "last_indexed": "2026-11-06T22:56:35Z",
+  "stale": true,
+  "stale_reasons": [
+    {
+      "kind": "added",
+      "file": "runs/round3-folds/measure.txt"
+    },
+    {
+      "kind": "added",
+      "file": "tests/test_sensitive_exclusion.py"
+    }
+  ]
+}
+### python truncation
+{
+  "match_count": 2070,
+  "shown": 5,
+  "truncated": true
+}
+### kind class text
+- <project>::src/code_indexer/watcher.py:140-157 AlreadyRunning (class, confidence=exact, evidence=ast)  class AlreadyRunning(Exception):
+- <project>::src/code_indexer/errors.py:57-75 AmbiguousSymbolError (class, confidence=exact, evidence=ast)  class AmbiguousSymbolError(ArgumentError):
+- <project>::src/code_indexer/errors.py:52-54 ArgumentError (class, confidence=exact, evidence=ast)  class ArgumentError(IndexerError):
+... 3 of 137 matches shown (--limit 3 reached; raise it to see the rest)
+### container Manifest text
+- <project>::src/code_indexer/manifest.py:276-293 __init__ (function, confidence=exact, evidence=ast)  def __init__(self, db_path: str, *, writable: bool = True):
+- <project>::src/code_indexer/manifest.py:363-366 _file_select (function, confidence=exact, evidence=ast)  def _file_select(self) -> str:
+- <project>::src/code_indexer/manifest.py:611-628 _symbol_filters (function, confidence=exact, evidence=ast)  def _symbol_filters(self, name: str | None = None,
+- <project>::src/code_indexer/manifest.py:543-560 _symbol_row_tuple (function, confidence=exact, evidence=ast)  def _symbol_row_tuple(file: str, s: SymbolRow,
+... 4 of 49 matches shown (--limit 4 reached; raise it to see the rest)
+### visibility private text
+- <project>::tests/test_output_contract.py:145-147 _Capture (class, confidence=exact, evidence=ast)  class _Capture(logging.Handler):
+- <project>::tests/test_indexer_embed_context.py:12-24 _FakeEmbedder (class, confidence=exact, evidence=ast)  class _FakeEmbedder:
+- <project>::tests/test_embed_format.py:18-30 _FakeEmbedder (class, confidence=exact, evidence=ast)  class _FakeEmbedder:
+... 3 of 377 matches shown (--limit 3 reached; raise it to see the rest)
+### language markdown text
+- <project>::docs/overhaul-baseline-audit.md:211-236 KEY (function, confidence=heuristic, evidence=unknown)  line INTEGER NOT NULL,
+- <project>::docs/subcommand-design.md:211-230 NULL (function, confidence=heuristic, evidence=unknown)  check in the walk).
+- <project>::runs/issue27-publishing-hygiene/fold-verification.md:71-93 _is_authored (function, confidence=heuristic, evidence=unknown)
+... 3 of 97 matches shown (--limit 3 reached; raise it to see the rest)
+### inherits IndexerError
+{"match_count":7,"truncated":false,"names":["ArgumentError","BackendError","ConfigError","InternalError","LockedError","NotFoundError","RebuildRequiredError"]}
+### has-call find_symbols text
+- <project>::src/code_indexer/core.py:1210-1227 _fuse_lexical_dense (function, confidence=exact, evidence=ast)  def _fuse_lexical_dense(self, entry: ProjectEntry, query: str,
+- <project>::tests/test_identity.py:132-138 _rows (function, confidence=exact, evidence=ast)  def _rows(core: Core, entry, name: str | None = None,
+- <project>::src/code_indexer/evalharness.py:100-117 _symbol_ranges (function, confidence=exact, evidence=ast)  def _symbol_ranges(manifest: Any, rel_file: str,
+- <project>::src/code_indexer/core.py:1636-1653 code_context (function, confidence=exact, evidence=ast)  def code_context(self, entry: ProjectEntry, file: str,
+- <project>::src/code_indexer/manifest.py:775-788 definitions_of (function, confidence=exact, evidence=ast)  def definitions_of(self, name: str,
+... 5 of 26 matches shown (--limit 5 reached; raise it to see the rest)
+### composition
+- <project>::src/code_indexer/manifest.py:775-788 definitions_of (function, confidence=exact, evidence=ast)  def definitions_of(self, name: str,
+### evidence inherits
+{"ast":7}
+### evidence markdown
+{"unknown":3}
+### evidence note Base
+{"match_count":0,"evidence_note":"no symbol carries an attributed reference to 'Base'; 137 file(s) holding symbols have no AST extractor, so their references are unknown, not absent"}
+### ambiguity find_symbol
+{"match_count":2,"candidates":[{"file":"src/code_indexer/server.py","range":{"start_line":198,"end_line":213},"kind":"function","container":null,"language":"python"},{"file":"src/code_indexer/cli.py","range":{"start_line":1781,"end_line":1801},"kind":"function","container":null,"language":"python"}]}
+### graph find-callers find_symbol
+{"match_count":2,"candidates":2,"roots":[{"file":"src/code_indexer/server.py","line":198,"confidence":"ast"},{"file":"src/code_indexer/cli.py","line":1781,"confidence":"ast"}],"targets":[["src/code_indexer/server.py:198-213","src/code_indexer/cli.py:1781-1801"],["src/code_indexer/server.py:198-213","src/code_indexer/cli.py:1781-1801"]],"truncated":true,"omitted":208}
+### find-callers Core
+{"match_count":9,"roots":[{"file":"src/code_indexer/core.py","line":104,"confidence":"ast"},{"file":"tests/test_project_state.py","line":55,"confidence":"ast"},{"file":"tests/test_watch.py","line":57,"confidence":"ast"},{"file":"tests/test_watcher.py","line":73,"confidence":"ast"},{"file":"tests/test_concurrency.py","line":83,"confidence":"ast"},{"file":"tests/test_unwatch.py","line":125,"confidence":"ast"},{"file":"tests/test_subcommands.py","line":257,"confidence":"ast"},{"file":"runs/round1-gate/read-write-intent-batch/skeleton.out","line":1,"confidence":"ast"},{"file":"runs/round1-gate/service-dial-batch/skeleton.out","line":1,"confidence":"ast"}],"candidate_evidence":[{"file":"src/code_indexer/core.py","range":{"start_line":104,"end_line":120},"evidence":"ast"},{"file":"tests/test_project_state.py","range":{"start_line":55,"end_line":72},"evidence":"ast"},{"file":"tests/test_watch.py","range":{"start_line":57,"end_line":66},"evidence":"ast"},{"file":"tests/test_watcher.py","range":{"start_line":73,"end_line":82},"evidence":"ast"},{"file":"tests/test_concurrency.py","range":{"start_line":83,"end_line":93},"evidence":"ast"},{"file":"tests/test_unwatch.py","range":{"start_line":125,"end_line":134},"evidence":"ast"},{"file":"tests/test_subcommands.py","range":{"start_line":257,"end_line":271},"evidence":"ast"},{"file":"runs/round1-gate/read-write-intent-batch/skeleton.out","range":{"start_line":1,"end_line":13},"evidence":"unknown"},{"file":"runs/round1-gate/service-dial-batch/skeleton.out","range":{"start_line":1,"end_line":13},"evidence":"unknown"}]}
+{"index_revision": "68", "symbol_rows": 2322, "ledger": [["ast", "parsed", 2033], ["regex", "parse_unavailable", 289]]}
