@@ -112,7 +112,8 @@ MAPPING_CASES: list[tuple[str, object, list[str]]] = [
          format="json", mode="dense"),
      ["semantic-search", "auth", "--limit", "3", "--project", "p",
       "--file-filter", "*.py", "--symbol-type", "class",
-      "--language", "python", "--ranking", "hybrid", "--json"]),
+      "--language", "python", "--ranking", "hybrid", "--mode", "dense",
+      "--json"]),
 ]
 
 
@@ -123,6 +124,18 @@ def test_tool_builds_cli_argv(captured, name, call, expected):
     assert captured == [expected], f"{name}: {captured}"
     assert _text(result) == "SENTINEL"
     assert result.isError is False
+
+
+def test_dense_mode_reaches_the_cli(captured):
+    """`mode="dense"` must reach argv, not fall back to the CLI's default.
+
+    The wrapper's docstring advertises 'hybrid' | 'dense' | 'lexical', but the
+    CLI's own default is hybrid: dropping `--mode` for one value made a client
+    that asked for dense silently receive hybrid.
+    """
+    server.semantic_search("q", mode="dense")
+    assert captured == [["semantic-search", "q", "--limit", "8",
+                         "--mode", "dense"]]
 
 
 def test_server_is_thread_free_and_core_free():

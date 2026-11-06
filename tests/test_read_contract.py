@@ -305,3 +305,33 @@ def test_refresh_on_a_held_flock_is_exit_5_with_no_answer(rig):
     assert result.exit_code == 5, result.output
     assert result.stdout == "", result.stdout
     assert "LockedError: indexing in progress" in result.stderr
+
+
+def test_a_query_read_computes_one_staleness_verdict_per_project(rig):
+    """A stale answer is built from the ONE walk that produced its block.
+
+    The cost contract: a read may not walk a project tree twice to say the
+    same thing. The verdict count is the assertion; timing is not.
+    """
+    core, entry, project, embedder, store = rig
+    (project / "b.py").write_text("def other():\n    return 99\n")
+    seen: list[str] = []
+    real = core.staleness
+
+    def counting(target):
+        seen.append(target.path)
+        return real(target)
+
+    core.staleness = counting  # type: ignore[method-assign]
+
+    scoped = runner.invoke(app, ["semantic-search", "Core",
+                                 "--project", str(project)])
+    assert scoped.exit_code == 0, scoped.output
+    assert seen == [entry.path], f"scoped read walked {seen}"
+    assert "Warning: index is stale" in scoped.stderr, scoped.stderr
+
+    seen.clear()
+    fanned = runner.invoke(app, ["semantic-search", "Core", "--all-projects"])
+    assert fanned.exit_code == 0, fanned.output
+    assert seen == [entry.path], f"fan-out read walked {seen}"
+    assert "Warning: index is stale" in fanned.stderr, fanned.stderr

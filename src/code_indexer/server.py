@@ -301,7 +301,7 @@ if semantic_available():
             argv += ["--language", language]
         if ranking and ranking != "vector":
             argv += ["--ranking", ranking]
-        if mode != "dense":
+        if mode:
             argv += ["--mode", mode]
         if format == "json":
             argv.append("--json")

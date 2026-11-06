@@ -1,10 +1,11 @@
 """code-indexer CLI: thin typer app over code_indexer.core (design ruling §3).
 
 Every subcommand maps 1:1 to a core op / MCP tool of the same name. One-shot
-process: no daemon, no server RPC, no 'start server on first call'. The
---skip-stale-check flag covers startup-cost-sensitive calls; staleness is
-normally enforced by the core's STALE_TTL probe guarded by the per-project
-flock (concurrent invocations serialize; exactly one indexer pass runs).
+process: no daemon, no server RPC, no 'start server on first call'. Reads
+never refresh: an answer describes the index as of ``meta.last_indexed`` and
+reports ``fresh``, ``stale`` or ``unknown``. ``--skip-stale-check`` is
+accepted and inert; ``--refresh`` is the only flag that makes a read write,
+and it takes the per-project flock.
 """
 
 from __future__ import annotations
@@ -44,7 +45,9 @@ _BROWSE_CAP = 25
 
 app = typer.Typer(
     name="code-indexer",
-    help="Semantic code index via Ollama + Qdrant (one-shot CLI; no daemon).",
+    help="Code intelligence for agents: index a repository into SQLite and "
+         "answer structural, lexical and optional semantic queries (one-shot "
+         "CLI; no daemon).",
     no_args_is_help=True,
 )
 
@@ -142,9 +145,10 @@ SkipOpt = typer.Option(
          "the default; use --refresh to repair.")
 RefreshOpt = typer.Option(
     False, "--refresh",
-    help="Run one incremental index pass first, then answer from the result. "
-         "This is the ONLY flag that turns a read command into a write; a "
-         "pass held by another process fails with LockedError (exit 5).")
+    help="Run an incremental index pass first (one per project for "
+         "--all-projects / doctor), then answer from the result. This is the "
+         "ONLY flag that turns a read command into a write; a pass held by "
+         "another process fails with LockedError (exit 5).")
 FreshOpt = typer.Option(
     False, "--fresh",
     help="Read the live file and ignore cached symbol rows (this command "
@@ -228,8 +232,8 @@ def overview(
     """
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
-    verdict_block = _read_staleness(core, entry, refresh=refresh,
-                                    json_output=json_output)
+    verdict_block, _ = _read_staleness(core, entry, refresh=refresh,
+                                       json_output=json_output)
     m = core.manifest_for(entry.slug)
     try:
         data = overview_mod.build_overview(m, entry.path,
@@ -266,8 +270,8 @@ def changed_symbols(
     run this, then search/get-code-context only for what actually changed."""
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
-    verdict_block = _read_staleness(core, entry, refresh=refresh,
-                                    json_output=json_output)
+    verdict_block, _ = _read_staleness(core, entry, refresh=refresh,
+                                       json_output=json_output)
     try:
         changed = changed_mod.changed_symbols(
             entry.path, base=base, head=head, staged=staged,
@@ -307,13 +311,17 @@ def _warn_rows_staleness(core: Core, entry: ProjectEntry) -> None:
 
 
 def _read_staleness(core: Core, entry: ProjectEntry, *, refresh: bool,
-                    json_output: bool) -> dict[str, Any]:
+                    json_output: bool) -> tuple[dict[str, Any], str | None]:
     """Refresh when asked, then report the index's verdict for one project.
 
     Text mode prints at most ONE stderr line (the record's shape) and nothing
     on stdout. JSON mode adds the block to the answer instead, so a machine
     consumer branches on fields rather than parsing prose. A read without
     ``--refresh`` never writes.
+
+    Returns ``(block, warning line or None)``. The line comes from the ONE
+    verdict this call computed: a caller that answers in JSON and still wants
+    the line on stderr must not walk the tree a second time to rebuild it.
     """
     if refresh:
         try:
@@ -321,20 +329,25 @@ def _read_staleness(core: Core, entry: ProjectEntry, *, refresh: bool,
         except IndexerError as exc:
             fail(exc)
     verdict = core.staleness(entry)
-    if not json_output:
-        line = staleness.warning_line(verdict, entry.path)
-        if line:
-            typer.echo(line, err=True)
-    return staleness.block(verdict)
+    line = staleness.warning_line(verdict, entry.path)
+    if line and not json_output:
+        typer.echo(line, err=True)
+    return staleness.block(verdict), line
 
 
 def _read_staleness_many(core: Core, entries: list[ProjectEntry], *,
                          refresh: bool,
                          json_output: bool) -> tuple[dict[str, Any],
-                                                     list[dict[str, Any]]]:
-    """The aggregate block plus one per-project block, for a fan-out answer."""
+                                                     list[dict[str, Any]],
+                                                     list[str]]:
+    """The aggregate block, one per-project block, and the warning lines.
+
+    The verdict is computed ONCE per project: the line a caller prints and
+    the block it answers with are the same walk.
+    """
     verdicts: dict[str, staleness.StalenessVerdict] = {}
     blocks: list[dict[str, Any]] = []
+    lines: list[str] = []
     for entry in entries:
         if refresh:
             try:
@@ -344,11 +357,12 @@ def _read_staleness_many(core: Core, entries: list[ProjectEntry], *,
         verdict = core.staleness(entry)
         verdicts[entry.path] = verdict
         blocks.append(dict(staleness.block(verdict), project=entry.path))
-        if not json_output:
-            line = staleness.warning_line(verdict, entry.path)
-            if line:
+        line = staleness.warning_line(verdict, entry.path)
+        if line:
+            lines.append(line)
+            if not json_output:
                 typer.echo(line, err=True)
-    return staleness.aggregate(verdicts), blocks
+    return staleness.aggregate(verdicts), blocks, lines
 
 
 def _json_failure(exc: BaseException, json_output: bool) -> NoReturn:
@@ -400,8 +414,8 @@ def find_callers(
     the cap. For every reference TO a name use `find-references`."""
     core, entry = _core_entry(project, skip_stale_check)
     _warn_rows_staleness(core, entry)
-    verdict_block = _read_staleness(core, entry, refresh=refresh,
-                                    json_output=json_output)
+    verdict_block, _ = _read_staleness(core, entry, refresh=refresh,
+                                       json_output=json_output)
     result = graph.find_callers(core, entry.slug, name, depth=depth,
                                 max_nodes=max_nodes)
     _emit_graph(result, json_output, verdict_block)
@@ -428,8 +442,8 @@ def find_callees(
     """
     core, entry = _core_entry(project, skip_stale_check)
     _warn_rows_staleness(core, entry)
-    verdict_block = _read_staleness(core, entry, refresh=refresh,
-                                    json_output=json_output)
+    verdict_block, _ = _read_staleness(core, entry, refresh=refresh,
+                                       json_output=json_output)
     result = graph.find_callees(core, entry.slug, name, depth=depth,
                                 max_nodes=max_nodes)
     _emit_graph(result, json_output, verdict_block)
@@ -482,8 +496,8 @@ def deps(
     naming the cap."""
     core, entry = _core_entry(project, skip_stale_check)
     _warn_rows_staleness(core, entry)
-    verdict_block = _read_staleness(core, entry, refresh=refresh,
-                                    json_output=graph_format == "json")
+    verdict_block, _ = _read_staleness(core, entry, refresh=refresh,
+                                       json_output=graph_format == "json")
     result = graph.deps_for_file(core, entry.slug, path,
                                  direction=direction, depth=depth,
                                  max_nodes=max_nodes)
@@ -684,7 +698,7 @@ def list_projects(json_output: bool = typer.Option(False, "--json",
         else:
             typer.echo("no projects registered")
         return
-    aggregate, blocks = _read_staleness_many(
+    aggregate, blocks, _ = _read_staleness_many(
         core, entries, refresh=refresh, json_output=json_output)
     if json_output:
         projects = [dict(core.status_fields(e), **b)
@@ -730,8 +744,8 @@ def lookup_project(
             return
         typer.echo(f"not registered: {raw}")
         return
-    block = _read_staleness(core, entry, refresh=refresh,
-                            json_output=json_output)
+    block, _ = _read_staleness(core, entry, refresh=refresh,
+                               json_output=json_output)
     if json_output:
         payload = dict(core.status_fields(entry), schema=1, registered=True,
                        collection=f"idx_{entry.slug}", **block)
@@ -825,11 +839,9 @@ def semantic_search(
         if not entries:
             _usage_die("no projects registered")
         entry = None
-        aggregate, blocks = _read_staleness_many(
+        aggregate, blocks, stale_lines = _read_staleness_many(
             core, entries, refresh=refresh, json_output=True)
         verdict_block: dict[str, Any] = dict(aggregate, staleness=blocks)
-        stale_lines = [staleness.warning_line(
-            core.staleness(e), e.path) for e in entries]
     else:
         if project:
             entry, err = core.resolve_entry(project)
@@ -839,9 +851,9 @@ def semantic_search(
             entry, err = core.resolve_entry(None)
             if entry is None:
                 _usage_die(err)
-        verdict_block = _read_staleness(core, entry, refresh=refresh,
-                                        json_output=True)
-        stale_lines = [staleness.warning_line(core.staleness(entry), entry.path)]
+        verdict_block, stale_line = _read_staleness(core, entry, refresh=refresh,
+                                                    json_output=True)
+        stale_lines = [stale_line] if stale_line else []
     rerank_mode = "none" if no_rerank else rerank
     try:
         output = core.search_for_display(
@@ -1018,8 +1030,8 @@ def index_status(
                      "run reindex-project to build the index")
         fields["note"] = ("registered but no indexing pass has completed; "
                           "run reindex-project to build the index")
-    block = _read_staleness(core, entry, refresh=False,
-                            json_output=json_output)
+    block, _ = _read_staleness(core, entry, refresh=False,
+                               json_output=json_output)
     if json_output:
         fields.update(block)
         fields["schema"] = 1
@@ -1058,8 +1070,10 @@ def sweep_orphans(
     entry = core.registry.get_by_path(path)
     if entry is None:
         _die(f"error: not registered: {path}")
-    block = ({} if apply else _read_staleness(
-        core, entry, refresh=refresh, json_output=json_output))
+    block: dict[str, Any] = {}
+    if not apply:
+        block, _ = _read_staleness(core, entry, refresh=refresh,
+                                   json_output=json_output)
     result = core.sweep_orphans(entry, entry.path, apply=apply)
     if json_output:
         payload = {"project": entry.path, **result}
@@ -1602,8 +1616,8 @@ def skeleton(
         elif apath.startswith(root + "/"):
             path_prefix = apath[len(root) + 1:]
     _warn_rows_staleness(core, entry)
-    block = _read_staleness(core, entry, refresh=refresh,
-                            json_output=json_output)
+    block, _ = _read_staleness(core, entry, refresh=refresh,
+                               json_output=json_output)
     data = core.skeleton(entry, prefix=path_prefix, tree_mode=tree_mode,
                          limit=limit,
                          include_signatures=not no_signatures)
@@ -1636,8 +1650,8 @@ def outline(
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
     _warn_rows_staleness(core, entry)
-    block = _read_staleness(core, entry, refresh=refresh,
-                            json_output=json_output)
+    block, _ = _read_staleness(core, entry, refresh=refresh,
+                               json_output=json_output)
     try:
         data = core.outline(entry, file, include_docstrings=docstrings)
     except ValueError as exc:
@@ -1682,8 +1696,8 @@ def find_symbol(
     entry, err = core.resolve_entry(project)
     if entry is None:
         _json_failure(ValueError(err), json_output)
-    block = _read_staleness(core, entry, refresh=refresh,
-                            json_output=json_output)
+    block, _ = _read_staleness(core, entry, refresh=refresh,
+                               json_output=json_output)
     m = core.manifest_for(entry.slug)
     try:
         if name:
@@ -1753,8 +1767,8 @@ def find_definition(
     entry, err = core.resolve_entry(project)
     if entry is None:
         _json_failure(ValueError(err), json_output)
-    block = _read_staleness(core, entry, refresh=refresh,
-                            json_output=json_output)
+    block, _ = _read_staleness(core, entry, refresh=refresh,
+                               json_output=json_output)
     m = core.manifest_for(entry.slug)
     try:
         rows = m.definitions_of(name)
@@ -1813,7 +1827,7 @@ def get_code_context(
     block, while its `stale` field keeps its file-level meaning."""
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
-    block = _read_staleness(core, entry, refresh=refresh, json_output=True)
+    block, _ = _read_staleness(core, entry, refresh=refresh, json_output=True)
     try:
         data = core.code_context(
             entry, file, start_line=start_line, end_line=end_line,
@@ -1877,8 +1891,8 @@ def find_references(
     entry, err = core.resolve_entry(project)
     if entry is None:
         _json_failure(ValueError(err), json_output)
-    block = _read_staleness(core, entry, refresh=refresh,
-                            json_output=json_output)
+    block, _ = _read_staleness(core, entry, refresh=refresh,
+                               json_output=json_output)
     _warn_rows_staleness(core, entry)
     try:
         rows = core.find_references(entry, name, relationship=relationship,
