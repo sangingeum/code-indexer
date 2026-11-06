@@ -1,0 +1,67 @@
+== semantic-search default on vectors=off
+EXIT=3
+STDOUT:
+STDERR:
+BackendError: embedding service unavailable: Failed to connect to Ollama. Please check that Ollama is downloaded, running and accessible. https://ollama.com/download
+
+== semantic-search --mode lexical
+EXIT=0
+STDOUT:
+{
+  "schema": 1,
+  "hits": [
+    {
+      "project": "/home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/svc-free",
+      "file": "pkg/alpha.py",
+      "score": 0.016393,
+      "symbol": "greet, Greeter",
+      "symbol_type": "function, class",
+      "lang": "python",
+      "start_line": 5,
+      "end_line": 10,
+      "snippet": "lexical match: pkg/alpha.py (greet)",
+      "match": "lexical",
+      "merged_count": 2
+    }
+  ],
+  "truncated": false,
+  "dropped": 0,
+  "skipped": [],
+  "skipped_count": 0,
+  "partial": false,
+  "stale": false,
+  "stale_known": true,
+  "stale_reasons": [],
+  "stale_reason_count": 0,
+  "index_revision": "2",
+  "last_indexed": "2026-11-06T19:21:21Z"
+}
+STDERR:
+note: this index is scoped to pkg/alpha.py — paths outside it are not indexed (index-more extends the scope)
+
+== semantic-search default WITH reachable OLLAMA_URL
+EXIT=4
+STDOUT:
+STDERR:
+ConfigError: index for /home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/svc-free was built with vectors=off; semantic search needs vectors; run: code-indexer reindex-project /home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/svc-free --vectors on
+
+== semantic-search --mode lexical WITH reachable OLLAMA_URL
+EXIT=0
+STDOUT(first 400):
+{
+  "schema": 1,
+  "hits": [
+    {
+      "project": "/home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/svc-free",
+      "file": "pkg/alpha.py",
+      "score": 0.016393,
+      "symbol": "greet, Greeter",
+      "symbol_type": "function, class",
+      "lang": "python",
+      "start_line": 5,
+      "end_line": 10,
+      "snippet": "lexical match: pkg/alpha.py (greet)",
+      "match": "lexical",
+  
+STDERR:
+note: this index is scoped to pkg/alpha.py — paths outside it are not indexed (index-more extends the scope)

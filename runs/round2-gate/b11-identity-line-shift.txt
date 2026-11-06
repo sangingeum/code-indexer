@@ -1,0 +1,36 @@
+== index scratch repo (vectors off)
+note: vectors=off — rows, symbols, references and chunks are indexed with no service; run reindex-project --vectors on later to embed them
+57562f2d: {"files_indexed": 5, "chunks_embedded": 0, "chunks_reused": 0, "files_deleted": 0, "duration_s": 0.04, "chunks_skipped": 0, "files_committed": 0, "sensitive_skipped": 0}
+== BEFORE: find-symbol area
+{"qualified_name":"area","decl_hash":"sha256:42fdda3754bd35e79a96e6e3fa1692684e8dca935c7c89f8ad6eaca2a6735e10","symbol_id":2,"path":null,"start_line":3}
+{"qualified_name":"area","decl_hash":"sha256:424cc6ff373af8a1c2372bd819377b0a014ee55fa3916dfe874e76e9894998ea","symbol_id":3,"path":null,"start_line":7}
+{"qualified_name":"area","decl_hash":"sha256:bba6d1caf42d6bb45abde5a1e06110efcc8add8d72979b452ebc121f779f44eb","symbol_id":4,"path":null,"start_line":11}
+== shift: insert 5 lines above the definitions in lib/shapes.h
+// gate shift line 1
+// gate shift line 2
+// gate shift line 3
+// gate shift line 4
+// gate shift line 5
+#pragma once
+
+class Shape {
+== reindex (vectors off)
+57562f2d: {"files_indexed": 5, "chunks_embedded": 0, "chunks_reused": 0, "files_deleted": 0, "duration_s": 0.04, "chunks_skipped": 0, "files_committed": 0, "sensitive_skipped": 0}
+== AFTER: find-symbol area
+{"qualified_name":"area","decl_hash":"sha256:42fdda3754bd35e79a96e6e3fa1692684e8dca935c7c89f8ad6eaca2a6735e10","symbol_id":14,"file":"lib/shapes.cpp","start_line":3}
+{"qualified_name":"area","decl_hash":"sha256:424cc6ff373af8a1c2372bd819377b0a014ee55fa3916dfe874e76e9894998ea","symbol_id":15,"file":"lib/shapes.cpp","start_line":7}
+{"qualified_name":"area","decl_hash":"sha256:bba6d1caf42d6bb45abde5a1e06110efcc8add8d72979b452ebc121f779f44eb","symbol_id":16,"file":"lib/shapes.cpp","start_line":11}
+== shift the DEFINITION file: insert 5 lines at top of lib/shapes.cpp
+// gate shift 1
+// gate shift 2
+// gate shift 3
+// gate shift 4
+// gate shift 5
+#include "shapes.h"
+
+== reindex after definition shift
+57562f2d: {"files_indexed": 5, "chunks_embedded": 0, "chunks_reused": 0, "files_deleted": 0, "duration_s": 0.04, "chunks_skipped": 0, "files_committed": 0, "sensitive_skipped": 0}
+== AFTER SHIFT: find-symbol area
+{"qualified_name":"area","decl_hash":"sha256:42fdda3754bd35e79a96e6e3fa1692684e8dca935c7c89f8ad6eaca2a6735e10","symbol_id":26,"file":"lib/shapes.cpp","start_line":8}
+{"qualified_name":"area","decl_hash":"sha256:424cc6ff373af8a1c2372bd819377b0a014ee55fa3916dfe874e76e9894998ea","symbol_id":27,"file":"lib/shapes.cpp","start_line":12}
+{"qualified_name":"area","decl_hash":"sha256:bba6d1caf42d6bb45abde5a1e06110efcc8add8d72979b452ebc121f779f44eb","symbol_id":28,"file":"lib/shapes.cpp","start_line":16}

@@ -1,0 +1,64 @@
+== date: 2026-11-07T04:18:01+09:00
+== index root listing
+total 14796
+drwxrwxr-x 15 keum keum     4096 Nov  7 03:47 .
+drwx------ 53 keum keum     4096 Nov  6 23:28 ..
+drwxrwxr-x  2 keum keum     4096 Nov  7 02:59 2ed881d8
+-rw-r--r--  1 keum keum       31 Oct 31 19:47 2ed881d8.lock
+drwxrwxr-x  2 keum keum     4096 Nov  7 02:59 b1b7f48b
+-rw-r--r--  1 keum keum       31 Oct 31 16:38 b1b7f48b.lock
+drwxrwxr-x  2 keum keum     4096 Nov  7 02:59 calc-engine
+-rw-r--r--  1 keum keum       31 Oct 31 16:38 calc-engine.lock
+drwxrwxr-x  2 keum keum     4096 Nov  7 03:47 code-indexer
+-rw-r--r--  1 keum keum       31 Nov  7 01:23 code-indexer.lock
+-rw-r--r--  1 keum keum  2211840 Nov  2 20:54 embed_cache.db
+drwxrwxr-x  2 keum keum     4096 Nov  7 02:59 korean-podcast-feasibility
+-rw-r--r--  1 keum keum       31 Nov  1 11:54 korean-podcast-feasibility.lock
+drwxrwxr-x  2 keum keum     4096 Nov  7 02:40 live-8bad5c70
+-rw-r--r--  1 keum keum       31 Oct  3 20:43 live-8bad5c70.lock
+drwxrwxr-x  2 keum keum     4096 Nov  7 03:03 liveproj
+-rw-r--r--  1 keum keum       31 Oct  3 20:43 liveproj.lock
+-rw-rw-r--  1 keum keum      265 Nov  7 02:29 mcp-usage.jsonl
+-rw-rw-r--  1 keum keum     2619 Oct 11 16:29 rebuild-2026-10-11.log
+-rw-r--r--  1 keum keum    16384 Nov  1 11:53 registry.db
+-rw-rw-r--  1 keum keum     4018 Oct 11 16:32 sweep-2026-10-11.log
+drwxrwxr-x  2 keum keum     4096 Nov  7 02:59 tackboard
+-rw-r--r--  1 keum keum       30 Nov  4 19:07 tackboard.lock
+drwxrwxr-x  2 keum keum     4096 Nov  7 02:59 vector-memory
+-rw-r--r--  1 keum keum       31 Oct 31 16:38 vector-memory.lock
+drwxrwxr-x  2 keum keum     4096 Nov  7 02:59 vivarium-adr
+drwxrwxr-x  2 keum keum     4096 Nov  7 02:59 vivarium-adr-anna
+-rw-r--r--  1 keum keum       31 Oct 31 16:38 vivarium-adr-anna.lock
+-rw-r--r--  1 keum keum       31 Oct 31 16:38 vivarium-adr.lock
+
+== per-manifest stat + hash
+/home/keum/.code-indexer/2ed881d8//manifest.db size=4640768 mtime=1793443677.970886185
+580d7458db93b6ad00e0cd6772e74cd2180c40e9022eeaf8a0bb0b4990540bc8  /home/keum/.code-indexer/2ed881d8//manifest.db
+/home/keum/.code-indexer/b1b7f48b//manifest.db size=229490688 mtime=1793432315.416756150
+647ed700b2d710aaaca78044477000f2378928aca8ae75fe9f1eb800726bad0e  /home/keum/.code-indexer/b1b7f48b//manifest.db
+/home/keum/.code-indexer/calc-engine//manifest.db size=3858432 mtime=1793432315.325752601
+234d9310a8feb81c11510cdafd53684c27aa0d4db202533e70478ee703466dc4  /home/keum/.code-indexer/calc-engine//manifest.db
+/home/keum/.code-indexer/code-indexer//manifest.db size=35811328 mtime=1793990876.748338191
+8f4345c17b4833162fe4d70a9fa67c5f6eda5671f6e90c43ae7c484b870549ee  /home/keum/.code-indexer/code-indexer//manifest.db
+/home/keum/.code-indexer/korean-podcast-feasibility//manifest.db size=4263936 mtime=1793501654.012370780
+a534b6e3ae082e1597e4856d6bff0eccfe0d2d91964910270a3ca8e60cd4b07a  /home/keum/.code-indexer/korean-podcast-feasibility//manifest.db
+/home/keum/.code-indexer/live-8bad5c70//manifest.db size=98304 mtime=1791027810.425603240
+e7cd4304a5641ea094fe0c9aa3524c774fe090b150cce29e996c2a89887b17da  /home/keum/.code-indexer/live-8bad5c70//manifest.db
+/home/keum/.code-indexer/liveproj//manifest.db size=98304 mtime=1791669242.508826377
+8f5725a9c36c4202377c06887d6b023a5a7f977035cb1dd38c65059ac93ae02a  /home/keum/.code-indexer/liveproj//manifest.db
+/home/keum/.code-indexer/tackboard//manifest.db size=14036992 mtime=1793786840.174280107
+179586583120bb7019e23cea027294fb2f8fff7a53e95c3eef642f3b92eeba10  /home/keum/.code-indexer/tackboard//manifest.db
+/home/keum/.code-indexer/vector-memory//manifest.db size=9646080 mtime=1793432315.292751315
+4db78347adfaa000fa95ac06d090ba1dc53f120128bb6f5f6f3d92e4100b7820  /home/keum/.code-indexer/vector-memory//manifest.db
+/home/keum/.code-indexer/vivarium-adr-anna//manifest.db size=213561344 mtime=1793432315.698767145
+ccb93e24e0a6ddcc80b0e0dfc4c153437d2ed5eaa0c80b60056a27bf70c300d3  /home/keum/.code-indexer/vivarium-adr-anna//manifest.db
+/home/keum/.code-indexer/vivarium-adr//manifest.db size=20332544 mtime=1793432315.129744959
+0bc3ff99043ef1d59f45ad0db0ee62ab6c8f6829b6d1ece6dc122c95099ec602  /home/keum/.code-indexer/vivarium-adr//manifest.db
+/home/keum/.code-indexer/vivarium-sim-vera-snapshot//manifest.db size=179036160 mtime=1793619573.314488243
+d821e1f6e4a7e1c100116c7389e5e88d846baf3cba385a18e1145b50e9a9de8c  /home/keum/.code-indexer/vivarium-sim-vera-snapshot//manifest.db
+/home/keum/.code-indexer/vivarium-sim//manifest.db size=192135168 mtime=1793969358.144750079
+7c43256b181cb0797d95bd42a759795e63c5c0ebe04d644ba6af20f7b1a70c2c  /home/keum/.code-indexer/vivarium-sim//manifest.db
+
+== registry
+/home/keum/.code-indexer/registry.db size=16384 mtime=1793501618.249012358
+3c9d80bc3a5b8cd746469cc94c7a60937f2a15f02b0c30045b34e49da9878c1d  /home/keum/.code-indexer/registry.db

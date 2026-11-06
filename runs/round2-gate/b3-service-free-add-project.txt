@@ -1,0 +1,6 @@
+$ add-project /home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/svc-free
+$ INDEX_ROOT=/home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/idx OLLAMA_URL=http://127.0.0.1:9 QDRANT_URL=http://127.0.0.1:9
+registered /home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/svc-free (slug b7c131bf)
+note: vectors=off — rows, symbols, references and chunks are indexed with no service; run reindex-project --vectors on later to embed them
+b7c131bf: {"files_indexed": 5, "chunks_embedded": 0, "chunks_reused": 0, "files_deleted": 0, "duration_s": 0.04, "chunks_skipped": 0, "files_committed": 0, "sensitive_skipped": 0}
+EXIT=0

@@ -1,0 +1,5 @@
+== pass on the COPY (throwaway INDEX_ROOT; source tree read-only)
+code-indexer: {"files_indexed": 891, "chunks_embedded": 0, "chunks_reused": 0, "files_deleted": 0, "duration_s": 29.84, "chunks_skipped": 0, "files_committed": 0, "sensitive_skipped": 1}
+PASS_EXIT=0
+== index-status on the copy
+{"project": "/home/keum/dev/athena/code-indexer", "state": "idle", "rows": "current", "vectors": "off", "vectors_state": "absent", "fingerprint": "unverified", "reason": "embedding-dimension-not-compared", "languages_without_ast": ["bash", "css", "html", "java", "json", "kotlin", "lua", "markdown", "php", "ruby", "rust", "swift", "toml", "yaml"], "parsed": 158, "parse_error": 0, "parse_unavailable": 733, "stale": true, "stale_known": true, "stale_reasons": [{"kind": "modified", "file": "runs/round2-gate/b10-rekey-pass.txt"}, {"kind": "added", "file": "tests/test_sensitive_exclusion.py"}], "sta

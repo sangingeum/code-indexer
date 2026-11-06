@@ -1,2 +1,3 @@
-publishing hygiene: scanned=552 skipped=0 violations=0 (untracked files are out of scope)
-EXIT=0
+== hygiene lint
+publishing hygiene: scanned=559 skipped=0 violations=0 (untracked files are out of scope)
+HYGIENE_EXIT=0

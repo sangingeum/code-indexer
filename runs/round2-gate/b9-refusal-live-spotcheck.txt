@@ -1,0 +1,45 @@
+== live index root: /home/keum/.code-indexer  (date 2026-11-07T04:34:50+09:00)
+== surface 1: find-symbol Manifest (row surface)
+EXIT=4
+STDOUT_BYTES=0
+STDERR:
+RebuildRequiredError: index for /home/keum/dev/athena/code-indexer does not match the current configuration (extraction_version: 4 -> 5); the stored rows are obsolete, so this answer would describe an index this build would not produce; run: code-indexer reindex-project /home/keum/dev/athena/code-indexer
+
+== surface 2: find-references Manifest (graph surface)
+EXIT=4
+STDOUT_BYTES=0
+STDERR:
+RebuildRequiredError: index for /home/keum/dev/athena/code-indexer does not match the current configuration (extraction_version: 4 -> 5); the stored rows are obsolete, so this answer would describe an index this build would not produce; run: code-indexer reindex-project /home/keum/dev/athena/code-indexer
+
+== surface 3: overview (structural surface)
+EXIT=4
+STDOUT_BYTES=0
+STDERR:
+RebuildRequiredError: index for /home/keum/dev/athena/code-indexer does not match the current configuration (extraction_version: 4 -> 5); the stored rows are obsolete, so this answer would describe an index this build would not produce; run: code-indexer reindex-project /home/keum/dev/athena/code-indexer
+
+== exempt 1: index-status
+EXIT=0
+{"project": "/home/keum/dev/athena/code-indexer", "state": "idle", "rows": "absent", "vectors": "on", "vectors_state": "current", "fingerprint": "needs-reindex", "reason": "extraction_version: 4 -> 5", "languages_without_ast": ["bash", "css", "html", "java", "json", "kotlin", "lua", "markdown", "php
+== exempt 2: list-projects
+EXIT=0
+PROJECTS=12
+
+== exempt 3: doctor
+EXIT=1
+{
+  "checks": [
+    {
+      "status": "ok",
+      "name": "python",
+      "detail": "3.12.12"
+    },
+    {
+      "status": "ok",
+      "name": "uv",
+      "detail": "on PATH"
+    },
+    {
+      "statu
+== exempt 4: lookup-project
+EXIT=0
+registered path=/home/keum/dev/athena/code-indexer slug=code-indexer state=needs-reindex files=609 chunks=2546 rows=absent vectors=on vectors_state=current last_indexed=2026-11-07 01:23:29 reason=extraction_version: 4 -> 5 collection=idx_code-indexer

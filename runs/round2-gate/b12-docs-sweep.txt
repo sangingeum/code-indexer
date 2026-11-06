@@ -1,0 +1,23 @@
+== --vectors mentions in the four docs
+-- SKILL-CLI.md
+301:`index_errors`, records `vectors=off`, and exits 0. Qdrant is a vector store
+308:| `--vectors auto` (default) | a NEW project records `off` | the project's recorded mode |
+309:| `--vectors on` | embed and upsert as it parses | embed from stored chunks |
+310:| `--vectors off` | rows only, no service | rows only, no service |
+331:`index-status` reports both sides: `rows=current|absent`, `vectors=on|off`,
+335:**`semantic-search` on a `vectors=off` project refuses** with one
+340:ConfigError: index for <path> was built with vectors=off; semantic search needs vectors; run: code-indexer reindex-project <path> --vectors on
+377:  indexes the newly covered files. `--vectors auto|on|off` picks the vector
+391:  `--vectors on` and exit 4; `lexical` still answers from `chunks_fts`.
+-- docs/json-schema.md
+-- README.md
+15:references, imports and chunk text and records `vectors=off` unless asked
+16:otherwise; `--vectors on` embeds from the stored chunk text without reparsing
+50:code-indexer add-project /path/to/repo --vectors on   # ...and embed into Qdrant
+-- CHANGELOG.md
+8:`vectors=off` and exits 0. A NEW project records `off`; an existing
+20:- **`--vectors auto|on|off`** on `add-project`, `index-more` and
+30:  `vectors=on|off` and `vectors_state=current|absent|stale|error`, in text and
+34:  naming `--vectors on`, exit 4, empty stdout; never a silent lexical answer,
+== stale-claim sweep: round/layer/coordinate labels in the four docs
+CHANGELOG.md:71:  following leg and are empty here, so the migration and the reparse happen

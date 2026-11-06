@@ -1,0 +1,20 @@
+== setup: rows-only index of a fresh copy
+registered /home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/b4run/proj (slug e9877d37)
+note: vectors=off — rows, symbols, references and chunks are indexed with no service; run reindex-project --vectors on later to embed them
+e9877d37: {"files_indexed": 5, "chunks_embedded": 0, "chunks_reused": 0, "files_deleted": 0, "duration_s": 0.04, "chunks_skipped": 0, "files_committed": 0, "sensitive_skipped": 0}
+ADD_EXIT=0
+== make source tree unreadable
+chmod: cannot access '/home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/b4run/proj/pkg': Permission denied
+chmod: cannot access '/home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/b4run/proj/lib': Permission denied
+chmod: cannot access '/home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/b4run/proj/pkg/*.py': Permission denied
+chmod: cannot access '/home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/b4run/proj/lib/*.h': Permission denied
+chmod: cannot access '/home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/b4run/proj/lib/*.cpp': Permission denied
+chmod: cannot access '/home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/b4run/proj/notes.md': Permission denied
+0 /home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/b4run/proj
+stat: cannot statx '/home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/b4run/proj/pkg/alpha.py': Permission denied
+== vectors-on reindex against live services (Ollama 192.168.1.103:11434, Qdrant 192.168.1.105:6333)
+e9877d37: {"files_indexed": 0, "chunks_embedded": 13, "chunks_reused": 0, "files_deleted": 0, "duration_s": 0.98, "chunks_skipped": 0, "files_committed": 5, "sensitive_skipped": 0}
+REINDEX_EXIT=0
+== permissions restored
+755 /home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/b4run/proj
+644 /home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/b4run/proj/pkg/alpha.py
