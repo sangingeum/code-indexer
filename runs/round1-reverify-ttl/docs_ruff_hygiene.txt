@@ -1,0 +1,10 @@
+=== pytest tests/test_docs.py -q -W error ===
+...................                                                      [100%]
+19 passed in 0.34s
+EXIT=0
+=== uvx ruff check src tests scripts ===
+All checks passed!
+EXIT=0
+=== publishing_hygiene_lint.py ===
+publishing hygiene: scanned=535 skipped=0 violations=0 (untracked files are out of scope)
+EXIT=0

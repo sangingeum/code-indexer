@@ -1,0 +1,63 @@
+=== who reads Config.stale_ttl outside config.py (src) ===
+exit=1
+=== tests/test_docs.py env-var assertion ===
+8-2. option coverage    — every documented --flag exists in the command's
+9-                        real click parameters (with alias resolution)
+10-3. duplicate commands — each command appears once in the command block
+11:4. env var coverage   — env vars read from the code appear in SKILL-CLI.md's
+12:                        env list; documented env vars are real
+13-5. MCP parity table   — every registered MCP tool appears in README's
+14-                        parity table; CLI-only commands are labeled
+15-6. Python range       — pyproject requires-python matches the README's claim
+16-7. anchor/link check  — relative markdown links resolve to files/headings
+17-
+18-Every failure prints the exact mismatch so the fix is mechanical.
+--
+130-
+131-
+132-# Section-anchored slices so checks look at the right block of each file.
+133:def _readme_env_section() -> str:
+134:    """README now defers env vars to SKILL-CLI.md; both must agree."""
+135-    text = _skill_text()
+136-    m = re.search(r"^## Key rules$", text, re.M)
+137-    assert m, "SKILL-CLI.md is missing the '## Key rules' section"
+138-    return text[m.start():]
+139-
+140-
+141-ENV_VARS_IN_CODE = [
+142:    # mirror of src/code_indexer (config._DEFAULTS + scattered getenv reads);
+143:    # kept explicit so a new env var added in code forces an edit here.
+144:    "OLLAMA_URL", "QDRANT_URL", "EMBED_MODEL", "INDEX_ROOT", "STALE_TTL",
+145-    "EMBED_BATCH", "UPSERT_BATCH", "MAX_FILE_BYTES", "WATCH_DEBOUNCE",
+146-    "WATCH_QUIET_PERIOD", "WATCH_SWEEP_INTERVAL", "OLLAMA_TIMEOUT",
+147-    "EMBED_CONCURRENCY", "CHUNK_MAX_CHARS", "PARANOID_HASH", "VERBOSE",
+148-    "QUERY_INSTRUCTION", "EMBED_CACHE", "EMBED_CACHE_MAX_GB",
+149-]
+150-
+151-# CODE_INDEXER_BIN is read by the MCP server (not the CLI), so it is
+152:# documented in README's MCP section rather than the SKILL env list.
+153-MCP_SERVER_ENV_VARS = {"CODE_INDEXER_BIN"}
+154-
+155-
+156-# ---------------------------------------------------------------------------
+157-# 1. command coverage
+158-# ---------------------------------------------------------------------------
+--
+246-
+247-
+248-# ---------------------------------------------------------------------------
+249:# 4. env var coverage
+250-# ---------------------------------------------------------------------------
+251-
+252:def test_code_env_vars_documented_in_skill():
+253:    text = _readme_env_section()
+254-    missing = sorted(v for v in ENV_VARS_IN_CODE if v not in text)
+255:    assert not missing, f"env vars read by the code but absent from SKILL-CLI.md: {missing}"
+256-    readme = _readme_text()
+257-    missing_mcp = sorted(v for v in MCP_SERVER_ENV_VARS if v not in readme)
+258-    assert not missing_mcp, (
+259:        f"MCP-server env vars absent from README: {missing_mcp}")
+260-
+261-
+262:def test_documented_env_vars_exist_in_code():
+263:    text = _readme_env_section()
