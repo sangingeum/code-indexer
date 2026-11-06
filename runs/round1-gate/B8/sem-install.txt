@@ -1,0 +1,41 @@
+Using Python 3.12.12 environment at: /tmp/g-sem
+Resolved 33 packages in 111ms
+   Building code-indexer @ file://<checkout>
+      Built code-indexer @ file://<checkout>
+Downloading grpcio (7.0MiB)
+ Downloaded grpcio
+Prepared 2 packages in 178ms
+Installed 33 packages in 41ms
+ + annotated-doc==0.0.5
+ + annotated-types==0.8.0
+ + anyio==4.16.0
+ + certifi==2026.10.23
+ + code-indexer==0.1.0 (from file://<checkout>)
+ + grpcio==1.85.1
+ + h11==0.16.0
+ + h2==4.4.1
+ + hpack==4.2.0
+ + httpcore==1.0.9
+ + httpx==0.28.1
+ + hyperframe==6.1.0
+ + idna==3.20
+ + markdown-it-py==4.2.0
+ + mdurl==0.1.2
+ + numpy==2.5.4
+ + ollama==0.6.3
+ + pathspec==1.1.1
+ + portalocker==2.10.1
+ + protobuf==7.36.2
+ + pydantic==2.14.3
+ + pydantic-core==2.50.4
+ + pygments==2.21.0
+ + qdrant-client==1.14.3
+ + rich==15.0.0
+ + shellingham==1.5.4
+ + tree-sitter==0.26.0
+ + tree-sitter-language-pack==1.18.0
+ + typer==0.28.0
+ + typing-extensions==4.16.0
+ + typing-inspection==0.4.5
+ + urllib3==2.8.0
+ + watchdog==7.1.0

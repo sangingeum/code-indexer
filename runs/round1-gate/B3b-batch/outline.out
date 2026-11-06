@@ -1,0 +1,70 @@
+function _get_core:51-57  def _get_core(skip_stale_check: bool) -> Core:
+function _die:60-69  def _die(msg: str) -> NoReturn:
+function _resolve:72-83  def _resolve(core: Core, project: str | None,
+function _usage_die:86-90  def _usage_die(msg: str) -> NoReturn:
+function _require_selector:93-108  def _require_selector(core: Core, project: str | None, path: str | None,
+function _echo_index_result:111-119  def _echo_index_result(slug: str, result: dict) -> None:
+function doctor:135-151  def doctor(
+function doctor:136-151  def doctor(
+function overview:167-190  def overview(
+function overview:168-190  def overview(
+function changed_symbols:197-214  def changed_symbols(
+function changed_symbols:198-214  def changed_symbols(
+function _core_entry:240-242  def _core_entry(project: str | None, skip_stale_check: bool = False):
+function _warn_rows_staleness:245-253  def _warn_rows_staleness(core: Core, entry: ProjectEntry) -> None:
+function find_callers:256-272  def find_callers(
+function find_callers:257-272  def find_callers(
+function find_callees:294-311  def find_callees(
+function find_callees:295-311  def find_callees(
+function _emit_graph:319-335  def _emit_graph(result: graph.GraphResult, json_output: bool) -> None:
+function deps:344-363  def deps(
+function deps:345-363  def deps(
+function add_project:383-402  def add_project(
+function add_project:384-402  def add_project(
+function index_more:445-467  def index_more(
+function index_more:446-468  def index_more(
+function remove_project:495-519  def remove_project(
+function remove_project:496-519  def remove_project(
+function list_projects:531-550  def list_projects(skip_stale_check: bool = SkipOpt) -> None:
+function lookup_project:553-575  def lookup_project(
+function lookup_project:554-576  def lookup_project(
+function semantic_search:580-594  def semantic_search(
+function semantic_search:581-595  def semantic_search(
+function index_status:683-702  def index_status(
+function index_status:684-703  def index_status(
+function sweep_orphans:803-821  def sweep_orphans(
+function sweep_orphans:804-821  def sweep_orphans(
+function reindex_project:858-877  def reindex_project(
+function watch:880-901  def watch(
+function watch:881-901  def watch(
+function _handle:1012-1013  def _handle(_sig: int, _frm: object) -> None:
+function unwatch:1039-1058  def unwatch(
+function unwatch:1040-1058  def unwatch(
+function _select_watchable:1124-1142  def _select_watchable(
+function _make_engine:1150-1158  def _make_engine(core: Core, targets: list[tuple[str, str]], *, quiet: float,
+function _watch_background:1161-1176  def _watch_background(core: Core, targets: list[tuple[str, str]],
+function setup:1182-1206  def setup() -> int:
+function _handle:1201-1202  def _handle(_sig: int, _frm: object) -> None:
+function run_loop:1226-1232  def run_loop() -> None:
+function _daemon_confirmed:1258-1278  def _daemon_confirmed(daemon_pid: int, pidfile_path: str) -> bool:
+function _holder_roots_safe:1281-1290  def _holder_roots_safe(pid: int | None) -> list[str] | None:
+function _covers:1293-1306  def _covers(holder_roots: list[str], targets: list[tuple[str, str]]) -> bool:
+function _report_already_running:1309-1330  def _report_already_running(
+function skeleton:1334-1353  def skeleton(
+function skeleton:1336-1355  def skeleton(
+function outline:1376-1399  def outline(
+function outline:1378-1400  def outline(
+function find_symbol:1406-1425  def find_symbol(
+function find_symbol:1407-1427  def find_symbol(
+function find_definition:1481-1504  def find_definition(
+function find_definition:1482-1505  def find_definition(
+function get_code_context:1511-1528  def get_code_context(
+function get_code_context:1512-1528  def get_code_context(
+function find_references:1556-1573  def find_references(
+function find_references:1557-1574  def find_references(
+function _main:1630-1638  def _main(
+function main:1641-1643  def main() -> None:
+function _parse_ks:1650-1657  def _parse_ks(raw: str) -> list[int]:
+function eval_command:1660-1677  def eval_command(
+function eval_command:1661-1677  def eval_command(
+function eval_compare:1696-1712  def eval_compare(

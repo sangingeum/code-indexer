@@ -1,0 +1,26 @@
+=== 1. read batch with OLLAMA_URL/QDRANT_URL pointed at the sink ===
+exits:
+0 overview :: overview --project code-indexer --max-lines 40
+0 skeleton :: skeleton src/code_indexer --project code-indexer
+0 outline :: outline src/code_indexer/cli.py --project code-indexer
+0 find-symbol :: find-symbol Core --project code-indexer
+0 find-definition :: find-definition Core --project code-indexer
+0 find-references :: find-references warning_line --project code-indexer
+0 find-callers :: find-callers detect --project code-indexer --depth 2
+0 deps :: deps src/code_indexer/cli.py --project code-indexer
+0 get-code-context :: get-code-context src/code_indexer/staleness.py --start-line 79 --end-line 160 --project code-indexer
+0 changed-symbols :: changed-symbols --project code-indexer --base 1468102 --head f7d63f1
+0 list-projects :: list-projects
+0 lookup-project :: lookup-project code-indexer
+0 index-status :: index-status --project code-indexer
+connections counted so far:
+0
+=== 2. positive control: semantic-search, which must dial the embedding service ===
+control exit=3
+BackendError: embedding service unavailable: Server disconnected without sending a response.
+=== 3. sink log ===
+listening ports=[34567, 34568]
+heartbeat totals={"34567": 0, "34568": 0}
+CONNECT port=34567 peer=127.0.0.1:55164 at=2026-11-06T17:27:23Z
+TOTALS {"34567": 1, "34568": 0} total=1
+=== connect lines: before control / total ===

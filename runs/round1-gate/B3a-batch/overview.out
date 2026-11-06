@@ -1,0 +1,39 @@
+project: code-indexer — 609 files, 60488 LOC
+languages:
+  text: 245 files, 10717 LOC (40.2%)
+  python: 191 files, 28028 LOC (31.4%)
+  markdown: 57 files, 11776 LOC (9.4%)
+  json: 56 files, 8707 LOC (9.2%)
+  err: 33 files, 26 LOC (5.4%)
+directories:
+  runs/: 480 files, 286 symbols
+  tests/: 49 files, 1061 symbols
+  src/: 40 files, 453 symbols
+  docs/: 24 files, 25 symbols
+  ./: 9 files, 12 symbols
+  scripts/: 3 files, 14 symbols
+entry points:
+  runs/issue12-14-15/extraction_evidence.py:main
+  runs/issue12-14-15/mutation_proof.py:main
+  runs/issue22/folds/classify_src_diff.py:main
+  runs/issue22/folds/revert_sensitivity.py:main
+  runs/issue22/gate/check_changed_bounds.py:main
+  script: code-indexer
+tests: 50 files (hint: pytest, unittest)
+  runs/milestone0/test_inventory.py
+  tests/conftest.py
+  tests/test_changed_symbols.py
+  tests/test_codeintel.py
+config/build: .github/workflows, pyproject.toml
+hotspots (fan-in):
+  tests/test_codeintel.py: 1871
+  docs/overhaul-baseline-audit.md: 1688
+  src/code_indexer/cli.py: 1225
+  LICENSE: 1196
+  CHANGELOG.md: 1186
+hotspots (size):
+  runs/milestone0/skeleton.txt: 2107 LOC
+  runs/milestone0/commands.json: 1717 LOC
+  src/code_indexer/cli.py: 1712 LOC
+  src/code_indexer/core.py: 1626 LOC
+  runs/milestone0/importtime.txt: 1203 LOC

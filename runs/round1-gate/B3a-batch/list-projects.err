@@ -1,0 +1,9 @@
+Warning: index is stale (10 files changed since 2026-11-06T12:49:18Z: 8 modified, 2 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project <dev>/grace/vivarium-sim
+Warning: index is stale (100 files changed since 2026-11-06T16:23:29Z: 32 modified, 68 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project <checkout>
+Warning: index is stale (1 file changed since 2026-10-31T07:38:35Z: 1 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project <dev>/athena/vector-memory
+Warning: index is stale (10 files changed since 2026-10-31T07:38:35Z: 10 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project <dev>/solomon/vivarium-adr
+Warning: index is stale (19 files changed since 2026-11-02T11:39:33Z: 10 modified, 9 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project <dev>/vera/scratch/vivarium-sim
+Warning: index staleness check did not run (project path absent: /tmp/pytest-of-keum/pytest-193/test_end_to_end_index_and_sear0/liveproj); answers describe the index, not the tree.
+Warning: index is stale (18 files changed since 2026-11-04T10:07:20Z: 17 modified, 1 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project <dev>/athena/tackboard
+Warning: index is stale (48 files changed since 2026-10-31T10:47:57Z: 47 modified, 1 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project <dev>/athena/filekeeper
+Warning: index is stale (46 files changed since 2026-11-01T02:54:14Z: 9 modified, 34 added, 3 deleted); answers describe the index, not the tree. Refresh: code-indexer reindex-project <dev>/adam/korean-podcast-feasibility

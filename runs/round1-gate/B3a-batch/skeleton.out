@@ -1,0 +1,493 @@
+src/code_indexer/__init__.py  (python, 1 symbols)
+  function core:1-10  """code-indexer: semantic code index via Ollama + Qdrant.
+src/code_indexer/__main__.py  (python, 0 symbols)
+src/code_indexer/changed.py  (python, 15 symbols)
+  class NotAGitRepo:22-23  class NotAGitRepo(Exception):
+  function git_diff_files:29-51  def git_diff_files(project_path: str, base: str = "HEAD",
+  function changed_line_ranges:69-92  def changed_line_ranges(project_path: str, file: str, base: str = "HEAD",
+  function _live_or_git_text:95-106  def _live_or_git_text(project_path: str, file: str, ref: str | None) -> str:
+  function _binary:109-110  def _binary(text: str) -> bool:
+  function _lang_of:113-116  def _lang_of(path: str) -> str:
+  function symbols_in_ranges:119-141  def symbols_in_ranges(text: str, path: str,
+  function changed_symbols:156-175  def changed_symbols(project_path: str, base: str = "HEAD",
+  function ts_symbols_safe:202-210  def ts_symbols_safe(text: str, path: str) -> list[dict]:
+  function _candidate_tests:217-227  def _candidate_tests(file: str, names: set[str]) -> set[str]:
+  function impact:237-259  def impact(core, slug: str, changed: dict, depth: int = 1,
+  function _indexed_files:304-305  def _indexed_files(m: Manifest) -> set[str]:
+  function _match_tests:308-316  def _match_tests(candidates: set[str], indexed: set[str]) -> set[str]:
+  function _impact_bound_note:323-341  def _impact_bound_note(imp: dict) -> str:
+  function render:351-371  def render(changed: dict, impact_data: dict | None = None) -> str:
+src/code_indexer/chunker.py  (python, 9 symbols)
+  function chunk_max_chars:20-26  def chunk_max_chars() -> int:
+  function Chunk:37-48  class Chunk:
+  function _guess_symbol:51-60  def _guess_symbol(line: str) -> str | None:
+  function _make_chunk:63-88  def _make_chunk(lines: list[str], start: int, index: int) -> Chunk:
+  function _chunks_from_parts:93-107  def _chunks_from_parts(parts: list[str], start: int, index: int) -> list[Chunk]:
+  function chunk:110-137  def chunk(text: str) -> list[Chunk]:
+  function _split_text:140-152  def _split_text(text: str) -> list[str]:
+  function regex_signature:164-167  def regex_signature(text: str) -> str:
+  function regex_visibility:170-174  def regex_visibility(name: str | None) -> str:
+src/code_indexer/cli.py  (python, 70 symbols)
+  function _get_core:51-57  def _get_core(skip_stale_check: bool) -> Core:
+  function _die:60-69  def _die(msg: str) -> NoReturn:
+  function _resolve:72-83  def _resolve(core: Core, project: str | None,
+  function _usage_die:86-90  def _usage_die(msg: str) -> NoReturn:
+  function _require_selector:93-108  def _require_selector(core: Core, project: str | None, path: str | None,
+  function _echo_index_result:111-119  def _echo_index_result(slug: str, result: dict) -> None:
+  function doctor:135-151  def doctor(
+  function doctor:136-151  def doctor(
+  function overview:167-190  def overview(
+  function overview:168-190  def overview(
+  function changed_symbols:197-214  def changed_symbols(
+  function changed_symbols:198-214  def changed_symbols(
+  function _core_entry:240-242  def _core_entry(project: str | None, skip_stale_check: bool = False):
+  function _warn_rows_staleness:245-253  def _warn_rows_staleness(core: Core, entry: ProjectEntry) -> None:
+  function find_callers:256-272  def find_callers(
+  function find_callers:257-272  def find_callers(
+  function find_callees:294-311  def find_callees(
+  function find_callees:295-311  def find_callees(
+  function _emit_graph:319-335  def _emit_graph(result: graph.GraphResult, json_output: bool) -> None:
+  function deps:344-363  def deps(
+  function deps:345-363  def deps(
+  function add_project:383-402  def add_project(
+  function add_project:384-402  def add_project(
+  function index_more:445-467  def index_more(
+  function index_more:446-468  def index_more(
+  function remove_project:495-519  def remove_project(
+  function remove_project:496-519  def remove_project(
+  function list_projects:531-550  def list_projects(skip_stale_check: bool = SkipOpt) -> None:
+  function lookup_project:553-575  def lookup_project(
+  function lookup_project:554-576  def lookup_project(
+  function semantic_search:580-594  def semantic_search(
+  function semantic_search:581-595  def semantic_search(
+  function index_status:683-702  def index_status(
+  function index_status:684-703  def index_status(
+  function sweep_orphans:803-821  def sweep_orphans(
+  function sweep_orphans:804-821  def sweep_orphans(
+  function reindex_project:858-877  def reindex_project(
+  function watch:880-901  def watch(
+  function watch:881-901  def watch(
+  function _handle:1012-1013  def _handle(_sig: int, _frm: object) -> None:
+  function unwatch:1039-1058  def unwatch(
+  function unwatch:1040-1058  def unwatch(
+  function _select_watchable:1124-1142  def _select_watchable(
+  function _make_engine:1150-1158  def _make_engine(core: Core, targets: list[tuple[str, str]], *, quiet: float,
+  function _watch_background:1161-1176  def _watch_background(core: Core, targets: list[tuple[str, str]],
+  function setup:1182-1206  def setup() -> int:
+  function _handle:1201-1202  def _handle(_sig: int, _frm: object) -> None:
+  function run_loop:1226-1232  def run_loop() -> None:
+  function _daemon_confirmed:1258-1278  def _daemon_confirmed(daemon_pid: int, pidfile_path: str) -> bool:
+  function _holder_roots_safe:1281-1290  def _holder_roots_safe(pid: int | None) -> list[str] | None:
+  function _covers:1293-1306  def _covers(holder_roots: list[str], targets: list[tuple[str, str]]) -> bool:
+  function _report_already_running:1309-1330  def _report_already_running(
+  function skeleton:1334-1353  def skeleton(
+  function skeleton:1336-1355  def skeleton(
+  function outline:1376-1399  def outline(
+  function outline:1378-1400  def outline(
+  function find_symbol:1406-1425  def find_symbol(
+  function find_symbol:1407-1427  def find_symbol(
+  function find_definition:1481-1504  def find_definition(
+  function find_definition:1482-1505  def find_definition(
+  function get_code_context:1511-1528  def get_code_context(
+  function get_code_context:1512-1528  def get_code_context(
+  function find_references:1556-1573  def find_references(
+  function find_references:1557-1574  def find_references(
+  function _main:1630-1638  def _main(
+  function main:1641-1643  def main() -> None:
+  function _parse_ks:1650-1657  def _parse_ks(raw: str) -> list[int]:
+  function eval_command:1660-1677  def eval_command(
+  function eval_command:1661-1677  def eval_command(
+  function eval_compare:1696-1712  def eval_compare(
+src/code_indexer/config.py  (python, 2 symbols)
+  function Config:28-42  class Config:
+  function load_config:45-63  def load_config(argv: list[str] | None = None) -> Config:
+src/code_indexer/core.py  (python, 43 symbols)
+  function _merge_symbol_ranges:58-74  def _merge_symbol_ranges(
+  class Core:89-106  class Core:
+  function __init__:98-112  def __init__(self, cfg: Config | None = None, skip_stale_check: bool = False):
+  function _embed_cache:114-122  def _embed_cache():
+  function manifest_for:128-131  def manifest_for(self, slug: str) -> Manifest:
+  function _lock_path:133-134  def _lock_path(self, slug: str) -> str:
+  function _set_state:136-137  def _set_state(self, slug: str, **kw: Any) -> None:
+  function state_for:139-140  def state_for(self, slug: str) -> dict[str, Any]:
+  function has_successful_pass:142-159  def has_successful_pass(self, slug: str) -> bool:
+  function effective_state:161-172  def effective_state(self, slug: str, recorded: str | None = None) -> str:
+  function run_index:178-195  def run_index(self, slug: str, project_path: str, force: bool = False,
+  function watch_pass:210-218  def watch_pass(self, slug: str, project_path: str) -> dict[str, Any]:
+  function maybe_refresh:220-237  def maybe_refresh(self, slug: str, project_path: str,
+  function _containing_entry:246-252  def _containing_entry(self, target: str) -> ProjectEntry | None:
+  function resolve_entry:254-273  def resolve_entry(self, project: str | None,
+  function status_summary:290-308  def status_summary(self, entry: ProjectEntry,
+  function schema_migrated:345-351  def schema_migrated(self, entry: ProjectEntry) -> bool:
+  function _current_fingerprint_or_none:357-367  def _current_fingerprint_or_none(self):
+  function fingerprint_status:369-383  def fingerprint_status(self, entry: ProjectEntry) -> dict[str, Any]:
+  function assert_fingerprint_ok:413-433  def assert_fingerprint_ok(self, entry: ProjectEntry) -> None:
+  function reindex_with_swap:435-452  def reindex_with_swap(self, slug: str, project_path: str) -> dict[str, Any]:
+  function rows_staleness:472-488  def rows_staleness(self, entry: ProjectEntry) -> str | None:
+  function sweep_orphans:504-518  def sweep_orphans(self, entry: ProjectEntry, project_path: str,
+  function search_one:545-562  def search_one(self, entry: ProjectEntry, query: str, limit: int,
+  function search:616-635  def search(self, query: str, project: str | None = None, limit: int = 8,
+  function _lexical_hits:746-763  def _lexical_hits(self, entry: ProjectEntry, query: str, limit: int,
+  function _fuse_lexical_dense:791-808  def _fuse_lexical_dense(self, entry: ProjectEntry, query: str,
+  function format_hits:829-843  def format_hits(self, hits: list[dict[str, Any]], fmt: str = "text",
+  function search_for_display:892-908  def search_for_display(self, query: str, project: str | None = None,
+  function find_references:934-949  def find_references(self, entry: ProjectEntry, name: str,
+  function reference_relationship_counts:971-980  def reference_relationship_counts(self, entry: ProjectEntry, name: str
+  function all_symbol_names:982-988  def all_symbol_names(self, entry: ProjectEntry) -> set[str]:
+  function skeleton:994-1013  def skeleton(self, entry: ProjectEntry, prefix: str | None = None,
+  function _tree_projection:1041-1060  def _tree_projection(
+  function _tree_projection:1042-1060  def _tree_projection(
+  function format_skeleton:1064-1080  def format_skeleton(self, data: dict[str, Any], fmt: str = "text") -> str:
+  function outline:1091-1108  def outline(self, entry: ProjectEntry, file: str,
+  function _first_docstring:1144-1159  def _first_docstring(lines: list[str], start_line: int) -> str | None:
+  function registry_has_file:1161-1166  def registry_has_file(self, entry: ProjectEntry, rel: str) -> bool:
+  function file_changed_since_index:1172-1194  def file_changed_since_index(self, entry: ProjectEntry, rel: str) -> bool:
+  function code_context:1205-1221  def code_context(self, entry: ProjectEntry, file: str,
+  function format_outline:1324-1336  def format_outline(self, data: dict[str, Any], fmt: str = "text") -> str:
+  function _lang_from_path:1350-1358  def _lang_from_path(path: str) -> str:
+src/code_indexer/doctor.py  (python, 20 symbols)
+  function Check:38-49  class Check:
+  function any_fail:52-53  def any_fail(checks: list[Check]) -> bool:
+  function qdrant_client_version:56-61  def qdrant_client_version() -> str:
+  function check_runtime:68-84  def check_runtime(python_version: str | None = None,
+  function _ollama_model_names:91-102  def _ollama_model_names(client: Any) -> list[str]:
+  function check_ollama:105-129  def check_ollama(cfg: Config, embedder: Any,
+  function _parse_version:150-154  def _parse_version(v: str) -> tuple[int, ...] | None:
+  function _versions_compatible:157-163  def _versions_compatible(client_v: str, server_v: str) -> bool:
+  function _collection_dim:166-177  def _collection_dim(client: Any, name: str) -> int | None:
+  function check_qdrant:180-200  def check_qdrant(cfg: Config, store: Any, registry: Any,
+  function check_index_root:263-286  def check_index_root(cfg: Config) -> list[Check]:
+  function _sqlite_integrity:293-304  def _sqlite_integrity(path: str) -> tuple[str, str]:
+  function check_sqlite:307-322  def check_sqlite(cfg: Config) -> list[Check]:
+  function check_locks:329-347  def check_locks(cfg: Config) -> list[Check]:
+  class _MetaView:394-403  class _MetaView:
+  function __init__:398-399  def __init__(self, mapping: dict[str, Any]):
+  function get_meta:401-403  def get_meta(self, key: str) -> str | None:
+  function _read_meta_mapping:406-414  def _read_meta_mapping(db_path: str) -> dict[str, Any] | None:
+  function check_fingerprints:417-435  def check_fingerprints(cfg: Config, registry: Any, embedder: Any) -> list[Check]:
+  function run_doctor:471-482  def run_doctor(cfg: Config, registry: Any, embedder: Any, store: Any,
+src/code_indexer/embed_cache.py  (python, 11 symbols)
+  function cache_key:33-36  def cache_key(embed_text: str, model: str, dim: int,
+  function _pack:39-40  def _pack(vector: list[float]) -> bytes:
+  function _unpack:43-44  def _unpack(blob: bytes) -> list[float]:
+  class EmbedCache:47-70  class EmbedCache:
+  function __init__:48-53  def __init__(self, index_root: str,
+  function _connect:55-61  def _connect(self) -> sqlite3.Connection:
+  function close:63-66  def close(self) -> None:
+  function get:68-77  def get(self, key: str) -> list[float] | None:
+  function put:79-87  def put(self, key: str, vector: list[float]) -> None:
+  function _evict_if_needed:89-99  def _evict_if_needed(self, conn: sqlite3.Connection) -> None:
+  function size:101-103  def size(self) -> int:
+src/code_indexer/embed_text.py  (python, 1 symbols)
+  function embed_text:34-45  def embed_text(file: str, chunk: Chunk) -> str:
+src/code_indexer/embedder.py  (python, 12 symbols)
+  class Embedder:38-56  class Embedder:
+  function __init__:39-56  def __init__(self, host: str, model: str, batch_size: int = 48,
+  function query_instruction_text:63-72  def query_instruction_text(self, query: str) -> str:
+  function dimension:74-87  def dimension(self) -> int:
+  function close:89-93  def close(self) -> None:
+  function _is_fatal:99-102  def _is_fatal(exc: Exception) -> bool:
+  function _raise_fatal:104-108  def _raise_fatal(model: str, host: str, exc: Exception) -> ConfigError:
+  function _request_with_retries:114-135  def _request_with_retries(self, client, batch: list[str]) -> list[list[float]]:
+  function embed:144-162  def embed(self, texts: list[str]) -> list[list[float]]:
+  function _embed_misses:180-185  def _embed_misses(self, texts: list[str]) -> list[list[float]]:
+  function _embed_batch:187-188  def _embed_batch(self, batch: list[str]) -> list[list[float]]:
+  function embed_with_errors:190-209  def embed_with_errors(
+src/code_indexer/errors.py  (python, 11 symbols)
+  class IndexerError:32-39  class IndexerError(Exception):
+  function render:38-39  def render(self) -> str:
+  class ArgumentError:42-44  class ArgumentError(IndexerError):
+  class ConfigError:47-49  class ConfigError(IndexerError):
+  class NotFoundError:52-54  class NotFoundError(IndexerError):
+  class BackendError:57-59  class BackendError(IndexerError):
+  class LockedError:62-64  class LockedError(IndexerError):
+  class InternalError:67-69  class InternalError(IndexerError):
+  function classify:72-90  def classify(exc: BaseException) -> IndexerError:
+  function _strip_prefix:101-102  def _strip_prefix(text: str) -> str:
+  function fail:105-109  def fail(exc: BaseException) -> NoReturn:
+src/code_indexer/evalharness.py  (python, 11 symbols)
+  function Relevant:47-52  class Relevant:
+  function EvalQuery:55-60  class EvalQuery:
+  function QueryResult:63-69  class QueryResult:
+  function load_queries:72-91  def load_queries(path: str | Path) -> list[EvalQuery]:
+  function _symbol_ranges:100-117  def _symbol_ranges(manifest: Any, rel_file: str,
+  function _hit_correct:120-136  def _hit_correct(core: "Core", entry: Any, hit: dict[str, Any],
+  function run_eval:139-160  def run_eval(core: "Core", project: str, queries_path: str | Path,
+  function _ndcg:183-186  def _ndcg(rank: int | None, k: int) -> float:
+  function format_eval_report:214-227  def format_eval_report(report: dict[str, Any]) -> str:
+  function compare_reports:230-253  def compare_reports(a: dict[str, Any], b: dict[str, Any]) -> str:
+  function load_report:265-266  def load_report(path: str | Path) -> dict[str, Any]:
+src/code_indexer/fingerprint.py  (python, 10 symbols)
+  class ConfigError:42-50  class ConfigError(Exception):
+  function Fingerprint:53-74  class Fingerprint:
+  function current_fingerprint:77-81  def current_fingerprint(embed_model: str, embed_dim: int) -> Fingerprint:
+  function read_fingerprint:84-101  def read_fingerprint(manifest) -> Fingerprint | None:
+  function write_fingerprint:108-110  def write_fingerprint(manifest, fp: Fingerprint) -> None:
+  function fingerprint_mismatches:113-122  def fingerprint_mismatches(recorded: Fingerprint | None,
+  function manifest_newer_than:125-139  def manifest_newer_than(recorded: Fingerprint | None,
+  function current_version_stamp:142-155  def current_version_stamp() -> Fingerprint:
+  function rows_staleness_warning:158-177  def rows_staleness_warning(recorded: Fingerprint | None,
+  function mismatch_error:185-190  def mismatch_error(project_path: str, recorded: Fingerprint,
+src/code_indexer/fts.py  (python, 10 symbols)
+  function tokenize_fts:30-50  def tokenize_fts(text: str) -> str:
+  function build_match_query:53-65  def build_match_query(query: str, max_terms: int = 12) -> str | None:
+  class FtsIndex:73-100  class FtsIndex:
+  function __init__:76-77  def __init__(self, conn):
+  function create:79-83  def create(self) -> None:
+  function rowcount:85-90  def rowcount(self) -> int:
+  function add_chunks:92-107  def add_chunks(self, rows: list[tuple[str, str, str, str, str, int]]) -> None:
+  function purge_file:109-111  def purge_file(self, file: str) -> None:
+  function search:113-128  def search(self, query: str, limit: int = 30) -> list[dict]:
+  function needs_backfill:130-131  def needs_backfill(self, chunk_rows: int) -> bool:
+src/code_indexer/graph.py  (python, 23 symbols)
+  function GraphNode:47-63  class GraphNode:
+  function GraphResult:66-82  class GraphResult:
+  function _manifest_for:85-86  def _manifest_for(core, slug: str) -> Manifest:
+  function _plural:89-90  def _plural(count: int, one: str, many: str) -> str:
+  function _cap_note:93-102  def _cap_note(cap: int, omitted: int, what: str, scope: str = "") -> str:
+  function _depth_note:105-107  def _depth_note(depth: int, what: str) -> str:
+  function _root_cap_note:110-126  def _root_cap_note(total: int, cap: int) -> str:
+  function _site_key:129-133  def _site_key(file: str, line: int | None, frm: str | None,
+  function _root_key:136-137  def _root_key(file: str, symbol: str | None) -> tuple:
+  function _callee_key:140-142  def _callee_key(file: str, to_name: str | None) -> tuple:
+  function _expand_callers:145-161  def _expand_callers(core, m: Manifest, name: str
+  function _file_defines:166-167  def _file_defines(m: Manifest, file: str, name: str) -> bool:
+  function _expand_callees:170-180  def _expand_callees(core, m: Manifest, file: str, symbol: str | None
+  function _definer_of:183-185  def _definer_of(m: Manifest, name: str) -> str | None:
+  function find_callers:188-204  def find_callers(core, slug: str, name: str, depth: int = 2,
+  function find_callees:342-361  def find_callees(core, slug: str, name: str, depth: int = 2,
+  function render_tree:411-421  def render_tree(nodes: list[GraphNode]) -> str:
+  function graph_to_json:424-433  def graph_to_json(nodes: list[GraphNode]) -> dict:
+  function result_to_json:436-444  def result_to_json(result: GraphResult) -> dict:
+  function deps_for_file:447-472  def deps_for_file(core, slug: str, path: str, direction: str = "both",
+  function out_edges:459-464  def out_edges(f: str) -> list[str]:
+  function in_edges:466-471  def in_edges(f: str) -> list[str]:
+  function walk:476-498  def walk(start: str, edge_fn, levels: int) -> tuple[dict[int, list[str]], int, bool]:
+src/code_indexer/graph_extract.py  (python, 16 symbols)
+  function _node_text:110-111  def _node_text(node, data: bytes) -> str:
+  function _load_query:114-129  def _load_query(lang: str):
+  function extract_graph:132-155  def extract_graph(path: str, text: str, lang: str
+  function _collect_decls:156-163  def _collect_decls(node) -> None:
+  function _enclosing:167-172  def _enclosing(row: int) -> str | None:
+  function _member_ref:206-220  def _member_ref(node, data: bytes, row: int, frm: str | None
+  function extract_graph_textual:240-255  def extract_graph_textual(path: str, text: str
+  function _dedupe_imports:288-296  def _dedupe_imports(rows):
+  function _dedupe_refs:299-310  def _dedupe_refs(rows):
+  function resolve_imports:317-336  def resolve_imports(project_root: str, file: str, lang: str,
+  function _proj_file:339-343  def _proj_file(project_root: str, rel: str) -> str | None:
+  function _resolve_python:346-367  def _resolve_python(project_root: str, file_dir: str,
+  function _resolve_js:370-383  def _resolve_js(project_root: str, file_dir: str, target: str) -> str | None:
+  function _resolve_c:386-393  def _resolve_c(project_root: str, file_dir: str, target: str) -> str | None:
+  function _resolve_go:396-406  def _resolve_go(project_root: str, target: str) -> str | None:
+  function _go_module:409-419  def _go_module(project_root: str) -> str | None:
+src/code_indexer/indexer.py  (python, 14 symbols)
+  function _chunk_dispatch:34-36  def _chunk_dispatch(path: str, text: str) -> list[Chunk]:
+  function IndexResult:42-51  class IndexResult:
+  function _snippet:54-55  def _snippet(text: str, cap: int = 500) -> str:
+  class Indexer:58-78  class Indexer:
+  function __init__:59-67  def __init__(self, cfg: Config, embedder: Embedder, store: Store,
+  function _embed_with_errors_compat:69-88  def _embed_with_errors_compat(
+  function index_project:91-109  def index_project(self, project_path: str, slug: str, manifest: Manifest,
+  function _process_file:280-291  def _process_file(path: str) -> tuple[str, str, list[Chunk], list] | None:
+  function _record_file:293-310  def _record_file(path: str, file_text: str, chunks: list[Chunk],
+  function _commit_metadata:342-361  def _commit_metadata(path: str) -> None:
+  function _point:406-424  def _point(path: str, chunk_: Chunk, vec: list[float]) -> PointStruct:
+  function _load_chunk_hashes:530-532  def _load_chunk_hashes(self, manifest: Manifest) -> set[str]:
+  function _remember_chunk_hash:534-540  def _remember_chunk_hash(self, manifest: Manifest, file: str, chunk_: Chunk) -> None:
+  function _lang_from_ext:543-551  def _lang_from_ext(path: str) -> str:
+src/code_indexer/langmatrix.py  (python, 5 symbols)
+  function capabilities:55-79  def capabilities(lang: str) -> dict:
+  function _resolution_note:100-110  def _resolution_note(lang: str) -> str:
+  function matrix:113-116  def matrix() -> list[dict]:
+  function languages_without_ast:119-121  def languages_without_ast() -> list[str]:
+  function render_markdown:127-149  def render_markdown() -> str:
+src/code_indexer/locks.py  (python, 2 symbols)
+  function project_lock:27-51  def project_lock(lock_path: str) -> Iterator[bool]:
+  function project_lock:28-51  def project_lock(lock_path: str) -> Iterator[bool]:
+src/code_indexer/logsetup.py  (python, 1 symbols)
+  function configure_logging:24-47  def configure_logging(verbose: bool = False) -> None:
+src/code_indexer/manifest.py  (python, 40 symbols)
+  function ManifestFile:95-105  class ManifestFile:
+  function SymbolRow:108-117  class SymbolRow:
+  class Manifest:120-138  class Manifest:
+  function __init__:121-139  def __init__(self, db_path: str):
+  function close:177-178  def close(self) -> None:
+  function all_files:182-190  def all_files(self) -> dict[str, ManifestFile]:
+  function stat_map:192-197  def stat_map(self) -> dict[str, tuple[int, int, int, str]]:
+  function get_file:199-205  def get_file(self, path: str) -> ManifestFile | None:
+  function upsert_files:207-219  def upsert_files(self, rows: list[ManifestFile]) -> None:
+  function delete_files:221-241  def delete_files(self, paths: list[str]) -> None:
+  function orphan_rows:249-267  def orphan_rows(self) -> dict[str, dict[str, int]]:
+  function replace_file_symbols:271-287  def replace_file_symbols(self, file: str, symbols: list[SymbolRow]) -> None:
+  function find_symbols:292-310  def find_symbols(self, name: str | None, symbol_type: str | None = None,
+  function definitions_of:330-343  def definitions_of(self, name: str,
+  function symbols_with_files:345-355  def symbols_with_files(self) -> tuple[dict[str, ManifestFile], list[SymbolRow]]:
+  function symbols_for_file:357-361  def symbols_for_file(self, file: str) -> list[SymbolRow]:
+  function all_symbol_names:363-364  def all_symbol_names(self) -> set[str]:
+  function refs_to:371-387  def refs_to(self, name: str,
+  function ref_relationship_counts:389-396  def ref_relationship_counts(self, name: str) -> list[tuple[str, int]]:
+  function get_meta:400-404  def get_meta(self, key: str) -> str | None:
+  function set_meta:406-412  def set_meta(self, key: str, value: str) -> None:
+  function mark_scanned:414-417  def mark_scanned(self, branch: str | None = None) -> None:
+  function record_index_error:422-431  def record_index_error(self, file: str, chunk_index: int | None,
+  function clear_index_errors:433-440  def clear_index_errors(self, file: str | None = None) -> None:
+  function last_index_errors:442-447  def last_index_errors(self, limit: int = 3) -> list[dict]:
+  function count_index_errors:449-451  def count_index_errors(self) -> int:
+  function fts:455-459  def fts(self):
+  function fts_add_chunks:461-466  def fts_add_chunks(self, rows: list[tuple[str, int, str, str, str, int]]) -> None:
+  function fts_purge_file:468-472  def fts_purge_file(self, file: str) -> None:
+  function fts_search:474-475  def fts_search(self, query: str, limit: int = 30) -> list[dict]:
+  function fts_backfill_needed:477-481  def fts_backfill_needed(self) -> bool:
+  function fts_backfill:483-486  def fts_backfill(self, chunk_texts: list[tuple[str, int, str, str, str, int]]) -> None:
+  function replace_file_imports:488-499  def replace_file_imports(self, file: str,
+  function replace_file_refs:501-519  def replace_file_refs(self, file: str,
+  function callers_of:521-535  def callers_of(self, name: str, limit: int | None = None) -> list[dict]:
+  function callees_of_file_symbol:550-568  def callees_of_file_symbol(self, file: str, symbol: str | None,
+  function file_fan_in:570-585  def file_fan_in(self, scope_prefix: str | None = None
+  function import_rows:609-624  def import_rows(self, limit: int | None = None) -> list[dict]:
+  function all_symbols:626-630  def all_symbols(self) -> list[SymbolRow]:
+  function read_git_branch:632-642  def read_git_branch(self, project_root: str) -> str | None:
+src/code_indexer/overview.py  (python, 5 symbols)
+  function _root_dirname:50-51  def _root_dirname(project_path: str) -> str:
+  function build_overview:54-76  def build_overview(m: Manifest, project_path: str,
+  function _is_test_path:205-212  def _is_test_path(path: str) -> bool:
+  function format_overview:215-243  def format_overview(data: dict[str, Any], max_lines: int = 60) -> str:
+  function add:219-221  def add(s: str) -> None:
+src/code_indexer/queries/c/references.scm  (scm, 0 symbols)
+src/code_indexer/queries/cpp/references.scm  (scm, 0 symbols)
+src/code_indexer/queries/csharp/references.scm  (scm, 0 symbols)
+src/code_indexer/queries/go/references.scm  (scm, 0 symbols)
+src/code_indexer/queries/javascript/references.scm  (scm, 0 symbols)
+src/code_indexer/queries/python/references.scm  (scm, 0 symbols)
+src/code_indexer/queries/tsx/references.scm  (scm, 0 symbols)
+src/code_indexer/queries/typescript/references.scm  (scm, 0 symbols)
+src/code_indexer/ranking.py  (python, 15 symbols)
+  function tokenize:61-65  def tokenize(text: str | None) -> list[str]:
+  function query_tokens:68-69  def query_tokens(query: str) -> list[str]:
+  function lexical_score:72-94  def lexical_score(hit: dict[str, Any], qtokens: list[str]) -> float:
+  function metadata_adjustment:97-112  def metadata_adjustment(hit: dict[str, Any], qtokens: list[str]) -> float:
+  function hybrid_fuse:115-130  def hybrid_fuse(vector_hits: list[dict[str, Any]], qtokens: list[str],
+  function metadata_rerank:143-156  def metadata_rerank(vector_hits: list[dict[str, Any]],
+  function is_data_payload:162-172  def is_data_payload(hit: dict[str, Any]) -> bool:
+  function _targets_data:175-179  def _targets_data(qtokens: list[str] | None) -> bool:
+  function downweight_data_files:182-203  def downweight_data_files(hits: list[dict[str, Any]],
+  function cap_data_file_share:208-226  def cap_data_file_share(hits: list[dict[str, Any]], limit: int,
+  function merge_overlapping:244-264  def merge_overlapping(hits: list[dict[str, Any]],
+  function cap_per_file:292-311  def cap_per_file(hits: list[dict[str, Any]], per_file: int) -> list[dict[str, Any]]:
+  function trim_to_budget:314-333  def trim_to_budget(hits: list[dict[str, Any]],
+  function truncate_snippets:343-356  def truncate_snippets(hits: list[dict[str, Any]], max_chars: int | None,
+  function rrf_fuse:359-378  def rrf_fuse(per_project: dict[str, list[dict[str, Any]]], limit: int,
+src/code_indexer/registry.py  (python, 13 symbols)
+  function ProjectEntry:40-45  class ProjectEntry:
+  function slug_for:48-49  def slug_for(path: str) -> str:
+  function sanitize_name:52-62  def sanitize_name(name: str) -> str:
+  class Registry:65-84  class Registry:
+  function __init__:66-78  def __init__(self, db_path: str):
+  function _migrate:80-85  def _migrate(self) -> None:
+  function close:87-88  def close(self) -> None:
+  function list_projects:90-94  def list_projects(self) -> list[ProjectEntry]:
+  function get_by_path:96-101  def get_by_path(self, path: str) -> ProjectEntry | None:
+  function get_by_slug:103-107  def get_by_slug(self, slug: str) -> ProjectEntry | None:
+  function get_by_name:109-114  def get_by_name(self, name: str) -> ProjectEntry | None:
+  function add:116-139  def add(self, path: str, name: str | None = None) -> ProjectEntry:
+  function remove:150-158  def remove(self, path: str) -> ProjectEntry | None:
+src/code_indexer/reranker.py  (python, 8 symbols)
+  class Reranker:39-43  class Reranker(Protocol):
+  function rerank:42-43  def rerank(self, hits: list[dict[str, Any]], query: str) -> list[dict[str, Any]]:
+  function _subtokens:46-50  def _subtokens(token: str) -> set[str]:
+  class HeuristicReranker:53-77  class HeuristicReranker:
+  function rerank:56-78  def rerank(self, hits: list[dict[str, Any]],
+  class NoReranker:96-101  class NoReranker:
+  function rerank:99-101  def rerank(self, hits: list[dict[str, Any]],
+  function select_reranker:104-114  def select_reranker(mode: str) -> Reranker:
+src/code_indexer/scanner.py  (python, 7 symbols)
+  function ScannedFile:48-55  class ScannedFile:
+  function _load_ignore_spec:58-78  def _load_ignore_spec(dirpath: str) -> pathspec.PathSpec:
+  function _is_binary:88-97  def _is_binary(path: str) -> bool:
+  function _looks_utf8ish:100-110  def _looks_utf8ish(path: str) -> bool:
+  function scan_project:113-131  def scan_project(root: str, max_file_bytes: int = 1_048_576,
+  function _matches_include:221-228  def _matches_include(spec: pathspec.GitIgnoreSpec, rel_path: str) -> bool:
+  function _hash_file:231-240  def _hash_file(path: str) -> str | None:
+src/code_indexer/sensitive.py  (python, 4 symbols)
+  function SensitiveReport:47-69  class SensitiveReport:
+  function filename_is_sensitive:72-76  def filename_is_sensitive(rel_path: str) -> bool:
+  function content_is_sensitive:79-81  def content_is_sensitive(text: str) -> bool:
+  function file_is_sensitive:84-90  def file_is_sensitive(rel_path: str, text: str) -> str | None:
+src/code_indexer/server.py  (python, 29 symbols)
+  function _cli_argv:80-88  def _cli_argv(argv: list[str]) -> list[str]:
+  function _run_cli:91-105  def _run_cli(argv: list[str]) -> str:
+  function lookup_project:108-119  def lookup_project(path: str) -> str:
+  function add_project:122-137  def add_project(path: str, name: str | None = None,
+  function add_project:125-142  def add_project(path: str, name: str | None = None,
+  function remove_project:147-158  def remove_project(path: str) -> str:
+  function list_projects:161-171  def list_projects() -> str:
+  function semantic_search:174-191  def semantic_search(query: str, project: str | None = None, limit: int = 8,
+  function semantic_search:177-193  def semantic_search(query: str, project: str | None = None, limit: int = 8,
+  function index_status:238-249  def index_status(path: str) -> str:
+  function reindex_project:252-263  def reindex_project(path: str) -> str:
+  function find_symbol:266-287  def find_symbol(name: str, project: str | None = None,
+  function find_symbol:269-288  def find_symbol(name: str, project: str | None = None,
+  function find_symbols:291-310  def find_symbols(project: str | None = None, symbol_type: str | None = None,
+  function find_symbols:294-315  def find_symbols(project: str | None = None, symbol_type: str | None = None,
+  function skeleton:321-341  def skeleton(project: str | None = None, path_prefix: str | None = None,
+  function skeleton:324-346  def skeleton(project: str | None = None, path_prefix: str | None = None,
+  function outline:350-373  def outline(file: str, project: str | None = None,
+  function find_definition:376-393  def find_definition(name: str, project: str | None = None,
+  function find_references:396-416  def find_references(name: str, project: str | None = None,
+  function find_references:399-418  def find_references(name: str, project: str | None = None,
+  function find_callers:421-440  def find_callers(name: str, project: str | None = None, depth: int = 2,
+  function find_callees:443-460  def find_callees(name: str, project: str | None = None, depth: int = 2,
+  function deps:463-480  def deps(path: str, project: str | None = None,
+  function changed_symbols:483-497  def changed_symbols(project: str | None = None, base: str = "HEAD",
+  function changed_symbols:486-501  def changed_symbols(project: str | None = None, base: str = "HEAD",
+  function get_code_context:525-540  def get_code_context(file: str, project: str | None = None,
+  function get_code_context:528-542  def get_code_context(file: str, project: str | None = None,
+  function main:561-567  def main() -> None:
+src/code_indexer/store.py  (python, 14 symbols)
+  function point_id:34-36  def point_id(project: str, file: str, chunk_index: int) -> str:
+  class Store:39-61  class Store:
+  function __init__:40-42  def __init__(self, url: str, upsert_batch: int = 256):
+  function collection_exists:44-45  def collection_exists(self, name: str) -> bool:
+  function create_collection:47-59  def create_collection(self, name: str, dim: int) -> None:
+  function drop_collection:61-62  def drop_collection(self, name: str) -> None:
+  function list_collections:64-75  def list_collections(self) -> set[str]:
+  function physical_name:77-90  def physical_name(self, name: str) -> str | None:
+  function _alias_exists:92-97  def _alias_exists(self, alias_name: str) -> bool:
+  function swap_collection:99-116  def swap_collection(self, tmp: str, target: str) -> None:
+  function upsert_points:125-128  def upsert_points(self, name: str, points: list[PointStruct]) -> int:
+  function purge_file_points:130-151  def purge_file_points(self, name: str, project: str, file: str,
+  function count_points:157-161  def count_points(self, name: str) -> int:
+  function search:163-180  def search(self, name: str, vector: list[float], limit: int = 8,
+src/code_indexer/ts_chunker.py  (python, 8 symbols)
+  function chunk_text:122-143  def chunk_text(path: str, text: str) -> list[Chunk]:
+  function _declaration_signature:154-174  def _declaration_signature(node, data: bytes) -> str:
+  function _visibility_from_name:179-195  def _visibility_from_name(name: str | None, node_type: str,
+  function _walk:198-213  def _walk(node, data: bytes, out: list[Chunk]) -> None:
+  function _symbol_from_node:275-289  def _symbol_from_node(node, data: bytes) -> str | None:
+  function _symbol_from_declarator:319-331  def _symbol_from_declarator(node, data: bytes) -> str | None:
+  function extract_symbols:339-359  def extract_symbols(path: str, text: str, chunks: list[Chunk]) -> list[dict]:
+  function _guess_type_regex:379-389  def _guess_type_regex(text: str) -> str | None:
+src/code_indexer/watcher.py  (python, 23 symbols)
+  class PidFileLock:84-109  class PidFileLock:
+  function __init__:94-96  def __init__(self, path: str) -> None:
+  function acquire:98-112  def acquire(self) -> bool:
+  function release:114-121  def release(self, unlink: bool = True) -> None:
+  function read_pid:124-130  def read_pid(pidfile_path: str) -> int | None:
+  class AlreadyRunning:140-157  class AlreadyRunning(Exception):
+  function __init__:147-157  def __init__(
+  function probe_watcher_holder:160-179  def probe_watcher_holder(pidfile_path: str) -> tuple[bool, int | None,
+  function _holder_roots:182-207  def _holder_roots(pid: int) -> list[str] | None:
+  function pidfile_liveness:212-230  def pidfile_liveness(pidfile_path: str) -> str:
+  function pidfile_is_free:249-260  def pidfile_is_free(pidfile_path: str) -> bool:
+  function stop_watcher:263-280  def stop_watcher(pidfile_path: str,
+  function _redirect_stdio:312-324  def _redirect_stdio(log_path: str) -> None:
+  function spawn_background:327-352  def spawn_background(
+  class WatchEngine:383-412  class WatchEngine:
+  function __init__:391-411  def __init__(
+  function start_events:415-438  def start_events(self) -> bool:
+  class _Handler:428-447  class _Handler(FileSystemEventHandler): # type: ignore[misc]
+  function _filter:429-443  def _filter(path: str | None) -> str | None:
+  function on_any_event:453-468  def on_any_event(self, event: Any) -> None:
+  function _slug_for:508-515  def _slug_for(self, path: str) -> str | None:
+  function _run_pass:519-532  def _run_pass(self, slug: str, path: str, *, sweep: bool) -> None:
+  function run:536-556  def run(self, duration: float | None, stop: dict[str, bool]) -> None:

@@ -1,0 +1,105 @@
+{
+  "schema": 1,
+  "symbols": [
+    {
+      "file": "src/code_indexer/core.py",
+      "name": "Core",
+      "type": "class",
+      "start_line": 89,
+      "end_line": 106,
+      "signature": "class Core:"
+    },
+    {
+      "file": "tests/test_query_staleness.py",
+      "name": "core",
+      "type": "function",
+      "start_line": 27,
+      "end_line": 43,
+      "signature": "def core():"
+    },
+    {
+      "file": "tests/test_project_state.py",
+      "name": "core",
+      "type": "function",
+      "start_line": 52,
+      "end_line": 69,
+      "signature": "def core(tmp_path, monkeypatch):"
+    },
+    {
+      "file": "tests/test_watch.py",
+      "name": "core",
+      "type": "function",
+      "start_line": 57,
+      "end_line": 66,
+      "signature": "def core(tmp_path, monkeypatch):"
+    },
+    {
+      "file": "tests/test_watcher.py",
+      "name": "core",
+      "type": "function",
+      "start_line": 70,
+      "end_line": 79,
+      "signature": "def core(tmp_path, monkeypatch):"
+    },
+    {
+      "file": "tests/test_concurrency.py",
+      "name": "core",
+      "type": "function",
+      "start_line": 79,
+      "end_line": 89,
+      "signature": "def core(tmp_path, monkeypatch):"
+    },
+    {
+      "file": "tests/test_unwatch.py",
+      "name": "core",
+      "type": "function",
+      "start_line": 125,
+      "end_line": 134,
+      "signature": "def core(tmp_path, monkeypatch):"
+    },
+    {
+      "file": "tests/test_subcommands.py",
+      "name": "core",
+      "type": "function",
+      "start_line": 246,
+      "end_line": 260,
+      "signature": "def core(cfg, project):"
+    },
+    {
+      "file": "src/code_indexer/__init__.py",
+      "name": "core",
+      "type": "function",
+      "start_line": 1,
+      "end_line": 10,
+      "signature": "\"\"\"code-indexer: semantic code index via Ollama + Qdrant."
+    }
+  ],
+  "match": "exact",
+  "stale": true,
+  "stale_known": true,
+  "stale_reasons": [
+    {
+      "kind": "modified",
+      "file": "CHANGELOG.md"
+    },
+    {
+      "kind": "modified",
+      "file": "README.md"
+    },
+    {
+      "kind": "modified",
+      "file": "SKILL-CLI.md"
+    },
+    {
+      "kind": "modified",
+      "file": "docs/json-schema.md"
+    },
+    {
+      "kind": "modified",
+      "file": "pyproject.toml"
+    }
+  ],
+  "stale_reason_count": 150,
+  "index_revision": "1793982209.273576",
+  "last_indexed": "2026-11-06T16:23:29Z"
+}

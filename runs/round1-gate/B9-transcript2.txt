@@ -1,0 +1,8 @@
+=== G. exit-3 relay against the real index root, backends unreachable ===
+tool=semantic_search isError=True
+content=[{'type': 'text', 'text': 'BackendError: embedding service unavailable: Failed to connect to Ollama. Please check that Ollama is downloaded, running and accessible. https://ollama.com/download'}]
+structuredContent={'tool': 'semantic_search', 'outcome': 'error', 'exit_code': 3, 'response_bytes': 165, 'duration_ms': 352, 'ErrorType': 'BackendError'}
+
+=== H. a failed usage-record write must not fail the call ===
+tool=list_projects isError=False content=[{'type': 'text', 'text': 'no projects registered'}]
+usage path is a directory: True

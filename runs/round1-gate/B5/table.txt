@@ -1,0 +1,7 @@
+0 code0-hit :: find-symbol Core --project calc-engine
+0 code0-zero-hits :: find-symbol zzz_no_such_symbol_zzz --project calc-engine
+2 code2-usage :: deps --project code-indexer
+2 code2-unknown-command :: frobnicate
+0 code4-rebuild :: find-symbol Core --project liveproj
+1 code1-missing-project :: find-symbol Core --project /nonexistent/nope
+1 code1-bad-path :: outline /nonexistent/file.py --project code-indexer

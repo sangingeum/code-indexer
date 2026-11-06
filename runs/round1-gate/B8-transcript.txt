@@ -1,0 +1,97 @@
+=== core-only ===
+install exit=0
+ + tree-sitter-language-pack==1.18.0
+ + typer==0.28.0
+ + watchdog==7.1.0
+--- core-only: overview ---
+exit=0 stdout_lines=3
+project: code-indexer — 609 files, 60488 LOC
+languages:
+(truncated)
+Warning: index is stale (201 files changed since 2026-11-06T16:23:29Z: 32 modified, 169 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project <checkout>
+--- core-only: semantic-search (must exit 3, ConfigError, empty stdout) ---
+exit=3 stdout_bytes=0
+ConfigError: the semantic extension is not installed; install code-indexer[semantic]
+--- core-only: doctor ---
+exit=0
+ok python: 3.12.12
+ok uv: on PATH
+warn ollama-reachable: unverified: the semantic extension is not installed; install code-indexer[semantic] (http://192.168.1.103:11434)
+warn qdrant-reachable: unverified: the semantic extension is not installed; install code-indexer[semantic] (http://192.168.1.105:6333)
+ok index-root: <index-root> writable
+ok disk-free: 68.7 GiB free
+ok sqlite-registry: registry.db
+ok sqlite-2ed881d8: manifest.db
+ok sqlite-b1b7f48b: manifest.db
+ok sqlite-calc-engine: manifest.db
+ok sqlite-code-indexer: manifest.db
+ok sqlite-korean-podcast-feasibility: manifest.db
+ok sqlite-live-8bad5c70: manifest.db
+ok sqlite-liveproj: manifest.db
+ok sqlite-tackboard: manifest.db
+ok sqlite-vector-memory: manifest.db
+ok sqlite-vivarium-adr: manifest.db
+ok sqlite-vivarium-adr-anna: manifest.db
+ok sqlite-vivarium-sim: manifest.db
+ok sqlite-vivarium-sim-vera-snapshot: manifest.db
+ok watch: not running (pidfile absent)
+ok locks: free
+warn fingerprint: needs-reindex — liveproj (/tmp/pytest-of-keum/pytest-193/test_end_to_end_index_and_sear0/liveproj): extraction_version: 1 -> 4; run: code-indexer reindex-project <path>
+--- core-only: imported modules (no client library) ---
+matching lines: 
+=== [mcp] ===
+install exit=0
+ + typing-inspection==0.4.5
+ + uvicorn==0.54.0
+ + watchdog==7.1.0
+exit=0
+code-indexer-mcp — MCP server over the code index (stdio transport).
+
+registered tools (7):
+  find_callers       Who references this symbol — BFS over the reference tables (fan-in),
+  find_references    Find textual references TO a symbol: calls, inherits, includes (all
+  find_symbol        Look up a symbol by name in the manifest symbol index (exact AST-first,
+  get_code_context   Retrieve ONLY the relevant source lines instead of reading whole
+  list_projects      List registered projects with their index summary (path, slug, state,
+  overview           Project map for orientation: languages, directories, entry points,
+  skeleton           Whole-project or per-subtree structural map from the manifest only:
+
+semantic_search is not registered: the semantic extra is not installed (code-indexer[semantic]).
+
+removed in this release — use the CLI subcommand of the same name:
+  add_project, index_status, lookup_project, reindex_project, remove_project, changed_symbols, deps, find_callees, find_definition, find_symbols, outline
+
+install: uvx --from "code-indexer[mcp]" code-indexer-mcp
+=== [semantic] ===
+install exit=0
+ + typing-inspection==0.4.5
+ + urllib3==2.8.0
+ + watchdog==7.1.0
+Traceback (most recent call last):
+  File "<checkout>/runs/round1-gate/B8/sem_import.py", line 1, in <module>
+    import qdrant_client  # noqa: F401
+    ^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/g-sem/lib/python3.12/site-packages/qdrant_client/__init__.py", line 1, in <module>
+    from .async_qdrant_client import AsyncQdrantClient as AsyncQdrantClient
+  File "/tmp/g-sem/lib/python3.12/site-packages/qdrant_client/async_qdrant_client.py", line 14, in <module>
+    import numpy as np
+  File "/tmp/g-sem/lib/python3.12/site-packages/numpy/__init__.py", line 109, in <module>
+    from numpy.__config__ import show_config
+  File "/tmp/g-sem/lib/python3.12/site-packages/numpy/__config__.py", line 4, in <module>
+    from numpy._core._multiarray_umath import (
+  File "/tmp/g-sem/lib/python3.12/site-packages/numpy/_core/__init__.py", line 24, in <module>
+    from . import multiarray
+  File "/tmp/g-sem/lib/python3.12/site-packages/numpy/_core/multiarray.py", line 11, in <module>
+    from . import _multiarray_umath, overrides
+RuntimeError: NumPy was built with baseline optimizations: 
+(X86_V2) but your machine doesn't support:
+(X86_V2).
+semantic-search exit=3 stdout_bytes=0
+search: skipping <checkout> — its index could not answer: NumPy was built with baseline optimizations: 
+(X86_V2) but your machine doesn't support:
+(X86_V2).
+search: 1 of 1 project(s) skipped: <checkout>
+BackendError: search failed on every project (<checkout>: NumPy was built with baseline optimizations: 
+(X86_V2) but your machine doesn't support:
+(X86_V2).)
+exit=0

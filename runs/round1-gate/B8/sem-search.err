@@ -1,0 +1,7 @@
+search: skipping <checkout> — its index could not answer: NumPy was built with baseline optimizations: 
+(X86_V2) but your machine doesn't support:
+(X86_V2).
+search: 1 of 1 project(s) skipped: <checkout>
+BackendError: search failed on every project (<checkout>: NumPy was built with baseline optimizations: 
+(X86_V2) but your machine doesn't support:
+(X86_V2).)

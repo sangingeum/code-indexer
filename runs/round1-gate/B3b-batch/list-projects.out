@@ -1,0 +1,12 @@
+- path=<dev>/grace/vivarium-sim slug=vivarium-sim state=idle files=809 chunks=11686 last_indexed=2026-11-06 21:49:18
+- path=<dev>/solomon/vivarium-adr/docs/adr slug=vivarium-adr state=idle files=37 chunks=225 last_indexed=2026-10-31 16:38:35
+- path=<checkout> slug=code-indexer state=idle files=609 chunks=2546 last_indexed=2026-11-07 01:23:29
+- path=<dev>/athena/vector-memory slug=vector-memory state=idle files=68 chunks=425 last_indexed=2026-10-31 16:38:35
+- path=<dev>/athena/calc-engine slug=calc-engine state=idle files=78 chunks=900 last_indexed=2026-10-31 16:38:35
+- path=<dev>/solomon/vivarium-adr slug=b1b7f48b state=idle files=480 chunks=2438 last_indexed=2026-10-31 16:38:35
+- path=<dev>/vera/scratch/vivarium-sim slug=vivarium-sim-vera-snapshot state=idle files=784 chunks=11529 last_indexed=2026-11-02 20:39:33
+- path=/tmp/pytest-of-keum/pytest-193/test_end_to_end_index_and_sear0/liveproj slug=liveproj state=needs-reindex files=1 chunks=1 last_indexed=2026-10-03 20:43:17 reason=extraction_version: 1 -> 4
+- path=<dev>/anna/vivarium-adr slug=vivarium-adr-anna state=idle files=457 chunks=2279 last_indexed=2026-10-31 16:38:35
+- path=<dev>/athena/tackboard slug=tackboard state=idle files=161 chunks=1688 last_indexed=2026-11-04 19:07:20
+- path=<dev>/athena/filekeeper slug=2ed881d8 state=idle files=91 chunks=912 last_indexed=2026-10-31 19:47:57
+- path=<dev>/adam/korean-podcast-feasibility slug=korean-podcast-feasibility state=idle files=70 chunks=257 last_indexed=2026-11-01 11:54:14

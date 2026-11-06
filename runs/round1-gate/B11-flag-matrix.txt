@@ -1,0 +1,32 @@
+command                 skip-stale-check  refresh  fresh  hidden
+add-project            True              False    False  False
+changed-symbols        True              True     False  False
+deps                   True              True     False  False
+doctor                 True              True     False  False
+eval                   True              True     False  False
+eval-compare           True              True     False  False
+file-outline           True              True     True   True
+find-callees           True              True     False  False
+find-callers           True              True     False  False
+find-definition        True              True     True   False
+find-references        True              True     True   False
+find-symbol            True              True     True   False
+get-code-context       True              True     True   False
+index-more             True              False    False  False
+index-status           True              True     False  False
+list-projects          True              True     False  False
+lookup-project         True              True     False  False
+map                    True              True     True   True
+outline                True              True     True   False
+overview               True              True     False  False
+reindex-project        True              False    False  False
+remove-project         True              False    False  False
+semantic-search        True              True     True   False
+skeleton               True              True     True   False
+sweep-orphans          True              True     False  False
+unwatch                True              False    False  False
+watch                  True              False    False  False
+
+total commands: 27
+without --skip-stale-check: none
+without --refresh: ['add-project', 'index-more', 'reindex-project', 'remove-project', 'unwatch', 'watch']

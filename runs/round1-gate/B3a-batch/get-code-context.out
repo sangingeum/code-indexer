@@ -1,0 +1,83 @@
+--- src/code_indexer/staleness.py:79-160 ---
+   79| def detect(indexed: Mapping[str, Any], scanned: Iterable[Any], *,
+   80|            last_indexed: str | None,
+   81|            index_revision: str | None) -> StalenessVerdict:
+   82|     """Compare the indexed files with a scan of the tree.
+   83| 
+   84|     ``indexed`` maps a project-relative path to its manifest row (``size``,
+   85|     ``mtime_ns``, ``inode``, ``content_hash`` are what is read); ``scanned``
+   86|     is the scanner's result for the same tree and the same include/exclude
+   87|     rules. A file whose stat changed but whose content hash still matches is
+   88|     NOT reported: nothing a reader can observe changed.
+   89|     """
+   90|     tree = {f.path: f for f in scanned}
+   91|     reasons: list[Reason] = []
+   92|     for path in sorted(set(tree) - set(indexed)):
+   93|         reasons.append(Reason("added", path))
+   94|     for path in sorted(set(indexed) - set(tree)):
+   95|         reasons.append(Reason("deleted", path))
+   96|     for path in sorted(set(indexed) & set(tree)):
+   97|         if tree[path].content_hash != indexed[path].content_hash:
+   98|             reasons.append(Reason("modified", path))
+   99|     reasons.sort(key=lambda r: (_KIND_ORDER.index(r.kind), r.file))
+  100|     state = STALE if reasons else FRESH
+  101|     return StalenessVerdict(state=state, reasons=tuple(reasons),
+  102|                             reason_count=len(reasons),
+  103|                             last_indexed=last_indexed,
+  104|                             index_revision=index_revision)
+  105| 
+  106| 
+  107| def unknown(detail: str, *, last_indexed: str | None = None,
+  108|             index_revision: str | None = None) -> StalenessVerdict:
+  109|     return StalenessVerdict(state=UNKNOWN, last_indexed=last_indexed,
+  110|                             index_revision=index_revision, detail=detail)
+  111| 
+  112| 
+  113| def block(verdict: StalenessVerdict) -> dict[str, Any]:
+  114|     """The additive JSON block, schema 1 (ADR-0003 section 3)."""
+  115|     return {
+  116|         "stale": verdict.stale,
+  117|         "stale_known": verdict.known,
+  118|         "stale_reasons": [r.to_dict() for r in verdict.reasons[:REASON_CAP]],
+  119|         "stale_reason_count": verdict.reason_count,
+  120|         "index_revision": verdict.index_revision,
+  121|         "last_indexed": verdict.last_indexed,
+  122|     }
+  123| 
+  124| 
+  125| def _counts(reasons: tuple[Reason, ...]) -> str:
+  126|     parts = []
+  127|     for kind in _KIND_ORDER:
+  128|         n = sum(1 for r in reasons if r.kind == kind)
+  129|         if n:
+  130|             parts.append(f"{n} {kind}")
+  131|     return ", ".join(parts)
+  132| 
+  133| 
+  134| def warning_line(verdict: StalenessVerdict, project_path: str) -> str | None:
+  135|     """Exactly one stderr line, or None for a fresh answer.
+  136| 
+  137|     Stale shape (the record's own wording):
+  138|       Warning: index is stale (3 files changed since 2026-11-06T22:10:00Z:
+  139|       2 modified, 1 deleted); answers describe the index, not the tree.
+  140|       Refresh: code-indexer reindex-project <path>
+  141|     """
+  142|     if verdict.state == FRESH:
+  143|         return None
+  144|     if verdict.state == UNKNOWN:
+  145|         return ("Warning: index staleness check did not run "
+  146|                 f"({verdict.detail}); answers describe the index, not the tree.")
+  147|     files = "file" if verdict.reason_count == 1 else "files"
+  148|     return (f"Warning: index is stale ({verdict.reason_count} {files} changed "
+  149|             f"since {verdict.last_indexed or 'an unknown pass'}: "
+  150|             f"{_counts(verdict.reasons)}); answers describe the index, not the "
+  151|             f"tree. Refresh: code-indexer reindex-project {project_path}")
+  152| 
+  153| 
+  154| def aggregate(verdicts: Mapping[str, StalenessVerdict]) -> dict[str, Any]:
+  155|     """One block for an answer that spans several projects.
+  156| 
+  157|     ``stale`` is true when any project is stale, ``stale_known`` is true only
+  158|     when every project's verdict was reachable, and the reasons are merged
+  159|     (still capped) so a fan-out cannot hide a stale project. The per-project
+  160|     blocks ride beside it, so nothing is lost to the merge.

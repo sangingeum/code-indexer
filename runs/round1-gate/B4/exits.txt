@@ -1,0 +1,6 @@
+0 fresh-overview :: overview --max-lines 5 --project calc-engine
+0 fresh-find-symbol :: find-symbol Core --project calc-engine
+0 stale-overview :: overview --max-lines 5 --project code-indexer
+0 stale-find-symbol :: find-symbol Core --project code-indexer
+0 unknown-overview :: overview --max-lines 5 --project liveproj
+0 unknown-find-symbol :: find-symbol Core --project liveproj

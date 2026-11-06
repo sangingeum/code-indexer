@@ -1,0 +1,3 @@
+Using CPython 3.12.12
+Creating virtual environment at: /tmp/g-mcp
+Activate with: source /tmp/g-mcp/bin/activate

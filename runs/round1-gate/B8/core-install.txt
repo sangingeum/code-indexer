@@ -1,0 +1,18 @@
+Using Python 3.12.12 environment at: /tmp/g-core
+Resolved 12 packages in 2ms
+   Building code-indexer @ file://<checkout>
+      Built code-indexer @ file://<checkout>
+Prepared 1 package in 3ms
+Installed 12 packages in 4ms
+ + annotated-doc==0.0.5
+ + code-indexer==0.1.0 (from file://<checkout>)
+ + markdown-it-py==4.2.0
+ + mdurl==0.1.2
+ + pathspec==1.1.1
+ + pygments==2.21.0
+ + rich==15.0.0
+ + shellingham==1.5.4
+ + tree-sitter==0.26.0
+ + tree-sitter-language-pack==1.18.0
+ + typer==0.28.0
+ + watchdog==7.1.0

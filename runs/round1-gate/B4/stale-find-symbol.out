@@ -1,0 +1,9 @@
+- <checkout>::src/code_indexer/core.py:89-106 Core (class, confidence=exact)  class Core:
+- <checkout>::tests/test_query_staleness.py:27-43 core (function, confidence=exact)  def core():
+- <checkout>::tests/test_project_state.py:52-69 core (function, confidence=exact)  def core(tmp_path, monkeypatch):
+- <checkout>::tests/test_watch.py:57-66 core (function, confidence=exact)  def core(tmp_path, monkeypatch):
+- <checkout>::tests/test_watcher.py:70-79 core (function, confidence=exact)  def core(tmp_path, monkeypatch):
+- <checkout>::tests/test_concurrency.py:79-89 core (function, confidence=exact)  def core(tmp_path, monkeypatch):
+- <checkout>::tests/test_unwatch.py:125-134 core (function, confidence=exact)  def core(tmp_path, monkeypatch):
+- <checkout>::tests/test_subcommands.py:246-260 core (function, confidence=exact)  def core(cfg, project):
+- <checkout>::src/code_indexer/__init__.py:1-10 core (function, confidence=heuristic)  """code-indexer: semantic code index via Ollama + Qdrant.
