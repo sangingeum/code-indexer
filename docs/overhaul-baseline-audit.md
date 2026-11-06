@@ -347,9 +347,9 @@ accepted by the probe sink in the second pass.
 | `semantic-search ... --mode lexical` | 0 | 0 | 0.94 s | FTS5 bm25 only |
 | `index-status` | 0 | 5 | 34.4 s | prints `fingerprint=unverified reason=embedder-unreachable` |
 | `lookup-project` | 0 | 5 | 34.0 s | correct answer, but 34 s and 5 Ollama attempts |
-| `list-projects` | timeout | 14 | >75 s | never returned while Qdrant was unreachable (harness cap 75 s) |
+| `list-projects` | timeout | 15 | >75 s | never returned while Qdrant was unreachable (harness cap 75 s) |
 | `doctor` | 1 | 7 | 39.9 s | fails as designed |
-| `semantic-search "..."` (default hybrid) | 0 | 10 | 67.0 s | **exit 0 with `error: search failed on every project (... Ollama embed failed after 5 retries)` on stdout** |
+| `semantic-search "..."` (default hybrid) | 0 | 10 | 67.0 s scoped / 804 s unscoped | **exit 0 with `error: search failed on every project (... Ollama embed failed after 5 retries)` on stdout** |
 | `eval --k 1` | 1 | 10 | 67.2 s | fails |
 
 Two results contradict the documented contract and should be read as such:
@@ -361,7 +361,11 @@ Two results contradict the documented contract and should be read as such:
   "reads only the registry; never runs the staleness probe, so it cannot
   write" is true about *writes* and false about *service independence*.
 - A semantically failed search exits **0** (both passes), because the
-  per-project failure is folded into the answer string instead of raised.
+  per-project failure is folded into the answer string instead of raised. Both
+  passes were scoped to one project; the unscoped default call iterates every
+  registered project and took 804 s on this host (12 projects) before printing
+  the same failure and the same exit 0, so the 67 s figure understates the
+  cost of the default call.
 
 ### Import cost
 
@@ -374,7 +378,7 @@ tree:
 | `code_indexer.core` | 457 ms |
 | `code_indexer.indexer` | 397 ms |
 | `code_indexer.store` | 389 ms |
-| `qdrant_client` | 389 ms (`qdrant_client.http` alone 282 ms) |
+| `qdrant_client` | 389 ms single run; 355–377 ms over four repeat runs |
 | `code_indexer` (package `__init__`) | 314 ms |
 | `code_indexer.server` | 314 ms (`mcp` 284 ms) |
 
@@ -424,7 +428,7 @@ At tip `ef2be78`, `uv run pytest tests/ -q -W error`:
 (`runs/milestone0/pytest.txt`). Collection: 566 tests in 48 modules, 2
 deselected by the default `-m 'not live'` (`runs/milestone0/collect.txt`).
 
-Seam usage is per-module, not shared: **19 test modules define their own
+Seam usage is per-module, not shared: **31 test modules define their own
 `StubEmbedder` / `StubStore` (or `FakeEmbedder` / `FakeStore`) class** and
 inject it into `Core`; `tests/conftest.py` holds only the `live` marker
 (`conftest.py:15`), no fixture and no shared stub. Modules that define a seam
@@ -465,11 +469,13 @@ Dumped by importing the module and serializing its tool list
 (`runs/milestone0/mcp-tools.json`, from `dump_mcp_tools.py`):
 
 - **18 tools**, 22,491 bytes of serialized `{name, description, inputSchema}`
-  JSON, approximately **5,622 tokens** at 4 bytes per token. Descriptions
+  JSON (measured with `indent=1`; the compact form of the same document is
+  17,660 bytes, so quote the range rather than one end), approximately
+  **5,622 tokens** at 4 bytes per token and 4,415 in compact form. Descriptions
   alone are 9,587 bytes; input schemas 7,620 bytes.
 - Largest descriptions: `semantic_search` 1,514 bytes (13 parameters),
   `get_code_context` 825, `add_project` 753, `changed_symbols` 704.
-- `server.py:34` says "all 14 tools" — the module docstring is stale by four.
+- `server.py:61` says "all 14 tools" — the module docstring is stale by four.
 
 Exposed (18): `add_project`, `changed_symbols`, `deps`, `find_callees`,
 `find_callers`, `find_definition`, `find_references`, `find_symbol`,
@@ -759,6 +765,27 @@ follows it.
 10. **Is `overview` promoted to MCP parity, or deliberately left CLI-only?**
     It is the first command in the CLI decision tree and the only orientation
     surface with no MCP tool (section 6).
+
+## 12. Corrections folded from the verification gate
+
+The verification record `docs/overhaul-baseline-audit-gate.md` reproduced this
+document's numbers bar by bar and recorded six differences. What changed here,
+with the gate's finding label:
+
+- the seam-module count in section 5 was wrong and is now 31, matching the
+  enumeration printed beside it;
+- the serialized MCP size in section 6 now names its serialization and quotes
+  the range (22,491 bytes indented, 17,660 compact);
+- the failed-search row in section 4 states the scoped and unscoped wall times
+  rather than the scoped one alone, and the unscoped default call is recorded
+  as the more serious cost;
+- the `qdrant_client` import figure in section 4 now carries its measured
+  range;
+- the stale-docstring citation in section 6 points at the right line;
+- the `list-projects` connection count in section 4 is 15, one more than at
+  audit time because the registry gained a project.
+
+No other number moved; the gate reproduced the rest to the digit.
 
 
 
