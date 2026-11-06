@@ -2,7 +2,7 @@
 
 - Status: awaiting owner ratification
 - Date: 2026-11-07
-- Runs alongside: ADR-0001 to ADR-0008
+- Runs alongside: ADR-0001 to ADR-0009
 
 ## What this document is
 
@@ -58,12 +58,15 @@ cost is bounded by construction. The MCP relay stops reporting every failure as 
 the package stops importing three client libraries it may not need.
 
 **Records.** ADR-0003 in full; ADR-0001 sections 1 and 5 (the dependency-boundary rules only);
-ADR-0007 sections 1 to 3 (extra, narrowed surface, relay, usage record).
+ADR-0007 sections 1 to 3 (extra, narrowed surface, relay, usage record); ADR-0008 section 2
+(the description correction, which this round makes false and therefore owes).
 
 **Deliverable.**
 
-- every one of the 27 commands classified as read or write, with the two flags that turn a read
-  into a write (`--refresh`, and `--vectors` on the pass commands) named in the help text;
+- every one of the 27 commands classified as read or write, with the flag that turns a read into
+  a write (`--refresh`) named in the help text; `--vectors` belongs to round 2 (ADR-0001 section 4)
+  and is documented with the pass commands there; the four plan commands round 4 adds are already
+  classified in ADR-0003 section 1, which this round lands;
 - staleness reported as `fresh`, `stale` or `unknown` in text and in JSON, and repaired only by
   an explicit `--refresh`; `--skip-stale-check` accepted and inert;
 - the exit-code taxonomy of ADR-0003 with a failed search moving off 0;
@@ -74,7 +77,10 @@ ADR-0007 sections 1 to 3 (extra, narrowed surface, relay, usage record).
 - the MCP server as an extra with up to eight read-only tools, a relay that preserves both
   streams and the exit code, and a one-line usage record per invocation;
 - `--json` on the five read commands that answer under this contract and lack it today:
-  `list-projects`, `lookup-project`, `index-status`, `find-definition`, `find-references`.
+  `list-projects`, `lookup-project`, `index-status`, `find-definition`, `find-references`
+  (ADR-0003 section 7, which decides the whole gap of thirteen commands and not only these five);
+- the package description corrected, because this round's dependency split is what makes it false
+  (ADR-0008 section 2); the README's opening paragraph is still round 5's.
 
 **Acceptance.** These are the commands a gate runs; each one is an observable, not a claim.
 
@@ -233,26 +239,35 @@ the only new dependency, and it is a dependency of the feature rather than of th
 
 ### Round 5 -- a provider behind a contract, and an agent surface that fits in a context window
 
-**Goal.** Semantic rename exists behind an interface that was proved before any server was
-installed, and the documentation an agent loads is small enough that it does not displace the
-work.
+**Goal.** The refactoring interface exists and was proved before any server was installed --
+including the rename operation it will carry once the plan format enables it -- and the
+documentation an agent loads is small enough that it does not displace the work.
 
-**Records.** ADR-0006; ADR-0007 section 5 (the documentation half); ADR-0008 (no rename, and the
-description correction that round 2 owes).
+**Records.** ADR-0006; ADR-0009 (the skill layout, its budgets, the owner of the installed copy
+and the drift test); ADR-0007 section 5 (the MCP documentation); ADR-0003 section 7 (the four write
+commands' JSON); ADR-0008 (no rename -- the description correction it carries is round 1's, not
+this round's).
 
 **Deliverable.** The provider interface, a stub provider and the contract suite; a real provider
-only if the owner installs a server, with Python first; the SKILL split into a short entry
-document plus reference files; the README rewritten around the new behaviour; the MCP parity list
-shrunk to the eight tools that remain; and `--json` on the four write commands that still lack
-it (`add-project`, `index-more`, `remove-project`, `reindex-project`), so an agent can read a
-pass result without parsing prose.
+only if the owner installs a server, with Python first; the skill split as ADR-0009 decides it --
+an entry document of at most 120 lines and 8 KiB, five reference files read on demand, the command
+roster generated from the registry, and the installed copy pinned by the new drift checks; the
+README rewritten around the new behaviour and carrying the MCP parity list on its own; and
+`--json` on the four write commands that still lack it (`add-project`, `index-more`,
+`remove-project`, `reindex-project`), granted by ADR-0003 section 7, so an agent can read a pass
+result without parsing prose.
 
 **Acceptance.**
 
 ```
-uv run pytest tests/test_provider_contract.py -q     # the stub passes with no server installed
-code-indexer rename-symbol ...                      # no server: exit 2, UnsupportedOperation, no text edit
-uv run pytest tests/test_docs.py -q                  # docs and registry agree
+uv run pytest tests/test_provider_contract.py -q     # the stub passes with no server installed;
+                                                     # an absent provider is exit 3, an operation
+                                                     # it does not support is exit 2 (ADR-0006 s.3)
+code-indexer --help | rg -c rename-symbol || echo 0  # 0: the command does not exist in phase 1
+uv run pytest tests/test_plan_schema.py -q           # a plan declaring rename_symbol is refused
+                                                     # (exit 2, UnsupportedOperation, no text edit)
+uv run pytest tests/test_docs.py -q                  # entry document, references, registry and
+                                                     # installed copy agree (ADR-0009 section 5)
 uv run pytest tests/ -q -W error                     # still green and warn-clean
 uvx ruff check src tests scripts                      # clean
 uv run python scripts/publishing_hygiene_lint.py      # violations=0
@@ -286,7 +301,8 @@ are wrong answers the tool gives today.
    and no surface can report otherwise. **Proof of the fix:** `tests/test_parse_verdict.py` -- one
    file with a deliberate syntax error reports `parse_error`, one file in a language with no
    grammar reports `parse_unavailable`, a clean file reports `parsed` -- plus `index-status`
-   counting parse failures, so the verdict is reachable from the CLI and not only from a test.
+   counting parse failures (ADR-0004 section 7 gives `index-status` that scope), so the verdict is
+   reachable from the CLI and not only from a test.
 
 Round 1 comes first because a wrong exit code poisons every consumer that tries to branch. Round 2
 carries the parse verdict because the extractor is rewritten there anyway; round 4 is the first
@@ -299,13 +315,15 @@ Every change that rewrites existing index data, with what it costs and what it i
 | Change | Record | What it forces | Measured cost |
 |---|---|---|---|
 | symbol identity: qualified names, declaration hashes, surrogate id, reference target columns | ADR-0002 | a **reparse** of every file, because a declaration hash cannot be derived from rows written by the old extractor | one full parse of the indexed tree: 445 files, 45,460 lines, 1,733 symbol rows and 113,751 reference rows on the live index |
-| the `chunks` table with text and hash, and three version axes | ADR-0001 | a **migration plus one text-fill pass**, not a reparse: chunk text is produced by the chunker from source the pass already reads | a re-traversal of the same 445 files, 2,198 chunks, and roughly the indexed source volume (about 2.4 MB against a 21,557,248-byte manifest); no re-embedding, because unchanged chunk text is a cache hit |
+| the `chunks` table with text and hash, and three version axes | ADR-0001 | a **migration plus one full pass that re-chunks every file** -- a reparse of the chunk rows, not a second read of the file: the pass reads each file once and chunks it from that same read, so it writes the chunk rows the old extractor never stored without adding a traversal | a re-traversal of the same 445 files, 2,198 chunks, and roughly the indexed source volume (about 2.4 MB against a 21,557,248-byte manifest); no re-embedding, because unchanged chunk text is a cache hit |
 | both, landed together | round 2 | **one** schema revision, **one** reparse | one traversal instead of two, and one migration note instead of two |
 
 What is **not** in the register, and why: the read contract (round 1) changes behaviour and tests
-and touches no data; the structural filters (round 3) are query-only; the plan format and the
-apply path (round 4) write plan files and receipts outside the index; the provider work (round 5)
-persists no server identifier at all.
+and rewrites no index data -- it does write one file this register does not track, the MCP usage
+record ADR-0007 section 3 appends under the index root on every invocation, so round 1 touches the
+index root without changing a row; the structural filters (round 3) are query-only; the plan format
+and the apply path (round 4) write plan files and receipts outside the index; the provider work
+(round 5) persists no server identifier at all.
 
 What the owner is approving, stated plainly: the tool stops answering from the old rows, refuses
 with exit 4 until each project has been passed once, and the pass is the ordinary per-project
@@ -373,7 +391,7 @@ path can carry.
 
 ## What the owner is asked to decide
 
-1. **Ratify ADR-0001 to ADR-0008 and this plan.** Nothing in the rounds starts before that.
+1. **Ratify ADR-0001 to ADR-0009 and this plan.** Nothing in the rounds starts before that.
 2. **Approve the round 2 reindex**, as described in the register: one schema revision, one reparse
    per project, no collection rebuild, no service cost.
 3. **Accept the round 1 behaviour change** as a visible breaking change: reads stop repairing the
