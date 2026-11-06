@@ -2,9 +2,10 @@
 
 All indexing/search/registry logic lives here; ``server.py`` (MCP adapters)
 and ``cli.py`` (typer app) are thin surfaces over these functions, and every
-tool/subcommand maps 1:1 to an op here. One-shot process model: no daemon,
-no watcher on the default path — staleness is enforced via STALE_TTL probes
-on search/status, guarded by the per-project flock.
+tool/subcommand maps 1:1 to an op here. One-shot process model: no daemon.
+Reads detect staleness, never repair it: an answer describes the index as of
+``meta.last_indexed`` and reports ``fresh``, ``stale`` or ``unknown``, the
+last when the check cannot run. Only an explicit refresh writes.
 """
 
 from __future__ import annotations
@@ -38,8 +39,6 @@ if TYPE_CHECKING:  # annotations only: no client library is imported here
     from .store import Store
 
 logger = logging.getLogger("code-indexer.core")
-
-STALE_TTL_DEFAULT = 60
 
 # Wall budget for one unscoped query invocation (ADR-0003 section 6): the
 # fan-out stops at this wall and reports the remaining projects as skipped
@@ -321,17 +320,30 @@ class Core:
         service is contacted. The walk carries its own budget so a very large
         tree degrades to ``unknown`` rather than a long silence.
         """
-        if not os.path.isdir(entry.path):
-            return staleness.unknown(f"project path absent: {entry.path}")
         mdir = os.path.join(self.cfg.index_root, entry.slug, "manifest.db")
+        # The manifest's own fields belong to an ``unknown`` verdict too: an
+        # answer reports the pass it describes even when the check cannot run.
+        last_indexed: str | None = None
+        index_revision: str | None = None
+        if os.path.isfile(mdir):
+            m = Manifest(mdir)
+            try:
+                last_indexed = staleness.iso_timestamp(m.get_meta("last_indexed"))
+                index_revision = (m.get_meta("index_revision")
+                                  or m.get_meta("last_indexed"))
+            finally:
+                m.close()
+        if not os.path.isdir(entry.path):
+            return staleness.unknown(f"project path absent: {entry.path}",
+                                     last_indexed=last_indexed,
+                                     index_revision=index_revision)
         if not os.path.isfile(mdir):
-            return staleness.unknown("no index manifest for this project")
+            return staleness.unknown("no index manifest for this project",
+                                     last_indexed=last_indexed,
+                                     index_revision=index_revision)
         m = Manifest(mdir)
         try:
             indexed = m.all_files()
-            last_indexed = staleness.iso_timestamp(m.get_meta("last_indexed"))
-            index_revision = (m.get_meta("index_revision")
-                              or m.get_meta("last_indexed"))
             scope = [ln for ln in (m.get_meta("scope_include") or "")
                      .splitlines() if ln.strip()]
         finally:

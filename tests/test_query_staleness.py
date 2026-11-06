@@ -130,6 +130,11 @@ def test_reasons_are_capped_but_the_count_is_total(rig):
 
 
 def test_absent_project_path_is_unknown_not_fresh(rig):
+    """An ``unknown`` verdict still reports what the manifest holds.
+
+    The tree is gone, so the check cannot run — but an answer that describes
+    the index still owes the reader the pass it describes.
+    """
     core, entry, project = rig
     record_pass(core, entry, project)
     shutil.rmtree(project)
@@ -137,7 +142,10 @@ def test_absent_project_path_is_unknown_not_fresh(rig):
     assert verdict.state == staleness.UNKNOWN
     assert verdict.known is False and verdict.stale is False
     assert "absent" in (verdict.detail or "")
-    assert staleness.block(verdict)["stale_known"] is False
+    block = staleness.block(verdict)
+    assert block["stale_known"] is False
+    assert block["last_indexed"] == "2025-11-07T07:20:00Z"
+    assert block["index_revision"] == "7"
 
 
 def test_no_completed_pass_is_unknown(rig):

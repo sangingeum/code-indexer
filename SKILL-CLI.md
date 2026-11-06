@@ -474,7 +474,7 @@ traceback.
   (`reindex-project` builds it).
   `needs-reindex` — index built with a different embed model/dimension/
   text format/chunker or row-extraction version; `search` fails with
-  `ConfigError` naming the difference (one line on stderr, exit 1);
+  `RebuildRequiredError` naming the difference (one line on stderr, exit 4);
   do not run `reindex-project`
   yourself, report to the owner.
   `error` — run `doctor`.
