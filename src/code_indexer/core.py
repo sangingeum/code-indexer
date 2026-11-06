@@ -279,12 +279,15 @@ class Core:
                 manifest.close()
 
     def watch_pass(self, slug: str, project_path: str) -> dict[str, Any]:
-        """One watcher pass: staleness probe + incremental index under the flock.
+        """One watcher pass: an incremental index under the per-project flock.
 
-        Same core op as maybe_refresh's terminal call (run_index with
-        force=False), but unconditioned by the STALE_TTL cache — the watch
-        loop calls this every tick. Cheap when nothing changed (hash diff
-        only; embeddings happen only for real changes).
+        The same core op ``refresh`` calls (run_index with force=False); the
+        difference is the caller, not the work. The watch loop runs this every
+        tick and gets a held lock back as a return state, where an explicit
+        ``--refresh`` raises LockedError. Cheap when nothing changed (stat and
+        hash diff against the manifest; embeddings happen only for real
+        changes) and cached by no clock: a tick after an edit does that edit's
+        work.
         """
         return self.run_index(slug, project_path, force=False)
 

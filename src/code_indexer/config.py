@@ -14,7 +14,8 @@ _DEFAULTS: dict[str, str] = {
     "qdrant_url": "http://192.168.1.105:6333",
     "embed_model": "qwen3-embedding:8b",
     "index_root": "~/.code-indexer",
-    "stale_ttl": "60",          # seconds; staleness re-scan interval
+    "stale_ttl": "60",          # RETIRED: parsed into Config.stale_ttl,
+                                 # consumed by nothing (reads never probe)
     "embed_batch": "48",        # texts per Ollama embed request
     "upsert_batch": "256",      # points per Qdrant upsert
     "max_file_bytes": "1048576",  # skip files > 1MB

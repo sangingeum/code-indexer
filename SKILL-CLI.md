@@ -660,7 +660,10 @@ receiver for refs.
   the tool owns them.
 - Env (resolved CLI flags > env vars > defaults):
   `OLLAMA_URL`, `QDRANT_URL`, `EMBED_MODEL`, `INDEX_ROOT`
-  (default `~/.code-indexer`), `STALE_TTL` (default 60 s, staleness probe),
+  (default `~/.code-indexer`), `STALE_TTL` (RETIRED — still parsed into
+  `Config.stale_ttl` for compatibility and consumed by nothing: a read
+  reports its verdict from the stat scan and never probes or repairs, so the
+  TTL governs no behaviour; repair is `--refresh` or a pass command),
   `EMBED_BATCH` (48 texts per Ollama embed request), `UPSERT_BATCH`
   (256 points per Qdrant upsert), `MAX_FILE_BYTES` (default 1048576; larger
   files skipped), `CHUNK_MAX_CHARS` (chunk cap, default 1000),

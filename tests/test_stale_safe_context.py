@@ -3,7 +3,8 @@
 Covers: search hits carry file_hash/indexed_at; file_changed_since_index
 stat fast-path and PARANOID_HASH=1 escape; symbol-mode re-resolve on a live
 edited file; line-mode stale flag with the documented stderr warning and
-exit 0; --fresh bypasses STALE_TTL. All offline (stub seams).
+exit 0; --fresh reads the live file instead of the indexed rows. All
+offline (stub seams).
 """
 
 from __future__ import annotations
