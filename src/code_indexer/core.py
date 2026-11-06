@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from .config import Config, load_config
 from .errors import (BackendError, ExtensionUnavailableError, InternalError,
-                     LockedError, RebuildRequiredError)
+                     LockedError, RebuildRequiredError, VectorsDisabledError)
 from .extensions import SEMANTIC_EXTENSION_MESSAGE
 from .fingerprint import (ConfigError, configured_values, probe_free_mismatches,
                           current_version_stamp, read_fingerprint,
@@ -29,6 +29,7 @@ from .manifest import SCHEMA_VERSION, Manifest, SymbolRow
 from . import ranking
 from . import staleness
 from . import ts_chunker
+from . import vectors as vectors_policy
 from .registry import ProjectEntry, Registry
 from .scanner import (ScanBudget, ScanBudgetExceeded, ScannedFile,
                       scan_project)
@@ -242,30 +243,121 @@ class Core:
             return NEVER_INDEXED
         return state or "idle"
 
+    def vectors_status(self, entry: ProjectEntry) -> dict[str, str]:
+        """The two vector facts a read can state without a service.
+
+        ``vectors`` is the project's mode (on|off) and ``vectors_state`` is
+        the last recorded state of the collection relative to the rows
+        (current|absent|stale|error). Both come from meta alone: index-status
+        never dials Qdrant, so it reports what the last write recorded.
+        """
+        mdir = os.path.join(self.cfg.index_root, entry.slug, "manifest.db")
+        if not os.path.isfile(mdir):
+            return {"vectors": vectors_policy.MODE_OFF,
+                    "vectors_state": vectors_policy.STATE_ABSENT,
+                    "rows": "absent"}
+        m = Manifest(mdir)
+        try:
+            return {
+                "vectors": (vectors_policy.recorded_mode(m)
+                            or vectors_policy.MODE_ON),
+                "vectors_state": vectors_policy.vectors_state(m),
+                "rows": vectors_policy.rows_state(m),
+            }
+        finally:
+            m.close()
+
     # ------------------------------------------------------------------
     # indexing
     # ------------------------------------------------------------------
 
+    def resolve_vectors(self, slug: str,
+                        requested: str = vectors_policy.MODE_AUTO) -> str:
+        """The mode a pass runs in: ``auto`` means the recorded mode.
+
+        A project that has never recorded a mode resolves ON — the
+        pre-extension behaviour, kept so an existing vectors-on project stays
+        on across the upgrade. ``add-project`` records ``off`` when it
+        registers a NEW project, so auto never turns embedding on by itself.
+        """
+        m = self.manifest_for(slug)
+        try:
+            return vectors_policy.resolve_mode(m, requested)
+        finally:
+            m.close()
+
+    def _build_indexer(self, vectors: bool) -> Indexer:
+        """The pass engine for this mode.
+
+        A vectors-off pass constructs neither semantic client (ADR-0001
+        section 1). A vectors-on pass reuses the shared engine so a test seam
+        that replaced its embedder/store keeps working.
+        """
+        if vectors:
+            return self.indexer
+        from .indexer import Indexer as _Indexer
+        return _Indexer(self.cfg, None, None)
+
+    def _vector_target(self, slug: str, manifest: Manifest,
+                       indexer: Indexer) -> tuple[str, bool]:
+        """Where a vectors-only pass writes: (collection, identity changed).
+
+        Vectors are never mixed across models. A recorded identity that
+        differs from the current one — or a project that never had one — is a
+        NEW collection named after the identity, swapped in under the slug's
+        alias once the pass succeeds; the old collection is dropped by the
+        swap, never appended to.
+        """
+        dim = indexer.embedder.dimension()
+        identity = vectors_policy.embedding_identity(self.cfg.embed_model, dim)
+        recorded = manifest.get_meta("embedding_version")
+        if recorded is None or recorded != identity:
+            return vectors_policy.collection_for(slug, identity), True
+        return f"idx_{slug}", False
+
     def run_index(self, slug: str, project_path: str, force: bool = False,
-                  verbose: bool = False) -> dict[str, Any]:
+                  verbose: bool = False,
+                  vectors: str = vectors_policy.MODE_AUTO,
+                  rescan: bool = False) -> dict[str, Any]:
         """Run one indexing pass under the per-project lock.
 
         Returns {'state': 'idle', 'result': IndexResult-dict} on success,
         {'state': 'indexing', 'detail': 'indexing in progress'} when another
         process holds the lock, or {'state': 'error', 'error': ...}.
-        ``verbose=True`` (CLI --refresh) surfaces the pass summary; the
-        default query-path pass is silent.
+
+        ``vectors`` is the request (auto|on|off); the resolved mode decides
+        whether a semantic client is constructed at all. When the rows are
+        already current and the project was kept with vectors off, turning
+        vectors on embeds straight from ``chunks`` — no scan, no reparse, no
+        source read. ``rescan=True`` (index-more, which widens the scope)
+        forces the row pass instead.
         """
         with project_lock(self._lock_path(slug)) as acquired:
             if not acquired:
                 return {"state": "indexing", "detail": "indexing in progress"}
             self._set_state(slug, state="indexing", error=None)
-            self.indexer.progress_cb = (
-                lambda info, s=slug: self._set_state(s, progress=info))
             manifest = self.manifest_for(slug)
             try:
-                result = self.indexer.index_project(
-                    project_path, slug, manifest, force_full=force)
+                mode = vectors_policy.resolve_mode(manifest, vectors)
+                use_vectors = mode == vectors_policy.MODE_ON
+                embed_only = (use_vectors and not rescan
+                              and vectors_policy.recorded_mode(manifest)
+                              == vectors_policy.MODE_OFF
+                              and vectors_policy.rows_current(manifest))
+                indexer = self._build_indexer(use_vectors)
+                indexer.progress_cb = (
+                    lambda info, s=slug: self._set_state(s, progress=info))
+                if embed_only:
+                    collection, identity_changed = self._vector_target(
+                        slug, manifest, indexer)
+                    result = indexer.embed_index(
+                        project_path, slug, manifest, collection=collection)
+                    if identity_changed:
+                        self.store.swap_collection(collection, f"idx_{slug}")
+                else:
+                    result = indexer.index_project(
+                        project_path, slug, manifest, force_full=force,
+                        vectors=use_vectors)
                 self._last_scan[slug] = time.monotonic()
                 self._set_state(slug, state="idle", last_result=vars(result))
                 if verbose:
@@ -434,6 +526,8 @@ class Core:
         parts = [f"path={fields['path']}", f"slug={fields['slug']}",
                  f"state={fields['state']}", f"files={fields['files']}",
                  f"chunks={fields['chunks']}",
+                 f"rows={fields['rows']}", f"vectors={fields['vectors']}",
+                 f"vectors_state={fields['vectors_state']}",
                  f"last_indexed={fields['last_indexed']}"]
         if fields.get("reason"):
             parts.append(f"reason={fields['reason']}")
@@ -479,6 +573,7 @@ class Core:
             reason = fp["reason"]
         if fp["recorded"] is None and last_indexed is not None:
             note = "fingerprint backfills on next index pass"
+        vs = self.vectors_status(entry)
         return {
             "path": entry.path,
             "slug": entry.slug,
@@ -488,6 +583,9 @@ class Core:
             "last_indexed": last_indexed or "never",
             "reason": reason,
             "note": note,
+            "rows": vs["rows"],
+            "vectors": vs["vectors"],
+            "vectors_state": vs["vectors_state"],
         }
 
     def schema_migrated(self, entry: ProjectEntry) -> bool:
@@ -559,6 +657,22 @@ class Core:
                 f"current configuration ({status['reason']}); "
                 f"run: code-indexer reindex-project {entry.path}")
 
+    def assert_vectors_available(self, entry: ProjectEntry) -> None:
+        """Refuse a vector-dependent query on a vectors-off project.
+
+        A project kept with vectors off has rows but no collection, so there
+        is nothing for a dense query to rank. The failure is explicit and
+        names the remedy: a vector rebuild (``--vectors on``). It never
+        degrades to lexical (a different answer under the same name) and
+        never returns an empty success (a failure wearing an answer's clothes).
+        """
+        if self.resolve_vectors(entry.slug) != vectors_policy.MODE_OFF:
+            return
+        raise VectorsDisabledError(
+            f"index for {entry.path} was built with vectors=off; semantic "
+            f"search needs vectors; run: code-indexer reindex-project "
+            f"{entry.path} --vectors on")
+
     def assert_rows_acceptable(self, entry: ProjectEntry) -> None:
         """Refuse a row-reading surface on a needs-reindex project (exit 4).
 
@@ -584,29 +698,55 @@ class Core:
             f"would not produce; run: code-indexer reindex-project "
             f"{entry.path}")
 
-    def reindex_with_swap(self, slug: str, project_path: str) -> dict[str, Any]:
-        """Full rebuild into idx_<slug>__new, then swap.
+    def reindex_with_swap(self, slug: str, project_path: str,
+                          vectors: str = vectors_policy.MODE_AUTO
+                          ) -> dict[str, Any]:
+        """Full rebuild of one project, by side.
 
-        The old collection stays searchable until the rebuild finishes; the
-        swap (drop old, rename new) is the only disruptive moment. A crash
-        mid-rebuild leaves idx_<slug>__new behind — the next attempt reuses/
-        recreates it. Clearing the manifest fingerprint before the pass makes
-        index_project treat the legacy manifest as unknown (backfill) rather
-        than mismatched (rebuild loop).
+        The two sides are rebuilt independently and neither forces the other:
+        a vectors-only rebuild embeds from the stored chunks and swaps a
+        collection named after the new identity; a row rebuild parses source
+        and leaves the collection alone when vectors are off. A crash before
+        the swap leaves the old collection serving reads.
         """
-        tmp = f"idx_{slug}__new"
         with project_lock(self._lock_path(slug)) as acquired:
             if not acquired:
                 return {"state": "indexing", "detail": "indexing in progress"}
             self._set_state(slug, state="indexing", error=None)
             manifest = self.manifest_for(slug)
             try:
-                if self.store.collection_exists(tmp):
-                    self.store.drop_collection(tmp)
-                result = self.indexer.index_project(
-                    project_path, slug, manifest, force_full=True,
-                    collection=tmp)
-                self.store.swap_collection(tmp, f"idx_{slug}")
+                mode = vectors_policy.resolve_mode(manifest, vectors)
+                use_vectors = mode == vectors_policy.MODE_ON
+                indexer = self._build_indexer(use_vectors)
+                indexer.progress_cb = (
+                    lambda info, s=slug: self._set_state(s, progress=info))
+                if use_vectors and vectors_policy.rows_current(manifest):
+                    # Rows survive a vector rebuild: no parse, no source read.
+                    collection, identity_changed = self._vector_target(
+                        slug, manifest, indexer)
+                    if not identity_changed:
+                        collection = f"idx_{slug}__new"
+                    result = indexer.embed_index(
+                        project_path, slug, manifest, collection=collection)
+                    if collection != f"idx_{slug}":
+                        self.store.swap_collection(collection, f"idx_{slug}")
+                elif use_vectors:
+                    # Rows are obsolete too: parse and embed into a fresh
+                    # collection, then swap it in.
+                    dim = indexer.embedder.dimension()
+                    identity = vectors_policy.embedding_identity(
+                        self.cfg.embed_model, dim)
+                    tmp = vectors_policy.collection_for(slug, identity)
+                    if self.store.collection_exists(tmp):
+                        self.store.drop_collection(tmp)
+                    result = indexer.index_project(
+                        project_path, slug, manifest, force_full=True,
+                        collection=tmp, vectors=True)
+                    self.store.swap_collection(tmp, f"idx_{slug}")
+                else:
+                    result = indexer.index_project(
+                        project_path, slug, manifest, force_full=True,
+                        vectors=False)
                 self._last_scan[slug] = time.monotonic()
                 self._set_state(slug, state="idle", last_result=vars(result))
                 return {"state": "idle", "result": vars(result)}
@@ -752,22 +892,30 @@ class Core:
             collection, vector, limit=fetch, file_filter=file_filter,
             symbol_type=symbol_type, language=language)
         out = []
-        for h in hits:
-            p = h.payload or {}
-            out.append({
-                "project": entry.path,
-                "file": p.get("file"),
-                "score": round(h.score, 4),
-                "symbol": p.get("symbol"),
-                "symbol_type": p.get("symbol_type"),
-                "lang": p.get("lang"),
-                "start_line": p.get("start_line"),
-                "end_line": p.get("end_line"),
-                "snippet": (p.get("snippet") or "")[:500],
-                # Staleness provenance for get_code_context.
-                "file_hash": p.get("file_hash"),
-                "indexed_at": p.get("indexed_at"),
-            })
+        # The snippet is read from the manifest, never from the vector store:
+        # Qdrant is a vector store only, and the manifest is authoritative for
+        # chunk content (ADR-0001 section 3).
+        m = self.manifest_for(entry.slug)
+        try:
+            for h in hits:
+                p = h.payload or {}
+                snippet = m.chunk_text(p.get("file"), p.get("chunk_index"))
+                out.append({
+                    "project": entry.path,
+                    "file": p.get("file"),
+                    "score": round(h.score, 4),
+                    "symbol": p.get("symbol"),
+                    "symbol_type": p.get("symbol_type"),
+                    "lang": p.get("lang"),
+                    "start_line": p.get("start_line"),
+                    "end_line": p.get("end_line"),
+                    "snippet": (snippet or "")[:500],
+                    # Staleness provenance for get_code_context.
+                    "file_hash": p.get("file_hash"),
+                    "indexed_at": p.get("indexed_at"),
+                })
+        finally:
+            m.close()
         qtokens = ranking.query_tokens(query)
         if ranking_mode == "metadata":
             out = ranking.metadata_rerank(out, qtokens)
@@ -869,6 +1017,7 @@ class Core:
             # aborts the whole run; it must never be folded into the
             # skipped-with-a-warning path. Do not "fix" this into silence.
             if not lexical_only:
+                self.assert_vectors_available(entry)
                 self.assert_fingerprint_ok(entry)
             try:
                 if lexical_only:

@@ -164,7 +164,7 @@ def test_index_more_extends_scope(rig):
 def test_out_of_scope_note_on_queries(rig):
     core, reg, cfg, project = rig
     runner.invoke(app, ["add-project", str(project), "--name", "monoproj",
-                        "--include", "services/a/**"])
+                        "--include", "services/a/**", "--vectors", "on"])
     result = runner.invoke(app, ["semantic-search", "scoped_symbol",
                                  "--project", str(project)])
     assert result.exit_code == 0, result.output
@@ -174,7 +174,8 @@ def test_out_of_scope_note_on_queries(rig):
 
 def test_unscoped_projects_have_no_note(rig):
     core, reg, cfg, project = rig
-    runner.invoke(app, ["add-project", str(project), "--name", "fullproj"])
+    runner.invoke(app, ["add-project", str(project), "--name", "fullproj",
+                        "--vectors", "on"])
     result = runner.invoke(app, ["semantic-search", "scoped_symbol",
                                  "--project", str(project)])
     assert result.exit_code == 0, result.output
@@ -184,7 +185,7 @@ def test_unscoped_projects_have_no_note(rig):
 def test_cli_scoped_search_json_still_works(rig):
     core, reg, cfg, project = rig
     runner.invoke(app, ["add-project", str(project), "--name", "monoproj",
-                        "--include", "services/a/**"])
+                        "--include", "services/a/**", "--vectors", "on"])
     result = runner.invoke(app, ["semantic-search", "scoped_symbol",
                                  "--project", str(project), "--json"])
     assert result.exit_code == 0

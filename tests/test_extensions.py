@@ -74,13 +74,29 @@ main()
         "install code-indexer[semantic]"]
 
 
-def test_an_index_pass_without_the_extra_is_the_same_line(tmp_path):
+def test_an_index_pass_without_the_extra_builds_a_rows_only_manifest(tmp_path):
+    """A vectors-off pass needs no extension: rows, chunks and FTS land."""
     proj = tmp_path / "proj"
     proj.mkdir()
     (proj / "a.py").write_text("def f():\n    return 1\n", encoding="utf-8")
     script = _BLOCKED + f'''
 from code_indexer.cli import main
 sys.argv = ["code-indexer", "add-project", {str(proj)!r}]
+main()
+'''
+    proc = _run(script, tmp_path)
+    assert proc.returncode == 0, (proc.stdout, proc.stderr)
+    assert "vectors=off" in proc.stdout
+    assert proc.stderr == ""
+
+
+def test_an_embedding_pass_without_the_extra_is_the_same_line(tmp_path):
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "a.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+    script = _BLOCKED + f'''
+from code_indexer.cli import main
+sys.argv = ["code-indexer", "add-project", {str(proj)!r}, "--vectors", "on"]
 main()
 '''
     proc = _run(script, tmp_path)

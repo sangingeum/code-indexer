@@ -198,7 +198,7 @@ def test_lookup_project_empty_call_resolves_by_cwd(rig, monkeypatch):
 def _stub_reindex(core, monkeypatch):
     monkeypatch.setattr(
         core, "reindex_with_swap",
-        lambda slug, path: {"state": "indexed", "result": {"indexed": 1}})
+        lambda slug, path, vectors="auto": {"state": "indexed", "result": {"indexed": 1}})
 
 
 def test_reindex_project_accepts_project_flag(rig, monkeypatch):

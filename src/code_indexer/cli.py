@@ -90,6 +90,13 @@ def _resolve(core: Core, project: str | None,
     return entry
 
 
+def _check_vectors_flag(vectors: str) -> None:
+    """Reject an unknown --vectors value as a usage error (exit 2)."""
+    if vectors not in ("auto", "on", "off"):
+        _usage_die(f"unknown --vectors value: {vectors} "
+                   "(expected auto|on|off)")
+
+
 def _require_semantic() -> None:
     """Fail with the one extension line before a command touches anything.
 
@@ -143,6 +150,12 @@ SkipOpt = typer.Option(
     help="Accepted on every command and INERT: reads never index, so there "
          "is nothing to skip. Reporting staleness without repairing it is "
          "the default; use --refresh to repair.")
+VectorsOpt = typer.Option(
+    "auto", "--vectors",
+    help="Vector side: auto (the project's recorded mode) | on (embed and "
+         "upsert to Qdrant) | off (build a complete rows-only index with no "
+         "service). A NEW project records off."
+)
 RefreshOpt = typer.Option(
     False, "--refresh",
     help="Run an incremental index pass first (one per project for "
@@ -552,11 +565,20 @@ def add_project(
     priority: list[str] = typer.Option(
         None, "--priority",
         help="Globs indexed FIRST within the pass (repeatable)."),
+    vectors: str = VectorsOpt,
     skip_stale_check: bool = SkipOpt,
 ) -> None:
     """Register a project directory for semantic indexing (idempotent) and
-    run the initial index pass."""
-    _require_semantic()
+    run the initial index pass.
+
+    ``--vectors auto`` (the default) records ``off`` for a NEW project and
+    runs a service-free pass; an existing project keeps its recorded mode.
+    """
+    _check_vectors_flag(vectors)
+    # An explicit vectors-on registration needs the extension before anything
+    # is registered: a half-registered project is not a good failure mode.
+    if vectors == "on":
+        _require_semantic()
     core = _get_core(skip_stale_check)
     path = os.path.abspath(os.path.expanduser(path))
     if not os.path.isdir(path):
@@ -575,6 +597,20 @@ def add_project(
     except ValueError as exc:
         _die(f"error: {exc}")
     typer.echo(f"registered {entry.path} (slug {entry.slug})")
+    # A NEW project records its mode before the first pass: ``auto`` records
+    # off, so a fresh install never starts embedding because nobody said no.
+    resolved_vectors = "off" if vectors == "auto" else vectors
+    m = core.manifest_for(entry.slug)
+    try:
+        m.set_meta("vectors", resolved_vectors)
+    finally:
+        m.close()
+    if resolved_vectors == "on":
+        _require_semantic()
+    else:
+        typer.echo("note: vectors=off — rows, symbols, references and chunks "
+                   "are indexed with no service; run reindex-project "
+                   "--vectors on later to embed them")
     if allow_sensitive:
         m = core.manifest_for(entry.slug)
         try:
@@ -595,7 +631,8 @@ def add_project(
         typer.echo(f"note: scoped indexing — include={', '.join(include or [])}"
                    + (f"; priority={', '.join(priority or [])}"
                       if priority else ""))
-    _echo_index_result(entry.slug, core.run_index(entry.slug, entry.path))
+    _echo_index_result(entry.slug, core.run_index(entry.slug, entry.path,
+                                                  vectors=vectors))
 
 
 @app.command()
@@ -610,18 +647,21 @@ def index_more(
         None, "--project", "--name",
         help="Project path, slug, or name. Takes precedence over the "
              "positional selector when both are given."),
+    vectors: str = VectorsOpt,
     skip_stale_check: bool = SkipOpt,
 ) -> None:
     """Extend a project's indexed scope with another subtree.
 
     The new glob is appended to the manifest's scope_include and an
-    incremental pass indexes the newly-covered files.
+    incremental pass indexes the newly-covered files. ``--vectors`` follows
+    the same auto|on|off rule as add-project; turning vectors on for a project
+    kept off embeds its stored chunks as well.
 
     Two selector spellings are supported: ``index-more <project> <subpath>``
     (historical) and ``index-more --project <project> <subpath>``. Combining
     the flag with two positionals is ambiguous and rejected.
     """
-    _require_semantic()
+    _check_vectors_flag(vectors)
     core = _get_core(skip_stale_check)
     if project:
         if second is not None:
@@ -636,6 +676,8 @@ def index_more(
              "index-more <project> <subpath> or "
              "index-more --project <project> <subpath>")
     entry = _resolve(core, selector)
+    if core.resolve_vectors(entry.slug, vectors) == "on":
+        _require_semantic()
     m = core.manifest_for(entry.slug)
     try:
         current = [ln for ln in (m.get_meta("scope_include") or "")
@@ -646,7 +688,9 @@ def index_more(
     finally:
         m.close()
     typer.echo(f"scope extended: {', '.join(current)}")
-    _echo_index_result(entry.slug, core.run_index(entry.slug, entry.path))
+    _echo_index_result(entry.slug, core.run_index(entry.slug, entry.path,
+                                                  vectors=vectors,
+                                                  rescan=True))
 
 
 @app.command()
@@ -964,6 +1008,13 @@ def index_status(
     # and list-projects/doctor already call it needs-reindex; index-status
     # must give the same verdict rather than a plain idle.
     fp = core.fingerprint_status(entry)
+    vs = core.vectors_status(entry)
+    parts.append(f"rows={vs['rows']}")
+    parts.append(f"vectors={vs['vectors']}")
+    parts.append(f"vectors_state={vs['vectors_state']}")
+    fields["rows"] = vs["rows"]
+    fields["vectors"] = vs["vectors"]
+    fields["vectors_state"] = vs["vectors_state"]
     if fp["state"] == NEEDS_REINDEX:
         parts.append(f"fingerprint=needs-reindex reason={fp['reason']}")
         fields["fingerprint"] = "needs-reindex"
@@ -1134,18 +1185,24 @@ def reindex_project(
         None, "--project", "--name",
         help="Project path, slug, or name. Takes precedence over the "
              "positional PATH when both are given."),
+    vectors: str = VectorsOpt,
     skip_stale_check: bool = SkipOpt,
 ) -> None:
     """Force a full rebuild of a project's index (runs foreground in the CLI).
 
-    The rebuild fills a temporary collection first and swaps it in when
-    complete, so search against the old data stays available until the swap.
-    This also clears a needs-reindex state (config/fingerprint mismatch)."""
-    _require_semantic()
+    A vectors-on rebuild whose rows are already current embeds from the
+    stored chunks and swaps in a collection for the current identity — it
+    reparses nothing. ``--vectors off`` rebuilds the rows with no service and
+    leaves any existing collection untouched.
+    """
+    _check_vectors_flag(vectors)
     core = _get_core(skip_stale_check)
     selector = _require_selector(core, project, path, "reindex-project")
     entry = _resolve(core, selector)
-    _echo_index_result(entry.slug, core.reindex_with_swap(entry.slug, entry.path))
+    if core.resolve_vectors(entry.slug, vectors) == "on":
+        _require_semantic()
+    _echo_index_result(entry.slug, core.reindex_with_swap(
+        entry.slug, entry.path, vectors=vectors))
 
 
 @app.command()

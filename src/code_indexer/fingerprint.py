@@ -31,6 +31,25 @@ logger = logging.getLogger("code-indexer.fingerprint")
 FINGERPRINT_KEYS = ("embed_model", "embed_dim", "embed_text_version",
                     "chunker_version", "extraction_version")
 
+# The three axes of ADR-0001 section 2, as recorded in meta:
+#   extraction_version  -- parser, chunker, reference/import extraction
+#   embedding_version   -- one composed string, compared as a whole
+#   index_schema_version -- the manifest DDL only (written by manifest.open)
+EMBEDDING_VERSION_KEY = "embedding_version"
+ROW_SIDE_KEYS = ("chunker_version", "extraction_version")
+VECTOR_SIDE_KEYS = (EMBEDDING_VERSION_KEY,)
+
+
+def identity_digest(identity: str) -> str:
+    """A short, stable digest of an embedding identity for collection names."""
+    import hashlib
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:8]
+
+
+def compose_embedding_version(embed_model: str, embed_dim: int,
+                              embed_text_version: str) -> str:
+    """model/dimension/format as ONE string (the embedding axis)."""
+
 # Version-ordered fingerprint keys. Only these carry an ordering, so only
 # these can say "the manifest was recorded by NEWER code than this process".
 # embed_model / embed_dim / embed_text_version differences are configuration
@@ -103,6 +122,9 @@ class Fingerprint:
             ("embed_text_version", self.embed_text_version),
             ("chunker_version", str(self.chunker_version)),
             ("extraction_version", str(self.extraction_version)),
+            (EMBEDDING_VERSION_KEY,
+             compose_embedding_version(self.embed_model, self.embed_dim,
+                                       self.embed_text_version)),
         ]
 
     def describe(self) -> str:
@@ -110,6 +132,11 @@ class Fingerprint:
                 f"etext={self.embed_text_version}/"
                 f"chunker={self.chunker_version}/"
                 f"extr={self.extraction_version}")
+
+    def embedding_version(self) -> str:
+        """The composed embedding identity this fingerprint describes."""
+        return compose_embedding_version(self.embed_model, self.embed_dim,
+                                         self.embed_text_version)
 
 
 def current_fingerprint(embed_model: str, embed_dim: int) -> Fingerprint:
@@ -146,6 +173,28 @@ def read_fingerprint(manifest) -> Fingerprint | None:
 def write_fingerprint(manifest, fp: Fingerprint) -> None:
     for key, value in fp.as_items():
         manifest.set_meta(key, value)
+
+
+def write_row_side(manifest) -> None:
+    """Record only the axes a row pass can state without a service.
+
+    The embedding identity includes a dimension only the service can answer,
+    so a vectors-off pass never writes it. This is what keeps the two sides
+    independent: a service-free pass makes the rows current and leaves the
+    vector side's recorded identity untouched (ADR-0001 sections 2 and 5).
+    """
+    manifest.set_meta("chunker_version", str(CHUNKER_VERSION))
+    manifest.set_meta("extraction_version", str(EXTRACTION_VERSION))
+
+
+def write_embedding_side(manifest, embed_model: str, embed_dim: int) -> str:
+    """Record the composed embedding identity and return it."""
+    identity = compose_embedding_version(embed_model, embed_dim, EMBED_FORMAT)
+    manifest.set_meta("embed_model", embed_model)
+    manifest.set_meta("embed_dim", str(embed_dim))
+    manifest.set_meta("embed_text_version", EMBED_FORMAT)
+    manifest.set_meta(EMBEDDING_VERSION_KEY, identity)
+    return identity
 
 
 def fingerprint_mismatches(recorded: Fingerprint | None,

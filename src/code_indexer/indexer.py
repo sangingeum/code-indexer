@@ -69,8 +69,8 @@ def _snippet(text: str, cap: int = 500) -> str:
 
 
 class Indexer:
-    def __init__(self, cfg: Config, embedder: Embedder, store: Store,
-                 progress_cb=None):
+    def __init__(self, cfg: Config, embedder: Embedder | None,
+                 store: Store | None, progress_cb=None):
         self.cfg = cfg
         self.embedder = embedder
         self.store = store
@@ -103,19 +103,29 @@ class Indexer:
 
     def index_project(self, project_path: str, slug: str, manifest: Manifest,
                       force_full: bool = False,
-                      collection: str | None = None) -> IndexResult:
+                      collection: str | None = None,
+                      vectors: bool = True) -> IndexResult:
         """One incremental pass. Caller holds the per-project lock.
 
         ``collection`` overrides the target collection name — the swap-based
-        rebuild (fingerprint mismatch) fills idx_<slug>__new and the caller
-        swaps it into place, so search against the old collection stays
-        available until the swap.
+        rebuild (embedding-identity change) fills a new physical collection
+        and the caller swaps it into place, so search against the old one
+        stays available until the swap.
+
+        ``vectors=False`` is the service-free pass: it scans, parses, writes
+        files/symbols/refs/imports/chunks/FTS/index_errors and records
+        ``meta.vectors=off``, touching neither the embedder nor the store. A
+        later vectors-on pass embeds from ``chunks``, not from source.
         """
         t0 = time.time()
         collection = collection or f"idx_{slug}"
 
-        if not self.store.collection_exists(collection):
-            self.store.create_collection(collection, self.embedder.dimension())
+        if vectors:
+            if self.store is None or self.embedder is None:
+                raise ValueError("a vectors-on pass needs the semantic clients")
+            if not self.store.collection_exists(collection):
+                self.store.create_collection(collection,
+                                             self.embedder.dimension())
 
         # Scoped indexing: the manifest's scope patterns limit the scan;
         # priority patterns order the pass. Stored meta keys:
@@ -168,7 +178,7 @@ class Indexer:
         # chunk hashes describe vectors of another format, so they must not be
         # reused. The value is re-recorded at the end of a successful pass.
         recorded_format = manifest.get_meta("embed_format")
-        format_changed = recorded_format != EMBED_FORMAT
+        format_changed = vectors and recorded_format != EMBED_FORMAT
         rebuild = force_full or format_changed
         if format_changed and recorded_format is not None:
             logger.info("embed_format changed (%s -> %s): full re-embed",
@@ -177,10 +187,11 @@ class Indexer:
         # A legacy manifest without a fingerprint is backfilled with the
         # current config (with a one-line notice) — no forced reindex, per
         # the improvement plan.
-        current_fp = current_fingerprint(self.cfg.embed_model,
-                                         self.embedder.dimension())
+        current_fp = (
+            current_fingerprint(self.cfg.embed_model, self.embedder.dimension())
+            if vectors else None)
         recorded_fp = read_fingerprint(manifest)
-        if recorded_fp is None and (old_files or force_full):
+        if current_fp is not None and recorded_fp is None and (old_files or force_full):
             logger.info(
                 "manifest has no index fingerprint; backfilling current "
                 "config (%s) — no reindex required", current_fp.describe())
@@ -200,7 +211,7 @@ class Indexer:
         # with this older process's extraction code while the recorded newer
         # fingerprint stands.
         defer_fingerprint_write = False
-        if manifest_newer_than(recorded_fp, current_fp):
+        if current_fp is not None and manifest_newer_than(recorded_fp, current_fp):
             assert recorded_fp is not None  # manifest_newer_than implies it
             logger.warning(
                 "index for %s was built by NEWER code (%s) than this process "
@@ -213,11 +224,19 @@ class Indexer:
                 os.getpid(), project_path)
             defer_fingerprint_write = True
         else:
-            fp_changed = bool(fingerprint_mismatches(recorded_fp, current_fp))
+            fp_changed = bool(current_fp is not None
+                              and fingerprint_mismatches(recorded_fp, current_fp))
             if fp_changed:
                 logger.info("index fingerprint changed (%s): full re-embed",
                             fingerprint_mismatches(recorded_fp, current_fp))
             rebuild = rebuild or fp_changed
+
+        # Turning vectors on for a project that was kept off: no cached hash
+        # describes a vector in this mode, so this pass embeds what it
+        # processes instead of trusting a cache built under another mode.
+        from . import vectors as vectors_mod
+        if vectors and vectors_mod.recorded_mode(manifest) == vectors_mod.MODE_OFF:
+            rebuild = True
 
         # Legacy-manifest FTS backfill (migration-style, idempotent): a
         # manifest with indexed chunks but an empty chunks_fts is populated
@@ -260,8 +279,9 @@ class Indexer:
             manifest.set_meta("chunk_hashes", "")
 
         # 1) Purge deleted files (payload-filter delete + manifest rows).
-        for path in deleted:
-            self.store.purge_file_points(collection, project_path, path)
+        if vectors:
+            for path in deleted:
+                self.store.purge_file_points(collection, project_path, path)
         if deleted:
             manifest.delete_files(deleted)
             for path in deleted:
@@ -328,7 +348,7 @@ class Indexer:
                            for (rt, _r, kind, ln) in imports]
             pending_meta[path] = (syms, refs, import_rows, confidence)
             old = old_files.get(path)
-            if old and old.chunk_count > len(chunks):
+            if vectors and old and old.chunk_count > len(chunks):
                 self.store.purge_file_points(
                     collection, project_path, path, min_chunk_index=len(chunks))
             # FTS rows for every chunk of a (re)processed file — written in
@@ -349,9 +369,9 @@ class Indexer:
                 for c in chunks])
             for chunk_ in chunks:
                 key = f"{path}|{chunk_.chunk_hash}"
-                if key in seen_hashes and not rebuild:
+                if vectors and key in seen_hashes and not rebuild:
                     reused += 1
-                else:
+                elif vectors:
                     to_embed.append((path, chunk_))
                     to_embed_files.add(path)
             f = scanned_map[path]
@@ -534,12 +554,17 @@ class Indexer:
         manifest.set_meta("index_revision", _next_revision(manifest))
         # Record the construction that produced (or refreshed) the vectors in
         # this pass, so a later construction change is detected as a rebuild.
-        manifest.set_meta("embed_format", EMBED_FORMAT)
+        if vectors:
+            manifest.set_meta("embed_format", EMBED_FORMAT)
+        self._record_vectors_meta(manifest, vectors, skipped_errors)
         # DEFERRED when the manifest was built by newer code than this process
         # (see the direction-aware guard above): stamping our own older
         # fingerprint here is exactly the regression this pass must not make.
-        if not defer_fingerprint_write:
+        if not defer_fingerprint_write and current_fp is not None:
             write_fingerprint(manifest, current_fp)
+        elif not defer_fingerprint_write:
+            from .fingerprint import write_row_side
+            write_row_side(manifest)
 
         # Unchanged files keep their manifest rows; ensure they're recorded
         # (status ok) for accurate file_count.
@@ -565,6 +590,134 @@ class Indexer:
             sensitive_skipped=sensitive_report.total,
         )
 
+    def _record_vectors_meta(self, manifest: Manifest, vectors: bool,
+                             errors: int = 0) -> None:
+        """Record the mode and the known state of the vector side.
+
+        A vectors-off pass never claims anything about vectors it did not
+        touch: it records the mode and, for a project that was never
+        vectored, ``absent``. A vectors-on pass records ``current`` unless
+        chunks were lost to embed failures, which is ``error``.
+        """
+        from . import vectors as vectors_mod
+        if not vectors:
+            manifest.set_meta("vectors", vectors_mod.MODE_OFF)
+            if manifest.get_meta("vectors_state") is None:
+                manifest.set_meta("vectors_state", vectors_mod.STATE_ABSENT)
+            vectors_mod.record_rows(manifest)
+            return
+        manifest.set_meta("vectors", vectors_mod.MODE_ON)
+        manifest.set_meta("vectors_state",
+                          vectors_mod.STATE_ERROR if errors
+                          else vectors_mod.STATE_CURRENT)
+        vectors_mod.record_rows(manifest)
+
+    def embed_index(self, project_path: str, slug: str, manifest: Manifest,
+                    collection: str | None = None) -> IndexResult:
+        """Embed the stored chunk rows; read no source file, reparse nothing.
+
+        This is the vectors-on pass of ADR-0001 section 3: every input comes
+        from ``chunks`` (text and hash) plus the file rows (content hash,
+        language), so it runs with the source tree absent or unreadable. The
+        chunk-hash cache keeps it incremental — a chunk already vectored in
+        this collection costs nothing.
+
+        ``collection`` names a NEW physical collection when the embedding
+        identity changed; the caller swaps the alias afterwards and drops the
+        old collection.
+        """
+        if self.embedder is None or self.store is None:
+            raise ValueError("embedding from the manifest needs the semantic "
+                             "clients")
+        t0 = time.time()
+        collection = collection or f"idx_{slug}"
+        dim = self.embedder.dimension()
+        if not self.store.collection_exists(collection):
+            self.store.create_collection(collection, dim)
+
+        # A new identity means a new collection: no hash recorded under the
+        # old collection may be reused here (vectors are never mixed).
+        from . import vectors as vectors_mod
+        identity = vectors_mod.embedding_identity(self.cfg.embed_model, dim)
+        if manifest.get_meta("embedding_version") not in (None, identity):
+            manifest.set_meta("chunk_hashes", "")
+
+        files = manifest.all_files()
+        chunks = [r for r in manifest.all_chunks() if r.file in files]
+        seen = self._load_chunk_hashes(manifest)
+        pending = [(r, f"{r.file}|{r.chunk_hash}") for r in chunks
+                   if f"{r.file}|{r.chunk_hash}" not in seen
+                   or manifest.get_meta("embedding_version") not in (None, identity)]
+        reused = len(chunks) - len(pending)
+
+        embedded = 0
+        skipped = 0
+        if pending:
+            texts = [embed_text(r.file, _chunk_from_row(r)) for r, _k in pending]
+            vectors, errors = self._embed_with_errors_compat(texts)
+            for idx, msg in errors:
+                row = pending[idx][0]
+                manifest.record_index_error(row.file, row.chunk_index, msg)
+                skipped += 1
+            from .store import point_id
+            now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            by_file: dict[str, list[tuple[int, Any]]] = {}
+            for idx, (row, _key) in enumerate(pending):
+                if vectors[idx] is None:
+                    continue
+                by_file.setdefault(row.file, []).append((idx, row))
+            for file, entries in by_file.items():
+                file_row = files[file]
+                points = []
+                for idx, row in entries:
+                    points.append({
+                        "id": point_id(project_path, file, row.chunk_index),
+                        "vector": vectors[idx],
+                        "payload": {
+                            "project": project_path,
+                            "file": file,
+                            "chunk_index": row.chunk_index,
+                            "content_hash": file_row.content_hash,
+                            "file_hash": file_row.content_hash[:8],
+                            "chunk_hash": row.chunk_hash,
+                            "symbol": row.symbol,
+                            "symbol_type": row.symbol_type,
+                            "lang": file_row.language,
+                            "start_line": row.start_line,
+                            "end_line": row.end_line,
+                            "indexed_at": now,
+                        },
+                    })
+                for i in range(0, len(points), self.cfg.upsert_batch):
+                    self.store.upsert_points(
+                        collection, points[i:i + self.cfg.upsert_batch])
+                for _idx, row in entries:
+                    self._remember_chunk_hash(manifest, file, _chunk_from_row(row))
+                embedded += len(entries)
+                if self.progress_cb is not None:
+                    self.progress_cb({
+                        "files_done": len(by_file), "files_total": len(by_file),
+                        "chunks_done": embedded, "chunks_total": len(pending),
+                        "docs_per_s": 0.0, "eta_s": 0.0, "errors": skipped})
+
+        # Record the construction that produced these vectors, on the vector
+        # side only: the rows were not touched and their axes are already
+        # recorded (ADR-0001 section 2).
+        from .fingerprint import write_embedding_side
+        write_embedding_side(manifest, self.cfg.embed_model, dim)
+        manifest.set_meta("embed_format", EMBED_FORMAT)
+        manifest.set_meta("last_indexed", str(time.time()))
+        manifest.set_meta("index_revision", _next_revision(manifest))
+        manifest.set_meta("vectors", vectors_mod.MODE_ON)
+        manifest.set_meta("vectors_state",
+                          vectors_mod.STATE_ERROR if skipped
+                          else vectors_mod.STATE_CURRENT)
+        return IndexResult(
+            files_indexed=0, chunks_embedded=embedded, chunks_reused=reused,
+            files_deleted=0, duration_s=round(time.time() - t0, 2),
+            chunks_skipped=skipped, files_committed=len(by_file) if pending else 0,
+        )
+
     # -- chunk-hash cache (design §6 step 6) ---------------------------
 
     def _load_chunk_hashes(self, manifest: Manifest) -> set[str]:
@@ -588,6 +741,18 @@ def _next_revision(manifest: Manifest) -> str:
     except ValueError:
         # A legacy/manual value that is not a counter: start a clean sequence.
         return "1"
+
+
+def _chunk_from_row(row) -> Chunk:
+    """A Chunk from a manifest chunk row: what the embedder would see.
+
+    The signature/container fields do not participate in the embedding text;
+    they are empty here because the manifest deliberately stores the chunk
+    content, not the extractor's whole result.
+    """
+    return Chunk(text=row.text, chunk_hash=row.chunk_hash, symbol=row.symbol,
+                 start_line=row.start_line, end_line=row.end_line,
+                 chunk_index=row.chunk_index, symbol_type=row.symbol_type)
 
 
 def _lang_from_ext(path: str) -> str:

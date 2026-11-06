@@ -170,6 +170,7 @@ def rig(tmp_path, monkeypatch):
     project.mkdir()
     (project / "a.py").write_text(
         "def alpha():\n    return 1\n\n\ndef beta():\n    return 2\n")
+    (project / "b.py").write_text("plain module docstring\n")
     core = Core(cfg)
 
     class StubEmbedder:
@@ -202,14 +203,17 @@ def rig(tmp_path, monkeypatch):
                     self.payload, self.score = payload, score
             # Two overlapping hits in one file + one in another.
             return [
-                _Hit({"file": "a.py", "symbol": "alpha", "symbol_type": "function",
+                _Hit({"file": "a.py", "chunk_index": 0,
+                      "symbol": "alpha", "symbol_type": "function",
                       "lang": "python", "start_line": 1, "end_line": 2,
                       "snippet": "def alpha():\n    return 1"}, 0.9),
-                _Hit({"file": "a.py", "symbol": "beta", "symbol_type": "function",
-                      "lang": "python", "start_line": 5, "end_line": 6,
+                _Hit({"file": "a.py", "chunk_index": 1,
+                      "symbol": "beta", "symbol_type": "function",
+                      "lang": "python", "start_line": 4, "end_line": 6,
                       "snippet": "def beta():\n    return 2"}, 0.85),
-                _Hit({"file": "b.py", "symbol": None, "symbol_type": None,
-                      "lang": "python", "start_line": 1, "end_line": 3,
+                _Hit({"file": "b.py", "chunk_index": 0, "symbol": None,
+                      "symbol_type": None,
+                      "lang": "python", "start_line": 1, "end_line": 1,
                       "snippet": "plain module docstring"}, 0.6),
             ][:limit]
 

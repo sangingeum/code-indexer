@@ -252,8 +252,11 @@ def test_model_change_config_error_and_reindex_fixes_it(rig):
     # search works again
     hits = core2.search("x", project=entry.path, skip_refresh=True)["hits"]
     assert isinstance(hits, list)
-    # the swap: the live name is an alias to the temp build, old dropped
-    assert store.aliases.get(f"idx_{entry.slug}") == f"idx_{entry.slug}__new"
+    # the swap: a changed embedding identity builds a NEW collection named
+    # after that identity, aliases the live name to it, and drops the old one
+    live = store.aliases.get(f"idx_{entry.slug}")
+    assert live is not None and live.startswith(f"idx_{entry.slug}__")
+    assert live != f"idx_{entry.slug}__new"
     assert f"idx_{entry.slug}" in store.dropped
 
 

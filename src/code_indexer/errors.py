@@ -89,6 +89,20 @@ class RebuildRequiredError(IndexerError):
     exit_code = EXIT_REINDEX
 
 
+class VectorsDisabledError(ConfigError):
+    """Semantic search was asked of a project kept with vectors off.
+
+    A configuration fact (the project records ``vectors=off``), rendered as
+    ``ConfigError`` like the absent-extension case, but exit 4: ADR-0003's
+    rebuild class names "vectors absent" explicitly, and the remedy is a
+    rebuild of the vector side (``--vectors on``). The alternative number, 3,
+    would tell a caller to install or start a service -- which would not
+    enable vectors on an index that records off.
+    """
+
+    exit_code = EXIT_REINDEX
+
+
 class LockedError(IndexerError):
     error_type = "LockedError"
     exit_code = EXIT_LOCK
