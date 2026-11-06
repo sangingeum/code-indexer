@@ -49,6 +49,8 @@ def identity_digest(identity: str) -> str:
 def compose_embedding_version(embed_model: str, embed_dim: int,
                               embed_text_version: str) -> str:
     """model/dimension/format as ONE string (the embedding axis)."""
+    return f"{embed_model}/{embed_dim}/{embed_text_version}"
+
 
 # Version-ordered fingerprint keys. Only these carry an ordering, so only
 # these can say "the manifest was recorded by NEWER code than this process".
@@ -94,6 +96,51 @@ def probe_free_mismatches(recorded: Fingerprint | None,
     return [f"{key}: {recorded_values[key]} -> {configured[key]}"
             for key in PROBE_FREE_KEYS
             if recorded_values[key] != configured[key]]
+
+
+def row_side_mismatches(recorded: Fingerprint | None,
+                        configured: dict[str, str]) -> list[str]:
+    """Differences on the ROW axis only (chunker + extraction).
+
+    A row pass is invalidated by the code that parsed and chunked the source,
+    and by nothing else. An embedding-model or embedded-text change says
+    nothing about these rows; treating it as one would force a reparse for a
+    vector rebuild, which is exactly what the two independent sides exist to
+    prevent (ADR-0001 sections 2 and 5).
+    """
+    if recorded is None:
+        return []
+    recorded_values = dict(recorded.as_items())
+    return [f"{key}: {recorded_values[key]} -> {configured[key]}"
+            for key in ROW_SIDE_KEYS
+            if recorded_values[key] != configured[key]]
+
+
+def vector_side_mismatches(recorded: Fingerprint | None,
+                           embed_model: str,
+                           embed_text_version: str) -> list[str]:
+    """Differences on the VECTOR axis, as the model/format of the identity.
+
+    The recorded identity carries its own dimension, and a read path cannot
+    know the configured dimension without dialling the service; the comparison
+    therefore states model and embedded-text format and takes the recorded
+    dimension as given. A write path compares the whole string instead (it
+    knows the dimension it would build with).
+    """
+    if recorded is None:
+        return []
+    identity = recorded.embedding_version()
+    parts = identity.split("/")
+    model = parts[0] if parts else ""
+    fmt = parts[2] if len(parts) > 2 else ""
+    diffs: list[str] = []
+    if model != embed_model:
+        diffs.append(f"embedding_version: {identity} -> "
+                     f"{compose_embedding_version(embed_model, recorded.embed_dim, fmt)}")
+    if fmt != embed_text_version:
+        diffs.append(f"embedding_version: {identity} -> "
+                     f"{compose_embedding_version(model, recorded.embed_dim, embed_text_version)}")
+    return diffs
 
 
 class ConfigError(Exception):
@@ -199,14 +246,20 @@ def write_embedding_side(manifest, embed_model: str, embed_dim: int) -> str:
 
 def fingerprint_mismatches(recorded: Fingerprint | None,
                            current: Fingerprint) -> list[str]:
-    """Human-readable list of differing components (empty when compatible)."""
+    """Human-readable list of differing RECORDED components.
+
+    Compares the five stored components one by one. The composed
+    ``embedding_version`` is derived from three of them, so it is not
+    repeated here; per-side verdicts are ``row_side_mismatches`` and
+    ``vector_side_mismatches``.
+    """
     if recorded is None:
         return []
-    diffs: list[str] = []
-    for rk, ck in zip(recorded.as_items(), current.as_items()):
-        if rk[1] != ck[1]:
-            diffs.append(f"{rk[0]}: {rk[1]} -> {ck[1]}")
-    return diffs
+    recorded_values = dict(recorded.as_items())
+    current_values = dict(current.as_items())
+    return [f"{key}: {recorded_values[key]} -> {current_values[key]}"
+            for key in FINGERPRINT_KEYS
+            if recorded_values[key] != current_values[key]]
 
 
 def manifest_newer_than(recorded: Fingerprint | None,

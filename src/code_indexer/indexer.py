@@ -20,9 +20,9 @@ from typing import TYPE_CHECKING, Any
 from .chunker import Chunk
 from .config import Config
 from .embed_text import EMBED_FORMAT, embed_text
-from .fingerprint import (current_fingerprint,
-                          fingerprint_mismatches, manifest_newer_than,
-                          read_fingerprint, write_fingerprint)
+from .fingerprint import (configured_values, current_fingerprint,
+                          manifest_newer_than, read_fingerprint,
+                          row_side_mismatches, write_fingerprint)
 from . import ts_chunker
 from .manifest import ChunkRow, Manifest, ManifestFile, SymbolRow
 from .scanner import ScannedFile, scan_project
@@ -224,11 +224,13 @@ class Indexer:
                 os.getpid(), project_path)
             defer_fingerprint_write = True
         else:
-            fp_changed = bool(current_fp is not None
-                              and fingerprint_mismatches(recorded_fp, current_fp))
+            row_diffs = ([] if current_fp is None else
+                         row_side_mismatches(recorded_fp,
+                                             configured_values(self.cfg.embed_model)))
+            fp_changed = bool(row_diffs)
             if fp_changed:
-                logger.info("index fingerprint changed (%s): full re-embed",
-                            fingerprint_mismatches(recorded_fp, current_fp))
+                logger.info("index row axes changed (%s): full reparse",
+                            row_diffs)
             rebuild = rebuild or fp_changed
 
         # Turning vectors on for a project that was kept off: no cached hash

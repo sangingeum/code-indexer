@@ -234,10 +234,11 @@ def test_model_change_config_error_and_reindex_fixes_it(rig):
     core2.indexer.store = store  # type: ignore[assignment]
     core2.registry = core.registry  # same registry file
 
-    # status_summary reports needs-reindex with a reason
+    # status reports the mismatch on the VECTOR side; the rows survive an
+    # embedding bump, so the pass state is not needs-reindex (ADR-0001 s2)
     summary = core2.status_summary(entry)
-    assert "state=needs-reindex" in summary
-    assert "embed_model" in summary
+    assert "state=needs-reindex" not in summary
+    assert "vectors_state=stale" in summary
 
     # search refuses with ConfigError, even with skip_refresh (the
     # --skip-stale-check path must NOT bypass the fingerprint gate)

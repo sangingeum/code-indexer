@@ -91,7 +91,7 @@ def test_the_verdict_is_unverified_when_only_the_dimension_is_unknown(
     core.assert_fingerprint_ok(entry)
 
 
-def test_a_known_key_mismatch_is_still_a_rebuild(tmp_path, monkeypatch):
+def test_a_vector_side_mismatch_is_stale_not_a_row_rebuild(tmp_path, monkeypatch):
     core, entry = _rig(tmp_path, monkeypatch)
     manifest = core.manifest_for(entry.slug)
     try:
@@ -99,7 +99,9 @@ def test_a_known_key_mismatch_is_still_a_rebuild(tmp_path, monkeypatch):
     finally:
         manifest.close()
     status = core.fingerprint_status(entry)
-    assert status["ok"] is False
-    assert "embed_model" in status["reason"]
+    # An embedding-only change is not a row problem: the rows answer normally
+    # and the VECTOR side is what says stale (ADR-0001 section 5).
+    assert status["ok"] is True
+    assert status["vectors"] == "stale"
     with pytest.raises(Exception, match="reindex-project"):
         core.assert_fingerprint_ok(entry)

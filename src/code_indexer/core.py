@@ -21,9 +21,10 @@ from .config import Config, load_config
 from .errors import (BackendError, ExtensionUnavailableError, InternalError,
                      LockedError, RebuildRequiredError, VectorsDisabledError)
 from .extensions import SEMANTIC_EXTENSION_MESSAGE
-from .fingerprint import (ConfigError, configured_values, probe_free_mismatches,
+from .fingerprint import (ConfigError, EMBED_FORMAT, configured_values,
                           current_version_stamp, read_fingerprint,
-                          rows_staleness_warning)
+                          row_side_mismatches, rows_staleness_warning,
+                          vector_side_mismatches)
 from .locks import project_lock
 from .manifest import SCHEMA_VERSION, Manifest, SymbolRow
 from . import ranking
@@ -246,10 +247,12 @@ class Core:
     def vectors_status(self, entry: ProjectEntry) -> dict[str, str]:
         """The two vector facts a read can state without a service.
 
-        ``vectors`` is the project's mode (on|off) and ``vectors_state`` is
-        the last recorded state of the collection relative to the rows
-        (current|absent|stale|error). Both come from meta alone: index-status
-        never dials Qdrant, so it reports what the last write recorded.
+        ``vectors`` is the project's mode (on|off), ``vectors_state`` is the
+        last recorded state of the collection relative to the rows
+        (current|absent|stale|error) — and ``stale`` also means the recorded
+        embedding identity is not the one this build would write, which a
+        read can see from configuration alone. ``rows`` is the row-side
+        verdict: current only when this build's extraction wrote them.
         """
         mdir = os.path.join(self.cfg.index_root, entry.slug, "manifest.db")
         if not os.path.isfile(mdir):
@@ -258,10 +261,16 @@ class Core:
                     "rows": "absent"}
         m = Manifest(mdir)
         try:
+            mode = vectors_policy.recorded_mode(m) or vectors_policy.MODE_ON
+            state = vectors_policy.vectors_state(m)
+            if mode == vectors_policy.MODE_ON:
+                recorded = read_fingerprint(m)
+                if vector_side_mismatches(recorded, self.cfg.embed_model,
+                                          EMBED_FORMAT):
+                    state = vectors_policy.STATE_STALE
             return {
-                "vectors": (vectors_policy.recorded_mode(m)
-                            or vectors_policy.MODE_ON),
-                "vectors_state": vectors_policy.vectors_state(m),
+                "vectors": mode,
+                "vectors_state": state,
                 "rows": vectors_policy.rows_state(m),
             }
         finally:
@@ -297,6 +306,20 @@ class Core:
             return self.indexer
         from .indexer import Indexer as _Indexer
         return _Indexer(self.cfg, None, None)
+
+    def _vector_identity_changed(self, manifest: Manifest) -> bool:
+        """True when the recorded embedding identity is not this build's.
+
+        Configuration-only: the recorded identity's model and embedded-text
+        format are compared, and the dimension is the recorded one. A vectors
+        rebuild is then a NEW collection under the new identity — never an
+        append to one built by another model (ADR-0001 section 2).
+        """
+        recorded = read_fingerprint(manifest)
+        if recorded is None:
+            return False
+        return bool(vector_side_mismatches(recorded, self.cfg.embed_model,
+                                           EMBED_FORMAT))
 
     def _vector_target(self, slug: str, manifest: Manifest,
                        indexer: Indexer) -> tuple[str, bool]:
@@ -340,10 +363,13 @@ class Core:
             try:
                 mode = vectors_policy.resolve_mode(manifest, vectors)
                 use_vectors = mode == vectors_policy.MODE_ON
+                identity_changed = (use_vectors
+                                    and self._vector_identity_changed(manifest))
                 embed_only = (use_vectors and not rescan
-                              and vectors_policy.recorded_mode(manifest)
-                              == vectors_policy.MODE_OFF
-                              and vectors_policy.rows_current(manifest))
+                              and vectors_policy.rows_current(manifest)
+                              and (vectors_policy.recorded_mode(manifest)
+                                   == vectors_policy.MODE_OFF
+                                   or identity_changed))
                 indexer = self._build_indexer(use_vectors)
                 indexer.progress_cb = (
                     lambda info, s=slug: self._set_state(s, progress=info))
@@ -605,21 +631,23 @@ class Core:
         return configured_values(self.cfg.embed_model)
 
     def fingerprint_status(self, entry: ProjectEntry) -> dict[str, Any]:
-        """{'ok': bool, 'state': str, 'reason': str|None, 'recorded': str|None}.
+        """The ROW verdict plus the VECTOR verdict, compared per side.
 
-        ``state`` is the fingerprint vocabulary: ``ok`` (the manifest is
-        legacy and will be backfilled), ``needs-reindex`` (a key this process
-        can state from configuration alone differs), or ``unverified`` (the
-        probe-free keys match, but the recorded embedding dimension has no
-        configured counterpart to compare against without dialling the
-        service — and a read never dials). ``ok`` stays exactly "no KNOWN
-        mismatch", so the query-path gate (``assert_fingerprint_ok``) refuses
-        what it always refused, and ``unverified`` is never folded into
-        ``ok``: a caller that needs the dimension comparison must ask for it
-        explicitly.
+        Two sides, two questions (ADR-0001 section 5):
 
-        A manifest without a recorded fingerprint (legacy v3) counts as ok:
-        the first indexing pass backfills it without forcing a reindex.
+        * ``ok``/``state``/``reason`` describe the STORED ROWS: a difference
+          on the row axes (chunker, extraction) means this build would not
+          produce these rows, so row surfaces refuse. A missing or
+          mismatched embedding identity says nothing about them.
+        * ``vectors`` is ``current`` | ``stale`` | ``absent``, compared on the
+          embedding identity's model and embedded-text format. The recorded
+          dimension has no configured counterpart without a probe, so it is
+          taken from the recorded identity — a read never dials.
+
+        ``unverified`` keeps its meaning for the row side: every comparable
+        row key matches, and the dimension question is not one a read answers.
+        A manifest with no fingerprint at all counts as ok: the next pass
+        backfills it without forcing a reindex.
         """
         recorded = None
         mdir = os.path.join(self.cfg.index_root, entry.slug, "manifest.db")
@@ -631,15 +659,24 @@ class Core:
                 m.close()
         if recorded is None:
             return {"ok": True, "state": "ok", "reason": None,
-                    "recorded": None}
-        diffs = probe_free_mismatches(
-            recorded, self.configured_fingerprint_values())
-        if not diffs:
-            return {"ok": True, "state": UNVERIFIED, "reason": UNVERIFIED_REASON,
-                    "recorded": recorded.describe()}
-        return {"ok": False, "state": NEEDS_REINDEX,
-                "reason": "; ".join(diffs),
-                "recorded": recorded.describe()}
+                    "recorded": None, "embedding": None,
+                    "vectors": "absent", "vectors_reason": None}
+        configured = self.configured_fingerprint_values()
+        row_diffs = row_side_mismatches(recorded, configured)
+        vector_diffs = vector_side_mismatches(
+            recorded, self.cfg.embed_model, EMBED_FORMAT)
+        status: dict[str, Any] = {
+            "recorded": recorded.describe(),
+            "embedding": recorded.embedding_version(),
+            "vectors": "stale" if vector_diffs else "current",
+            "vectors_reason": "; ".join(vector_diffs) or None,
+        }
+        if row_diffs:
+            status.update(ok=False, state=NEEDS_REINDEX,
+                          reason="; ".join(row_diffs))
+        else:
+            status.update(ok=True, state=UNVERIFIED, reason=UNVERIFIED_REASON)
+        return status
 
     def assert_fingerprint_ok(self, entry: ProjectEntry) -> None:
         """Raise ConfigError when the index predates the current config.
@@ -656,6 +693,12 @@ class Core:
                 f"index for {entry.path} does not match the "
                 f"current configuration ({status['reason']}); "
                 f"run: code-indexer reindex-project {entry.path}")
+        if status["vectors"] == "stale":
+            raise ConfigError(
+                f"index for {entry.path} was built with a different embedding "
+                f"identity ({status['vectors_reason']}); its vectors are not "
+                f"comparable with this configuration; run: code-indexer "
+                f"reindex-project {entry.path}")
 
     def assert_vectors_available(self, entry: ProjectEntry) -> None:
         """Refuse a vector-dependent query on a vectors-off project.

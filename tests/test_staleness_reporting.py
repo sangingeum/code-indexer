@@ -38,7 +38,6 @@ import code_indexer.cli as cli  # noqa: E402
 from code_indexer.cli import app  # noqa: E402
 from code_indexer.config import Config  # noqa: E402
 from code_indexer.core import Core  # noqa: E402
-from code_indexer.errors import RebuildRequiredError  # noqa: E402
 from code_indexer.fingerprint import (ConfigError, Fingerprint,  # noqa: E402
                                       rows_staleness_warning)
 from code_indexer.graph_extract import EXTRACTION_VERSION  # noqa: E402
@@ -230,19 +229,22 @@ def test_row_reading_surface_answers_on_a_match(rig, monkeypatch):
     assert "stored rows were produced by" not in _text(result)
 
 
-def test_an_embedding_only_mismatch_also_refuses_the_row_surfaces(rig):
-    """A model change is a needs-reindex project, so the surfaces refuse.
+def test_an_embedding_only_mismatch_leaves_the_row_surfaces_answering(rig):
+    """A model change says nothing about the stored rows (ADR-0001 s5).
 
-    The rows themselves are still readable, but the index is not the one this
-    build would produce and the remedy is the same single pass; answering
-    would put two different verdicts on the same project.
+    The rows answer normally; the answer says the vector side is stale, and
+    the remedy is a vector rebuild that reparses nothing. Only the search
+    path refuses, because its answer would be ranked by incomparable vectors.
     """
     core, reg, entry, project = rig
     cfg2 = _config(core.cfg.index_root, embed_model="other-model")
     core2 = _wire(cfg2, registry=reg)
-    assert "state=needs-reindex" in core2.status_summary(entry)
-    with pytest.raises(RebuildRequiredError, match="reindex-project"):
-        core2.assert_rows_acceptable(entry)
+    summary = core2.status_summary(entry)
+    assert "state=needs-reindex" not in summary
+    assert "vectors_state=stale" in summary
+    core2.assert_rows_acceptable(entry)  # the rows are readable as they are
+    with pytest.raises(ConfigError, match="reindex-project"):
+        core2.search("a", project=entry.path, skip_refresh=True)
 
 
 # ---------------------------------------------------------------------------
