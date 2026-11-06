@@ -162,7 +162,8 @@ Green:
   66 passed                                 (the fold tests + tests/test_refusal_needs_reindex.py,
                                              tests/test_read_contract.py, exit 0)
   All checks passed!                        (ruff check src tests, exit 0)
-  publishing hygiene: scanned=595 skipped=0 violations=0
+  publishing hygiene: scanned=608 skipped=0 violations=0
+                                            (595 before this gate's files were staged)
 ```
 
 Red — `remove-project` no longer removes the vector collection, and says it did
@@ -188,8 +189,9 @@ Before the fold the same line was correct: the physical collection *was* `idx_<s
 to `idx_<slug>__<identity digest>` and left this one deleter naming the alias, so the
 deleted registration now leaks an alias plus a physical collection.
 
-Reproduction: `uv run pytest`-free; `uv run python runs/round2-reverify/probe_remove_project.py`
-needs a reachable vector store and cleans up the residue it demonstrates.
+Reproduction: `QDRANT_URL=<vector store> uv run python runs/round2-reverify/probe_remove_project.py`
+needs a reachable vector store and cleans up the residue it demonstrates (the probes
+read `QDRANT_URL` from the environment; no host address is committed).
 
 ## Advisories (not fold failures)
 
@@ -212,7 +214,7 @@ needs a reachable vector store and cleans up the residue it demonstrates.
   `rg`, direct reads and the fold table's file:line references instead of indexed
   row queries. `index-status` was used where a manifest fact was wanted.
 - The two live probes created throwaway collections on the shared vector store and
-  deleted them: `probe_live_collection.txt` ends with `remaining with the slug: []`, and
+  deleted them: `probe_live_collection.txt` ends with `remaining with the slug: []  alias=None`, and
   `probe_remove_project.txt` ends with `cleaned up: ([], {})`.
 - No source file was edited by this gate; the records and probes here are the only
   additions.
