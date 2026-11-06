@@ -204,7 +204,7 @@ AND clause in the same read, so they compose without a second command.
 | filter | answer |
 |---|---|
 | `--kind` (`--type`, `--symbol-type` kept as aliases) | function/method/class/struct/enum/namespace |
-| `--name-pattern GLOB` | a case-sensitive glob over the name (`*Manager`, `get_*`); no index was added — a prefix glob is a range seek on the existing name index, and a leading wildcard is a scan of `symbols`, cheap at this size |
+| `--name-pattern GLOB` | a case-sensitive glob over the name (`*Manager`, `get_*`); no index was added — a prefix glob is a range seek on the existing name index, and a leading wildcard cannot be a range and is a scan of `symbols` (`SCAN s`), cheap at this size |
 | `--file F` | one project-relative file |
 | `--container X` | the parent qualified name (`Manifest` for its methods) |
 | `--visibility public\|private` | the stored column; a NULL visibility reads as public |
