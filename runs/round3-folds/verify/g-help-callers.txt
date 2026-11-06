@@ -1,0 +1,51 @@
+                                                                                
+ Usage: code-indexer find-callers [OPTIONS] {name}                              
+                                                                                
+ Who references this symbol: fan-in BFS over the single reference store         
+ (tree-sitter `call`/`type`/`base_class`/`member` rows, confidence `ast`, for   
+ python/typescript/tsx/javascript/c/cpp/go/csharp, plus the textual             
+ `identifier` / `includes` rows, confidence `heuristic`, for every other        
+ language, where comments and strings DO match) and import-based edges. The     
+ graph is TEXTUAL AND UNBOUND by design: names are matched as text, there is no 
+ compiler resolution, so a heuristic row is a navigation aid, not a resolved    
+ call. NAME may be dotted (`Type.Member`): the qualifier resolves against the   
+ symbol rows and the fan-in is matched on the trailing member name; the subject 
+ is reported once on the `note:` lines, and a direct hit carries                
+ `receiver=<expr>` only when the store actually holds a receiver for that row   
+ (a member access records the receiver expression as written) — transitive      
+ nodes never carry one. When the name has no definition row (symbols cover      
+ method|class|function|enum|interface|struct; properties and fields are not     
+ extracted), the search seeds from the reference rows and says so on `note:`    
+ lines instead of printing a bare `no results`. Every CALL SITE is its own node 
+ (two calls to the same target inside one function are two hits, each with its  
+ own line and receiver), and an answer the depth or node cap left incomplete    
+ says so: the JSON payload carries `truncated` and `omitted` beside `roots`,    
+ and the tree gains a `note:` line naming the cap. The answer is honest about   
+ the NAME too: JSON carries `match_count` and, when the subject has more than   
+ one definition, an `ambiguity` block listing every candidate the walk unions   
+ over; each direct hit then carries `targets`, the candidate definition(s) it   
+ can belong to. Text mode prints the tree plus one line saying the name         
+ resolved to several definitions. For every reference TO a name use             
+ `find-references`.                                                             
+                                                                                
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    name      <str>  Symbol name to find callers of. [required]             │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --project                 <str>  Project path, slug, or name.                │
+│ --depth                   <int>  Traversal depth. [default: 2]               │
+│ --max-nodes               <int>  Node cap. [default: 40]                     │
+│ --json                                                                       │
+│ --skip-stale-check               Accepted on every command and INERT: reads  │
+│                                  never index, so there is nothing to skip.   │
+│                                  Reporting staleness without repairing it is │
+│                                  the default; use --refresh to repair.       │
+│ --refresh                        Run an incremental index pass first (one    │
+│                                  per project for --all-projects / doctor),   │
+│                                  then answer from the result. This is the    │
+│                                  ONLY flag that turns a read command into a  │
+│                                  write; a pass held by another process fails │
+│                                  with LockedError (exit 5).                  │
+│ --help                           Show this message and exit.                 │
+╰──────────────────────────────────────────────────────────────────────────────╯
+

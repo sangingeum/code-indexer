@@ -1,0 +1,12 @@
+Warning: index is stale (4 files changed since 2026-11-06T23:09:20Z: 4 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project <project>
+src/code_indexer/core.py:104 Core [definition/ast]
+tests/test_project_state.py:55 core [definition/ast]
+tests/test_watch.py:57 core [definition/ast]
+tests/test_watcher.py:73 core [definition/ast]
+tests/test_concurrency.py:83 core [definition/ast]
+tests/test_unwatch.py:125 core [definition/ast]
+tests/test_subcommands.py:257 core [definition/ast]
+runs/round1-gate/read-write-intent-batch/skeleton.out:1 core [definition/unknown]
+runs/round1-gate/service-dial-batch/skeleton.out:1 core [definition/unknown]
+9 definitions match 'Core' and this name is ambiguous: every one is a root above, and each direct hit names the definition(s) it can belong to
+note: node cap 9 reached — 547 more reference edges not shown (a lower bound: a refused edge is counted but never expanded, so its own edges are not walked, and a depth cap on the same answer can cut more); raise --max-nodes to see more

@@ -1,0 +1,7 @@
+Warning: index is stale (2 files changed since 2026-11-06T23:09:49Z: 2 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project <project>
+tests/test_indexer_embed_context.py:15 __init__ [definition/ast]
+tests/test_search_data_files.py:16 __init__ [definition/ast]
+tests/test_embedder_resilience.py:19 __init__ [definition/ast]
+61 definitions match '__init__' and this name is ambiguous: every one is a root above, and each direct hit names the definition(s) it can belong to
+note: 61 definition roots exist for this subject, node cap 3 — 58 roots not shown; raise --max-nodes
+note: node cap 3 reached — 7 more callee edges not shown (a lower bound: a refused edge is counted but never expanded, so its own edges are not walked, and a depth cap on the same answer can cut more); raise --max-nodes to see more

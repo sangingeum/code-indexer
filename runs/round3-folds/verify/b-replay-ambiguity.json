@@ -1,0 +1,1 @@
+{"match_count":2,"candidates":[{"file":"src/code_indexer/server.py","range":{"start_line":198,"end_line":213}},{"file":"src/code_indexer/cli.py","range":{"start_line":1799,"end_line":1819}}],"index_revision":"84"}

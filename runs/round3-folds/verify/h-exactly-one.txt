@@ -1,0 +1,2 @@
+Warning: index is stale (3 files changed since 2026-11-06T23:09:49Z: 3 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project <project>
+NotFoundError: no indexed definition for '__zz_no_such_symbol__'

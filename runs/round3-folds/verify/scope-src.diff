@@ -1,0 +1,301 @@
+diff --git a/src/code_indexer/cli.py b/src/code_indexer/cli.py
+index 341dcbf..02c1d5f 100644
+--- a/src/code_indexer/cli.py
++++ b/src/code_indexer/cli.py
+@@ -446,14 +446,20 @@ def find_callers(
+     hits, each with its own line and receiver), and an answer the depth or
+     node cap left incomplete says so: the JSON payload carries `truncated`
+     and `omitted` beside `roots`, and the tree gains a `note:` line naming
+-    the cap. For every reference TO a name use `find-references`."""
++    the cap. The answer is honest about the NAME too: JSON carries
++    `match_count` and, when the subject has more than one definition, an
++    `ambiguity` block listing every candidate the walk unions over; each
++    direct hit then carries `targets`, the candidate definition(s) it can
++    belong to. Text mode prints the tree plus one line saying the name
++    resolved to several definitions. For every reference TO a name use
++    `find-references`."""
+     core, entry = _core_entry(project, skip_stale_check)
+     _refuse_obsolete_rows(core, entry, refresh=refresh)
+     verdict_block, _ = _read_staleness(core, entry, refresh=False,
+                                        json_output=json_output)
+     result = graph.find_callers(core, entry.slug, name, depth=depth,
+                                 max_nodes=max_nodes)
+-    _emit_graph(result, json_output, verdict_block)
++    _emit_graph(result, json_output, verdict_block, subject=name)
+ 
+ 
+ @app.command()
+@@ -472,8 +478,12 @@ def find_callees(
+     call site — this walk answers "what does this symbol reach", so one target
+     reached twice is one callee. The opposite of `find-callers`, deliberately.
+     An answer the depth or node cap left incomplete reports `truncated` /
+-    `omitted` in JSON and a `note:` line in the tree. For references TO a
+-    symbol across both stores use `find-references`.
++    `omitted` in JSON and a `note:` line in the tree. The subject NAME is
++    reported too: JSON carries `match_count` and, when the name has several
++    definitions, an `ambiguity` block, with `targets` on each direct callee
++    naming the definition it was reached from. Text mode prints the tree plus
++    one line saying the name resolved to several definitions. For references
++    TO a symbol across both stores use `find-references`.
+     """
+     core, entry = _core_entry(project, skip_stale_check)
+     _refuse_obsolete_rows(core, entry, refresh=refresh)
+@@ -481,11 +491,12 @@ def find_callees(
+                                        json_output=json_output)
+     result = graph.find_callees(core, entry.slug, name, depth=depth,
+                                 max_nodes=max_nodes)
+-    _emit_graph(result, json_output, verdict_block)
++    _emit_graph(result, json_output, verdict_block, subject=name)
+ 
+ 
+ def _emit_graph(result: graph.GraphResult, json_output: bool,
+-                staleness_block: dict[str, Any] | None = None) -> None:
++                staleness_block: dict[str, Any] | None = None,
++                subject: str | None = None) -> None:
+     """Render a graph result; `notes` explain an empty or near-empty answer so
+     it is never a bare `no results` (an empty caller list must not read as
+     "nothing calls this"). A result the caps left incomplete also carries a
+@@ -508,6 +519,13 @@ def _emit_graph(result: graph.GraphResult, json_output: bool,
+         for note in result.notes:
+             typer.echo(f"note: {note}")
+         return
++    if result.match_count > 1:
++        # `find-symbol` text mode already says this about its own answer; the
++        # sibling surface says it in one line, so a tree of several roots is
++        # never read as the walk of one definition.
++        typer.echo(f"{result.match_count} definitions match {subject!r} and "
++                   "this name is ambiguous: every one is a root above, and "
++                   "each direct hit names the definition(s) it can belong to")
+     for note in result.notes:
+         typer.echo(f"note: {note}", err=not result.truncated)
+ 
+diff --git a/src/code_indexer/graph.py b/src/code_indexer/graph.py
+index 52bd227..1e2cd01 100644
+--- a/src/code_indexer/graph.py
++++ b/src/code_indexer/graph.py
+@@ -158,6 +158,21 @@ def _root_label(row) -> str:
+     return f"{row.file}:{row.start_line}-{row.end_line}"
+ 
+ 
++def _definition_roots(rows: list) -> list[GraphNode]:
++    """Every definition row as a root node, labelled from its OWN evidence.
++
++    The label is `identity.evidence_of`, the same function the ambiguity
++    candidates beside it call, so one payload can never answer `unknown` in a
++    candidate record and `ast` on the root of the same row. A file whose parse
++    failed still yields AST-shaped rows, and it is exactly there that a
++    constant would lie.
++    """
++    return [GraphNode(file=r.file, symbol=r.name, line=r.start_line,
++                      relationship="definition",
++                      confidence=identity.evidence_of(r))
++            for r in rows]
++
++
+ def _targets_for(edge_target: str | None,
+                  labels_by_file: dict[str, list[str]],
+                  all_labels: list[str]) -> list[str]:
+@@ -284,9 +299,7 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
+         else:
+             target = member
+         definition_rows = m.definitions_of(target)
+-        all_roots = [GraphNode(file=r.file, symbol=r.name, line=r.start_line,
+-                               relationship="definition", confidence="ast")
+-                     for r in definition_rows]
++        all_roots = _definition_roots(definition_rows)
+         # One label per candidate, and per file, so a direct hit can name the
+         # definition(s) it can belong to instead of being reported against
+         # whichever row sorted first.
+@@ -416,9 +429,7 @@ def find_callees(core, slug: str, name: str, depth: int = 2,
+     depth_capped = False
+     try:
+         definition_rows = m.definitions_of(name)
+-        all_roots = [GraphNode(file=r.file, symbol=r.name, line=r.start_line,
+-                               relationship="definition", confidence="ast")
+-                     for r in definition_rows]
++        all_roots = _definition_roots(definition_rows)
+         root_labels = [_root_label(r) for r in definition_rows]
+         ambiguous = len(definition_rows) > 1
+         roots = all_roots[:max_nodes] if max_nodes >= 0 else []
+diff --git a/src/code_indexer/identity.py b/src/code_indexer/identity.py
+index 169eebb..6b1cab6 100644
+--- a/src/code_indexer/identity.py
++++ b/src/code_indexer/identity.py
+@@ -7,15 +7,21 @@ index 91.8% of reference rows are textual. So `--inherits` and `--has-call`
+ answer from attributed syntax ONLY, and the answer must say where it stands:
+ 
+ * ``ast`` — the row was extracted by a parser, so the claim is attributed;
+-* ``heuristic`` — the row came from a textual scan (no grammar, or a parse
+-  that fell back), so the claim is a navigation aid;
++* ``heuristic`` — RESERVED, and produced by nothing today. The chunker labels
++  every row of a parsed file ``ast`` and takes the regex fallback only
++  together with a ``parse_unavailable`` verdict, whose rows are ``unknown``,
++  so no symbol row can be ``heuristic``. The value stays in the vocabulary
++  for a future extractor that supplements an AST with textual rows; it is not
++  a state a row is in now, and no description should sell it as one;
+ * ``unknown`` — the file has no AST extractor (or its parse failed), so NOTHING
+   is attributed for it. `unknown` is never a negative: it is the statement
+   that absence of an attributed call is not absence of a call.
+ 
+ The evidence of a symbol belongs to its FILE, not to the query, so it is
+ read from the file's parse verdict and carried on the row by the filtered
+-read (``Manifest.find_symbols``).
++read (``Manifest.find_symbols``). One column list and this one function serve
++every surface that reports evidence, so one payload cannot answer two ways
++about one row.
+ """
+ 
+ from __future__ import annotations
+@@ -26,18 +32,20 @@ from .manifest import SymbolRow
+ EVIDENCE_AST = "ast"
+ EVIDENCE_HEURISTIC = "heuristic"
+ EVIDENCE_UNKNOWN = "unknown"
+-EVIDENCE_VALUES = (EVIDENCE_AST, EVIDENCE_HEURISTIC, EVIDENCE_UNKNOWN)
+ 
+ 
+ def evidence_of(row: SymbolRow) -> str:
+-    """``ast`` | ``heuristic`` | ``unknown`` for one symbol row.
++    """``ast`` | ``unknown`` for one symbol row (``heuristic`` is reserved).
+ 
+     ``parse_verdict`` is the recorded verdict for the row's file (`parsed`,
+     `parse_error`, `parse_unavailable`). Only a parsed file carries attributed
+-    syntax; a textual row inside one is a heuristic answer; anything else is
+-    unknown. When the read did not join the file row, the extraction's own
+-    ``source`` is all there is — an ``ast`` row was attributed when it was
+-    written, a textual one is not attributable at all.
++    syntax; anything else is unknown. When the read carries no verdict at all
++    the extraction's own ``source`` is all there is — an ``ast`` row was
++    attributed when it was written, a textual one is not attributable.
++
++    Every surface that reports evidence calls THIS function over the one
++    symbol column list, which joins the verdict in; a surface that skipped the
++    join would label the same row differently from its neighbour.
+     """
+     verdict = row.parse_verdict
+     if verdict is None:
+@@ -94,8 +102,9 @@ def ambiguity_block(rows: list[SymbolRow]) -> dict:
+ def resolve_one(name: str, rows: list[SymbolRow]) -> SymbolRow:
+     """The ONE symbol a single-symbol command may act on.
+ 
+-    No rows is ``NotFoundError``; more than one is ``AmbiguousSymbolError``
+-    (an ``ArgumentError``, exit 2) carrying every candidate. A caller that
++    No rows is ``NotFoundError`` (exit 1, the documented empty answer of
++    ``--exactly-one``); more than one is ``AmbiguousSymbolError`` (an
++    ``ArgumentError``, exit 2) carrying every candidate. A caller that
+     cannot disambiguate must refuse and show the list, never take a row that
+     happened to sort first.
+     """
+diff --git a/src/code_indexer/manifest.py b/src/code_indexer/manifest.py
+index 796aec8..52e8212 100644
+--- a/src/code_indexer/manifest.py
++++ b/src/code_indexer/manifest.py
+@@ -563,10 +563,16 @@ class Manifest:
+                 s.container, s.language, s.start_line, s.end_line, s.source,
+                 s.signature, s.visibility)
+ 
+-    _SYMBOL_COLS = (
+-        "SELECT file, name, symbol_type, start_line, end_line, source, "
+-        "signature, visibility, qualified_name, container, language, "
+-        "decl_hash, id FROM symbols")
++    # ONE column list serves EVERY symbol surface, and the file's parse
++    # verdict is joined in, so each row carries the evidence it can honestly
++    # be labelled with (`identity.evidence_of`). A second column list without
++    # that join would answer a different evidence question about the SAME row
++    # — `unknown` on one surface and `ast` on another (ADR-0002 section 4).
++    _SYMBOL_SELECT = (
++        "SELECT s.file, s.name, s.symbol_type, s.start_line, s.end_line, "
++        "s.source, s.signature, s.visibility, s.qualified_name, s.container, "
++        "s.language, s.decl_hash, s.id, f.parse_verdict "
++        "FROM symbols s LEFT JOIN files f ON f.path = s.file")
+ 
+     def index_revision(self) -> str | None:
+         """The revision these rows were written in (``meta.index_revision``).
+@@ -595,15 +601,6 @@ class Manifest:
+                 out[verdict] = int(n)
+         return out
+ 
+-    # The filter read joins the file's parse verdict in: a symbol row is
+-    # labelled ast|heuristic|unknown from the file it came from, and the
+-    # caller never has to open a second read to say which.
+-    _SYMBOL_FILTER_SELECT = (
+-        "SELECT s.file, s.name, s.symbol_type, s.start_line, s.end_line, "
+-        "s.source, s.signature, s.visibility, s.qualified_name, s.container, "
+-        "s.language, s.decl_hash, s.id, f.parse_verdict "
+-        "FROM symbols s LEFT JOIN files f ON f.path = s.file")
+-
+     _SYMBOL_ORDER = (
+         " ORDER BY CASE s.source WHEN 'ast' THEN 0 ELSE 1 END, "
+         "s.name, s.start_line, s.file, s.qualified_name, s.decl_hash")
+@@ -621,9 +618,11 @@ class Manifest:
+         """The WHERE clauses every symbol read shares; filters compose (AND).
+ 
+         ``name_pattern`` is a GLOB over the name and stays case-sensitive
+-        (shell semantics): ``idx_symbols_name`` answers it, so a prefix
+-        pattern is an index range and a suffix pattern an index scan, never a
+-        pass over the table.
++        (shell semantics). No index was added for it: the existing name index
++        answers a PREFIX pattern as a range seek, while a leading wildcard
++        cannot be a range and is a scan of ``symbols`` (``SCAN s``) — cheap
++        at this size, and measured rather than assumed. The planner plan is
++        asserted in the tests (``symbol_query_plan``).
+ 
+         ``inherits`` and ``has_call`` are answered from ATTRIBUTED syntax
+         only — a ``base_class`` / ``call`` row whose ``from_symbol`` is this
+@@ -631,6 +630,13 @@ class Manifest:
+         extractor holds no such row, so an empty answer there means "not
+         attributed", never "no": the caller labels that with
+         ``identity.evidence_of`` and must not render it as a negative.
++
++        That join is NAME-LEVEL and knowingly so: ``refs.from_symbol``
++        carries no container, so two same-named symbols in one file are both
++        credited with the union of both bodies' attributed references. There
++        is no column to join on that would narrow it; reference resolution to
++        a container is the staged work the identity model's section 3
++        schedules, and no read here pretends to have it.
+         """
+         clauses: list[str] = []
+         args: list = []
+@@ -700,7 +706,7 @@ class Manifest:
+             file=file, name_pattern=name_pattern, container=container,
+             visibility=visibility, language=language, inherits=inherits,
+             has_call=has_call)
+-        sql = self._SYMBOL_FILTER_SELECT
++        sql = self._SYMBOL_SELECT
+         if clauses:
+             sql += " WHERE " + " AND ".join(clauses)
+         sql += self._SYMBOL_ORDER
+@@ -753,7 +759,7 @@ class Manifest:
+             name_pattern=name_pattern, container=container,
+             visibility=visibility, language=language, inherits=inherits,
+             has_call=has_call)
+-        sql = self._SYMBOL_FILTER_SELECT
++        sql = self._SYMBOL_SELECT
+         if clauses:
+             sql += " WHERE " + " AND ".join(clauses)
+         sql += self._SYMBOL_ORDER
+@@ -796,13 +802,13 @@ class Manifest:
+         """
+         files = self.all_files()
+         syms = [SymbolRow(*row) for row in self._conn.execute(
+-            self._SYMBOL_COLS + " ORDER BY file, start_line").fetchall()]
++            self._SYMBOL_SELECT + " ORDER BY s.file, s.start_line").fetchall()]
+         return files, syms
+ 
+     def symbols_for_file(self, file: str) -> list[SymbolRow]:
+         return [SymbolRow(*row) for row in self._conn.execute(
+-            self._SYMBOL_COLS +
+-            " WHERE file = ? ORDER BY start_line", (file,)
++            self._SYMBOL_SELECT +
++            " WHERE s.file = ? ORDER BY s.start_line", (file,)
+         ).fetchall()]
+ 
+     def all_symbol_names(self) -> set[str]:
+@@ -1074,7 +1080,7 @@ class Manifest:
+ 
+     def all_symbols(self) -> list[SymbolRow]:
+         cur = self._conn.execute(
+-            self._SYMBOL_COLS + " ORDER BY file, start_line")
++            self._SYMBOL_SELECT + " ORDER BY s.file, s.start_line")
+         return [SymbolRow(*row) for row in cur.fetchall()]
+ 
+     def read_git_branch(self, project_root: str) -> str | None:
