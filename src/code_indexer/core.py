@@ -198,10 +198,40 @@ class Core:
     # paths / manifests / state
     # ------------------------------------------------------------------
 
-    def manifest_for(self, slug: str) -> Manifest:
+    def manifest_for(self, slug: str, *, writable: bool = True) -> Manifest:
+        """Open one project's manifest — writable unless a reader asks otherwise.
+
+        ``writable=False`` is the READ-PATH open, and ``read_manifest`` is the
+        shorthand every read surface uses. A read open sets no journal mode,
+        runs no DDL and runs no migration, so a read can never empty a table;
+        the recorded schema revision is then the caller's decision (see
+        ``assert_rows_acceptable``): an older-revision manifest is refused,
+        not upgraded. Migration belongs to a write open — the three ops that
+        own a pass (``run_index``, ``reindex_with_swap``,
+        ``sweep_orphans --apply``) and the CLI commands that record
+        registration metadata.
+
+        A read open of a project with no manifest yet answers from an empty
+        in-memory manifest, so ``find-symbol`` on a never-indexed project
+        still reports "no symbols" without creating a file as a side effect.
+        """
         d = os.path.join(self.cfg.index_root, slug)
-        os.makedirs(d, exist_ok=True)
-        return Manifest(os.path.join(d, "manifest.db"))
+        path = os.path.join(d, "manifest.db")
+        if writable:
+            os.makedirs(d, exist_ok=True)
+            return Manifest(path, writable=True)
+        if not os.path.isfile(path):
+            return Manifest(":memory:")
+        return Manifest(path, writable=False)
+
+    def read_manifest(self, slug: str) -> Manifest:
+        """Open one project's manifest READ-ONLY: the read-path contract.
+
+        No journal-mode write, no DDL, no migration, no row write. Every read
+        surface goes through this name, so "which open am I?" is answered by
+        which method was called, not by a keyword buried at a call site.
+        """
+        return self.manifest_for(slug, writable=False)
 
     def _lock_path(self, slug: str) -> str:
         return os.path.join(self.cfg.index_root, f"{slug}.lock")
@@ -225,7 +255,7 @@ class Core:
         mdir = os.path.join(self.cfg.index_root, slug, "manifest.db")
         if not os.path.isfile(mdir):
             return False
-        m = Manifest(mdir)
+        m = Manifest(mdir, writable=False)
         try:
             return m.get_meta("last_indexed") is not None
         finally:
@@ -259,7 +289,7 @@ class Core:
             return {"vectors": vectors_policy.MODE_OFF,
                     "vectors_state": vectors_policy.STATE_ABSENT,
                     "rows": "absent"}
-        m = Manifest(mdir)
+        m = Manifest(mdir, writable=False)
         try:
             mode = vectors_policy.recorded_mode(m) or vectors_policy.MODE_ON
             state = vectors_policy.vectors_state(m)
@@ -289,7 +319,7 @@ class Core:
         on across the upgrade. ``add-project`` records ``off`` when it
         registers a NEW project, so auto never turns embedding on by itself.
         """
-        m = self.manifest_for(slug)
+        m = self.read_manifest(slug)
         try:
             return vectors_policy.resolve_mode(m, requested)
         finally:
@@ -321,22 +351,16 @@ class Core:
         return bool(vector_side_mismatches(recorded, self.cfg.embed_model,
                                            EMBED_FORMAT))
 
-    def _vector_target(self, slug: str, manifest: Manifest,
-                       indexer: Indexer) -> tuple[str, bool]:
-        """Where a vectors-only pass writes: (collection, identity changed).
+    def _vector_target(self, slug: str, indexer: Indexer) -> str:
+        """Where a vector-writing pass writes: the identity-stamped collection.
 
-        Vectors are never mixed across models. A recorded identity that
-        differs from the current one — or a project that never had one — is a
-        NEW collection named after the identity, swapped in under the slug's
-        alias once the pass succeeds; the old collection is dropped by the
-        swap, never appended to.
+        ONE helper decides the physical name (``indexer.physical_collection``),
+        so the embedding identity is always in it and a changed identity can
+        only ever be a NEW collection. The caller swaps the result in under the
+        project's alias once the pass succeeds; the previous collection is
+        dropped by that swap, never appended to.
         """
-        dim = indexer.embedder.dimension()
-        identity = vectors_policy.embedding_identity(self.cfg.embed_model, dim)
-        recorded = manifest.get_meta("embedding_version")
-        if recorded is None or recorded != identity:
-            return vectors_policy.collection_for(slug, identity), True
-        return f"idx_{slug}", False
+        return indexer.physical_collection(slug)
 
     def run_index(self, slug: str, project_path: str, force: bool = False,
                   verbose: bool = False,
@@ -359,7 +383,7 @@ class Core:
             if not acquired:
                 return {"state": "indexing", "detail": "indexing in progress"}
             self._set_state(slug, state="indexing", error=None)
-            manifest = self.manifest_for(slug)
+            manifest = self.manifest_for(slug, writable=True)
             try:
                 mode = vectors_policy.resolve_mode(manifest, vectors)
                 use_vectors = mode == vectors_policy.MODE_ON
@@ -374,16 +398,25 @@ class Core:
                 indexer.progress_cb = (
                     lambda info, s=slug: self._set_state(s, progress=info))
                 if embed_only:
-                    collection, identity_changed = self._vector_target(
-                        slug, manifest, indexer)
+                    collection = self._vector_target(slug, indexer)
                     result = indexer.embed_index(
                         project_path, slug, manifest, collection=collection)
-                    if identity_changed:
-                        self.store.swap_collection(collection, f"idx_{slug}")
+                    # Write the identity-stamped collection, then bind the
+                    # alias to it — a no-op when it is already bound.
+                    self.store.swap_collection(
+                        collection, vectors_policy.alias_for(slug))
                 else:
+                    # A vector-writing pass names the identity-stamped
+                    # collection and swaps the alias onto it, so a pass can
+                    # never append to a collection another model built.
+                    collection = (self._vector_target(slug, indexer)
+                                  if use_vectors else None)
                     result = indexer.index_project(
                         project_path, slug, manifest, force_full=force,
-                        vectors=use_vectors)
+                        vectors=use_vectors, collection=collection)
+                    if collection is not None:
+                        self.store.swap_collection(
+                            collection, vectors_policy.alias_for(slug))
                 self._last_scan[slug] = time.monotonic()
                 self._set_state(slug, state="idle", last_result=vars(result))
                 if verbose:
@@ -447,7 +480,7 @@ class Core:
         last_indexed: str | None = None
         index_revision: str | None = None
         if os.path.isfile(mdir):
-            m = Manifest(mdir)
+            m = Manifest(mdir, writable=False)
             try:
                 last_indexed = staleness.iso_timestamp(m.get_meta("last_indexed"))
                 index_revision = (m.get_meta("index_revision")
@@ -462,7 +495,7 @@ class Core:
             return staleness.unknown("no index manifest for this project",
                                      last_indexed=last_indexed,
                                      index_revision=index_revision)
-        m = Manifest(mdir)
+        m = Manifest(mdir, writable=False)
         try:
             indexed = m.all_files()
             scope = [ln for ln in (m.get_meta("scope_include") or "")
@@ -574,7 +607,7 @@ class Core:
         last_indexed = None
         mdir = os.path.join(self.cfg.index_root, entry.slug, "manifest.db")
         if os.path.isfile(mdir):
-            m = Manifest(mdir)
+            m = Manifest(mdir, writable=False)
             try:
                 rows = m.all_files()
                 file_count = len(rows)
@@ -614,14 +647,6 @@ class Core:
             "vectors_state": vs["vectors_state"],
         }
 
-    def schema_migrated(self, entry: ProjectEntry) -> bool:
-        """True when this manifest was just upgraded from a pre-symbol schema."""
-        m = self.manifest_for(entry.slug)
-        try:
-            return getattr(m, "_migrated_from", SCHEMA_VERSION) not in (None, SCHEMA_VERSION)
-        finally:
-            m.close()
-
     # ------------------------------------------------------------------
     # index fingerprint (v4): mismatch protection
     # ------------------------------------------------------------------
@@ -652,7 +677,7 @@ class Core:
         recorded = None
         mdir = os.path.join(self.cfg.index_root, entry.slug, "manifest.db")
         if os.path.isfile(mdir):
-            m = Manifest(mdir)
+            m = Manifest(mdir, writable=False)
             try:
                 recorded = read_fingerprint(m)
             finally:
@@ -716,8 +741,32 @@ class Core:
             f"search needs vectors; run: code-indexer reindex-project "
             f"{entry.path} --vectors on")
 
+    def recorded_schema_version(self, slug: str) -> int | None:
+        """The manifest's RECORDED schema revision, read-only (None if absent).
+
+        Read paths compare this against ``SCHEMA_VERSION`` instead of letting
+        an open migrate the file: a revision this build does not read is a
+        refusal with a named remedy, never an implicit upgrade (ADR-0003's
+        "a read command never writes the manifest").
+        """
+        mdir = os.path.join(self.cfg.index_root, slug, "manifest.db")
+        if not os.path.isfile(mdir):
+            return None
+        m = Manifest(mdir, writable=False)
+        try:
+            return m.schema_version
+        finally:
+            m.close()
+
     def assert_rows_acceptable(self, entry: ProjectEntry) -> None:
-        """Refuse a row-reading surface on a needs-reindex project (exit 4).
+        """Refuse a row-reading surface when this build cannot read the rows.
+
+        Two refusals, one shape: the manifest's RECORDED schema revision is
+        older than this build's (a read does not migrate it — that is a pass
+        command's job), or the stored rows were produced by a configuration
+        this build would not reproduce (the fingerprint gate). Either way the
+        caller gets one ``RebuildRequiredError`` line naming the remedy, empty
+        stdout, exit 4.
 
         Round 1's review found that only the search path gated
         (``assert_fingerprint_ok`` above), so ``find-symbol``/``outline``
@@ -731,6 +780,15 @@ class Core:
         stdout, exit 4. Surfaces that answer without rows (``list-projects``,
         ``lookup-project``, ``index-status``, ``doctor``) never call this.
         """
+        recorded_schema = self.recorded_schema_version(entry.slug)
+        if (recorded_schema is not None
+                and recorded_schema < int(SCHEMA_VERSION)):
+            raise RebuildRequiredError(
+                f"index for {entry.path} was written at manifest schema "
+                f"{recorded_schema} and this build reads schema "
+                f"{SCHEMA_VERSION}; its rows are in an older layout, so this "
+                f"answer would describe an index this build would not "
+                f"produce; run: code-indexer reindex-project {entry.path}")
         status = self.fingerprint_status(entry)
         if status["ok"]:
             return
@@ -740,6 +798,21 @@ class Core:
             f"obsolete, so this answer would describe an index this build "
             f"would not produce; run: code-indexer reindex-project "
             f"{entry.path}")
+
+    def gate_entries(self, entries: list[ProjectEntry]) -> None:
+        """Run both query gates over every entry a search will visit.
+
+        Called BEFORE the query embedding is computed, so the refusal a caller
+        sees on a machine with no embedding service is the documented one —
+        ``ConfigError`` naming ``--vectors on`` (exit 4) for a vectors-off
+        project, ``ConfigError`` naming ``reindex-project`` for a wrong-model
+        or obsolete index — and not a ``BackendError`` (exit 3) raised by the
+        embedder first. Neither gate dials a service: both answer from the
+        manifest and this process's configuration.
+        """
+        for entry in entries:
+            self.assert_vectors_available(entry)
+            self.assert_fingerprint_ok(entry)
 
     def reindex_with_swap(self, slug: str, project_path: str,
                           vectors: str = vectors_policy.MODE_AUTO
@@ -756,7 +829,7 @@ class Core:
             if not acquired:
                 return {"state": "indexing", "detail": "indexing in progress"}
             self._set_state(slug, state="indexing", error=None)
-            manifest = self.manifest_for(slug)
+            manifest = self.manifest_for(slug, writable=True)
             try:
                 mode = vectors_policy.resolve_mode(manifest, vectors)
                 use_vectors = mode == vectors_policy.MODE_ON
@@ -765,27 +838,24 @@ class Core:
                     lambda info, s=slug: self._set_state(s, progress=info))
                 if use_vectors and vectors_policy.rows_current(manifest):
                     # Rows survive a vector rebuild: no parse, no source read.
-                    collection, identity_changed = self._vector_target(
-                        slug, manifest, indexer)
-                    if not identity_changed:
-                        collection = f"idx_{slug}__new"
+                    # The physical collection carries the identity; the swap
+                    # binds the alias to it (a no-op when already bound).
+                    collection = self._vector_target(slug, indexer)
                     result = indexer.embed_index(
                         project_path, slug, manifest, collection=collection)
-                    if collection != f"idx_{slug}":
-                        self.store.swap_collection(collection, f"idx_{slug}")
+                    self.store.swap_collection(
+                        collection, vectors_policy.alias_for(slug))
                 elif use_vectors:
                     # Rows are obsolete too: parse and embed into a fresh
                     # collection, then swap it in.
-                    dim = indexer.embedder.dimension()
-                    identity = vectors_policy.embedding_identity(
-                        self.cfg.embed_model, dim)
-                    tmp = vectors_policy.collection_for(slug, identity)
+                    tmp = indexer.physical_collection(slug)
                     if self.store.collection_exists(tmp):
                         self.store.drop_collection(tmp)
                     result = indexer.index_project(
                         project_path, slug, manifest, force_full=True,
                         collection=tmp, vectors=True)
-                    self.store.swap_collection(tmp, f"idx_{slug}")
+                    self.store.swap_collection(
+                        tmp, vectors_policy.alias_for(slug))
                 else:
                     result = indexer.index_project(
                         project_path, slug, manifest, force_full=True,
@@ -854,7 +924,8 @@ class Core:
         index pass — that would change pass behaviour and is a separate owner
         decision.
         """
-        m = self.manifest_for(entry.slug)
+        # A dry-run sweep is a read and opens read-only; only --apply writes.
+        m = self.manifest_for(entry.slug, writable=apply)
         try:
             orphan_map = m.orphan_rows()
             gone = {f: counts for f, counts in orphan_map.items()
@@ -921,7 +992,7 @@ class Core:
         and share-capped in the top-k window) so data files cannot crowd code
         out of the window. The pool is over-fetched so the mitigation has
         candidates to promote."""
-        collection = f"idx_{entry.slug}"
+        collection = vectors_policy.alias_for(entry.slug)
         # Query-side embedding: the instruction prefix applies ONLY
         # here; document embeddings stay raw. The cache key is the exact
         # text, so instructed and raw embeddings never collide. Embedder
@@ -938,7 +1009,7 @@ class Core:
         # The snippet is read from the manifest, never from the vector store:
         # Qdrant is a vector store only, and the manifest is authoritative for
         # chunk content (ADR-0001 section 3).
-        m = self.manifest_for(entry.slug)
+        m = self.read_manifest(entry.slug)
         try:
             for h in hits:
                 p = h.payload or {}
@@ -1036,8 +1107,15 @@ class Core:
         skipped: list[dict[str, str]] = []
         lexical_only = mode == "lexical"
         hybrid = mode == "hybrid"
+        # The gates run over the resolved entries FIRST, then the ONE query
+        # embedding: a vectors-off or obsolete index refuses with its own
+        # error (ConfigError naming ``--vectors on``, RebuildRequiredError
+        # naming reindex-project) instead of whatever the embedder raises
+        # first. Both are exit 4; the embedder's failure is exit 3 — the
+        # wrong answer on the machine this refusal exists for.
         vector: list[float] | None = None
         if not lexical_only:
+            self.gate_entries(entries)
             vector = self._query_vector(query)
         budget = QUERY_BUDGET_DEFAULT_S if budget_s is None else budget_s
         started = time.monotonic()
@@ -1047,21 +1125,12 @@ class Core:
                     {"project": e.path, "reason": "budget"}
                     for e in entries[index:])
                 break
-            # Fingerprint gate BEFORE any embedding work: a query against a
-            # wrong-model index is wrong regardless of staleness, and
-            # --skip-stale-check must not bypass it. Pure-lexical mode needs
-            # no Ollama round trip, so the gate (which needs the dim probe)
-            # is skipped there — a stale fingerprint cannot corrupt a bm25
-            # text match.
-            #
-            # FATAL BY DESIGN, and deliberately OUTSIDE the per-project
-            # try/except below: a wrong-model index answers wrong SILENTLY,
-            # which is worse than a loud failure. A needs-reindex project
-            # aborts the whole run; it must never be folded into the
-            # skipped-with-a-warning path. Do not "fix" this into silence.
-            if not lexical_only:
-                self.assert_vectors_available(entry)
-                self.assert_fingerprint_ok(entry)
+            # The gates already ran over EVERY entry above, before the
+            # embedding: they are FATAL BY DESIGN and deliberately outside the
+            # per-project try/except below. A wrong-model index answers wrong
+            # SILENTLY, which is worse than a loud failure; a needs-reindex or
+            # vectors-off project aborts the whole run and is never folded into
+            # the skipped-with-a-warning path. Do not "fix" this into silence.
             try:
                 if lexical_only:
                     per_project[entry.path] = self._lexical_hits(
@@ -1130,7 +1199,7 @@ class Core:
                       rerank: str | None = None) -> list[dict[str, Any]]:
         """bm25-ranked hits from the manifest's FTS table, mapped to the hit
         contract (file, line range via the manifest symbols, score=rank)."""
-        m = self.manifest_for(entry.slug)
+        m = self.read_manifest(entry.slug)
         try:
             fts_rows = m.fts_search(query, limit * 3)
             out: list[dict[str, Any]] = []
@@ -1185,7 +1254,7 @@ class Core:
         fused = [dict(h, match=h.get("match") or "fused") for h in fused]
         ident = query.strip()
         if re.fullmatch(r"[A-Za-z_][\w:.]*", ident):
-            m = self.manifest_for(entry.slug)
+            m = self.read_manifest(entry.slug)
             try:
                 # find_symbols caps this read at 25 rows, and the pin below
                 # takes 3. The cap cannot change that answer: the read's order
@@ -1354,7 +1423,7 @@ class Core:
                 "(expected calls|includes|inherits|references)")
         stored = (self._REFERENCE_FILTERS[relationship]
                   if relationship is not None else None)
-        m = self.manifest_for(entry.slug)
+        m = self.read_manifest(entry.slug)
         try:
             rows = m.refs_to(name, relationships=stored, limit=limit)
         finally:
@@ -1370,7 +1439,7 @@ class Core:
         """(stored relationship, count) for every reference to ``name``,
         unfiltered. One aggregate query — the CLI uses it to say WHY a
         filtered report is empty instead of implying the name is absent."""
-        m = self.manifest_for(entry.slug)
+        m = self.read_manifest(entry.slug)
         try:
             return m.ref_relationship_counts(name)
         finally:
@@ -1378,7 +1447,7 @@ class Core:
 
     def all_symbol_names(self, entry: ProjectEntry) -> set[str]:
         """Names with a definition row (for exact-vs-heuristic labelling)."""
-        m = self.manifest_for(entry.slug)
+        m = self.read_manifest(entry.slug)
         try:
             return m.all_symbol_names()
         finally:
@@ -1395,11 +1464,11 @@ class Core:
 
         Manifest only — files joined with symbols ordered by start_line.
         Zero re-parsing, and no index pass: a read answers from the index as
-        of ``meta.last_indexed``. Pre-v3 manifests simply have NULL
-        signatures (and the caller emits MIGRATION_HINT when a migration just
-        happened).
+        of ``meta.last_indexed``. A manifest older than this build's revision
+        is refused before this point (``assert_rows_acceptable``), never
+        migrated by a read.
         """
-        m = self.manifest_for(entry.slug)
+        m = self.read_manifest(entry.slug)
         try:
             files, symbols = m.symbols_with_files()
         finally:
@@ -1501,7 +1570,7 @@ class Core:
             entry.path).replace(os.sep, "/")
         if rel.startswith(".."):
             raise ValueError(f"error: path outside registered project: {file}")
-        m = self.manifest_for(entry.slug)
+        m = self.read_manifest(entry.slug)
         try:
             rows = m.symbols_for_file(rel)
         finally:
@@ -1554,7 +1623,7 @@ class Core:
         return None
 
     def registry_has_file(self, entry: ProjectEntry, rel: str) -> bool:
-        m = self.manifest_for(entry.slug)
+        m = self.read_manifest(entry.slug)
         try:
             return m.get_file(rel) is not None
         finally:
@@ -1570,7 +1639,7 @@ class Core:
         The stat fast-path (size/mtime_ns/inode) short-circuits the common
         unchanged case without hashing; PARANOID_HASH=1 disables it.
         """
-        m = self.manifest_for(entry.slug)
+        m = self.read_manifest(entry.slug)
         try:
             row = m.get_file(rel)
         finally:
@@ -1657,7 +1726,7 @@ class Core:
                                   for c in fresh_rows]
                     re_resolved = True
             if not own_ranges:
-                core_manifest = self.manifest_for(entry.slug)
+                core_manifest = self.read_manifest(entry.slug)
                 try:
                     # Scoped in SQL: the name filter AND the file filter are
                     # the same read, uncapped. Filtering a capped exact-name
@@ -1731,12 +1800,6 @@ class Core:
             if d.get("doc"):
                 lines.append(f"  {d['doc']}")
         return "\n".join(lines) if lines else "(no declarations)"
-
-
-MIGRATION_HINT = (
-    "note: project manifest was upgraded from an older schema — run "
-    "reindex_project once to populate the symbol index"
-)
 
 
 # ---------------------------------------------------------------------------

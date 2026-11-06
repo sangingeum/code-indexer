@@ -258,7 +258,10 @@ def test_model_change_config_error_and_reindex_fixes_it(rig):
     live = store.aliases.get(f"idx_{entry.slug}")
     assert live is not None and live.startswith(f"idx_{entry.slug}__")
     assert live != f"idx_{entry.slug}__new"
-    assert f"idx_{entry.slug}" in store.dropped
+    # every superseded physical collection carries the identity in its name and
+    # the swap drops it; nothing is ever written into the alias itself
+    assert store.dropped, "the swap must drop the old physical collection"
+    assert all(name.startswith(f"idx_{entry.slug}__") for name in store.dropped)
 
 
 def test_legacy_manifest_backfills_without_reindex(rig):

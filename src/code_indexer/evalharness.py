@@ -131,7 +131,7 @@ def _hit_correct(core: "Core", entry: Any, hit: dict[str, Any],
     he = hit.get("end_line")
     if hs is None or he is None:
         return False
-    ranges = _symbol_ranges(core.manifest_for(entry.slug), rel.file,
+    ranges = _symbol_ranges(core.read_manifest(entry.slug), rel.file,
                             rel.symbol)
     return any(hs <= e and s <= he for s, e in ranges)  # inclusive overlap
 

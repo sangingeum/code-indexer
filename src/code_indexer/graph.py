@@ -83,7 +83,7 @@ class GraphResult:
 
 
 def _manifest_for(core, slug: str) -> Manifest:
-    return core.manifest_for(slug)
+    return core.read_manifest(slug)
 
 
 def _plural(count: int, one: str, many: str) -> str:

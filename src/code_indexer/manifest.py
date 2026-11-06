@@ -28,10 +28,13 @@ by contract, a reparse re-inserts every row, and no consumer may persist it
 (ADR-0002 section 2).
 
 ``decl_hash`` is the sha256 of the normalized declaration signature the
-chunker produced; where a row carries no signature, the declaration's
-observed first line (whitespace-normalized) is hashed instead, so the key is
-total for every row. A reformat that changes the signature changes the
-identity — stated, not papered over.
+chunker produced. A row that carries a signature but no ``decl_hash`` hashes
+that signature; a row with neither hashes its name and kind. Every one of
+those bases is LINE-FREE, which is what makes the identity survive a line
+shift; a reformat that changes the signature changes the identity — stated,
+not papered over. The last basis is a total-key fallback for rows no pass
+writes (extraction always supplies a signature): two such rows of the same
+name and kind in one file share an identity and collapse to one.
 
 ``refs.target_symbol_id`` and ``refs.resolution`` are created by this
 revision and left NULL: population is a later leg (ADR-0002 section 3). The
@@ -60,14 +63,24 @@ documented in ``graph_extract``; two reads on separate lines are both kept.
 
 Opened in WAL mode. All writes are short transactions — safe under the
 per-project lock discipline; WAL allows concurrent readers during indexing.
+
+Two open modes, two contracts. A WRITE open (``writable=True``, the default)
+runs the migration, which is what a schema bump means: the recorded
+``schema_version`` is advanced and, for a pre-revision-7 manifest, the
+old-key ``symbols`` table is re-created empty (its rows cannot be derived).
+A READ open (``writable=False``, every read path) sets no journal mode, runs
+no DDL and cannot write a row: it exposes the RECORDED ``schema_version``
+and leaves the migration to the next pass, so a reader can destroy nothing.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 import time
 from dataclasses import dataclass
+from urllib.parse import quote
 
 logger = logging.getLogger("code-indexer.manifest")
 
@@ -209,9 +222,61 @@ class ChunkRow:
     chunk_hash: str
     text: str
 
+def _open_read_only(db_path: str) -> sqlite3.Connection:
+    """A connection that cannot write, for every read path.
+
+    ``mode=ro`` is the contract: no journal-mode write, no DDL, no migration,
+    so a reader leaves the file byte-identical. SQLite cannot always serve a
+    WAL database through a read-only file handle (it needs the shared-memory
+    index), so the fallback is a plain connection pinned with
+    ``query_only`` — the same refusal, one layer up. Nothing about the file
+    is changed by either open.
+    """
+    uri = "file:" + quote(os.path.abspath(db_path)) + "?mode=ro"
+    try:
+        conn = sqlite3.connect(uri, uri=True, timeout=30)
+        # A read-only WAL open can succeed at connect time and fail on the
+        # first statement, so prove the file is readable before trusting it.
+        conn.execute("SELECT count(*) FROM sqlite_master").fetchone()
+        return conn
+    except sqlite3.OperationalError as exc:
+        logger.debug("read-only open unavailable for %s (%s); pinning "
+                     "query_only instead", db_path, exc)
+    conn = sqlite3.connect(db_path, timeout=30)
+    conn.execute("PRAGMA query_only=1")
+    return conn
+
+
+def _recorded_schema(conn: sqlite3.Connection) -> int | None:
+    """The schema revision the manifest records, or None when it records none."""
+    try:
+        row = conn.execute(
+            "SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
+    except sqlite3.OperationalError:
+        return None
+    try:
+        return int(row[0]) if row and row[0] is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 class Manifest:
-    def __init__(self, db_path: str):
+    """One project's manifest.
+
+    ``writable=False`` is the read-path open: no journal mode, no DDL, no
+    migration, and ``schema_version`` is what the FILE records rather than
+    what this build would write. A caller that finds an older revision
+    refuses rather than migrates — migrating is a write pass's job.
+    """
+
+    def __init__(self, db_path: str, *, writable: bool = True):
         self.db_path = db_path
+        self.writable = writable
+        self._migrated_from: str | None = None
+        if not writable:
+            self._conn = _open_read_only(db_path)
+            self.schema_version = _recorded_schema(self._conn)
+            return
         self._conn = sqlite3.connect(db_path, timeout=30)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
@@ -278,17 +343,26 @@ class Manifest:
                 (SCHEMA_VERSION,),
             )
         self._migrated_from = old_version
+        self.schema_version = _recorded_schema(self._conn)
 
     def close(self) -> None:
         self._conn.close()
 
     # -- files ---------------------------------------------------------
 
+    # The dataclass order, and the column list a read selects. A manifest
+    # older than this build's revision is READ, never migrated, so a column
+    # the file never had comes back as NULL (its dataclass default).
+    _FILE_COLUMNS = ("path", "content_hash", "size", "chunk_count", "status",
+                     "mtime_ns", "inode", "loc", "language", "parse_verdict")
+
+    def _file_select(self) -> str:
+        present = {r[1] for r in self._conn.execute("PRAGMA table_info(files)")}
+        return ", ".join(c if c in present else f"NULL AS {c}"
+                         for c in self._FILE_COLUMNS)
+
     def all_files(self) -> dict[str, ManifestFile]:
-        cur = self._conn.execute(
-            "SELECT path, content_hash, size, chunk_count, status, "
-            "mtime_ns, inode, loc, language, parse_verdict FROM files"
-        )
+        cur = self._conn.execute(f"SELECT {self._file_select()} FROM files")
         return {
             row[0]: ManifestFile(*row)
             for row in cur.fetchall()
@@ -303,9 +377,7 @@ class Manifest:
 
     def get_file(self, path: str) -> ManifestFile | None:
         row = self._conn.execute(
-            "SELECT path, content_hash, size, chunk_count, status, "
-            "mtime_ns, inode, loc, language, parse_verdict "
-            "FROM files WHERE path = ?",
+            f"SELECT {self._file_select()} FROM files WHERE path = ?",
             (path,),
         ).fetchone()
         return ManifestFile(*row) if row else None
@@ -378,11 +450,6 @@ class Manifest:
                   r.symbol_type, r.chunk_hash, r.text) for r in rows],
             )
 
-    def chunks_for_file(self, file: str) -> list[ChunkRow]:
-        return [ChunkRow(*row) for row in self._conn.execute(
-            self._CHUNK_COLS + " WHERE file = ? ORDER BY chunk_index",
-            (file,)).fetchall()]
-
     def all_chunks(self) -> list[ChunkRow]:
         """Every stored chunk, ordered by ``(file, chunk_index)`` — a total
         key, so a vectors-on pass walks the manifest deterministically."""
@@ -390,8 +457,11 @@ class Manifest:
             self._CHUNK_COLS + " ORDER BY file, chunk_index").fetchall()]
 
     def count_chunks(self) -> int:
-        return int(self._conn.execute(
-            "SELECT COUNT(*) FROM chunks").fetchone()[0])
+        try:
+            return int(self._conn.execute(
+                "SELECT COUNT(*) FROM chunks").fetchone()[0])
+        except sqlite3.OperationalError:
+            return 0  # pre-revision-7 manifest records no chunk rows
 
     def chunk_text(self, file: str, chunk_index: int) -> str | None:
         row = self._conn.execute(
@@ -479,11 +549,12 @@ class Manifest:
             decl = declaration_hash(s.signature)
         else:
             # No declaration text at all to hash (extraction always supplies
-            # a signature; a hand-written row may not). The observed range is
-            # then the only basis that keeps two such rows distinct, and
-            # losing a row would be worse than a line-dependent hash here.
-            decl = declaration_hash(
-                None, f"{s.name}:{s.start_line}-{s.end_line}")
+            # a signature, so no pass reaches this). The basis must still be
+            # LINE-FREE — the identity's promise — so it is the name and the
+            # kind, never the observed range: two hand-written rows of one
+            # name and kind in a file therefore share an identity and one of
+            # them is absorbed, which is the honest cost of a line-free key.
+            decl = declaration_hash(f"{s.name} ({s.symbol_type})")
         return (file, qualified, s.symbol_type, decl, symbol_id, s.name,
                 s.container, s.language, s.start_line, s.end_line, s.source,
                 s.signature, s.visibility)
@@ -508,8 +579,14 @@ class Manifest:
         the answer would read as "no such files" (ADR-0004 section 7).
         """
         out = {"parsed": 0, "parse_error": 0, "parse_unavailable": 0}
-        for verdict, n in self._conn.execute(
-                "SELECT parse_verdict, COUNT(*) FROM files GROUP BY 1"):
+        try:
+            rows = self._conn.execute(
+                "SELECT parse_verdict, COUNT(*) FROM files GROUP BY 1").fetchall()
+        except sqlite3.OperationalError:
+            # A manifest older than this build's revision records no verdict:
+            # three zeros is the honest answer, not a crash on a read.
+            return out
+        for verdict, n in rows:
             if verdict in out:
                 out[verdict] = int(n)
         return out
@@ -629,6 +706,10 @@ class Manifest:
         return row[0] if row else None
 
     def set_meta(self, key: str, value: str) -> None:
+        if not self.writable:
+            raise RuntimeError(
+                f"manifest {self.db_path} was opened read-only; "
+                f"refusing to write meta key {key!r}")
         with self._conn:
             self._conn.execute(
                 "INSERT INTO meta(key, value) VALUES (?, ?) "

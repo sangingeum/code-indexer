@@ -24,8 +24,7 @@ from .errors import fail
 from .errors import classify, IndexerError, RebuildRequiredError
 from .errors import ExtensionUnavailableError
 from .extensions import SEMANTIC_EXTENSION_MESSAGE, semantic_available
-from .core import (NEEDS_REINDEX, NEVER_INDEXED, UNVERIFIED, Core,
-                   MIGRATION_HINT)
+from .core import NEEDS_REINDEX, NEVER_INDEXED, UNVERIFIED, Core
 from . import staleness
 from .doctor import run_doctor
 from . import graph
@@ -248,7 +247,7 @@ def overview(
     _refuse_obsolete_rows(core, entry, refresh=refresh)
     verdict_block, _ = _read_staleness(core, entry, refresh=False,
                                        json_output=json_output)
-    m = core.manifest_for(entry.slug)
+    m = core.read_manifest(entry.slug)
     try:
         data = overview_mod.build_overview(m, entry.path,
                                            path_prefix=path_prefix or "")
@@ -600,7 +599,7 @@ def add_project(
     # A NEW project records its mode before the first pass: ``auto`` records
     # off, so a fresh install never starts embedding because nobody said no.
     resolved_vectors = "off" if vectors == "auto" else vectors
-    m = core.manifest_for(entry.slug)
+    m = core.manifest_for(entry.slug, writable=True)
     try:
         m.set_meta("vectors", resolved_vectors)
     finally:
@@ -612,7 +611,7 @@ def add_project(
                    "are indexed with no service; run reindex-project "
                    "--vectors on later to embed them")
     if allow_sensitive:
-        m = core.manifest_for(entry.slug)
+        m = core.manifest_for(entry.slug, writable=True)
         try:
             m.set_meta("allow_sensitive", "1")
         finally:
@@ -620,7 +619,7 @@ def add_project(
         typer.echo("note: --allow-sensitive set — secret-bearing files will "
                    "be indexed for this project")
     if include or priority:
-        m = core.manifest_for(entry.slug)
+        m = core.manifest_for(entry.slug, writable=True)
         try:
             if include:
                 m.set_meta("scope_include", "\n".join(include))
@@ -678,7 +677,7 @@ def index_more(
     entry = _resolve(core, selector)
     if core.resolve_vectors(entry.slug, vectors) == "on":
         _require_semantic()
-    m = core.manifest_for(entry.slug)
+    m = core.manifest_for(entry.slug, writable=True)
     try:
         current = [ln for ln in (m.get_meta("scope_include") or "")
                    .splitlines() if ln.strip()]
@@ -941,7 +940,7 @@ def semantic_search(
     # Scoped indexing note: when the index covers only part of the
     # project, say so instead of letting out-of-scope paths look empty.
     if entry is not None:
-        m = core.manifest_for(entry.slug)
+        m = core.read_manifest(entry.slug)
         try:
             scope = [ln for ln in (m.get_meta("scope_include") or "")
                      .splitlines() if ln.strip()]
@@ -1015,6 +1014,15 @@ def index_status(
     fields["rows"] = vs["rows"]
     fields["vectors"] = vs["vectors"]
     fields["vectors_state"] = vs["vectors_state"]
+    # The manifest's RECORDED schema revision. A read never migrates the file,
+    # so this is what the CALLER needs to know: a value below this build's
+    # revision means the rows will be refused until a pass runs. The JSON
+    # envelope's own "schema" field is the payload version, so this one is
+    # spelled ``manifest_schema`` there.
+    recorded_schema = core.recorded_schema_version(entry.slug)
+    parts.append("schema=" + ("none" if recorded_schema is None
+                              else str(recorded_schema)))
+    fields["manifest_schema"] = recorded_schema
     if fp["state"] == NEEDS_REINDEX:
         parts.append(f"fingerprint=needs-reindex reason={fp['reason']}")
         fields["fingerprint"] = "needs-reindex"
@@ -1054,7 +1062,7 @@ def index_status(
     # Scoped-indexing coverage: per top-level dir, indexed or not.
     try:
         m = Manifest(os.path.join(core.cfg.index_root, entry.slug,
-                                  "manifest.db"))
+                                  "manifest.db"), writable=False)
         try:
             scope = [ln for ln in (m.get_meta("scope_include") or "")
                      .splitlines() if ln.strip()]
@@ -1081,7 +1089,7 @@ def index_status(
     # Last 3 recorded embed errors (poisoned-chunk reports).
     mdir = os.path.join(core.cfg.index_root, entry.slug, "manifest.db")
     if os.path.isfile(mdir):
-        m = Manifest(mdir)
+        m = Manifest(mdir, writable=False)
         try:
             errs = m.last_index_errors(3)
             if errs:
@@ -1096,6 +1104,8 @@ def index_status(
             parts.append("parse=" + ",".join(
                 f"{kind}:{n}" for kind, n in verdicts.items()))
             fields.update(verdicts)
+        except Exception as exc:  # noqa: BLE001 — status must never fail
+            logger.debug("recorded errors skipped: %s", exc)
         finally:
             m.close()
     if state == NEVER_INDEXED:
@@ -1703,8 +1713,6 @@ def skeleton(
     if json_output:
         data.update(block)
     text = core.format_skeleton(data, "json" if json_output else "text")
-    if core.schema_migrated(entry):
-        text += "\n" + MIGRATION_HINT
     typer.echo(text)
 
 
@@ -1738,8 +1746,6 @@ def outline(
     if json_output:
         data.update(block)
     text = core.format_outline(data, "json" if json_output else "text")
-    if core.schema_migrated(entry):
-        text += "\n" + MIGRATION_HINT
     typer.echo(text)
 
 
@@ -1778,7 +1784,7 @@ def find_symbol(
     _refuse_obsolete_rows(core, entry, refresh=refresh)
     block, _ = _read_staleness(core, entry, refresh=False,
                                json_output=json_output)
-    m = core.manifest_for(entry.slug)
+    m = core.read_manifest(entry.slug)
     try:
         if name:
             # Exact-name mode answers with EVERY definition; --limit is
@@ -1820,8 +1826,6 @@ def find_symbol(
         if not rows:
             msg = (f"no symbols matching {name!r}" if name
                    else "no symbols matching the given filters")
-            if core.schema_migrated(entry):
-                msg += "\n" + MIGRATION_HINT
             typer.echo(msg)
             return
         for r in rows:
@@ -1858,7 +1862,7 @@ def find_definition(
     _refuse_obsolete_rows(core, entry, refresh=refresh)
     block, _ = _read_staleness(core, entry, refresh=False,
                                json_output=json_output)
-    m = core.manifest_for(entry.slug)
+    m = core.read_manifest(entry.slug)
     try:
         rows = m.definitions_of(name)
         definitions = [
@@ -1879,8 +1883,6 @@ def find_definition(
             return
         if not rows:
             msg = f"no exact-match symbols named {name!r}"
-            if core.schema_migrated(entry):
-                msg += "\n" + MIGRATION_HINT
             typer.echo(msg)
             return
         for r in rows:

@@ -37,7 +37,6 @@ FINGERPRINT_KEYS = ("embed_model", "embed_dim", "embed_text_version",
 #   index_schema_version -- the manifest DDL only (written by manifest.open)
 EMBEDDING_VERSION_KEY = "embedding_version"
 ROW_SIDE_KEYS = ("chunker_version", "extraction_version")
-VECTOR_SIDE_KEYS = (EMBEDDING_VERSION_KEY,)
 
 
 def identity_digest(identity: str) -> str:

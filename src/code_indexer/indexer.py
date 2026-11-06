@@ -79,6 +79,20 @@ class Indexer:
         #  'docs_per_s', 'eta_s'} for index-status live progress.
         self.progress_cb = progress_cb
 
+    def physical_collection(self, slug: str) -> str:
+        """The collection a vector-writing pass fills for ``slug``.
+
+        ONE place decides the physical name: it comes from
+        ``vectors.collection_for`` and therefore always carries the composed
+        embedding identity, so a pass can never append vectors of one model
+        to a collection built by another (ADR-0001 section 2). The caller
+        swaps the result in under the slug's alias once the pass succeeds.
+        """
+        from . import vectors as vectors_mod
+        identity = vectors_mod.embedding_identity(
+            self.cfg.embed_model, self.embedder.dimension())
+        return vectors_mod.collection_for(slug, identity)
+
     def _embed_with_errors_compat(
             self, texts: list[str],
     ) -> tuple[list[list[float] | None], list[tuple[int, str]]]:
@@ -108,9 +122,10 @@ class Indexer:
         """One incremental pass. Caller holds the per-project lock.
 
         ``collection`` overrides the target collection name — the swap-based
-        rebuild (embedding-identity change) fills a new physical collection
-        and the caller swaps it into place, so search against the old one
-        stays available until the swap.
+        rebuild fills a fresh physical collection and the caller swaps it into
+        place, so search against the old one stays available until the swap.
+        The default is ``physical_collection(slug)``: the name carries the
+        embedding identity, so a pass never writes across models.
 
         ``vectors=False`` is the service-free pass: it scans, parses, writes
         files/symbols/refs/imports/chunks/FTS/index_errors and records
@@ -118,11 +133,11 @@ class Indexer:
         later vectors-on pass embeds from ``chunks``, not from source.
         """
         t0 = time.time()
-        collection = collection or f"idx_{slug}"
 
         if vectors:
             if self.store is None or self.embedder is None:
                 raise ValueError("a vectors-on pass needs the semantic clients")
+            collection = collection or self.physical_collection(slug)
             if not self.store.collection_exists(collection):
                 self.store.create_collection(collection,
                                              self.embedder.dimension())
@@ -239,6 +254,20 @@ class Indexer:
         from . import vectors as vectors_mod
         if vectors and vectors_mod.recorded_mode(manifest) == vectors_mod.MODE_OFF:
             rebuild = True
+        # A changed embedding identity means a NEW physical collection (the
+        # name carries the identity), so no cached hash describes a vector in
+        # it: re-embed instead of reusing (ADR-0001 section 2). Without this,
+        # an incremental pass after a model change would fill the new
+        # collection with nothing and the swap would publish an empty one.
+        if vectors:
+            identity = vectors_mod.embedding_identity(
+                self.cfg.embed_model, self.embedder.dimension())
+            recorded_identity = manifest.get_meta("embedding_version")
+            if recorded_identity not in (None, identity):
+                logger.info("embedding identity changed (%s -> %s): full "
+                            "re-embed into a new collection",
+                            recorded_identity, identity)
+                rebuild = True
 
         # Legacy-manifest FTS backfill (migration-style, idempotent): a
         # manifest with indexed chunks but an empty chunks_fts is populated
@@ -632,7 +661,7 @@ class Indexer:
             raise ValueError("embedding from the manifest needs the semantic "
                              "clients")
         t0 = time.time()
-        collection = collection or f"idx_{slug}"
+        collection = collection or self.physical_collection(slug)
         dim = self.embedder.dimension()
         if not self.store.collection_exists(collection):
             self.store.create_collection(collection, dim)

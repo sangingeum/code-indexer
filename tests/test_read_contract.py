@@ -13,6 +13,7 @@ import fcntl
 import hashlib
 import json
 import os
+import pathlib
 import sys
 import time
 
@@ -75,6 +76,9 @@ class RecordingStore:
         return True
 
     def create_collection(self, name, dim):
+        self.calls += 1
+
+    def swap_collection(self, tmp, target):
         self.calls += 1
 
     def upsert_points(self, name, points):
@@ -170,6 +174,22 @@ def test_a_read_answers_without_writing_or_dialling(rig, args):
     assert _manifest_snapshot(core, entry.slug) == before
     assert embedder.calls == 0, f"{args[0]} dialled the embedder"
     assert store.calls == 0, f"{args[0]} dialled the store"
+
+
+@pytest.mark.parametrize("args", READ_INVOCATIONS)
+def test_a_read_leaves_the_manifest_byte_identical(rig, args):
+    """The file BYTES are unchanged — the contract round 1 never tested.
+
+    A read opens the manifest read-only: no journal-mode write, no DDL, no
+    migration. (The logical snapshot above is the writer's contract; this is
+    the reader's: the answer costs the file nothing.)
+    """
+    core, entry, project, embedder, store = rig
+    db = pathlib.Path(core.cfg.index_root) / entry.slug / "manifest.db"
+    before = hashlib.sha256(db.read_bytes()).hexdigest()
+    result = runner.invoke(app, [*args, "--project", str(project)])
+    assert result.exit_code == 0, result.output
+    assert hashlib.sha256(db.read_bytes()).hexdigest() == before
 
 
 @pytest.mark.parametrize("args", READ_INVOCATIONS)

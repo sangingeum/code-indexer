@@ -24,6 +24,8 @@ from code_indexer.config import Config  # noqa: E402
 from code_indexer.core import Core  # noqa: E402
 from code_indexer.errors import RebuildRequiredError, VectorsDisabledError  # noqa: E402
 from code_indexer.graph_extract import EXTRACTION_VERSION  # noqa: E402
+from code_indexer import vectors  # noqa: E402
+from code_indexer.fingerprint import identity_digest  # noqa: E402
 from code_indexer.manifest import SCHEMA_VERSION, Manifest  # noqa: E402
 from code_indexer.registry import Registry  # noqa: E402
 
@@ -251,3 +253,45 @@ def test_vectors_off_refusal_is_the_config_error_family():
     exc = VectorsDisabledError("x")
     assert exc.render().startswith("ConfigError: ")
     assert exc.exit_code == 4
+
+
+def test_every_writer_path_names_its_collection_after_the_identity(tmp_path):
+    """One helper decides the physical name; the identity is always in it.
+
+    Both vector-writing paths of an ordinary pass are covered: the full pass
+    (a fresh project) and the incremental pass (one edited file). Neither
+    writes into a plain ``idx_<slug>`` or a ``__new`` scratch name: the
+    physical collection carries the embedding identity, and the alias is the
+    only stable plain name — so it points at the collection this build wrote.
+    """
+    root = tmp_path / "state"
+    core, store = _core(root, "model-a")
+    project, entry, reg = _project_and_entry(tmp_path, root, core)
+    assert core.run_index(entry.slug, str(project), vectors="on")["state"] == "idle"
+
+    manifest = Manifest(str(root / entry.slug / "manifest.db"))
+    try:
+        identity = manifest.get_meta("embedding_version")
+    finally:
+        manifest.close()
+    physical = vectors.collection_for(entry.slug, identity)
+    alias = vectors.alias_for(entry.slug)
+    assert alias == f"idx_{entry.slug}"
+    assert physical.startswith(f"{alias}__")
+    assert identity_digest(identity) in physical
+
+    # the full pass wrote into the identity-stamped physical collection only
+    assert store.upserts, "a vectors-on pass must upsert"
+    assert {name for name, _n in store.upserts} == {physical}
+    assert store.aliases[alias] == physical
+    assert alias not in store.collections, "a plain slug name is never physical"
+
+    # the incremental path writes into the SAME collection and rebinds nothing
+    (project / "a.py").write_text("def alpha():\n    return 2\n",
+                                  encoding="utf-8")
+    seen = len(store.upserts)
+    assert core.run_index(entry.slug, str(project))["state"] == "idle"
+    assert [name for name, _n in store.upserts[seen:]] == [physical]
+    assert store.aliases[alias] == physical
+    assert all("__new" not in name for name in store.collections)
+    reg.close()

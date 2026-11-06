@@ -7,8 +7,10 @@ fallback, command-level skeleton/outline/find-symbol dense text + JSON
 contract, --skip-stale-check, WAL-concurrency guard, and the §4 edge cases.
 """
 
+import hashlib
 import json
 import os
+import pathlib
 import shutil
 import sys
 import tempfile
@@ -20,7 +22,7 @@ import pytest  # noqa: E402
 
 from code_indexer.chunker import chunk as fallback_chunk  # noqa: E402
 from code_indexer.config import Config  # noqa: E402
-from code_indexer.core import Core, MIGRATION_HINT  # noqa: E402
+from code_indexer.core import Core  # noqa: E402
 from code_indexer.indexer import Indexer  # noqa: E402
 from code_indexer.manifest import Manifest, SCHEMA_VERSION  # noqa: E402
 from code_indexer import ts_chunker  # noqa: E402
@@ -467,24 +469,49 @@ def test_skeleton_wal_concurrent_index(cfg, project):
 # Edge: pre-v3 manifest renders hint, no crash (§4)
 # ---------------------------------------------------------------------------
 
-def test_pre_v3_manifest_hint_on_skeleton(tmp_path, project):
+def test_pre_v3_manifest_is_read_at_its_recorded_schema(tmp_path):
     db = str(tmp_path / "m.db")
     _make_v2_manifest(db)
-    cfg = Config(ollama_url="", qdrant_url="", embed_model="stub",
-                 index_root=tempfile.mkdtemp(prefix="ci-prev3-"), stale_ttl=60,
-                 embed_batch=48, upsert_batch=256, max_file_bytes=1048576,
-                 watch_debounce=3, watch_sweep_interval=300)
-    os.makedirs(cfg.index_root, exist_ok=True)
-    shutil.copy(db, os.path.join(cfg.index_root, "m.db"))
-    m = Manifest(os.path.join(cfg.index_root, "m.db"))
-    assert m._migrated_from == "2"
-    m.close()
-    reg = Registry(os.path.join(cfg.index_root, "registry.db"))
-    entry = reg.add(project, name="prev3")
-    c = Core(cfg)
-    c.maybe_refresh = lambda slug, path, force=False: {"state": "fresh"}
-    data = c.skeleton(entry)
-    text = c.format_skeleton(data, "text") + "\n" + MIGRATION_HINT
-    assert "reindex_project" in text  # hint present, no crash
-    reg.close()
-    shutil.rmtree(cfg.index_root, ignore_errors=True)
+    before = hashlib.sha256(pathlib.Path(db).read_bytes()).hexdigest()
+    # A READ open reports the recorded revision and touches nothing — no
+    # DDL, no journal-mode write — so the file is byte-identical afterwards.
+    m = Manifest(db, writable=False)
+    try:
+        assert m.schema_version == 2
+        assert m._migrated_from is None
+    finally:
+        m.close()
+    assert hashlib.sha256(pathlib.Path(db).read_bytes()).hexdigest() == before
+    # The migration is a WRITE open's job (a pass command), not a read's.
+    m = Manifest(db)
+    try:
+        assert m._migrated_from == "2"
+        assert m.schema_version == int(SCHEMA_VERSION)
+    finally:
+        m.close()
+
+
+def test_no_dead_surface_survives_the_folds():
+    """A name either has a caller and a test, or it is gone.
+
+    Four surfaces the round-2 review found unreferenced are removed with the
+    folds that made them reachable-in-name-only: ``record_mode`` (two
+    identical branches, no caller), ``VECTOR_SIDE_KEYS``, ``chunks_for_file``,
+    and the ``MIGRATION_HINT`` branches — a read no longer migrates, so a
+    manifest can never be freshly migrated under a reader. The two helpers
+    that replaced them are named here so a later leg cannot quietly delete
+    them without deleting this test.
+    """
+    import code_indexer.core as core_mod
+    import code_indexer.fingerprint as fingerprint
+    import code_indexer.manifest as manifest_mod
+    import code_indexer.vectors as vectors_mod
+
+    assert not hasattr(vectors_mod, "record_mode")
+    assert not hasattr(fingerprint, "VECTOR_SIDE_KEYS")
+    assert not hasattr(manifest_mod.Manifest, "chunks_for_file")
+    assert not hasattr(core_mod, "MIGRATION_HINT")
+    assert not hasattr(core_mod.Core, "schema_migrated")
+    # ...and the helpers that replaced them are the ones the writers use.
+    assert hasattr(vectors_mod, "collection_for")
+    assert hasattr(vectors_mod, "alias_for")

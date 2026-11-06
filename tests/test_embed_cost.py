@@ -170,6 +170,9 @@ def _rig(tmp_path):
         def create_collection(self, name, dim):
             pass
 
+        def swap_collection(self, tmp, target):
+            pass
+
         def upsert_points(self, name, points):
             pass
 

@@ -67,6 +67,15 @@ class StubStore:
         self.collections.discard(name)
         self.aliases.pop(name, None)
 
+    def swap_collection(self, tmp: str, target: str) -> None:
+        # The pass writes the identity-stamped physical name; the swap binds
+        # the stable alias to it and drops the superseded collection.
+        old = self.aliases.get(target)
+        self.collections.add(tmp)
+        self.aliases[target] = tmp
+        if old is not None and old != tmp:
+            self.collections.discard(old)
+
     def upsert_points(self, name: str, points: list) -> int:
         return len(points)
 

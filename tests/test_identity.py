@@ -11,8 +11,10 @@ pass re-keying its rows from a real reparse.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import pathlib
 import sqlite3
 import sys
 
@@ -22,6 +24,7 @@ import pytest  # noqa: E402
 from typer.testing import CliRunner  # noqa: E402
 
 from code_indexer.chunker import declaration_hash  # noqa: E402
+import code_indexer.cli as cli  # noqa: E402
 from code_indexer.cli import app  # noqa: E402
 from code_indexer.config import Config  # noqa: E402
 from code_indexer.core import Core  # noqa: E402
@@ -189,6 +192,75 @@ def test_overloads_differing_only_by_signature_are_two_identities(
     finally:
         reg.close()
         import code_indexer.cli as cli
+        cli._core = None
+        cli._core_skip = False
+
+
+def test_a_read_of_a_version_six_manifest_refuses_and_never_migrates(
+        tmp_path, monkeypatch):
+    """A READ can destroy nothing: the file is untouched and rows are refused.
+
+    The blocking finding of the round-2 review was exactly this: a read
+    opened a pre-revision-7 manifest read-write, migrated it on open and
+    emptied the symbol table before answering. Here every row surface
+    refuses with the existing ``RebuildRequiredError`` shape — one stderr
+    line, exit 4, empty stdout, the remedy named — and the file's sha256 and
+    its one old-key row are exactly what they were before.
+    """
+    monkeypatch.setenv("INDEX_ROOT", str(tmp_path / "state"))
+    monkeypatch.setattr(cli, "_core", None)
+    cfg = Config(ollama_url="", qdrant_url="", embed_model="stub",
+                 index_root=str(tmp_path / "state"), stale_ttl=60,
+                 embed_batch=48, upsert_batch=256, max_file_bytes=1048576,
+                 watch_debounce=1, watch_sweep_interval=3600)
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "pre7.py").write_text("def search(self):\n    return 1\n",
+                                     encoding="utf-8")
+    os.makedirs(cfg.index_root, exist_ok=True)
+    reg = Registry(os.path.join(cfg.index_root, "registry.db"))
+    entry = reg.add(str(project), name="legacy")
+    try:
+        mdir = os.path.join(cfg.index_root, entry.slug)
+        os.makedirs(mdir, exist_ok=True)
+        db = os.path.join(mdir, "manifest.db")
+        conn = sqlite3.connect(db)
+        conn.executescript(_V6_DDL)
+        conn.commit()
+        conn.close()
+        before = hashlib.sha256(pathlib.Path(db).read_bytes()).hexdigest()
+
+        # The one surface that answers WITHOUT rows reports which side it is on.
+        status = runner.invoke(app, ["index-status", "--project", str(project)])
+        assert status.exit_code == 0, (status.output, status.stderr)
+        assert "schema=6" in status.output, status.output
+        assert "rows=absent" in status.output, status.output
+        assert hashlib.sha256(pathlib.Path(db).read_bytes()).hexdigest() == before
+
+        for args in (["find-symbol", "search"], ["find-definition", "search"],
+                     ["find-references", "search"], ["skeleton"], ["overview"],
+                     ["outline", "pre7.py"]):
+            result = runner.invoke(app, [*args, "--project", str(project)])
+            assert result.exit_code == 4, (args, result.output, result.stderr)
+            assert result.stdout == "", (args, result.stdout)
+            lines = result.stderr.strip().splitlines()
+            assert len(lines) == 1, (args, result.stderr)
+            assert lines[0].startswith("RebuildRequiredError: "), lines[0]
+            assert "reindex-project" in lines[0], lines[0]
+            assert (hashlib.sha256(pathlib.Path(db).read_bytes()).hexdigest()
+                    == before), f"{args[0]} changed the manifest"
+
+        # The old-key row and the recorded revision survived every read.
+        conn = sqlite3.connect(db)
+        try:
+            assert conn.execute("SELECT COUNT(*) FROM symbols").fetchone()[0] == 1
+            version = conn.execute(
+                "SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
+            assert version[0] == "6"
+        finally:
+            conn.close()
+    finally:
+        reg.close()
         cli._core = None
         cli._core_skip = False
 

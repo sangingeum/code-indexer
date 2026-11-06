@@ -71,20 +71,19 @@ def resolve_mode(manifest, requested: str) -> str:
 def rows_current(manifest) -> bool:
     """True when the stored rows were produced by this build's extraction.
 
-    The extraction version is the axis that covers parser, chunker and
-    reference/import extraction, and the chunks table is the evidence that
-    the rows include their chunk content. A manifest upgraded from an older
-    extraction reports absent until one pass rewrites it.
+    Two facts decide it, and only two: a pass has completed (``last_indexed``
+    exists) and the recorded extraction version is this build's. The chunk
+    count is a DIFFERENT fact — a project whose indexed files legitimately
+    produce no chunks still has current rows — so it is reported on its own
+    (``count_chunks``) rather than folded in here.
     """
     if manifest.get_meta("last_indexed") is None:
         return False
     recorded = manifest.get_meta("extraction_version")
     try:
-        if recorded is None or int(recorded) != EXTRACTION_VERSION:
-            return False
+        return recorded is not None and int(recorded) == EXTRACTION_VERSION
     except ValueError:
         return False
-    return manifest.count_chunks() > 0
 
 
 def vectors_state(manifest) -> str:
@@ -103,13 +102,6 @@ def vectors_state(manifest) -> str:
     return STATE_CURRENT if manifest.get_meta("embed_model") else STATE_ABSENT
 
 
-def record_mode(manifest, mode: str) -> None:
-    manifest.set_meta("vectors", mode)
-    if manifest.get_meta("vectors_state") in (None, ""):
-        manifest.set_meta("vectors_state",
-                          STATE_ABSENT if mode == MODE_OFF else STATE_ABSENT)
-
-
 def record_rows(manifest) -> None:
     """A row pass just committed: the row side is current for this build."""
     manifest.set_meta("rows", "current")
@@ -120,12 +112,23 @@ def rows_state(manifest) -> str:
     return "current" if rows_current(manifest) else "absent"
 
 
+def alias_for(slug: str) -> str:
+    """The alias every read resolves: ``idx_<slug>``.
+
+    The stable handle. It points at whichever physical collection is live;
+    the physical name comes from ``collection_for`` and always carries the
+    embedding identity. Writes name the physical collection, reads name the
+    alias.
+    """
+    return f"idx_{slug}"
+
+
 def collection_for(slug: str, identity: str) -> str:
     """A physical collection name that carries its embedding identity.
 
     Vectors are never mixed across models: the identity's digest is part of
     the name, so a changed identity can only ever be a NEW collection. The
-    slug itself stays the alias every read and write uses.
+    slug's alias (``alias_for``) is the name reads resolve.
     """
     from .fingerprint import identity_digest
-    return f"idx_{slug}__{identity_digest(identity)}"
+    return f"{alias_for(slug)}__{identity_digest(identity)}"

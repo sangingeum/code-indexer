@@ -243,7 +243,7 @@ def impact(core, slug: str, changed: dict, depth: int = 1,
     `omitted` (how many reference rows the bounds refused) — the same
     vocabulary the graph commands use, so a consumer reads one signal.
     """
-    m: Manifest = core.manifest_for(slug)
+    m: Manifest = core.read_manifest(slug)
     try:
         all_syms = m.all_symbols()
         definer: dict[str, str] = {}
