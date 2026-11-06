@@ -11,7 +11,7 @@ Every command is either a write command or a read command, and a read command ne
 
 ## Context
 
-1. Nine read commands re-index silently when a flag is absent: `semantic-search`, `skeleton`, `outline`, `find-symbol`, `find-definition`, `find-references` (and `get-code-context` under `--fresh`, `index-status` under `--refresh`) via `Core.maybe_refresh` (`src/code_indexer/core.py:232-250`), plus `eval` through `core.search`. `--skip-stale-check` is the only thing that stops them, so the default query path is a write path (audit section 1).
+1. Nine read commands re-index silently when a flag is absent: `semantic-search`, `skeleton`, `outline`, `find-symbol`, `find-definition`, `find-references` (and `get-code-context` under `--fresh`, `index-status` under `--refresh`) via `Core.maybe_refresh` (`src/code_indexer/core.py:220-250`, veto at `:232`), plus `eval` through `core.search`. `--skip-stale-check` is the only thing that stops them, so the default query path is a write path (audit section 1).
 2. A stale read is observably wrong, not merely old. `overview --skip-stale-check` reported `core.py` at 1,626 LOC against a 1,358-line file; reproduced at the audit tip, where the same call still prints 1,626 and `wc -l` still prints 1,358 for 445 files and 45,460 LOC (audit section 10, item 9). Two further read commands, `list-projects` and `lookup-project`, are documented as registry-only but dial Ollama for a fingerprint probe -- 34 s and 5 connections offline (audit section 4).
 3. A failed search cannot be told from an empty one. `Core.search` raises when every project fails (`src/code_indexer/core.py:711-712`), and `search_for_display` catches every `ValueError` and returns the message as the answer string (`src/code_indexer/core.py:913-914`). The CLI prints `error: search failed on every project (...)` on **stdout** and exits 0; measured in both the scoped and the unscoped shape (audit section 4; gate F5).
 4. The cost is structural, not a timeout setting. The scoped call took 67 s and the unscoped default took 804.2 s over twelve registered projects, because the query path iterates every project and retries the embed call per project (audit section 4; gate F5). The expensive call is the default one, which is what an agent runs.
@@ -22,13 +22,13 @@ Every command is either a write command or a read command, and a read command ne
 ### 1. Two command classes
 
 - **Write commands**: `add-project`, `index-more`, `remove-project`, `reindex-project`, `watch`, `unwatch`, `sweep-orphans --apply`, and any invocation carrying `--vectors on|off` or `--refresh`.
-- **Read commands**: every other command. A read command opens no write transaction, calls no `maybe_refresh`, and dials no service to reach a staleness verdict.
+- **Read commands**: every other command. A read command opens no write transaction, calls no `maybe_refresh`, and dials no service to reach a staleness verdict. A read command invoked with `--refresh` performs one pass first and therefore writes; the guarantee below applies to every invocation without that flag.
 - `--skip-stale-check` stays accepted and becomes inert; it is documented as "the default". `--fresh` on `get-code-context` keeps its meaning (read the live file, ignore cached symbol rows) and writes nothing.
 
 ### 2. What "stale" means
 
 - Every read answer describes the index as of `meta.last_indexed`, never the working tree. There is no implicit convergence.
-- Detection compares the indexed path set and each file's stat identity (`size`, `mtime_ns`, `inode`, all already on `files`) against the tree; content is hashed only for files whose stat changed. No service is contacted.
+- Detection compares the indexed path set and each file's stat identity (`size`, `mtime_ns`, `inode`, all already on `files`) against the tree, using the scanner's existing include and exclude rules and stat calls only; content is hashed only for files whose stat changed. No service is contacted, and the walk has its own budget so that a very large tree degrades to `unknown` rather than to a long silence.
 - Three verdicts, never a boolean guess: `fresh` (nothing differs), `stale` (with reasons), `unknown` (the check could not run -- project path absent, or the scan exceeded its budget). `unknown` is not `fresh`.
 
 ### 3. How staleness is reported
@@ -70,7 +70,7 @@ The `ErrorType:` line stays the semantic discriminator; the number is the coarse
 
 - Default project resolution is the containing project inferred from the invocation path, the rule every read command already uses for symbol and path hints. Fan-out requires `--all-projects`.
 - The query path makes one embedding attempt with a short timeout. The retry chain belongs to the write path, where a retry can actually succeed.
-- A wall budget (default 30 s per invocation) stops the fan-out; remaining projects are reported as skipped with `reason=budget`, JSON carries `partial: true`, and the exit code is 0 only if at least one project answered. If none answered, exit 3.
+- A wall budget (default 30 s per invocation) stops the fan-out; remaining projects are reported as skipped with `reason=budget`, JSON carries `partial: true`, and the exit code is 0 only if at least one project answered. If none answered, the exit code is 3 when the cause was backend unavailability and 4 when the index required a rebuild.
 - All three factors behind 804 s -- twelve projects, a retry chain, an unbounded wall -- are removed by construction rather than tuned.
 
 ## Requirements this record resolves

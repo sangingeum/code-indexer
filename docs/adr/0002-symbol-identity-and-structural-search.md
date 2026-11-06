@@ -25,7 +25,7 @@ A symbol row is identified by `(file, qualified name, kind, declaration hash)` w
 |---|---|---|
 | `file` | repository-relative path | yes |
 | `qualified_name` | container chain joined to the name, e.g. `Core.search` | yes |
-| `symbol_type` | the existing kind vocabulary, unchanged | yes |
+| `symbol_type` | the kind column, its name unchanged | yes |
 | `decl_hash` | sha256 of the normalized signature the chunker already produces | yes |
 | `container` | parent qualified name, or NULL at top level | no, denormalized for filtering |
 | `language` | copied from `files.language` | no, denormalized for filtering |
@@ -33,7 +33,7 @@ A symbol row is identified by `(file, qualified name, kind, declaration hash)` w
 | `start_line`, `end_line` | ranges as observed | no |
 | `signature`, `visibility`, `source` | as today | no |
 
-The key is line-free, so a line shift preserves identity. A reformat that changes the signature changes `decl_hash` and therefore the identity -- that is stated, not papered over, and matches the proposal's own rule "do not promise stability across arbitrary source transformations".
+The key is line-free, so a line shift preserves identity. A reformat that changes the signature changes `decl_hash` and therefore the identity -- that is stated, not papered over, and matches the proposal's own rule "do not promise stability across arbitrary source transformations". Where a row carries no signature (the column tolerates NULL for legacy rows, though the live index has none: 1,589 AST-sourced and 144 regex-sourced rows, all with a signature), `decl_hash` hashes the declaration's observed first line with whitespace normalized, so the key is total for every row.
 
 The column stays named `symbol_type`: renaming it to `kind` would touch fourteen JSON consumers for no query benefit.
 
@@ -88,7 +88,7 @@ The column stays named `symbol_type`: renaming it to `kind` would touch fourteen
 ## Consequences
 
 - Structural filters become answerable, and `find-symbol` answers stop depending on line numbers for identity.
-- A full reindex per project is required: symbols are rebuilt from a reparse and references are re-extracted, so `extraction_version` bumps and the fingerprint gate refuses queries until the pass runs. There is no way to recompute `decl_hash` from rows written by the old extractor.
+- A full reindex per project is required: symbols are rebuilt from a reparse and references are re-extracted. That forces an `extraction_version` bump, so the fingerprint gate refuses queries until the pass runs, and there is no way to recompute `decl_hash` from rows written by the old extractor.
 - A schema bump is unavoidable. If this record and ADR-0001 land together they share one bump (manifest version 7); if they land separately, this is the second. **No owner-approved reindex is needed** in the sense of a paid or destructive operation -- the reindex is the ordinary per-project pass the user already runs -- but the upgrade is not invisible: `find-*` refuses until it has run, which the release note records.
 - Overloads now differ by `decl_hash` rather than by line, so a `find-symbol` answer for a C++ or C# overload set is stable across edits to earlier files.
 - `graph.py`'s trailing-name branch stays as the fallback path, so the fan-in code is not simplified away yet; a later leg may delete it once resolved targets are populated.

@@ -75,7 +75,7 @@ The fingerprint comparison becomes per side, not one combined string.
 
 - A missing or mismatched `embedding_version` says nothing about the rows: row surfaces answer normally and the answer says so (ADR-0003).
 - `semantic-search` on a project with `vectors=off` fails with `ConfigError` naming the remedy (`--vectors on`). It never degrades silently to lexical and never returns an empty successful answer.
-- `semantic-search` on an identity mismatch refuses, as the gate already does for a wrong-model index (`src/code_indexer/core.py:668-673`).
+- `semantic-search` on an identity mismatch refuses, as the gate already does for a wrong-model index (`src/code_indexer/core.py:413`, called at `:679`).
 
 ## Requirements this record resolves
 
