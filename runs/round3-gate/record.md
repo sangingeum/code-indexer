@@ -5,8 +5,8 @@ the structural filters on `find-symbol`, the evidence label, the ambiguity
 envelope, and the graph union over candidates. Ruled against this
 repository's own live index, not fixtures.
 
-**Verdict: PASS-with-findings.** No bar fails. Four findings, all low, and one
-observation; none of them changes a delivered behaviour, two are
+**Verdict: PASS-with-findings.** No bar fails. Four findings, all low, and two
+observations; none of them changes a delivered behaviour, two are
 documentation truth and one is a pre-existing label defect on a surface this
 round rewrote.
 
