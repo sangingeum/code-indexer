@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "plan_id": "sha256:4c79c546390bc63f870fa333d4b83ffee7e193ffa3751f4f41eaa9908346d5de",
+  "plan_path": "/home/keum/dev/athena/code-indexer/.code-indexer/plans/4c79c546390bc63f870fa333d4b83ffee7e193ffa3751f4f41eaa9908346d5de.json",
+  "document": {
+    "schema_version": 1,
+    "operation": "replace_body",
+    "repository": {
+      "project": "code-indexer",
+      "index_revision": "119"
+    },
+    "created_at": "2026-11-06T23:27:33Z",
+    "provider": {
+      "name": "tree-sitter-structural",
+      "version": "1"
+    },
+    "target": {
+      "path": "src/code_indexer/identity.py",
+      "language": "python",
+      "qualified_name": "unattributed_note",
+      "symbol_type": "function",
+      "decl_hash": "sha256:1f7221236c6ca33f1d305957c2ef651d67c4b449a52bbe1df17dfda7f93f1823",
+      "range": {
+        "start_line": 58,
+        "end_line": 67,
+        "start_byte": 2728,
+        "end_byte": 3231
+      }
+    },
+    "files": [
+      {
+        "path": "src/code_indexer/identity.py",
+        "expected_hash": "sha256:b0b6fba8918ec7d759cb12de4ec8c8f73f644b6ce5beb7d50cd7866426732261",
+        "newline": "lf",
+        "language": "python"
+      }
+    ],
+    "edits": [
+      {
+        "kind": "replace_body",
+        "path": "src/code_indexer/identity.py",
+        "start_line": 59,
+        "end_line": 67,
+        "start_byte": 2793,
+        "end_byte": 3231,
+        "expected_old_text_hash": "sha256:360c992319d23e1e78feb2e3af2c9b5c99b71436aed4586fd2767304880f2d7c",
+        "expected_old_text": "    \"\"\"The explanation for a zero from an attributed-syntax filter.\n\n    A zero is reported, never converted into a negative: the files without an\n    AST extractor were not examined, so their references are unknown.\n    \"\"\"\n    return (\n        f\"no symbol carries an attributed reference to {name!r}; \"\n        f\"{files_without_ast} file(s) holding symbols have no AST extractor, \"\n        \"so their references are unknown, not absent\")",
+        "new_text": "    return \"replacement text\""
+      }
+    ],
+    "validation": {
+      "syntax_required": true,
+      "semantic_required": false
+    },
+    "plan_id": "sha256:4c79c546390bc63f870fa333d4b83ffee7e193ffa3751f4f41eaa9908346d5de"
+  }
+}

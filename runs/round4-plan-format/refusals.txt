@@ -7,7 +7,7 @@
 | CarriageReturnInPlan | 2 | `CarriageReturnInPlan: replacement text carries a carriage return; a plan speaks LF only and the adapter translates to the file's convention` |
 | SubLineEditUnsupported | 2 | `SubLineEditUnsupported: inline.py:1: the body begins mid-line, and a plan edit is line-granular` |
 | rename_symbol reserved | 2 | `ArgumentError: rename_symbol is reserved in the plan format and refused in phase 1: references are textual, so nothing here could verify a rename; no plan is written` |
-| Plan not found | 1 | `NotFoundError: no plan sha256:9999999999999999999999999999999999999999999999999999999999999999 in /home/keum/dev/athena/code-indexer/runs/round4-plan-format/fixture-refusals/.code-indexer/plans: a plan is its file, so a missing file is a missing plan` |
+| Plan not found | 1 | `NotFoundError: no plan sha256:9999999999999999999999999999999999999999999999999999999999999999 in <project-root>/runs/round4-plan-format/fixture-refusals/.code-indexer/plans: a plan is its file, so a missing file is a missing plan` |
 | NewlineMismatch | 1 | `NewlineMismatch: mod.py: the file uses lf terminators but the plan declares crlf` |
 | OverlappingEdits | 2 | `OverlappingEdits: mod.py: lines 2-2 and 1-2 overlap; an overlap is refused, never ordered` |
 | AmbiguousOrder | 2 | `AmbiguousOrder: mod.py: two insertions at the boundary before line 4 -- no rule can honour both, so the order is refused rather than invented` |

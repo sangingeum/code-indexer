@@ -1,6 +1,6 @@
 # Round 4, leg 1 — the plan format: content-addressed plans, locators, preconditions, preview
 
-Card T-000061. Base `fb932ff`. Tree `/home/keum/dev/athena/code-indexer`.
+Card id withheld (an authored record is hygiene-governed; the dispatch brief carries it). Base `fb932ff`. Tree `<project-root>`.
 No apply path in this leg: nothing here writes a source file.
 
 ## Commits
@@ -142,11 +142,11 @@ it is running.
 after 3 validates and 1 show — **identical**:
 
 ```
-759448cc...  /home/keum/.code-indexer/code-indexer/manifest.db
+759448cc...  <index-root>/code-indexer/manifest.db
 93b3c026...  .code-indexer/plans/4c79c546...json
 b0b6fba8...  src/code_indexer/identity.py
-e3b0c442...  /home/keum/.code-indexer/code-indexer/manifest.db-wal
-fd4c9fda...  /home/keum/.code-indexer/code-indexer/manifest.db-shm
+e3b0c442...  <index-root>/code-indexer/manifest.db-wal
+fd4c9fda...  <index-root>/code-indexer/manifest.db-shm
 UNCHANGED: plan dir, the touched file and every manifest file
 ```
 

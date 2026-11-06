@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "plan_id": "sha256:2ad148a5dc1e0c656e0d1b65ef7ae9faec290418a4356d3c551b085cedfdccb1",
+  "plan_path": "/home/keum/dev/athena/code-indexer/runs/round4-plan-format/fixture/.code-indexer/plans/2ad148a5dc1e0c656e0d1b65ef7ae9faec290418a4356d3c551b085cedfdccb1.json",
+  "document": {
+    "schema_version": 1,
+    "operation": "insert_symbol",
+    "repository": {
+      "project": "plan-fixture",
+      "index_revision": "1"
+    },
+    "created_at": "2026-11-06T23:27:32Z",
+    "provider": {
+      "name": "tree-sitter-structural",
+      "version": "1"
+    },
+    "target": {
+      "path": "sample.py",
+      "language": "python",
+      "qualified_name": "beta",
+      "symbol_type": "function",
+      "decl_hash": "sha256:888c4819ae0a547e9dec0df25493229fa3161395db01796b96745e814953ff09",
+      "range": {
+        "start_line": 4,
+        "end_line": 5,
+        "start_byte": 27,
+        "end_byte": 51
+      }
+    },
+    "files": [
+      {
+        "path": "sample.py",
+        "expected_hash": "sha256:854d5c95c53c01074ee1a2b97babdc9cb23dd6d03098f6758a6667a27bdee848",
+        "newline": "lf",
+        "language": "python"
+      }
+    ],
+    "edits": [
+      {
+        "kind": "insert_symbol",
+        "path": "sample.py",
+        "new_text": "def gamma():\\n    return 3",
+        "position": "end"
+      }
+    ],
+    "validation": {
+      "syntax_required": true,
+      "semantic_required": false
+    },
+    "plan_id": "sha256:2ad148a5dc1e0c656e0d1b65ef7ae9faec290418a4356d3c551b085cedfdccb1"
+  }
+}

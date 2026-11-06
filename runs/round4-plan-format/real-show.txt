@@ -1,0 +1,72 @@
+{
+  "created_at": "2026-11-06T23:27:33Z",
+  "edits": [
+    {
+      "end_byte": 3231,
+      "end_line": 67,
+      "expected_old_text": "    \"\"\"The explanation for a zero from an attributed-syntax filter.\n\n    A zero is reported, never converted into a negative: the files without an\n    AST extractor were not examined, so their references are unknown.\n    \"\"\"\n    return (\n        f\"no symbol carries an attributed reference to {name!r}; \"\n        f\"{files_without_ast} file(s) holding symbols have no AST extractor, \"\n        \"so their references are unknown, not absent\")",
+      "expected_old_text_hash": "sha256:360c992319d23e1e78feb2e3af2c9b5c99b71436aed4586fd2767304880f2d7c",
+      "kind": "replace_body",
+      "new_text": "    return \"replacement text\"",
+      "path": "src/code_indexer/identity.py",
+      "start_byte": 2793,
+      "start_line": 59
+    }
+  ],
+  "files": [
+    {
+      "expected_hash": "sha256:b0b6fba8918ec7d759cb12de4ec8c8f73f644b6ce5beb7d50cd7866426732261",
+      "language": "python",
+      "newline": "lf",
+      "path": "src/code_indexer/identity.py"
+    }
+  ],
+  "operation": "replace_body",
+  "plan_id": "sha256:4c79c546390bc63f870fa333d4b83ffee7e193ffa3751f4f41eaa9908346d5de",
+  "provider": {
+    "name": "tree-sitter-structural",
+    "version": "1"
+  },
+  "repository": {
+    "index_revision": "119",
+    "project": "code-indexer"
+  },
+  "schema_version": 1,
+  "target": {
+    "decl_hash": "sha256:1f7221236c6ca33f1d305957c2ef651d67c4b449a52bbe1df17dfda7f93f1823",
+    "language": "python",
+    "path": "src/code_indexer/identity.py",
+    "qualified_name": "unattributed_note",
+    "range": {
+      "end_byte": 3231,
+      "end_line": 67,
+      "start_byte": 2728,
+      "start_line": 58
+    },
+    "symbol_type": "function"
+  },
+  "validation": {
+    "semantic_required": false,
+    "syntax_required": true
+  }
+}
+--- src/code_indexer/identity.py
+--- a/src/code_indexer/identity.py
++++ b/src/code_indexer/identity.py
+@@ -56,15 +56,7 @@
+ 
+ 
+ def unattributed_note(name: str, files_without_ast: int) -> str:
+-    """The explanation for a zero from an attributed-syntax filter.
+-
+-    A zero is reported, never converted into a negative: the files without an
+-    AST extractor were not examined, so their references are unknown.
+-    """
+-    return (
+-        f"no symbol carries an attributed reference to {name!r}; "
+-        f"{files_without_ast} file(s) holding symbols have no AST extractor, "
+-        "so their references are unknown, not absent")
++    return "replacement text"
+ 
+ 
+ # -- the ambiguity envelope (ADR-0002 section 5) --------------------------

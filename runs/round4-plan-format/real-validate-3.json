@@ -1,0 +1,84 @@
+{
+  "schema": 1,
+  "plan_id": "sha256:4c79c546390bc63f870fa333d4b83ffee7e193ffa3751f4f41eaa9908346d5de",
+  "operation": "replace_body",
+  "ref": "sha256:4c79c546390bc63f870fa333d4b83ffee7e193ffa3751f4f41eaa9908346d5de",
+  "identity": {
+    "verified": "structural",
+    "basis": [
+      "file_hash",
+      "decl_hash",
+      "region_hash"
+    ]
+  },
+  "syntax": [
+    {
+      "path": "src/code_indexer/identity.py",
+      "verdict": "parsed"
+    }
+  ],
+  "caveat": "structural checks only -- file bytes, the parser's verdict and region arithmetic; nothing here claims the result compiles or type-checks",
+  "checks": [
+    {
+      "check": "plan hash",
+      "status": "ok",
+      "detail": "sha256:4c79c546390bc63f870fa333d4b83ffee7e193ffa3751f4f41eaa9908346d5de recomputed from the document's canonical bytes"
+    },
+    {
+      "check": "schema",
+      "status": "ok",
+      "detail": "schema_version 1, operation replace_body, 1 file(s), 1 edit(s)"
+    },
+    {
+      "check": "requests",
+      "status": "ok",
+      "detail": "syntax_required true, semantic_required false"
+    },
+    {
+      "check": "paths",
+      "status": "ok",
+      "detail": "1 path(s) project-relative and inside the project root"
+    },
+    {
+      "check": "file bytes",
+      "status": "ok",
+      "detail": "1 file(s) decoded as UTF-8 and read as stored bytes"
+    },
+    {
+      "check": "file hash and newline declaration",
+      "status": "ok",
+      "detail": "src/code_indexer/identity.py sha256:b0b6fba8918ec7d759cb12de4ec8c8f73f644b6ce5beb7d50cd7866426732261 (lf)"
+    },
+    {
+      "check": "replacement text",
+      "status": "ok",
+      "detail": "1 replacement block(s), no carriage return"
+    },
+    {
+      "check": "node re-derivation",
+      "status": "ok",
+      "detail": "src/code_indexer/identity.py:unattributed_note (function) re-derived at lines 58-67, decl_hash sha256:1f7221236c6ca33f1d305957c2ef651d67c4b449a52bbe1df17dfda7f93f1823"
+    },
+    {
+      "check": "line and byte cross-check",
+      "status": "ok",
+      "detail": "every recorded line and byte offset agrees with the stored bytes"
+    },
+    {
+      "check": "region hashes",
+      "status": "ok",
+      "detail": "1 region(s) hash to the bytes the plan recorded"
+    },
+    {
+      "check": "overlap and ordering",
+      "status": "ok",
+      "detail": "1 edit(s) in application order (path ascending, then start line descending): src/code_indexer/identity.py:59"
+    },
+    {
+      "check": "syntax verdicts",
+      "status": "reported",
+      "detail": "src/code_indexer/identity.py parsed"
+    }
+  ],
+  "passed": true
+}
