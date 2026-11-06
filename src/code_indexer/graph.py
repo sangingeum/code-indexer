@@ -41,6 +41,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 
+from . import identity
 from .manifest import Manifest
 
 
@@ -55,12 +56,18 @@ class GraphNode:
     # Receiver of a member-access reference as written, when the store holds
     # one for THIS edge; NULL on definition roots and transitive nodes.
     receiver: str | None = None
+    # The subject definition(s) this DIRECT hit can belong to, as
+    # ``file:start-end`` labels. Populated only when the subject is ambiguous
+    # (more than one definition row), so a hit is never reported against one
+    # candidate by default; empty on definition roots and transitive nodes.
+    targets: list[str] = field(default_factory=list)
 
     def label(self) -> str:
         loc = f"{self.file}:{self.line}" if self.line else self.file
         sym = f" {self.symbol}" if self.symbol else ""
         recv = f" (receiver={self.receiver})" if self.receiver else ""
-        return f"{loc}{sym} [{self.relationship}/{self.confidence}]{recv}"
+        tgt = f" [targets: {', '.join(self.targets)}]" if self.targets else ""
+        return f"{loc}{sym} [{self.relationship}/{self.confidence}]{recv}{tgt}"
 
 
 @dataclass
@@ -80,6 +87,10 @@ class GraphResult:
     notes: list[str] = field(default_factory=list)
     truncated: bool = False
     omitted: int = 0
+    # The subject's definition rows, as disambiguating records: more than one
+    # means the walk unioned over several candidates, and the answer says so.
+    candidates: list[dict] = field(default_factory=list)
+    match_count: int = 0
 
 
 def _manifest_for(core, slug: str) -> Manifest:
@@ -142,16 +153,44 @@ def _callee_key(file: str, to_name: str | None) -> tuple:
     return ("callee", file, to_name or "")
 
 
+def _root_label(row) -> str:
+    """The label a hit carries for one definition candidate."""
+    return f"{row.file}:{row.start_line}-{row.end_line}"
+
+
+def _targets_for(edge_target: str | None,
+                 labels_by_file: dict[str, list[str]],
+                 all_labels: list[str]) -> list[str]:
+    """The candidate labels a DIRECT hit can belong to.
+
+    An edge whose target file the store resolved is attributed to the
+    candidate(s) in that file; a name-level reference cannot be attributed to
+    one definition, so it names every candidate instead of picking one.
+    """
+    if not all_labels:
+        return []
+    if edge_target:
+        return list(labels_by_file.get(edge_target, all_labels))
+    return list(all_labels)
+
+
 def _expand_callers(core, m: Manifest, name: str
                     ) -> list[tuple[str, int | None, str | None, str, str,
-                                   str | None]]:
-    """(file, line, from_symbol, relationship, confidence, receiver) — the
-    edges INTO `name` (by target symbol name, matching either a direct ref or
-    an import of the file that defines it)."""
+                                   str | None, str | None]]:
+    """(file, line, from_symbol, relationship, confidence, receiver,
+    target_file) — the edges INTO `name` (by target symbol name, matching
+    either a direct ref or an import of the file that defines it).
+
+    ``target_file`` is the definition a hit can be attributed to WHEN the
+    store knows it (an import resolves to a file). A name-level reference row
+    does not say which definition it means, so it reports None rather than a
+    guess — the caller then labels it with every candidate.
+    """
     edges = []
     for r in m.callers_of(name):
         edges.append((r["file"], r["line"], r["from_symbol"],
-                      r["relationship"], r["confidence"], r["receiver"]))
+                      r["relationship"], r["confidence"], r["receiver"],
+                      None))
     # Import-based fan-in: files importing the file whose symbols include
     # `name` (resolved edges are project-relative files). An import edge has
     # no receiver expression.
@@ -159,7 +198,8 @@ def _expand_callers(core, m: Manifest, name: str
         if imp["resolved_file"] and _file_defines(m, imp["resolved_file"],
                                                   name):
             edges.append((imp["file"], imp["line"], None,
-                          f"import:{imp['kind']}", "ast", None))
+                          f"import:{imp['kind']}", "ast", None,
+                          imp["resolved_file"]))
     return edges
 
 
@@ -243,9 +283,18 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
                 target = name
         else:
             target = member
+        definition_rows = m.definitions_of(target)
         all_roots = [GraphNode(file=r.file, symbol=r.name, line=r.start_line,
                                relationship="definition", confidence="ast")
-                     for r in m.definitions_of(target)]
+                     for r in definition_rows]
+        # One label per candidate, and per file, so a direct hit can name the
+        # definition(s) it can belong to instead of being reported against
+        # whichever row sorted first.
+        all_labels = [_root_label(r) for r in definition_rows]
+        labels_by_file: dict[str, list[str]] = {}
+        for row, label in zip(definition_rows, all_labels):
+            labels_by_file.setdefault(row.file, []).append(label)
+        ambiguous = len(definition_rows) > 1
         # Roots consume the node budget like every other node. A root set
         # larger than the cap is shown cut, and SAID to be cut — a definition
         # list is not an edge list, so the refusals are not `omitted`.
@@ -294,8 +343,8 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
                 # because a caller references the symbol NAME.
                 tgt = target if level == 0 else (
                     node.symbol or os.path.basename(node.file))
-                for (file, line, frm, rel, conf, recv) in _expand_callers(
-                        core, m, tgt):
+                for (file, line, frm, rel, conf, recv, edge_target
+                     ) in _expand_callers(core, m, tgt):
                     key = _site_key(file, line, frm, rel)
                     if key in seen:
                         continue
@@ -310,7 +359,13 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
                     child = GraphNode(file=file, symbol=frm, line=line,
                                       relationship=rel, confidence=conf,
                                       # Receiver only on the direct hits.
-                                      receiver=recv if level == 0 else None)
+                                      receiver=recv if level == 0 else None,
+                                      # Targets only on the direct hits, and
+                                      # only when the subject is ambiguous.
+                                      targets=(_targets_for(
+                                          edge_target, labels_by_file,
+                                          all_labels)
+                                          if level == 0 and ambiguous else []))
                     node.children.append(child)
                     next_frontier.append(child)
             frontier = next_frontier
@@ -320,8 +375,8 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
         for node in frontier:
             tgt = target if stopped_level == 0 else (
                 node.symbol or os.path.basename(node.file))
-            for (file, line, frm, rel, _conf, _recv) in _expand_callers(
-                    core, m, tgt):
+            for (file, line, frm, rel, _conf, _recv,
+                 _edge_target) in _expand_callers(core, m, tgt):
                 if _site_key(file, line, frm, rel) not in seen:
                     depth_capped = True
                     break
@@ -334,7 +389,11 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
         return GraphResult(nodes=result, notes=notes,
                            truncated=bool(omitted or depth_capped
                                           or root_capped),
-                           omitted=omitted)
+                           omitted=omitted,
+                           candidates=([identity.candidate(r)
+                                        for r in definition_rows]
+                                       if ambiguous else []),
+                           match_count=len(definition_rows))
     finally:
         m.close()
 
@@ -356,24 +415,43 @@ def find_callees(core, slug: str, name: str, depth: int = 2,
     omitted = 0
     depth_capped = False
     try:
+        definition_rows = m.definitions_of(name)
         all_roots = [GraphNode(file=r.file, symbol=r.name, line=r.start_line,
                                relationship="definition", confidence="ast")
-                     for r in m.definitions_of(name)]
+                     for r in definition_rows]
+        root_labels = [_root_label(r) for r in definition_rows]
+        ambiguous = len(definition_rows) > 1
         roots = all_roots[:max_nodes] if max_nodes >= 0 else []
+        # Root node -> its candidate label, so a direct callee can say which
+        # definition it was reached from instead of the answer collapsing the
+        # candidates into "the first row".
+        label_by_node = {id(node): label
+                         for node, label in zip(all_roots, root_labels)}
         root_capped = len(roots) < len(all_roots)
         if root_capped:
             notes.append(_root_cap_note(len(all_roots), max_nodes))
         seen: set[tuple] = {_root_key(n.file, n.symbol) for n in roots}
+        node_by_key: dict[tuple, GraphNode] = {}
         frontier = list(roots)
         result: list[GraphNode] = list(roots)
         count = len(result)
         for level in range(max(0, depth)):
             next_frontier: list[GraphNode] = []
             for node in frontier:
+                targets = ([label_by_node[id(node)]]
+                           if level == 0 and ambiguous else [])
                 for (file, line, to, rel, conf, recv) in _expand_callees(
                         core, m, node.file, node.symbol):
                     key = _callee_key(file, to)
                     if key in seen:
+                        # One target reached from two candidates stays ONE
+                        # callee node (that is this walk's identity) and gains
+                        # the other definition as a second target.
+                        existing = node_by_key.get(key)
+                        if existing is not None and targets:
+                            for label in targets:
+                                if label not in existing.targets:
+                                    existing.targets.append(label)
                         continue
                     if count >= max_nodes:
                         seen.add(key)
@@ -383,7 +461,9 @@ def find_callees(core, slug: str, name: str, depth: int = 2,
                     count += 1
                     child = GraphNode(file=file, symbol=to, line=line,
                                       relationship=rel, confidence=conf,
-                                      receiver=recv if level == 0 else None)
+                                      receiver=recv if level == 0 else None,
+                                      targets=list(targets))
+                    node_by_key[key] = child
                     node.children.append(child)
                     next_frontier.append(child)
             frontier = next_frontier
@@ -403,7 +483,11 @@ def find_callees(core, slug: str, name: str, depth: int = 2,
         return GraphResult(nodes=result, notes=notes,
                            truncated=bool(omitted or depth_capped
                                           or root_capped),
-                           omitted=omitted)
+                           omitted=omitted,
+                           candidates=([identity.candidate(r)
+                                        for r in definition_rows]
+                                       if ambiguous else []),
+                           match_count=len(definition_rows))
     finally:
         m.close()
 
@@ -427,6 +511,7 @@ def graph_to_json(nodes: list[GraphNode]) -> dict:
             "file": n.file, "symbol": n.symbol, "line": n.line,
             "relationship": n.relationship, "confidence": n.confidence,
             "receiver": n.receiver,
+            "targets": list(n.targets),
             "children": [node_dict(c) for c in n.children],
         }
 
@@ -435,10 +520,15 @@ def graph_to_json(nodes: list[GraphNode]) -> dict:
 
 def result_to_json(result: GraphResult) -> dict:
     """The JSON payload for one walk: `roots` unchanged, plus the top-level
-    `truncated` / `omitted` siblings (and `notes` when there are any)."""
+    `truncated` / `omitted` siblings (and `notes` when there are any), the
+    subject's `match_count`, and `ambiguity` when the name had more than one
+    definition (ADR-0002 section 5)."""
     payload = graph_to_json(result.nodes)
     payload["truncated"] = result.truncated
     payload["omitted"] = result.omitted
+    payload["match_count"] = result.match_count
+    if result.match_count > 1 and result.candidates:
+        payload["ambiguity"] = {"candidates": list(result.candidates)}
     if result.notes:
         payload["notes"] = list(result.notes)
     return payload

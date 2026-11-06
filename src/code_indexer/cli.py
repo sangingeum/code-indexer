@@ -404,8 +404,14 @@ def _json_failure(exc: BaseException, json_output: bool) -> NoReturn:
     if not json_output:
         fail(exc)
     err = classify(exc)
-    typer.echo(json.dumps({"schema": 1, "ErrorType": err.error_type,
-                           "error": str(err)}, ensure_ascii=False))
+    payload: dict[str, Any] = {"schema": 1, "ErrorType": err.error_type,
+                               "error": str(err)}
+    # An ambiguous name is refused WITH its candidates, so a machine caller
+    # gets the list as data instead of parsing prose.
+    candidates = getattr(exc, "candidates", None)
+    if candidates:
+        payload["candidates"] = candidates
+    typer.echo(json.dumps(payload, ensure_ascii=False))
     raise typer.Exit(err.exit_code)
 
 
@@ -1897,14 +1903,24 @@ def find_symbol(
         if (inherits or has_call) and not rows:
             evidence_note = identity.unattributed_note(
                 inherits or has_call, m.symbol_files_without_ast())
+        # An exact name that resolves to more than one symbol is AMBIGUOUS,
+        # and the envelope says so: every candidate, never a sorted guess.
+        ambiguous = []
+        if name and not match_label and total > 1:
+            ambiguous = (rows if len(rows) == total else
+                         m.find_symbols(name, substring=False, limit=None,
+                                        **filters))
         if json_output:
-            typer.echo(json.dumps({
+            payload: dict[str, Any] = {
                 "schema": 1, "symbols": payload_rows,
                 "match": ("browse" if not name else
                           "exact" if not match_label else "substring"),
                 "match_count": total, "truncated": truncated,
                 **({"evidence_note": evidence_note} if evidence_note else {}),
-                **block}, ensure_ascii=False, indent=2))
+                **block}
+            if ambiguous:
+                payload["ambiguity"] = identity.ambiguity_block(ambiguous)
+            typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
             return
         if not rows:
             msg = (f"no symbols matching {name!r}" if name
@@ -1923,6 +1939,10 @@ def find_symbol(
                        f"{r.name} ({r.symbol_type}, confidence={conf}{label}, "
                        f"evidence={identity.evidence_of(r)})"
                        f"{sig}")
+        if ambiguous:
+            typer.echo(f"{total} definitions match {name!r} and this name is "
+                       "ambiguous: each line above is one identity — narrow "
+                       "with --file, --kind or --container")
         if truncated:
             cap = limit if limit is not None else _BROWSE_CAP
             typer.echo(f"... {len(rows)} of {total} matches shown "
@@ -1938,13 +1958,21 @@ def find_definition(
         None, "--project", "--name",
         help="Project path, slug, or name (--project X or --name X)."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
+    exactly_one: bool = typer.Option(
+        False, "--exactly-one",
+        help="Refuse when the name has more than one definition, listing "
+             "every candidate (ArgumentError, exit 2)."),
     skip_stale_check: bool = SkipOpt,
     refresh: bool = RefreshOpt,
     fresh: bool = FreshOpt,
 ) -> None:
     """Find where a symbol is declared (exact name match only). A read:
     --refresh is the only flag that makes it write, --fresh is inert, and
-    the JSON object carries the staleness block."""
+    the JSON object carries the staleness block.
+
+    `--exactly-one` is for a caller that must act on ONE symbol: a name with
+    more than one definition is then refused with every candidate listed,
+    never resolved to whichever row sorted first."""
     core = _get_core(skip_stale_check)
     entry, err = core.resolve_entry(project)
     if entry is None:
@@ -1955,6 +1983,11 @@ def find_definition(
     m = core.read_manifest(entry.slug)
     try:
         rows = m.definitions_of(name)
+        if exactly_one:
+            try:
+                rows = [identity.resolve_one(name, rows)]
+            except IndexerError as exc:
+                _json_failure(exc, json_output)
         definitions = [
             {"file": r.file, "name": r.name, "type": r.symbol_type,
              "start_line": r.start_line, "end_line": r.end_line,

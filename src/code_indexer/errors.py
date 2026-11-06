@@ -54,6 +54,29 @@ class ArgumentError(IndexerError):
     exit_code = EXIT_USAGE
 
 
+class AmbiguousSymbolError(ArgumentError):
+    """A name that must resolve to ONE symbol resolved to several.
+
+    Renders as ``ArgumentError: ...`` (exit 2) and carries ``candidates`` —
+    the same records the JSON ambiguity envelope reports — so a machine
+    caller receives the list as data, not only as prose. The message names
+    every candidate and the disambiguators that exist, because "pick one"
+    is not an instruction a caller can act on.
+    """
+
+    def __init__(self, name: str, candidates: list[dict]) -> None:
+        self.name = name
+        self.candidates = candidates
+        listed = "; ".join(
+            f"{c['file']}:{c['range']['start_line']}-{c['range']['end_line']}"
+            f" ({c.get('kind')}, container={c.get('container')},"
+            f" decl_hash={c.get('decl_hash')})" for c in candidates)
+        super().__init__(
+            f"name {name!r} resolves to {len(candidates)} symbols and this "
+            "command needs exactly one — narrow it with --file, --kind or "
+            f"--container, or list them with find-symbol: {listed}")
+
+
 class ConfigError(IndexerError):
     error_type = "ConfigError"
     exit_code = EXIT_FAIL

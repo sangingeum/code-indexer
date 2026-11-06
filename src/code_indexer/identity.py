@@ -20,6 +20,7 @@ read (``Manifest.find_symbols``).
 
 from __future__ import annotations
 
+from .errors import AmbiguousSymbolError, NotFoundError
 from .manifest import SymbolRow
 
 EVIDENCE_AST = "ast"
@@ -56,3 +57,50 @@ def unattributed_note(name: str, files_without_ast: int) -> str:
         f"no symbol carries an attributed reference to {name!r}; "
         f"{files_without_ast} file(s) holding symbols have no AST extractor, "
         "so their references are unknown, not absent")
+
+
+# -- the ambiguity envelope (ADR-0002 section 5) --------------------------
+
+def candidate(row: SymbolRow) -> dict:
+    """One disambiguating record: everything needed to pick this symbol.
+
+    The field set is the one the identity record names — file, range, kind,
+    container, signature, language and decl_hash — plus the qualified name
+    and the evidence label, so a caller can tell two same-shaped rows apart
+    without a second read.
+    """
+    return {
+        "file": row.file,
+        "range": {"start_line": row.start_line, "end_line": row.end_line},
+        "kind": row.symbol_type,
+        "container": row.container,
+        "signature": row.signature,
+        "language": row.language,
+        "decl_hash": row.decl_hash,
+        "qualified_name": row.qualified_name,
+        "evidence": evidence_of(row),
+    }
+
+
+def ambiguity_block(rows: list[SymbolRow]) -> dict:
+    """``ambiguity`` for an answer whose name matched more than one symbol.
+
+    Every candidate is reported. A shorter list would be a silent pick with
+    extra steps — exactly what the identity record refuses.
+    """
+    return {"candidates": [candidate(row) for row in rows]}
+
+
+def resolve_one(name: str, rows: list[SymbolRow]) -> SymbolRow:
+    """The ONE symbol a single-symbol command may act on.
+
+    No rows is ``NotFoundError``; more than one is ``AmbiguousSymbolError``
+    (an ``ArgumentError``, exit 2) carrying every candidate. A caller that
+    cannot disambiguate must refuse and show the list, never take a row that
+    happened to sort first.
+    """
+    if not rows:
+        raise NotFoundError(f"no indexed definition for {name!r}")
+    if len(rows) > 1:
+        raise AmbiguousSymbolError(name, [candidate(row) for row in rows])
+    return rows[0]
