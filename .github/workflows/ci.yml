@@ -18,7 +18,11 @@ jobs:
           version: 0.12.5
 
       - name: Sync dependencies (frozen)
-        run: uv sync --frozen
+        # The offline suite imports the optional surfaces it exercises: the MCP
+        # server module and the semantic guard paths. Both extras are part of
+        # the test environment, so collection and the guards can run instead of
+        # skipping the coverage.
+        run: uv sync --frozen --all-extras
 
       - name: Lint (ruff)
         run: uvx ruff check src tests scripts

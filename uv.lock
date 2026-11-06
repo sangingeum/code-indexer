@@ -107,6 +107,7 @@ semantic = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "click" },
     { name = "pytest" },
 ]
 
@@ -125,7 +126,10 @@ requires-dist = [
 provides-extras = ["semantic", "mcp"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8.0" }]
+dev = [
+    { name = "click", specifier = ">=8.0" },
+    { name = "pytest", specifier = ">=8.0" },
+]
 
 [[package]]
 name = "colorama"
