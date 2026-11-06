@@ -1,0 +1,3 @@
+$ uv run python scripts/publishing_hygiene_lint.py --paths $(git diff --cached --name-only)
+publishing hygiene: scanned=30 skipped=0 violations=0 (untracked files are out of scope)
+[exit=0]

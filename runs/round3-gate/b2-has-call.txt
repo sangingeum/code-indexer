@@ -1,0 +1,28 @@
+$ code-indexer find-symbol --has-call find_symbols --limit 5
+Warning: index is stale (25 files changed since 2026-11-06T22:36:39Z: 9 modified, 3 added, 13 deleted); answers describe the index, not the tree. Refresh: code-indexer reindex-project <project-root>
+- <project-root>::src/code_indexer/core.py:1210-1227 _fuse_lexical_dense (function, confidence=exact, evidence=ast)  def _fuse_lexical_dense(self, entry: ProjectEntry, query: str,
+- <project-root>::tests/test_identity.py:132-138 _rows (function, confidence=exact, evidence=ast)  def _rows(core: Core, entry, name: str | None = None,
+- <project-root>::src/code_indexer/evalharness.py:100-117 _symbol_ranges (function, confidence=exact, evidence=ast)  def _symbol_ranges(manifest: Any, rel_file: str,
+- <project-root>::src/code_indexer/core.py:1636-1653 code_context (function, confidence=exact, evidence=ast)  def code_context(self, entry: ProjectEntry, file: str,
+- <project-root>::src/code_indexer/manifest.py:775-788 definitions_of (function, confidence=exact, evidence=ast)  def definitions_of(self, name: str,
+... 5 of 26 matches shown (--limit 5 reached; raise it to see the rest)
+[exit=0]
+
+$ code-indexer find-symbol --has-call find_symbols --json | jq -c '{match_count, evidence: ([.symbols[].evidence]|unique)}'
+{"match_count":26,"evidence":["ast"]}
+[exit=0]
+
+$ code-indexer find-symbol --has-call count_symbols --json | jq -c '{match_count}'
+{"match_count":1}
+[exit=0]
+
+$ code-indexer find-symbol --has-call no_such_function --json | jq -c '{match_count, evidence_note}'
+{"match_count":0,"evidence_note":"no symbol carries an attributed reference to 'no_such_function'; 133 file(s) holding symbols have no AST extractor, so their references are unknown, not absent"}
+[exit=0]
+
+$ code-indexer find-symbol --has-call no_such_function
+Warning: index is stale (25 files changed since 2026-11-06T22:36:39Z: 9 modified, 3 added, 13 deleted); answers describe the index, not the tree. Refresh: code-indexer reindex-project <project-root>
+no symbols matching the given filters
+no symbol carries an attributed reference to 'no_such_function'; 133 file(s) holding symbols have no AST extractor, so their references are unknown, not absent
+[exit=0]
+

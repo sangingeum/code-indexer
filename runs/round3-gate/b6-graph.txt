@@ -1,0 +1,79 @@
+$ code-indexer find-symbol Core --json | jq -c '{match_count, candidates: [.ambiguity.candidates[] | {file, start: .range.start_line}]}'
+{"match_count":9,"candidates":[{"file":"src/code_indexer/core.py","start":104},{"file":"tests/test_project_state.py","start":55},{"file":"tests/test_watch.py","start":57},{"file":"tests/test_watcher.py","start":73},{"file":"tests/test_concurrency.py","start":83},{"file":"tests/test_unwatch.py","start":125},{"file":"tests/test_subcommands.py","start":257},{"file":"runs/round1-gate/read-write-intent-batch/skeleton.out","start":1},{"file":"runs/round1-gate/service-dial-batch/skeleton.out","start":1}]}
+[exit=0]
+
+$ code-indexer find-callers Core --max-nodes 8 --json > runs/round3-gate/graph-callers.json
+[exit=0]
+
+$ jq -c '{keys: keys, match_count, candidate_count: (.ambiguity.candidates|length)}' runs/round3-gate/graph-callers.json
+{"keys":["ambiguity","index_revision","last_indexed","match_count","notes","omitted","roots","stale","stale_known","stale_reason_count","stale_reasons","truncated"],"match_count":9,"candidate_count":9}
+[exit=0]
+
+$ jq -c '[.roots[] | {file, line}]' runs/round3-gate/graph-callers.json
+[{"file":"src/code_indexer/core.py","line":104},{"file":"tests/test_project_state.py","line":55},{"file":"tests/test_watch.py","line":57},{"file":"tests/test_watcher.py","line":73},{"file":"tests/test_concurrency.py","line":83},{"file":"tests/test_unwatch.py","line":125},{"file":"tests/test_subcommands.py","line":257},{"file":"runs/round1-gate/read-write-intent-batch/skeleton.out","line":1}]
+[exit=0]
+
+$ jq -c '[.roots[].children[]? | {file, line, targets}] | .[0:6]' runs/round3-gate/graph-callers.json
+[]
+[exit=0]
+
+$ code-indexer find-callers Core --max-nodes 4 --depth 1
+Warning: index is stale (25 files changed since 2026-11-06T22:36:39Z: 15 modified, 3 added, 7 deleted); answers describe the index, not the tree. Refresh: code-indexer reindex-project <project-root>
+src/code_indexer/core.py:104 Core [definition/ast]
+tests/test_project_state.py:55 core [definition/ast]
+tests/test_watch.py:57 core [definition/ast]
+tests/test_watcher.py:73 core [definition/ast]
+note: 9 definition roots exist for this subject, node cap 4 — 5 roots not shown; raise --max-nodes
+note: node cap 4 reached — 522 more reference edges not shown (a lower bound: a refused edge is counted but never expanded, so its own edges are not walked, and a depth cap on the same answer can cut more); raise --max-nodes to see more
+[exit=0]
+
+$ code-indexer find-callees Core --max-nodes 8 --json > runs/round3-gate/graph-callees.json
+[exit=0]
+
+$ jq -c '{match_count, candidate_count: (.ambiguity.candidates|length), roots: [.roots[] | {file, line}]}' runs/round3-gate/graph-callees.json
+{"match_count":9,"candidate_count":9,"roots":[{"file":"src/code_indexer/core.py","line":104},{"file":"tests/test_project_state.py","line":55},{"file":"tests/test_watch.py","line":57},{"file":"tests/test_watcher.py","line":73},{"file":"tests/test_concurrency.py","line":83},{"file":"tests/test_unwatch.py","line":125},{"file":"tests/test_subcommands.py","line":257},{"file":"runs/round1-gate/read-write-intent-batch/skeleton.out","line":1}]}
+[exit=0]
+
+$ jq -c '[.roots[].children[]? | {to, targets}] | .[0:6]' runs/round3-gate/graph-callees.json
+[]
+[exit=0]
+
+$ code-indexer find-callees Core --max-nodes 4 --depth 1
+Warning: index is stale (25 files changed since 2026-11-06T22:36:39Z: 16 modified, 3 added, 6 deleted); answers describe the index, not the tree. Refresh: code-indexer reindex-project <project-root>
+src/code_indexer/core.py:104 Core [definition/ast]
+tests/test_project_state.py:55 core [definition/ast]
+tests/test_watch.py:57 core [definition/ast]
+tests/test_watcher.py:73 core [definition/ast]
+note: 9 definition roots exist for this subject, node cap 4 — 5 roots not shown; raise --max-nodes
+note: node cap 4 reached — 14 more callee edges not shown (a lower bound: a refused edge is counted but never expanded, so its own edges are not walked, and a depth cap on the same answer can cut more); raise --max-nodes to see more
+[exit=0]
+
+$ code-indexer find-callers Core --max-nodes 60 --depth 1 --json > runs/round3-gate/graph-callers-depth1.json
+[exit=0]
+
+$ jq -c '{root_count:(.roots|length), child_counts:[.roots[]|{file,children:(.children|length)}], target_lengths:([.roots[].children[]? | (.targets|length)] | group_by(.) | map({n:.[0], rows:length}))}' runs/round3-gate/graph-callers-depth1.json
+{"root_count":9,"child_counts":[{"file":"src/code_indexer/core.py","children":51},{"file":"tests/test_project_state.py","children":0},{"file":"tests/test_watch.py","children":0},{"file":"tests/test_watcher.py","children":0},{"file":"tests/test_concurrency.py","children":0},{"file":"tests/test_unwatch.py","children":0},{"file":"tests/test_subcommands.py","children":0},{"file":"runs/round1-gate/read-write-intent-batch/skeleton.out","children":0},{"file":"runs/round1-gate/service-dial-batch/skeleton.out","children":0}],"target_lengths":[{"n":9,"rows":51}]}
+[exit=0]
+
+$ jq -c '[.roots[].children[]? | select((.targets|length)==0)] | length' runs/round3-gate/graph-callers-depth1.json
+0
+[exit=0]
+
+$ code-indexer find-callees Core --max-nodes 60 --depth 1 --json > runs/round3-gate/graph-callees-depth1.json
+[exit=0]
+
+$ jq -c '{root_count:(.roots|length), target_lengths:([.roots[].children[]? | (.targets|length)] | group_by(.) | map({n:.[0], rows:length}))}' runs/round3-gate/graph-callees-depth1.json
+{"root_count":9,"target_lengths":[{"n":1,"rows":29},{"n":5,"rows":1}]}
+[exit=0]
+
+$ jq -c '[.roots[].children[]? | select((.targets|length)>1)]' runs/round3-gate/graph-callees-depth1.json
+[{"file":"src/code_indexer/config.py","symbol":"Config","line":64,"relationship":"call","confidence":"ast","receiver":null,"targets":["tests/test_project_state.py:55-72","tests/test_watch.py:57-66","tests/test_watcher.py:73-82","tests/test_concurrency.py:83-93","tests/test_unwatch.py:125-134"],"children":[]}]
+[exit=0]
+
+$ code-indexer find-callers find_symbol --max-nodes 80 --depth 1 --json > runs/round3-gate/graph-callers-find-symbol.json
+[exit=0]
+
+$ jq -c '{match_count, candidates:(.ambiguity.candidates|length), target_lengths:([.roots[].children[]? | (.targets|length)] | group_by(.) | map({n:.[0], rows:length}))}' runs/round3-gate/graph-callers-find-symbol.json
+{"match_count":2,"candidates":2,"target_lengths":[{"n":2,"rows":78}]}
+[exit=0]
+

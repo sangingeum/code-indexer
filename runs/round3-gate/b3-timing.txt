@@ -1,0 +1,36 @@
+$ for i in 1 2 3; do /usr/bin/time -f "prefix glob Core* (1 row) %e s" code-indexer find-symbol --name-pattern "Core*" --limit 1 > /dev/null; done
+Warning: index is stale (25 files changed since 2026-11-06T22:36:39Z: 11 modified, 3 added, 11 deleted); answers describe the index, not the tree. Refresh: code-indexer reindex-project <project-root>
+prefix glob Core* (1 row) 0.14 s
+Warning: index is stale (25 files changed since 2026-11-06T22:36:39Z: 11 modified, 3 added, 11 deleted); answers describe the index, not the tree. Refresh: code-indexer reindex-project <project-root>
+prefix glob Core* (1 row) 0.14 s
+Warning: index is stale (25 files changed since 2026-11-06T22:36:39Z: 11 modified, 3 added, 11 deleted); answers describe the index, not the tree. Refresh: code-indexer reindex-project <project-root>
+prefix glob Core* (1 row) 0.14 s
+[exit=0]
+
+$ for i in 1 2 3; do /usr/bin/time -f "prefix glob test_* (many rows) %e s" code-indexer find-symbol --name-pattern "test_*" --limit 1 > /dev/null; done
+Warning: index is stale (25 files changed since 2026-11-06T22:36:39Z: 11 modified, 3 added, 11 deleted); answers describe the index, not the tree. Refresh: code-indexer reindex-project <project-root>
+prefix glob test_* (many rows) 0.14 s
+Warning: index is stale (25 files changed since 2026-11-06T22:36:39Z: 11 modified, 3 added, 11 deleted); answers describe the index, not the tree. Refresh: code-indexer reindex-project <project-root>
+prefix glob test_* (many rows) 0.14 s
+Warning: index is stale (25 files changed since 2026-11-06T22:36:39Z: 11 modified, 3 added, 11 deleted); answers describe the index, not the tree. Refresh: code-indexer reindex-project <project-root>
+prefix glob test_* (many rows) 0.14 s
+[exit=0]
+
+$ for i in 1 2 3; do /usr/bin/time -f "leading wildcard *Manager (0 rows, scan) %e s" code-indexer find-symbol --name-pattern "*Manager" --limit 1 > /dev/null; done
+Warning: index is stale (25 files changed since 2026-11-06T22:36:39Z: 11 modified, 3 added, 11 deleted); answers describe the index, not the tree. Refresh: code-indexer reindex-project <project-root>
+leading wildcard *Manager (0 rows, scan) 0.15 s
+Warning: index is stale (25 files changed since 2026-11-06T22:36:39Z: 11 modified, 3 added, 11 deleted); answers describe the index, not the tree. Refresh: code-indexer reindex-project <project-root>
+leading wildcard *Manager (0 rows, scan) 0.16 s
+Warning: index is stale (25 files changed since 2026-11-06T22:36:39Z: 11 modified, 3 added, 11 deleted); answers describe the index, not the tree. Refresh: code-indexer reindex-project <project-root>
+leading wildcard *Manager (0 rows, scan) 0.15 s
+[exit=0]
+
+$ for i in 1 2 3; do /usr/bin/time -f "browse, no filter %e s" code-indexer find-symbol --limit 1 > /dev/null; done
+Warning: index is stale (25 files changed since 2026-11-06T22:36:39Z: 11 modified, 3 added, 11 deleted); answers describe the index, not the tree. Refresh: code-indexer reindex-project <project-root>
+browse, no filter 0.15 s
+Warning: index is stale (25 files changed since 2026-11-06T22:36:39Z: 11 modified, 3 added, 11 deleted); answers describe the index, not the tree. Refresh: code-indexer reindex-project <project-root>
+browse, no filter 0.14 s
+Warning: index is stale (25 files changed since 2026-11-06T22:36:39Z: 11 modified, 3 added, 11 deleted); answers describe the index, not the tree. Refresh: code-indexer reindex-project <project-root>
+browse, no filter 0.14 s
+[exit=0]
+

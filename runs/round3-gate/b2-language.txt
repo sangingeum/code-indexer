@@ -1,0 +1,20 @@
+$ code-indexer find-symbol --language markdown --limit 3
+Warning: index is stale (25 files changed since 2026-11-06T22:36:39Z: 7 modified, 3 added, 15 deleted); answers describe the index, not the tree. Refresh: code-indexer reindex-project <project-root>
+- <project-root>::docs/overhaul-baseline-audit.md:211-236 KEY (function, confidence=heuristic, evidence=unknown)  line INTEGER NOT NULL,
+- <project-root>::docs/subcommand-design.md:211-230 NULL (function, confidence=heuristic, evidence=unknown)  check in the walk).
+- <project-root>::runs/issue27-publishing-hygiene/fold-verification.md:71-93 _is_authored (function, confidence=heuristic, evidence=unknown)
+... 3 of 94 matches shown (--limit 3 reached; raise it to see the rest)
+[exit=0]
+
+$ code-indexer find-symbol --language markdown --json | jq -c '{match_count}'
+{"match_count":94}
+[exit=0]
+
+$ code-indexer find-symbol --language python --json | jq -c '{match_count}'
+{"match_count":2069}
+[exit=0]
+
+$ code-indexer find-symbol --language cobol --json | jq -c '{match_count}'
+{"match_count":0}
+[exit=0]
+

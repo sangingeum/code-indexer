@@ -1,0 +1,21 @@
+$ code-indexer find-symbol --container Manifest --limit 4
+Warning: index is stale (25 files changed since 2026-11-06T22:36:39Z: 5 modified, 3 added, 17 deleted); answers describe the index, not the tree. Refresh: code-indexer reindex-project <project-root>
+- <project-root>::src/code_indexer/manifest.py:276-293 __init__ (function, confidence=exact, evidence=ast)  def __init__(self, db_path: str, *, writable: bool = True):
+- <project-root>::src/code_indexer/manifest.py:363-366 _file_select (function, confidence=exact, evidence=ast)  def _file_select(self) -> str:
+- <project-root>::src/code_indexer/manifest.py:611-628 _symbol_filters (function, confidence=exact, evidence=ast)  def _symbol_filters(self, name: str | None = None,
+- <project-root>::src/code_indexer/manifest.py:543-560 _symbol_row_tuple (function, confidence=exact, evidence=ast)  def _symbol_row_tuple(file: str, s: SymbolRow,
+... 4 of 49 matches shown (--limit 4 reached; raise it to see the rest)
+[exit=0]
+
+$ code-indexer find-symbol --container Manifest --json | jq -c '{match_count, truncated}'
+{"match_count":49,"truncated":true}
+[exit=0]
+
+$ code-indexer find-symbol --container Core --json | jq -c '{match_count}'
+{"match_count":58}
+[exit=0]
+
+$ code-indexer find-symbol --container NoSuchContainer --json | jq -c '{match_count}'
+{"match_count":0}
+[exit=0]
+
