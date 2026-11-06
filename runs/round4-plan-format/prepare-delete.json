@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "plan_id": "sha256:5202cf01d3ecbde513ca3996d4210bc18a3e9ab2940870a9076a1075b6fb733c",
-  "plan_path": "/home/keum/dev/athena/code-indexer/runs/round4-plan-format/fixture/.code-indexer/plans/5202cf01d3ecbde513ca3996d4210bc18a3e9ab2940870a9076a1075b6fb733c.json",
+  "plan_path": "<project-root>/runs/round4-plan-format/fixture/.code-indexer/plans/5202cf01d3ecbde513ca3996d4210bc18a3e9ab2940870a9076a1075b6fb733c.json",
   "document": {
     "schema_version": 1,
     "operation": "delete_declaration",

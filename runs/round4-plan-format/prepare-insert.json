@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "plan_id": "sha256:2ad148a5dc1e0c656e0d1b65ef7ae9faec290418a4356d3c551b085cedfdccb1",
-  "plan_path": "/home/keum/dev/athena/code-indexer/runs/round4-plan-format/fixture/.code-indexer/plans/2ad148a5dc1e0c656e0d1b65ef7ae9faec290418a4356d3c551b085cedfdccb1.json",
+  "plan_path": "<project-root>/runs/round4-plan-format/fixture/.code-indexer/plans/2ad148a5dc1e0c656e0d1b65ef7ae9faec290418a4356d3c551b085cedfdccb1.json",
   "document": {
     "schema_version": 1,
     "operation": "insert_symbol",

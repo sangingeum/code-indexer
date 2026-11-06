@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "plan_id": "sha256:4c79c546390bc63f870fa333d4b83ffee7e193ffa3751f4f41eaa9908346d5de",
-  "plan_path": "/home/keum/dev/athena/code-indexer/.code-indexer/plans/4c79c546390bc63f870fa333d4b83ffee7e193ffa3751f4f41eaa9908346d5de.json",
+  "plan_path": "<project-root>/.code-indexer/plans/4c79c546390bc63f870fa333d4b83ffee7e193ffa3751f4f41eaa9908346d5de.json",
   "document": {
     "schema_version": 1,
     "operation": "replace_body",
