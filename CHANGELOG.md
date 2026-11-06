@@ -1,5 +1,39 @@
 # Changelog
 
+## [Unreleased] — a pass that needs no service
+
+**A pass no longer needs either service.** With no embedding or vector service
+reachable, `add-project` builds a complete index — files, symbols, references,
+imports, the `chunks` table, `chunks_fts` and `index_errors` — records
+`vectors=off` and exits 0. A NEW project records `off`; an existing
+vectors-on project stays `on` across the upgrade, and `auto` never turns
+embedding on by itself.
+
+- **The `chunks` table is real.** `chunks(file, chunk_index, start_line,
+  end_line, symbol, symbol_type, chunk_hash, text)` is filled by the same pass
+  that reads each file, keyed on `(file, chunk_index)`, and purged with the
+  file by the existing per-file purge. `text` is the raw chunk text — the
+  contextual header is still composed at embed time.
+- **Qdrant is a vector store only.** The payload no longer carries a snippet
+  and no read path takes text from it; the search snippet comes from the
+  manifest.
+- **`--vectors auto|on|off`** on `add-project`, `index-more` and
+  `reindex-project`. Turning vectors on for a project whose rows are current
+  embeds the stored chunk text and hash: no scan, no reparse, no source read.
+- **Three version axes and a policy matrix.** `extraction_version` (rows),
+  `embedding_version` (one composed string: model/dimension/embedded-text
+  format) and `index_schema_version` (the manifest DDL). An extraction bump
+  invalidates rows; an embedding bump builds a NEW collection under the new
+  identity, swaps it in and drops the old one, leaving rows intact; a schema
+  bump migrates the manifest on open and leaves the collection intact.
+- **Per-side staleness.** `index-status` reports `rows=current|absent`,
+  `vectors=on|off` and `vectors_state=current|absent|stale|error`, in text and
+  JSON (`schema` stays 1). A mismatched embedding identity no longer refuses
+  the row surfaces: they answer and the answer says the vector side is stale.
+- **`semantic-search` refuses a vectors-off project.** One `ConfigError` line
+  naming `--vectors on`, exit 4, empty stdout; never a silent lexical answer,
+  never an empty success. A mismatched embedding identity refuses as before.
+
 ## [Unreleased] — symbol identity and parse verdicts
 
 **Breaking, and it is visible on the first query after upgrade.** Symbol rows

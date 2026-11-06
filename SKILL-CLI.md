@@ -294,6 +294,55 @@ Do not read "the file was chunked" as "the file parses". `index-status`
 counts the three per project (`parse=parsed:N,parse_error:N,parse_unavailable:N`
 in text; three flat fields in `--json`).
 
+## Vectors are an option, not a precondition
+
+A pass can build a complete index with **no service reachable**. It writes
+files, symbols, references, imports, the `chunks` table, `chunks_fts` and
+`index_errors`, records `vectors=off`, and exits 0. Qdrant is a vector store
+only: the search snippet is read from the manifest, never from the payload.
+
+One option, not a command:
+
+| flag | `add-project` | `index-more`, `reindex-project` |
+|---|---|---|
+| `--vectors auto` (default) | a NEW project records `off` | the project's recorded mode |
+| `--vectors on` | embed and upsert as it parses | embed from stored chunks |
+| `--vectors off` | rows only, no service | rows only, no service |
+
+`auto` never silently enables embedding on a fresh install, and an existing
+vectors-on project stays on across an upgrade. `watch` follows the recorded
+mode and never turns vectors on by itself.
+
+Turning vectors on for a project whose rows are current **reparses nothing and
+reads no source file**: it embeds the stored chunk text and hash. A pass also
+never mixes vectors across models — the composed embedding identity
+(`model/dimension/embedded-text-format`) is stamped into the physical
+collection name, so a changed identity is a NEW collection, swapped in under
+the project's alias and the old one dropped after the swap.
+
+Three version axes, and which bump invalidates what:
+
+| axis | recorded | a bump means |
+|---|---|---|
+| `extraction_version` | integer in `meta` | stored rows are obsolete: one pass per project (re-embeds from the cache) |
+| `embedding_version` | one string, e.g. `qwen3-embedding:8b/4096/contextual-header-v1` | a NEW collection; rows and their chunk text survive |
+| `index_schema_version` | integer in `meta` | the manifest migrates on open; the collection is untouched |
+
+`index-status` reports both sides: `rows=current|absent`, `vectors=on|off`,
+`vectors_state=current|absent|stale|error`. `stale` means the recorded
+embedding identity is not the one this build would write.
+
+**`semantic-search` on a `vectors=off` project refuses** with one
+`ConfigError` line naming the remedy and exit 4 — it never degrades to a
+lexical answer and never returns an empty success:
+
+```
+ConfigError: index for <path> was built with vectors=off; semantic search needs vectors; run: code-indexer reindex-project <path> --vectors on
+```
+
+`--mode lexical` still answers from `chunks_fts` without a vector; that is an
+answer about text, not a silent substitute for a ranked one.
+
 ## The refusal contract (`needs-reindex`)
 
 An index built by different extraction code is an index whose stored rows
@@ -325,7 +374,8 @@ the command then answers normally.
   index them too. `--include 'src/**'` (repeatable) scopes indexing to
   matching paths; `--priority` globs are indexed first within the pass;
   `index-more PROJECT SUBPATH` appends another subtree to the scope and
-  indexes the newly covered files.
+  indexes the newly covered files. `--vectors auto|on|off` picks the vector
+  side; a NEW project records `off`, so the initial pass needs no service.
 - **semantic-search** — natural-language search over indexed chunks.
   Best when you know *what the code does*, not what it's called. Follow up
   with `find-definition`/`get-code-context` for the precise lines.
@@ -336,7 +386,10 @@ the command then answers normally.
   pass `--ranking hybrid` when the query contains an exact identifier.
   Retrieval pipeline via `--mode` (default `hybrid`: dense + lexical RRF
   fusion — an eval win over dense-only; `dense` = embeddings only;
-  `lexical` = FTS5 bm25, no Ollama call). `--rerank heuristic` is an
+  `lexical` = FTS5 bm25, no Ollama call). On a project kept with vectors
+  off, `dense` and `hybrid` refuse with one `ConfigError` line naming
+  `--vectors on` and exit 4; `lexical` still answers from `chunks_fts`.
+  `--rerank heuristic` is an
   opt-in token-overlap reranker (default `none`). In every mode pure-data
   chunks (`.json`/`.yaml`/`.toml`) are down-weighted and capped to at most
   40% of the top-k window so they cannot crowd out code for

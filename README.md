@@ -2,13 +2,20 @@
 
 [![M8ven Verified](https://m8ven.ai/badge/mcp/sangingeum-code-indexer-1t93x3?variant=verified)](https://m8ven.ai/mcp/sangingeum/code-indexer)
 
-Semantic code index over Ollama + Qdrant, with a one-shot CLI
-(`code-indexer`, typer) and an MCP stdio server (`code-indexer-mcp`) that is a
-**thin wrapper over that same CLI**: every MCP tool builds the argv of the
-matching `code-indexer` subcommand and runs it, relaying its output — one code
-path, so the two surfaces can never diverge. The index maps one or more local
-project directories in Qdrant, using Ollama (`qwen3-embedding:8b`, 4096-dim)
-for embeddings. Fully LAN-local; no cloud.
+Code index for agents: a one-shot CLI (`code-indexer`, typer) and an MCP
+stdio server (`code-indexer-mcp`) that is a **thin wrapper over that same
+CLI**: every MCP tool builds the argv of the matching `code-indexer`
+subcommand and runs it, relaying its output — one code path, so the two
+surfaces can never diverge. Structural, lexical and graph queries run off a
+SQLite manifest and need no service at all; the **optional semantic
+extension** adds Ollama embeddings (`qwen3-embedding:8b`, 4096-dim) and one
+Qdrant collection per project. Fully LAN-local; no cloud.
+
+**An index pass needs no service.** `add-project` writes files, symbols,
+references, imports and chunk text and records `vectors=off` unless asked
+otherwise; `--vectors on` embeds from the stored chunk text without reparsing
+a file, and a later pass can do it with the sources unreadable. The vector
+store keeps no chunk text: answers read it from the manifest.
 
 **Agents never index anything themselves.** A read command never refreshes the
 index: `semantic-search` reports whether the index is `fresh`, `stale` or
@@ -30,15 +37,17 @@ uv tool install -e ".[semantic]"           # + Ollama and Qdrant clients
 uv tool install -e ".[mcp]"                # + the code-indexer-mcp server
 ```
 
-Core installs and runs with no service of any kind. The semantic extension
-(`OLLAMA_URL`, `QDRANT_URL`) is needed for indexing and semantic search; the
-MCP server ships only with the `mcp` extra and is imported by that entry
-point alone. Verify with `code-indexer list-projects`.
+Core installs and runs with no service of any kind — including indexing.
+The semantic extension (`OLLAMA_URL`, `QDRANT_URL`) is needed only for
+embedding and semantic search; the MCP server ships only with the `mcp` extra
+and is imported by that entry point alone. Verify with
+`code-indexer list-projects`.
 
 ## Quick start
 
 ```bash
-code-indexer add-project /path/to/repo        # register + initial index (foreground)
+code-indexer add-project /path/to/repo        # register + initial index (foreground, no service needed)
+code-indexer add-project /path/to/repo --vectors on   # ...and embed into Qdrant
 code-indexer semantic-search "auth token refresh" --project /path/to/repo --format compact
 code-indexer overview --project /path/to/repo # project map for orientation
 code-indexer index-status --project /path/to/repo  # indexing state

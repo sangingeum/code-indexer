@@ -215,6 +215,8 @@ An unregistered selector answers `registered: false` with its `path` and an
 
 ```json
 {"schema": 1, "project": str, "state": str,
+ "rows": "current"|"absent", "vectors": "on"|"off",
+ "vectors_state": "current"|"absent"|"stale"|"error",
  "fingerprint"|"needs-reindex"|"unverified", "reason"|missing,
  "last_pass"|missing, "progress"|missing, "sensitive_skipped"|missing,
  "scope"|missing, "not_indexed"|missing, "last_errors"|missing,
@@ -228,6 +230,13 @@ block. A missing `fingerprint` field still means the index matched. The three
 `parse=parsed:N,parse_error:N,parse_unavailable:N`) and are always all three,
 zero included — a verdict is the parser's own result, never the chunker's
 fallback. `index-status` answers on a `needs-reindex` project by contract.
+
+The three vector fields are read from the manifest alone — a status read never
+dials Qdrant. `rows` is `current` only when this build's extraction wrote the
+stored rows; `vectors` is the recorded mode; `vectors_state` is `stale` when
+the recorded embedding identity is not the one this build would write,
+`absent` on a project that was never vectored, `error` when the last embedding
+pass lost chunks, and `current` otherwise.
 
 ## find-symbol --json
 
