@@ -441,6 +441,28 @@ def test_a_symlink_out_of_the_project_is_refused(tmp_path):
 # ordering, adjacency and overlap
 # ---------------------------------------------------------------------------
 
+def test_an_insertion_plan_validates(tmp_path):
+    tf = sample(str(tmp_path))
+    document = document_for(tf, operation="insert_symbol",
+                            text="def three():\n    return 3",
+                            position="before", index=1)
+    report = checked(document, str(tmp_path))
+    assert report["passed"] is True, report
+    assert document["edits"][0]["position"] == "before"
+    assert "end_line" not in document["edits"][0]
+
+
+def test_a_corrupted_insertion_point_is_caught_by_arithmetic(tmp_path):
+    tf = sample(str(tmp_path))
+    document = document_for(tf, operation="insert_symbol",
+                            text="def three():\n    return 3",
+                            position="before", index=1)
+    document["edits"][0]["start_byte"] += 1
+    report = checked(plans.seal(document), str(tmp_path))
+    assert report["ErrorType"] == "PlanFormatError"
+    assert "inserts at" in report["error"]
+
+
 def test_the_order_is_descending_lines_within_a_file_and_ascending_paths():
     class Stub:
         def line_count(self):
@@ -641,9 +663,8 @@ def test_insert_before_moves_above_a_comment_block_and_says_so(tmp_path,
         "--file", "commented.py", "--position", "before",
         "--text", "def one():\n    return 1"])
     assert result.exit_code == 0, result.output
-    document = json.loads(
-        open(os.path.join(plan_rig.plan_dir, os.listdir(plan_rig.plan_dir)[0]))
-        .read())
+    document = plans.load_plan(
+        os.path.join(plan_rig.plan_dir, os.listdir(plan_rig.plan_dir)[0]))
     edit = document["edits"][0]
     assert edit["position"] == "before"
     assert edit["start_line"] == 1
@@ -656,9 +677,8 @@ def test_insert_after_the_last_declaration_is_position_end(plan_rig):
         "--file", "mod.py", "--position", "after",
         "--text", "def three():\n    return 3"])
     assert result.exit_code == 0, result.output
-    document = json.loads(
-        open(os.path.join(plan_rig.plan_dir, os.listdir(plan_rig.plan_dir)[0]))
-        .read())
+    document = plans.load_plan(
+        os.path.join(plan_rig.plan_dir, os.listdir(plan_rig.plan_dir)[0]))
     assert document["edits"][0]["position"] == "end"
 
 
@@ -698,9 +718,8 @@ def test_a_body_file_is_translated_at_the_input_boundary(tmp_path, plan_rig):
         "plan-replace-body", "one", "--project", "plansample",
         "--file", "mod.py", "--body-file", str(body)])
     assert result.exit_code == 0, result.output
-    document = json.loads(
-        open(os.path.join(plan_rig.plan_dir, os.listdir(plan_rig.plan_dir)[0]))
-        .read())
+    document = plans.load_plan(
+        os.path.join(plan_rig.plan_dir, os.listdir(plan_rig.plan_dir)[0]))
     assert document["edits"][0]["new_text"] == "    return 41"
 
 

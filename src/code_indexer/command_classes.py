@@ -20,6 +20,11 @@ from __future__ import annotations
 WRITE_ONLY_COMMANDS: frozenset[str] = frozenset({
     "add-project",
     "index-more",
+    # The three plan writers: each writes one plan document into the plan
+    # directory and nothing else, and nothing at all under --print.
+    "plan-delete-declaration",
+    "plan-insert-symbol",
+    "plan-replace-body",
     "remove-project",
     "reindex-project",
     "watch",
@@ -49,6 +54,11 @@ READ_COMMANDS: frozenset[str] = frozenset({
     "map",
     "outline",
     "overview",
+    # Plan reads write nothing: validate and show open no transaction and
+    # touch no file, and the reserved rename verb only refuses.
+    "plan-rename-symbol",
+    "plan-show",
+    "plan-validate",
     "semantic-search",
     "skeleton",
 })

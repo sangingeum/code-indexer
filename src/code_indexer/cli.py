@@ -2440,6 +2440,7 @@ def plan_replace_body(
         False, "--print",
         help="Emit the plan document and write nothing at all."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
+    skip_stale_check: bool = SkipOpt,
 ) -> None:
     """Prepare a plan that replaces one declaration's body.
 
@@ -2481,6 +2482,7 @@ def plan_insert_symbol(
         False, "--print",
         help="Emit the plan document and write nothing at all."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
+    skip_stale_check: bool = SkipOpt,
 ) -> None:
     """Prepare a plan that inserts a block at a declaration boundary.
 
@@ -2512,6 +2514,7 @@ def plan_delete_declaration(
         False, "--print",
         help="Emit the plan document and write nothing at all."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
+    skip_stale_check: bool = SkipOpt,
 ) -> None:
     """Prepare a plan that deletes one declaration's whole line range.
 
@@ -2530,6 +2533,7 @@ def plan_rename_symbol(
     symbol: str = typer.Argument(None, help="Reserved operation."),
     project: str = PROJECT_OPT,
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
+    skip_stale_check: bool = SkipOpt,
 ) -> None:
     """Reserved: renaming a symbol is refused in phase 1.
 
@@ -2549,6 +2553,7 @@ def plan_validate(
     plan_dir: str = typer.Option(None, "--plan-dir",
                                  help="Directory holding plan files."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
+    skip_stale_check: bool = SkipOpt,
 ) -> None:
     """Report each structural check of a plan. Writes nothing.
 
@@ -2596,6 +2601,7 @@ def plan_show(
         False, "--diff",
         help="Print every affected file and the unified diff it would make."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
+    skip_stale_check: bool = SkipOpt,
 ) -> None:
     """Print a plan, and with --diff the change it would make. Writes nothing.
 

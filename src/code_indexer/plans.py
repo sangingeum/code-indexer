@@ -965,15 +965,34 @@ def _check_coordinates(document: dict[str, Any],
     """Lines and bytes are both recorded, so arithmetic catches a bad offset."""
     for index, edit in enumerate(document["edits"]):
         tf = files[edit["path"]]
-        if edit.get("kind") == "insert_symbol" and edit.get("position") == "end":
-            if "start_line" in edit or "start_byte" in edit:
+        count = tf.line_count()
+        if edit.get("kind") == "insert_symbol":
+            if edit.get("position") == "end":
+                if "start_line" in edit or "start_byte" in edit:
+                    raise PlanFormatError(
+                        f"edit {index}: position 'end' carries no line "
+                        "number (rule 6)")
+                continue
+            if "end_line" in edit:
                 raise PlanFormatError(
-                    f"edit {index}: position 'end' carries no line number "
-                    "(rule 6)")
+                    f"edit {index}: an insertion has no end_line -- its byte "
+                    "span is empty")
+            start_line = int(edit["start_line"])
+            if start_line < 1 or start_line > count + 1:
+                raise PlanFormatError(
+                    f"{edit['path']}: edit {index} inserts before line "
+                    f"{start_line} of a {count}-line file")
+            point = tf.line_starts[start_line - 1] if start_line <= count \
+                else len(tf.body)
+            if int(edit["start_byte"]) != point \
+                    or int(edit["end_byte"]) != point:
+                raise PlanFormatError(
+                    f"{edit['path']}: edit {index} inserts at "
+                    f"{edit['start_byte']}-{edit['end_byte']} but line "
+                    f"{start_line} begins at {point}")
             continue
         start_line = int(edit["start_line"])
         end_line = int(edit["end_line"])
-        count = tf.line_count()
         if start_line < 1 or end_line < start_line or end_line > count:
             raise PlanFormatError(
                 f"{edit['path']}: edit {index} spans lines {start_line}-"

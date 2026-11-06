@@ -255,7 +255,14 @@ def test_roster_is_closed_and_every_command_classified():
     roster = command_classes.all_commands()
     assert names - roster == set(), f"commands outside the roster: {names - roster}"
     assert roster - names == set(), f"roster names that do not exist: {roster - names}"
-    assert len(roster) == 27, sorted(roster)
+    assert len(roster) == 33, sorted(roster)
+
+
+# The plan reads answer from a plan file and the live sources, not from an
+# index answer, so there is nothing for --refresh to refresh. They accept the
+# inert --skip-stale-check like every command and no --refresh.
+NO_REFRESH_READS = frozenset({"plan-rename-symbol", "plan-show",
+                             "plan-validate"})
 
 
 def test_every_read_command_accepts_refresh_and_the_inert_skip_flag():
@@ -264,7 +271,7 @@ def test_every_read_command_accepts_refresh_and_the_inert_skip_flag():
     for name in sorted(command_classes.READ_COMMANDS):
         flags = {o for p in group.commands[name].params
                  for o in getattr(p, "opts", [])}
-        if "--refresh" not in flags:
+        if "--refresh" not in flags and name not in NO_REFRESH_READS:
             missing_refresh.append(name)
         if "--skip-stale-check" not in flags:
             missing_skip.append(name)
