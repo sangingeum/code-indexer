@@ -129,6 +129,30 @@ def chunk_text(path: str, text: str) -> list[Chunk]:
     return parse_file(path, text)[0]
 
 
+def parse_tree(path: str, text: str):
+    """The parser's tree and its own verdict, or ``(None, unavailable)``.
+
+    One place decides whether an AST exists at all: no grammar pack, no grammar
+    for the extension, or a parser exception yields ``None`` with
+    ``parse_unavailable``. Callers that need node ranges read the tree; the
+    chunker reads it through ``parse_file`` so both answer from the same parse.
+    """
+    if not _TS_OK:
+        return None, PARSE_UNAVAILABLE
+    ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
+    lang = EXT_LANG.get(ext)
+    if lang is None:
+        return None, PARSE_UNAVAILABLE
+    try:
+        parser = tree_sitter_language_pack.get_parser(lang)
+        data = text.encode("utf-8")
+        tree = parser.parse(data)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("tree-sitter parse failed for %s (%s): %s", path, lang, exc)
+        return None, PARSE_UNAVAILABLE
+    return tree, _tree_verdict(tree.root_node)
+
+
 def parse_file(path: str, text: str) -> tuple[list[Chunk], str]:
     """Chunks plus the file's parse verdict, from ONE parse of the file.
 
@@ -140,23 +164,13 @@ def parse_file(path: str, text: str) -> tuple[list[Chunk], str]:
     Every one of those paths takes the regex fallback, and a file that went
     through it reports ``parse_unavailable``: a failed claim, not a pass.
     """
-    if not _TS_OK:
-        return fallback_chunk(text), PARSE_UNAVAILABLE
-    ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
-    lang = EXT_LANG.get(ext)
-    if lang is None:
-        return fallback_chunk(text), PARSE_UNAVAILABLE
-    try:
-        parser = tree_sitter_language_pack.get_parser(lang)
-        data = text.encode("utf-8")
-        tree = parser.parse(data)
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("tree-sitter parse failed for %s (%s): %s", path, lang, exc)
+    tree, verdict = parse_tree(path, text)
+    if tree is None:
         return fallback_chunk(text), PARSE_UNAVAILABLE
 
     chunks: list[Chunk] = []
     root = tree.root_node
-    verdict = _tree_verdict(root)
+    data = text.encode("utf-8")
     if verdict == PARSE_ERROR:
         logger.debug("tree-sitter error-tolerant parse for %s — using AST anyway", path)
     # tree-sitter byte offsets index the ENCODED buffer, not the str. Slicing
