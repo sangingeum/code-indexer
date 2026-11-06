@@ -1,4 +1,4 @@
-registered /home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/svc-free-b5 (slug 89be2c95)
+registered <scratch>/r2gate/svc-free-b5 (slug 89be2c95)
 note: vectors=off — rows, symbols, references and chunks are indexed with no service; run reindex-project --vectors on later to embed them
 89be2c95: {"files_indexed": 5, "chunks_embedded": 0, "chunks_reused": 0, "files_deleted": 0, "duration_s": 0.04, "chunks_skipped": 0, "files_committed": 0, "sensitive_skipped": 0}
 
@@ -47,8 +47,8 @@ note: vectors=off — rows, symbols, references and chunks are indexed with no s
 
 == edit pkg/beta.py: the compute() chunk is removed (file edited by the gate, then the ordinary pass re-read it)
 
-$ INDEX_ROOT=/home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/idx5 code-indexer add-project /home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/svc-free-b5   (incremental pass, vectors off)
-already registered — path=/home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/svc-free-b5 slug=89be2c95 state=idle files=5 chunks=15 rows=current vectors=off vectors_state=absent last_indexed=2026-11-07 04:21:51 note=fingerprint backfills on next index pass
+$ INDEX_ROOT=<scratch>/r2gate/idx5 code-indexer add-project <scratch>/r2gate/svc-free-b5   (incremental pass, vectors off)
+already registered — path=<scratch>/r2gate/svc-free-b5 slug=89be2c95 state=idle files=5 chunks=15 rows=current vectors=off vectors_state=absent last_indexed=2026-11-07 04:21:51 note=fingerprint backfills on next index pass
 PASS_EXIT=0
 
 == AFTER: pkg/beta.py chunks

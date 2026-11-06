@@ -16,7 +16,7 @@
     "refs": 38,
     "symbols": 14
   },
-  "db": "/home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/idx4/53000ef2/manifest.db",
+  "db": "<scratch>/r2gate/idx4/53000ef2/manifest.db",
   "files": [
     {
       "chunk_count": 3,

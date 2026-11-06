@@ -70,7 +70,7 @@
   "rowcount": 1
 }
 
-$ INDEX_ROOT=/home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/idx code-indexer index-more /home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/svc-free   (vectors off, incremental)
+$ INDEX_ROOT=<scratch>/r2gate/idx code-indexer index-more <scratch>/r2gate/svc-free   (vectors off, incremental)
 ArgumentError: index-more needs a subpath to add — index-more <project> <subpath> or index-more --project <project> <subpath>
 INDEX_MORE_EXIT=2
 
@@ -196,7 +196,7 @@ INDEX_MORE_EXIT=2
 
 == NOTE: the first attempt used `index-more <project>` with no subpath and exited 2 (ArgumentError: index-more needs a subpath to add). Nothing ran; the "after" numbers below are from the corrected run.
 
-$ INDEX_ROOT=/home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/idx code-indexer index-more /home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/svc-free pkg/alpha.py
+$ INDEX_ROOT=<scratch>/r2gate/idx code-indexer index-more <scratch>/r2gate/svc-free pkg/alpha.py
 scope extended: pkg/alpha.py
 b7c131bf: {"files_indexed": 1, "chunks_embedded": 0, "chunks_reused": 0, "files_deleted": 4, "duration_s": 0.01, "chunks_skipped": 0, "files_committed": 0, "sensitive_skipped": 0}
 INDEX_MORE_EXIT=0

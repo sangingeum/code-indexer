@@ -11,7 +11,7 @@ STDOUT:
   "schema": 1,
   "hits": [
     {
-      "project": "/home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/svc-free",
+      "project": "<scratch>/r2gate/svc-free",
       "file": "pkg/alpha.py",
       "score": 0.016393,
       "symbol": "greet, Greeter",
@@ -43,7 +43,7 @@ note: this index is scoped to pkg/alpha.py — paths outside it are not indexed 
 EXIT=4
 STDOUT:
 STDERR:
-ConfigError: index for /home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/svc-free was built with vectors=off; semantic search needs vectors; run: code-indexer reindex-project /home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/svc-free --vectors on
+ConfigError: index for <scratch>/r2gate/svc-free was built with vectors=off; semantic search needs vectors; run: code-indexer reindex-project <scratch>/r2gate/svc-free --vectors on
 
 == semantic-search --mode lexical WITH reachable OLLAMA_URL
 EXIT=0
@@ -52,7 +52,7 @@ STDOUT(first 400):
   "schema": 1,
   "hits": [
     {
-      "project": "/home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/svc-free",
+      "project": "<scratch>/r2gate/svc-free",
       "file": "pkg/alpha.py",
       "score": 0.016393,
       "symbol": "greet, Greeter",

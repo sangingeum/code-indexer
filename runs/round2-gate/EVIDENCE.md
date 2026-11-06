@@ -3,6 +3,10 @@ Round 2 verification gate — capture index
 Each file in this folder is fresh output produced by the gate at cf6af65, named for the
 bar it evidences. Commands and exit codes are quoted in the bar table of `record.md`.
 
+Absolute host paths in these captures were normalised to `<home>`, `<checkout>`,
+`<index-root>` and `<scratch>` so the tracked tree satisfies the publishing hygiene
+lint; the substance of every capture is unchanged.
+
   b1-pytest.log                     the full suite, -W error
   b1-named-tests.log                the round's named test files
   b1-ruff.log                       ruff over src tests scripts

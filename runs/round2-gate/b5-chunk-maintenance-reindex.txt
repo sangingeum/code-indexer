@@ -1,5 +1,5 @@
 == reindex-project on svc-free-b5 after the edit (correct incremental command)
-$ INDEX_ROOT=/home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/idx5 code-indexer reindex-project --vectors off /home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/svc-free-b5
+$ INDEX_ROOT=<scratch>/r2gate/idx5 code-indexer reindex-project --vectors off <scratch>/r2gate/svc-free-b5
 89be2c95: {"files_indexed": 5, "chunks_embedded": 0, "chunks_reused": 0, "files_deleted": 0, "duration_s": 0.04, "chunks_skipped": 0, "files_committed": 0, "sensitive_skipped": 0}
 REINDEX_EXIT=0
 == AFTER reindex: beta.py chunks

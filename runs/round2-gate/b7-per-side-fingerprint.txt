@@ -8,9 +8,9 @@
   rows = current
   vectors = on
   vectors_state = current
-copy at /home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/b7run/idxA/e9877d37/manifest.db
+copy at <scratch>/r2gate/b7run/idxA/e9877d37/manifest.db
 --- index-status:
-{"project": "/home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/b4run/proj", "state": "idle", "rows": "current", "vectors": "on", "vectors_state": "stale", "fingerprint": "unverified", "reason": "embedding-dimension-not-compared", "languages_without_ast": ["bash", "css", "html", "java", "json", "kotlin", "lua", "markdown", "php", "ruby", "rust", "swift", "toml", "yaml"], "parsed": 3, "parse_error": 1, "parse_unavailable": 1, "stale": false, "stale_known": true, "stale_reasons": [], "stale_reason_count": 0, "index_revision": "2", "last_indexed": "2026-11-06T19:29:49Z", "schema": 1}
+{"project": "<scratch>/r2gate/b4run/proj", "state": "idle", "rows": "current", "vectors": "on", "vectors_state": "stale", "fingerprint": "unverified", "reason": "embedding-dimension-not-compared", "languages_without_ast": ["bash", "css", "html", "java", "json", "kotlin", "lua", "markdown", "php", "ruby", "rust", "swift", "toml", "yaml"], "parsed": 3, "parse_error": 1, "parse_unavailable": 1, "stale": false, "stale_known": true, "stale_reasons": [], "stale_reason_count": 0, "index_revision": "2", "last_indexed": "2026-11-06T19:29:49Z", "schema": 1}
 
 --- find-symbol greet:
 EXIT=0
@@ -37,12 +37,12 @@ EXIT=0
   rows = current
   vectors = on
   vectors_state = current
-copy at /home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/b7run/idxB/e9877d37/manifest.db
+copy at <scratch>/r2gate/b7run/idxB/e9877d37/manifest.db
 --- index-status:
-{"project": "/home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/b4run/proj", "state": "idle", "rows": "absent", "vectors": "on", "vectors_state": "current", "fingerprint": "needs-reindex", "reason": "extraction_version: 999 -> 5", "languages_without_ast": ["bash", "css", "html", "java", "json", "kotlin", "lua", "markdown", "php", "ruby", "rust", "swift", "toml", "yaml"], "parsed": 3, "parse_error": 1, "parse_unavailable": 1, "stale": false, "stale_known": true, "stale_reasons": [], "stale_reason_count": 0, "index_revision": "2", "last_indexed": "2026-11-06T19:29:49Z", "schema": 1}
+{"project": "<scratch>/r2gate/b4run/proj", "state": "idle", "rows": "absent", "vectors": "on", "vectors_state": "current", "fingerprint": "needs-reindex", "reason": "extraction_version: 999 -> 5", "languages_without_ast": ["bash", "css", "html", "java", "json", "kotlin", "lua", "markdown", "php", "ruby", "rust", "swift", "toml", "yaml"], "parsed": 3, "parse_error": 1, "parse_unavailable": 1, "stale": false, "stale_known": true, "stale_reasons": [], "stale_reason_count": 0, "index_revision": "2", "last_indexed": "2026-11-06T19:29:49Z", "schema": 1}
 
 --- find-symbol greet:
 EXIT=4
 STDOUT_BYTES=0
 STDERR:
-RebuildRequiredError: index for /home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/b4run/proj does not match the current configuration (extraction_version: 999 -> 5); the stored rows are obsolete, so this answer would describe an index this build would not produce; run: code-indexer reindex-project /home/keum/.hermes/profiles/<profile>/cache/scratch/r2gate/b4run/proj
+RebuildRequiredError: index for <scratch>/r2gate/b4run/proj does not match the current configuration (extraction_version: 999 -> 5); the stored rows are obsolete, so this answer would describe an index this build would not produce; run: code-indexer reindex-project <scratch>/r2gate/b4run/proj
