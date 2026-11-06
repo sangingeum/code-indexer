@@ -164,12 +164,12 @@ code-indexer outline [--project P | --name P] FILE [--docstrings] [--json] [--re
 code-indexer file-outline ...   # alias for outline
 
 # lookup
-code-indexer find-symbol Name [--project P | --name P] [--type class] [--limit N] [--json] [--refresh] [--fresh]   # exact-first: EVERY definition of the name (40 if there are 40); --limit bounds it only when given; the substring tier is a capped fallback
-code-indexer find-symbol [--project P | --name P] [--type class] [--file src/x.py] [--substring] [--limit 25]   # browse mode (no name); default cap 25
-code-indexer find-definition Name [--project P | --name P] [--json] [--refresh] [--fresh]   # exact match only, every definition
+code-indexer find-symbol Name [--project P | --name P] [--kind class] [--type class] [--symbol-type class] [--file F] [--container X] [--visibility public|private] [--language python] [--inherits Base] [--has-call name] [--limit N] [--json] [--refresh] [--fresh]   # exact-first: EVERY definition of the name (40 if there are 40); --limit bounds it only when given; the substring tier is a capped fallback for a bare name
+code-indexer find-symbol [--project P | --name P] [--kind class] [--name-pattern '*Manager'] [--file src/x.py] [--container X] [--visibility public|private] [--language python] [--inherits Base] [--has-call name] [--substring] [--limit 25]   # browse mode (no name); default cap 25
+code-indexer find-definition Name [--project P | --name P] [--exactly-one] [--json] [--refresh] [--fresh]   # exact match only, every definition; --exactly-one refuses an ambiguous name with ArgumentError (exit 2) listing the candidates
 code-indexer find-references Name [--project P | --name P] [--relationship calls|includes|inherits|references] [--limit 25] [--json] [--refresh] [--fresh]   # references from the single store; every row labelled confidence=/receiver=; json adds the staleness block
-code-indexer find-callers Name [--project P] [--depth 2] [--max-nodes 40] [--json]   # fan-in over the refs table (ast vs heuristic); dotted Type.Member ok; every CALL SITE is a node; json adds truncated/omitted
-code-indexer find-callees Name [--project P] [--depth 2] [--max-nodes 40] [--json]   # fan-out over the refs table; a TARGET is a node (one target reached twice is one callee)
+code-indexer find-callers Name [--project P] [--depth 2] [--max-nodes 40] [--json]   # fan-in over the refs table (ast vs heuristic); dotted Type.Member ok; every CALL SITE is a node; json adds match_count/ambiguity and truncated/omitted; an ambiguous name unions over every definition and each direct hit carries targets
+code-indexer find-callees Name [--project P] [--depth 2] [--max-nodes 40] [--json]   # fan-out over the refs table; a TARGET is a node (one target reached twice is one callee); json adds match_count/ambiguity and each direct callee carries targets
 code-indexer deps PATH [--project P] [--direction in|out|both] [--depth 2] [--max-nodes 60] [--format tree|edges|json]   # import graph around a file; json keeps the per-level in/out dicts and adds truncated/omitted
 
 # reading
@@ -195,6 +195,48 @@ code-indexer unwatch --all [--timeout 10] # stop it for every registered project
 code-indexer eval --project P --queries eval/queries.jsonl [--k 1,3,5,10] [--mode dense|lexical|hybrid] [--rerank heuristic|none] [--out FILE]
 code-indexer eval-compare BASE_REPORT.json CANDIDATE_REPORT.json
 ```
+
+## Structural filters, evidence and ambiguity
+
+`find-symbol` is the one structural query surface: every filter below is an
+AND clause in the same read, so they compose without a second command.
+
+| filter | answer |
+|---|---|
+| `--kind` (`--type`, `--symbol-type` kept as aliases) | function/method/class/struct/enum/namespace |
+| `--name-pattern GLOB` | a case-sensitive glob over the name (`*Manager`, `get_*`); the name index answers it, no new index |
+| `--file F` | one project-relative file |
+| `--container X` | the parent qualified name (`Manifest` for its methods) |
+| `--visibility public\|private` | the stored column; a NULL visibility reads as public |
+| `--language python` | the denormalized file language |
+| `--inherits Base` | an ATTRIBUTED `base_class` reference to `Base` |
+| `--has-call name` | an ATTRIBUTED `call` reference to `name` |
+
+**Evidence.** Every symbol row carries `evidence`:
+`ast` (attributed syntax), `heuristic` (a textual scan) or `unknown` (the file
+has no AST extractor, or its parse failed). `--inherits` and `--has-call`
+answer from attributed syntax only, so a symbol in a docs/data file reports
+`unknown` — never "no". Most repositories this tool indexes are mostly files
+with no grammar, so an empty answer from those two filters prints an
+`evidence_note` (JSON) / one explanatory line (text) naming how many files
+were not attributed. Do not read such a zero as a negative.
+
+**Limit and truncation.** `--limit` keeps its meaning and its default (none in
+exact-name mode, 25 in browse mode). A capped answer says so: `match_count`
+is the uncapped population computed from the same clauses, `truncated` is
+true when fewer rows were shown, and text mode prints
+`... N of M matches shown (--limit N reached; ...)`.
+
+**Ambiguity.** An exact name with more than one definition reports
+`match_count` and an `ambiguity.candidates[]` block — file, range, kind,
+container, signature, language and `decl_hash` for each — instead of picking
+a row. `find-definition --exactly-one` is the single-symbol surface: an
+ambiguous name refuses with `ArgumentError` (exit 2) and lists every
+candidate (`candidates` as data in `--json`). `find-callers` and
+`find-callees` union over every definition and label each direct hit with
+`targets` — the candidate definition(s) it can belong to, narrowed to one
+where the store attributes the edge (an import resolves to a file) and
+naming every candidate where a name-level reference cannot be attributed.
 
 ## Staleness, refresh and exit codes
 

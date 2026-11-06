@@ -1,5 +1,42 @@
 # Changelog
 
+## [Unreleased] — structural query on a stable identity
+
+**The identity model is now a query surface, and an ambiguous name is
+reported instead of guessed.** `find-symbol` gains the structural filters
+over the rows the identity pass already writes — `--kind` (with `--type` and
+`--symbol-type` kept as aliases), `--name-pattern` (a case-sensitive glob the
+name index answers), `--container`, `--visibility`, `--language`,
+`--inherits NAME` and `--has-call NAME` — and they compose as AND in one read.
+No schema change, no new index, no reindex: this release is query-only.
+
+- **`--inherits` and `--has-call` are syntax-evidence filters, and say so.**
+  Every symbol row now carries `evidence: ast|heuristic|unknown`, read from
+  the file's parse verdict. A symbol in a file with no AST extractor reports
+  `unknown`, never a negative: on this repository's own index 91.8% of
+  reference rows are textual, so absence of an attributed call is not
+  absence of a call. An empty answer from either filter carries
+  `evidence_note` (JSON) or one explanatory line (text) naming how many files
+  were not attributed.
+- **A capped answer says it was capped.** `find-symbol --json` carries
+  `match_count` (the uncapped population, computed from the same clause set)
+  and `truncated`; text mode prints `... N of M matches shown (--limit N
+  reached; ...)`. `--limit` keeps its meaning and its default.
+- **Ambiguity has an envelope.** An exact name with more than one definition
+  carries `match_count` and `ambiguity.candidates[]` — file, range, kind,
+  container, signature, language and `decl_hash` — instead of resolving to
+  whichever row sorted first. `find-definition --exactly-one` is the
+  single-symbol surface: an ambiguous name refuses with `ArgumentError`
+  (exit 2) and lists every candidate, as data (`candidates`) in `--json`.
+- **`find-callers` and `find-callees` union over every definition and label
+  each direct hit.** Their JSON carries `match_count`, `ambiguity` when the
+  name has several identities, and a `targets` list per direct hit naming the
+  candidate definition(s) it can belong to — narrowed to one where the store
+  attributes the edge (an import resolves to a file), all candidates where a
+  name-level reference cannot be attributed.
+- **Documented:** SKILL-CLI.md and docs/json-schema.md describe the filters,
+  the evidence label, the ambiguity envelope and the truncation signal.
+
 ## [Unreleased] — a read can destroy nothing
 
 **A read command no longer opens the manifest read-write.** Every read opens

@@ -244,14 +244,46 @@ pass lost chunks, and `current` otherwise.
 {"schema": 1, "symbols": [{"file", "name", "type",
                   "start_line", "end_line", "signature",
                   "qualified_name", "container", "language",
-                  "decl_hash", "symbol_id"}],
- "match": "exact"|"substring"|"browse", <staleness block>}
+                  "decl_hash", "symbol_id",
+                  "evidence": "ast"|"heuristic"|"unknown"}],
+ "match": "exact"|"substring"|"browse",
+ "match_count": int, "truncated": bool,
+ "ambiguity"|"missing": {"candidates": [{"file", "range":
+                  {"start_line", "end_line"}, "kind", "container",
+                  "signature", "language", "decl_hash",
+                  "qualified_name", "evidence"}]},
+ "evidence_note"|"missing": str,
+ <staleness block>}
 ```
 
-`schema` stays 1: the identity fields are additive. `container` is `null` at
+`schema` stays 1: every field here is additive. `container` is `null` at
 top level; `decl_hash` is `sha256:`-prefixed; `symbol_id` is the
 revision-scoped surrogate and belongs to the `index_revision` in the staleness
 block — it is not a durable identifier. No rows is `symbols: []` with exit 0.
+
+`evidence` is a property of the file the row came from, not of the query:
+`ast` (attributed syntax), `heuristic` (a textual scan) or `unknown` (no AST
+extractor, or the parse failed). It is present on every row, so a caller can
+tell `unknown` from a negative — most indexed repositories are mostly files
+with no grammar.
+
+`match_count` is the uncapped number of rows the same filters match, and
+`truncated` is true when `--limit` showed fewer. `ambiguity` appears in
+exact-name mode when `match_count` exceeds one, and lists every candidate;
+the answer never resolves the name to one row.
+
+`evidence_note` appears when `--inherits` or `--has-call` came back empty: it
+names how many files holding symbols have no AST extractor, so an empty
+answer reads as "not attributed", not "no".
+
+### structural filters
+
+`--kind` (with `--type`/`--symbol-type` as aliases), `--name-pattern` (a
+case-sensitive GLOB over the name), `--file`, `--container`, `--visibility`
+(NULL reads as public), `--language`, `--inherits NAME` and `--has-call NAME`
+compose as AND in one read. `--inherits`/`--has-call` answer from the
+`refs` rows whose `from_symbol` is this symbol's own name in its own file,
+attributed syntax only.
 
 ## find-definition --json
 
@@ -265,6 +297,29 @@ block — it is not a durable identifier. No rows is `symbols: []` with exit 0.
 ```
 
 No definitions is `definitions: []` with exit 0 (an answer, not a failure).
+
+With `--exactly-one`, a name with more than one definition is refused: exit 2,
+one `ArgumentError:` line, and — in `--json` — `{"schema": 1,
+"ErrorType": "ArgumentError", "error": str, "candidates": [<the ambiguity
+candidate records>]}`. A single definition answers as usual.
+
+## find-callers / find-callees --json
+
+```json
+{"roots": [{"file", "symbol", "line", "relationship", "confidence",
+           "receiver", "targets": [str], "children": [...]}],
+ "truncated": bool, "omitted": int, "match_count": int,
+ "ambiguity"|"missing": {"candidates": [...]}, "notes"|"missing": [str]}
+```
+
+`match_count` is the number of definition rows the subject name resolves to;
+`ambiguity` appears when that exceeds one, with the same candidate records as
+`find-symbol`. The walk unions over every candidate, and each DIRECT hit
+carries `targets` — the `file:start-end` candidate label(s) it can belong to.
+An import-resolved edge is attributed to the candidate in its file; a
+name-level reference cannot be attributed, so it names every candidate.
+`targets` is empty when the subject has one definition (nothing to pick) and
+on transitive nodes.
 
 ## find-references --json
 
