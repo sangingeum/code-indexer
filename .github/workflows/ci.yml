@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Manual re-run: a delivery event can be lost while GitHub Actions is
+  # degraded, and a red gate that cannot be re-fired hides that.
+  workflow_dispatch:
 
 jobs:
   test:
