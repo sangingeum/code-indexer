@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 import time
 from typing import Any, NoReturn
 
@@ -22,7 +23,10 @@ logger = logging.getLogger("code-indexer.cli")
 
 from .errors import fail
 from .errors import ArgumentError, classify, IndexerError, RebuildRequiredError
-from .errors import ExtensionUnavailableError
+from .errors import (AmbiguousSymbolError, ExtensionUnavailableError,
+                     LocatorMismatchError, NotFoundError, NotUtf8Error)
+from . import plans
+from . import ts_chunker
 from .extensions import SEMANTIC_EXTENSION_MESSAGE, semantic_available
 from .core import NEEDS_REINDEX, NEVER_INDEXED, UNVERIFIED, Core
 from . import staleness
@@ -2211,6 +2215,331 @@ def main() -> None:
     except BaseException as exc:  # noqa: BLE001 — the shared failure seam
         logger.info("command failed", exc_info=True)
         fail(exc)
+
+
+# ---------------------------------------------------------------------------
+# edit plans (ADR-0004): prepare, validate and preview -- never apply
+# ---------------------------------------------------------------------------
+
+PlanDirOpt = typer.Option(
+    None, "--plan-dir",
+    help="Directory holding plan files (default: <project>/.code-indexer/plans).")
+
+
+def _plan_entry(project: str | None) -> tuple[Core, ProjectEntry]:
+    core = _get_core(True)
+    entry, err = core.resolve_entry(project)
+    if entry is None:
+        fail(NotFoundError(err))
+    return core, entry
+
+
+def _plan_dir(entry: ProjectEntry, plan_dir: str | None) -> str:
+    return plan_dir or os.path.join(entry.path, plans.DEFAULT_PLAN_DIR)
+
+
+def _index_revision(core: Core, entry: ProjectEntry) -> str:
+    """The revision the plan was prepared against -- evidence, not a check."""
+    try:
+        m = core.read_manifest(entry.slug)
+    except Exception:  # noqa: BLE001 - a project may carry no manifest yet
+        return "unknown"
+    try:
+        return (m.get_meta("index_revision") or m.get_meta("last_indexed")
+                or "unknown")
+    finally:
+        m.close()
+
+
+def _name_matches(qualified_name: str, symbol: str) -> bool:
+    return (qualified_name == symbol
+            or qualified_name.rsplit(".", 1)[-1] == symbol)
+
+
+def _live_candidate(decl: plans.Declaration, rel_path: str,
+                    language: str) -> dict[str, Any]:
+    """One ambiguity record for a node found in the live file."""
+    return {"file": rel_path,"range": {"start_line": decl.start_line,
+                                        "end_line": decl.end_line},
+            "kind": decl.symbol_type,
+            "container": (decl.qualified_name.rsplit(".", 1)[0]
+                          if "." in decl.qualified_name else None),
+            "signature": None, "language": language,
+            "decl_hash": decl.decl_hash,
+            "qualified_name": decl.qualified_name, "evidence": "ast"}
+
+
+def _resolve_plan_target(core: Core, entry: ProjectEntry, symbol: str,
+                         file_filter: str | None, kind: str | None,
+                         container: str | None) -> tuple[str, str, str,
+                                                         str | None, str]:
+    """One declaration the plan may target: (path, name, kind, hash, language).
+
+    With ``--file`` the query runs against the live file only, so preparing a
+    plan never needs an index. Without it the manifest's symbol index finds
+    the file first, and an ambiguous name is refused with every candidate
+    listed rather than resolved to whichever row sorted first.
+    """
+    if file_filter:
+        tf = plans.read_text_file(entry.path, file_filter)
+        derived, verdict = plans.declarations(file_filter, tf.text)
+        if verdict == ts_chunker.PARSE_UNAVAILABLE:
+            raise LocatorMismatchError(
+                f"{file_filter}: the file has no AST extractor, so no node "
+                "range can be derived and no plan can name it")
+        candidates = [decl for decl in derived
+                      if _name_matches(decl.qualified_name, symbol)
+                      and (kind is None or decl.symbol_type == kind)
+                      and (container is None
+                           or decl.qualified_name.rsplit(".", 1)[0]
+                           == container)]
+        language = ts_chunker.EXT_LANG.get(
+            file_filter.rsplit(".", 1)[-1].lower(), "unknown")
+        if not candidates:
+            raise NotFoundError(
+                f"no indexed definition for {symbol!r} in {file_filter}")
+        if len(candidates) > 1:
+            raise AmbiguousSymbolError(
+                symbol, [_live_candidate(decl, file_filter, language)
+                         for decl in candidates])
+        decl = candidates[0]
+        return (file_filter, decl.qualified_name, decl.symbol_type, None,
+                language)
+    m = core.read_manifest(entry.slug)
+    try:
+        rows = m.find_symbols(symbol, substring=False)
+    finally:
+        m.close()
+    rows = [row for row in rows
+            if (kind is None or row.symbol_type == kind)
+            and (container is None or row.container == container)]
+    if not rows:
+        raise NotFoundError(
+            f"no indexed definition for {symbol!r}; pass --file to search one "
+            "file without the index, or index the project first")
+    if len(rows) > 1:
+        raise AmbiguousSymbolError(
+            symbol, [identity.candidate(row) for row in rows])
+    row = rows[0]
+    return row.file, row.qualified_name, row.symbol_type, row.decl_hash, \
+        row.language or "unknown"
+
+
+def _replacement_text(text: str | None, body_file: str | None) -> str:
+    """The replacement block, from ``--text`` or ``--body-file`` (one only)."""
+    if (text is None) == (body_file is None):
+        raise ArgumentError(
+            "pass exactly one of --text or --body-file: the replacement block "
+            "has one source")
+    if body_file is None:
+        return plans.normalize_replacement(text or "")
+    try:
+        with open(body_file, "rb") as handle:
+            raw = handle.read()
+    except OSError as exc:
+        raise ArgumentError(f"--body-file {body_file} is unreadable: {exc}") \
+            from exc
+    try:
+        decoded = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise NotUtf8Error(
+            f"--body-file {body_file} is not UTF-8: {exc}") from exc
+    # A file written on a CRLF machine is translated at this boundary: the
+    # plan itself always encodes LF (ADR-0004 section 3 rule 5).
+    return plans.normalize_replacement(decoded.replace("\r\n", "\n")
+                                       .replace("\r", "\n"))
+
+
+def _emit_plan(document: dict[str, Any], plan_path: str | None,
+               print_only: bool, json_output: bool) -> None:
+    if print_only:
+        # The document's own canonical bytes and nothing else: no newline, no
+        # banner, no file. `--print | jq -r .plan_id` is the acceptance line.
+        sys.stdout.write(plans.plan_text(document))
+        return
+    if json_output:
+        typer.echo(json.dumps({"schema": 1, "plan_id": document["plan_id"],
+                               "plan_path": plan_path,
+                               "document": document},
+                              ensure_ascii=False, indent=2))
+        return
+    typer.echo(f"plan {document['plan_id']}")
+    typer.echo(f"path {plan_path}")
+    for edit in document["edits"]:
+        typer.echo(plans.edit_summary(edit))
+
+
+def _prepare_plan(operation: str, symbol: str, *, project: str | None,
+                  file_filter: str | None, kind: str | None,
+                  container: str | None, text: str | None,
+                  body_file: str | None, position: str | None,
+                  note: str | None, plan_dir: str | None,
+                  print_only: bool, json_output: bool) -> None:
+    try:
+        core, entry = _plan_entry(project)
+        rel_path, qualified, symbol_type, decl_hash, language = \
+            _resolve_plan_target(core, entry, symbol, file_filter, kind,
+                                 container)
+        tf = plans.read_text_file(entry.path, rel_path)
+        derived, verdict = plans.declarations(rel_path, tf.text)
+        if verdict == ts_chunker.PARSE_UNAVAILABLE:
+            raise LocatorMismatchError(
+                f"{rel_path}: the file has no AST extractor, so the "
+                "declaration cannot be re-derived")
+        decl = plans.find_declaration(derived, rel_path, qualified,
+                                      symbol_type, decl_hash)
+        if operation == "replace_body":
+            edits = [plans.replace_body_edit(
+                tf, decl, _replacement_text(text, body_file))]
+        elif operation == "delete_declaration":
+            if text is not None or body_file is not None:
+                raise ArgumentError(
+                    "plan-delete-declaration takes no replacement text")
+            edits = [plans.delete_declaration_edit(tf, decl)]
+        else:
+            if position is None:
+                raise ArgumentError(
+                    "plan-insert-symbol needs --position before|after|end")
+            edits = [plans.insert_symbol_edit(
+                tf, decl, position, _replacement_text(text, body_file),
+                note=note)]
+        plans.check_edit_order(edits, {rel_path: tf})
+        document = plans.build_document(
+            operation=operation,
+            repository={"project": entry.name or entry.slug,
+                        "index_revision": _index_revision(core, entry)},
+            files=[plans.file_record(tf, language)],
+            target=plans.locator(tf, decl, language), edits=edits)
+    except IndexerError as exc:
+        _json_failure(exc, json_output)
+        return
+    plan_path = None
+    if not print_only:
+        plan_path = plans.write_plan(document, _plan_dir(entry, plan_dir))
+    _emit_plan(document, plan_path, print_only, json_output)
+
+
+@app.command(name="plan-replace-body")
+def plan_replace_body(
+    symbol: str = typer.Argument(..., help="Symbol whose body is replaced."),
+    project: str = PROJECT_OPT,
+    file: str = typer.Option(None, "--file",
+                             help="File holding the symbol (narrows the query)."),
+    kind: str = typer.Option(None, "--kind",
+                             help="function|method|class|struct|enum|namespace."),
+    container: str = typer.Option(None, "--container",
+                                  help="Parent qualified name (exact)."),
+    text: str = typer.Option(None, "--text",
+                             help="Replacement body text; LF only."),
+    body_file: str = typer.Option(None, "--body-file",
+                                  help="Read the replacement block from a file."),
+    note: str = typer.Option(None, "--note", help="A note carried on the edit."),
+    plan_dir: str = typer.Option(None, "--plan-dir",
+                                 help="Directory for plan files."),
+    print_only: bool = typer.Option(
+        False, "--print",
+        help="Emit the plan document and write nothing at all."),
+    json_output: bool = typer.Option(False, "--json", help="JSON output."),
+) -> None:
+    """Prepare a plan that replaces one declaration's body.
+
+    The replacement is the body node's own line range, which is what makes it
+    expressible as the line-granular edit the apply path uses. A body whose
+    first token does not begin a line is refused rather than widened.
+
+    One plan file is written into the plan dir; with --print the canonical
+    document goes to stdout instead and nothing at all is written.
+    """
+    _prepare_plan("replace_body", symbol, project=project, file_filter=file,
+                  kind=kind, container=container, text=text,
+                  body_file=body_file, position=None, note=note,
+                  plan_dir=plan_dir, print_only=print_only,
+                  json_output=json_output)
+
+
+@app.command(name="plan-insert-symbol")
+def plan_insert_symbol(
+    symbol: str = typer.Argument(
+        ..., help="Symbol whose boundary anchors the insertion."),
+    project: str = PROJECT_OPT,
+    position: str = typer.Option("after", "--position",
+                                 help="before|after|end."),
+    file: str = typer.Option(None, "--file",
+                             help="File holding the symbol (narrows the query)."),
+    kind: str = typer.Option(None, "--kind",
+                             help="function|method|class|struct|enum|namespace."),
+    container: str = typer.Option(None, "--container",
+                                  help="Parent qualified name (exact)."),
+    text: str = typer.Option(None, "--text",
+                             help="Text of the inserted block; LF only."),
+    body_file: str = typer.Option(None, "--body-file",
+                                  help="Read the inserted block from a file."),
+    note: str = typer.Option(None, "--note", help="A note carried on the edit."),
+    plan_dir: str = typer.Option(None, "--plan-dir",
+                                 help="Directory for plan files."),
+    print_only: bool = typer.Option(
+        False, "--print",
+        help="Emit the plan document and write nothing at all."),
+    json_output: bool = typer.Option(False, "--json", help="JSON output."),
+) -> None:
+    """Prepare a plan that inserts a block at a declaration boundary.
+
+    A contiguous comment block immediately above the declaration moves the
+    "before" point to the top of that block, and the move is recorded in the
+    edit's note. Insertion after the last line is position 'end', never a line
+    number. One plan file is written; --print writes nothing.
+    """
+    _prepare_plan("insert_symbol", symbol, project=project, file_filter=file,
+                  kind=kind, container=container, text=text,
+                  body_file=body_file, position=position, note=note,
+                  plan_dir=plan_dir, print_only=print_only,
+                  json_output=json_output)
+
+
+@app.command(name="plan-delete-declaration")
+def plan_delete_declaration(
+    symbol: str = typer.Argument(..., help="Symbol to delete whole."),
+    project: str = PROJECT_OPT,
+    file: str = typer.Option(None, "--file",
+                             help="File holding the symbol (narrows the query)."),
+    kind: str = typer.Option(None, "--kind",
+                             help="function|method|class|struct|enum|namespace."),
+    container: str = typer.Option(None, "--container",
+                                  help="Parent qualified name (exact)."),
+    plan_dir: str = typer.Option(None, "--plan-dir",
+                                 help="Directory for plan files."),
+    print_only: bool = typer.Option(
+        False, "--print",
+        help="Emit the plan document and write nothing at all."),
+    json_output: bool = typer.Option(False, "--json", help="JSON output."),
+) -> None:
+    """Prepare a plan that deletes one declaration's whole line range.
+
+    Body-only deletion is not offered: the decl range is the unit. One plan
+    file is written; --print writes nothing.
+    """
+    _prepare_plan("delete_declaration", symbol, project=project,
+                  file_filter=file, kind=kind, container=container,
+                  text=None, body_file=None, position=None, note=None,
+                  plan_dir=plan_dir, print_only=print_only,
+                  json_output=json_output)
+
+
+@app.command(name="plan-rename-symbol")
+def plan_rename_symbol(
+    symbol: str = typer.Argument(None, help="Reserved operation."),
+    project: str = PROJECT_OPT,
+    json_output: bool = typer.Option(False, "--json", help="JSON output."),
+) -> None:
+    """Reserved: renaming a symbol is refused in phase 1.
+
+    References are textual and nothing in this tool would verify a rename, so
+    the operation is named in the format and refused rather than half-built.
+    """
+    _json_failure(ArgumentError(
+        "rename_symbol is reserved in the plan format and refused in phase 1: "
+        "references are textual, so nothing here could verify a rename; no "
+        "plan is written"), json_output)
 
 
 # ---------------------------------------------------------------------------

@@ -18,8 +18,13 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import pytest  # noqa: E402
+from typer.testing import CliRunner  # noqa: E402
 
 from code_indexer import plans  # noqa: E402
+from code_indexer.cli import app  # noqa: E402
+from code_indexer.config import Config  # noqa: E402
+from code_indexer.core import Core  # noqa: E402
+from code_indexer.registry import Registry  # noqa: E402
 from code_indexer.errors import (  # noqa: E402
     EXIT_BACKEND,
     EXIT_FAIL,
@@ -541,3 +546,160 @@ def test_the_syntax_verdict_is_the_parsers_and_is_reported(tmp_path):
     assert report["syntax"] == [{"path": "mod.py", "verdict": "parsed"}]
     statuses = {entry["check"]: entry["status"] for entry in report["checks"]}
     assert statuses["syntax verdicts"] == "reported"
+
+
+# ---------------------------------------------------------------------------
+# the prepare commands: one plan file, or nothing under --print
+# ---------------------------------------------------------------------------
+
+runner = CliRunner()
+
+
+class PlanRig:
+    def __init__(self, root, project, entry, core):
+        self.root = root
+        self.project = project
+        self.entry = entry
+        self.core = core
+        self.plan_dir = os.path.join(str(project), plans.DEFAULT_PLAN_DIR)
+
+
+@pytest.fixture()
+def plan_rig(tmp_path, monkeypatch):
+    """A registered project with sources but no index: prepare never needs one."""
+    monkeypatch.setenv("INDEX_ROOT", str(tmp_path / "state"))
+    import code_indexer.cli as cli
+
+    cli._core = None
+    cli._core_skip = False
+    cfg = Config(ollama_url="http://stub", qdrant_url="http://stub",
+                 embed_model="stub", index_root=str(tmp_path / "state"),
+                 stale_ttl=0, embed_batch=48, upsert_batch=256,
+                 max_file_bytes=1048576, watch_debounce=1,
+                 watch_sweep_interval=3600)
+    core = Core(cfg)
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "mod.py").write_text(TWO_FUNCTIONS)
+    reg = Registry(os.path.join(cfg.index_root, "registry.db"))
+    entry = reg.add(str(project), name="plansample")
+    monkeypatch.setattr(cli, "_get_core", lambda skip: core)
+    yield PlanRig(str(project), project, entry, core)
+    reg.close()
+    cli._core = None
+    cli._core_skip = False
+
+
+def test_plan_replace_body_writes_one_plan_named_by_its_hash(plan_rig):
+    result = runner.invoke(app, [
+        "plan-replace-body", "one", "--project", "plansample",
+        "--file", "mod.py", "--text", "    return 41"])
+    assert result.exit_code == 0, result.output
+    names = os.listdir(plan_rig.plan_dir)
+    assert len(names) == 1
+    path = os.path.join(plan_rig.plan_dir, names[0])
+    document = plans.load_plan(path)
+    assert names[0] == document["plan_id"].split(":", 1)[1] + ".json"
+    assert plans.plan_id_of(document) == document["plan_id"]
+    assert document["operation"] == "replace_body"
+    assert document["target"]["qualified_name"] == "one"
+    assert document["edits"][0]["new_text"] == "    return 41"
+    assert document["validation"] == {"syntax_required": True,
+                                      "semantic_required": False}
+
+
+def test_print_emits_the_canonical_document_and_writes_nothing(plan_rig):
+    result = runner.invoke(app, [
+        "plan-replace-body", "one", "--project", "plansample",
+        "--file", "mod.py", "--text", "    return 41", "--print"])
+    assert result.exit_code == 0, result.output
+    assert not os.path.exists(plan_rig.plan_dir)
+    assert result.stdout == plans.plan_text(json.loads(result.stdout))
+    document = json.loads(result.stdout)
+    assert document["plan_id"] == plans.plan_id_of(document)
+
+
+def test_the_printed_plan_id_is_the_hash_of_the_printed_bytes(plan_rig):
+    result = runner.invoke(app, [
+        "plan-delete-declaration", "two", "--project", "plansample",
+        "--file", "mod.py", "--print"])
+    assert result.exit_code == 0, result.output
+    document = json.loads(result.stdout)
+    without_id = {key: value for key, value in document.items()
+                  if key != "plan_id"}
+    expected = "sha256:" + hashlib.sha256(
+        plans.canonical_bytes(without_id)).hexdigest()
+    assert document["plan_id"] == expected
+
+
+def test_insert_before_moves_above_a_comment_block_and_says_so(tmp_path,
+                                                              plan_rig):
+    path = plan_rig.project / "commented.py"
+    path.write_text("# note a\n# note b\ndef two():\n    return 2\n")
+    result = runner.invoke(app, [
+        "plan-insert-symbol", "two", "--project", "plansample",
+        "--file", "commented.py", "--position", "before",
+        "--text", "def one():\n    return 1"])
+    assert result.exit_code == 0, result.output
+    document = json.loads(
+        open(os.path.join(plan_rig.plan_dir, os.listdir(plan_rig.plan_dir)[0]))
+        .read())
+    edit = document["edits"][0]
+    assert edit["position"] == "before"
+    assert edit["start_line"] == 1
+    assert "comment block at lines 1-2" in edit["note"]
+
+
+def test_insert_after_the_last_declaration_is_position_end(plan_rig):
+    result = runner.invoke(app, [
+        "plan-insert-symbol", "two", "--project", "plansample",
+        "--file", "mod.py", "--position", "after",
+        "--text", "def three():\n    return 3"])
+    assert result.exit_code == 0, result.output
+    document = json.loads(
+        open(os.path.join(plan_rig.plan_dir, os.listdir(plan_rig.plan_dir)[0]))
+        .read())
+    assert document["edits"][0]["position"] == "end"
+
+
+def test_an_ambiguous_name_with_one_file_is_refused_with_both(plan_rig):
+    (plan_rig.project / "dup.py").write_text(
+        "def dup():\n    return 1\n\n\ndef dup():\n    return 2\n")
+    result = runner.invoke(app, [
+        "plan-replace-body", "dup", "--project", "plansample",
+        "--file", "dup.py", "--text", "    return 3", "--json"])
+    assert result.exit_code == EXIT_USAGE
+    payload = json.loads(result.stdout)
+    assert payload["ErrorType"] == "ArgumentError"
+    assert len(payload["candidates"]) == 2
+    assert not os.path.exists(plan_rig.plan_dir)
+
+
+def test_rename_symbol_is_refused_by_the_command(plan_rig):
+    result = runner.invoke(app, [
+        "plan-rename-symbol", "one", "--project", "plansample"])
+    assert result.exit_code == EXIT_USAGE
+    assert "reserved" in result.stderr
+    assert not os.path.exists(plan_rig.plan_dir)
+
+
+def test_prepare_needs_exactly_one_replacement_source(plan_rig):
+    result = runner.invoke(app, [
+        "plan-replace-body", "one", "--project", "plansample",
+        "--file", "mod.py"])
+    assert result.exit_code == EXIT_USAGE
+    assert "--text or --body-file" in result.stderr
+
+
+def test_a_body_file_is_translated_at_the_input_boundary(tmp_path, plan_rig):
+    body = tmp_path / "body.txt"
+    body.write_bytes(b"    return 41\r\n")
+    result = runner.invoke(app, [
+        "plan-replace-body", "one", "--project", "plansample",
+        "--file", "mod.py", "--body-file", str(body)])
+    assert result.exit_code == 0, result.output
+    document = json.loads(
+        open(os.path.join(plan_rig.plan_dir, os.listdir(plan_rig.plan_dir)[0]))
+        .read())
+    assert document["edits"][0]["new_text"] == "    return 41"
+
