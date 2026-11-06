@@ -10,9 +10,10 @@ path, so the two surfaces can never diverge. The index maps one or more local
 project directories in Qdrant, using Ollama (`qwen3-embedding:8b`, 4096-dim)
 for embeddings. Fully LAN-local; no cloud.
 
-**Agents never index anything themselves.** They only call `semantic-search`
-(which transparently runs a staleness check + incremental indexing first) plus
-a few admin subcommands. Chunks, hashes, and collections are never exposed.
+**Agents never index anything themselves.** A read command never refreshes the
+index: `semantic-search` reports whether the index is `fresh`, `stale` or
+`unknown`, and repairs it only when the call asks for `--refresh` (or when a
+pass command runs). Chunks, hashes, and collections are never exposed.
 
 **Full command reference:** [SKILL-CLI.md](SKILL-CLI.md) — the agent-facing
 document with the decision tree, per-command options, and index-state
