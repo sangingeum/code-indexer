@@ -1,0 +1,53 @@
+$ uv venv --clear /tmp/fold-sem   # --clear because the path was created by the first attempt: this is a FRESH resolve into an empty env
+Using CPython 3.12.12
+Creating virtual environment at: /tmp/fold-sem
+Activate with: source /tmp/fold-sem/bin/activate
+
+$ uv pip install --python /tmp/fold-sem/bin/python -e ".[semantic]"
+Using Python 3.12.12 environment at: /tmp/fold-sem
+Resolved 33 packages in 7ms
+   Building code-indexer @ file://<repo>
+      Built code-indexer @ file://<repo>
+Prepared 1 package in 3ms
+Installed 33 packages in 12ms
+ + annotated-doc==0.0.5
+ + annotated-types==0.8.0
+ + anyio==4.16.0
+ + certifi==2026.10.23
+ + code-indexer==0.1.0 (from file://<repo>)
+ + grpcio==1.85.1
+ + h11==0.16.0
+ + h2==4.4.1
+ + hpack==4.2.0
+ + httpcore==1.0.9
+ + httpx==0.28.1
+ + hyperframe==6.1.0
+ + idna==3.20
+ + markdown-it-py==4.2.0
+ + mdurl==0.1.2
+ + numpy==1.26.4
+ + ollama==0.6.3
+ + pathspec==1.1.1
+ + portalocker==2.10.1
+ + protobuf==7.36.2
+ + pydantic==2.14.3
+ + pydantic-core==2.50.4
+ + pygments==2.21.0
+ + qdrant-client==1.14.3
+ + rich==15.0.0
+ + shellingham==1.5.4
+ + tree-sitter==0.26.0
+ + tree-sitter-language-pack==1.18.0
+ + typer==0.28.0
+ + typing-extensions==4.16.0
+ + typing-inspection==0.4.5
+ + urllib3==2.8.0
+ + watchdog==7.1.0
+
+$ /tmp/fold-sem/bin/python <repo>/runs/round1-folds/fold9_probe.py   # import qdrant_client; print("ok")
+ok
+numpy=1.26.4 qdrant_client=1.14.3
+PROBE_EXIT=0
+
+$ uv pip list --python /tmp/fold-sem/bin/python | grep numpy
+numpy                     1.26.4

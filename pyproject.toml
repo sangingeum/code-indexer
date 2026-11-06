@@ -26,9 +26,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Embedding and vector storage. numpy is deliberately NOT listed here or in
-# the core: it arrives transitively with qdrant-client inside this extra.
+# Embedding and vector storage. numpy is pinned below 2 from this extra:
+# 1.26.4 is the only numpy whose x86 baseline imports on this host's CPU and
+# a fresh resolve otherwise takes 2.x, where `import qdrant_client` dies with
+# "NumPy was built with baseline optimizations: (X86_V2)" before any query
+# runs. The core still declares no numpy.
 semantic = [
+    "numpy<2",
     "ollama>=0.6.2",
     "qdrant-client<1.15",
 ]
