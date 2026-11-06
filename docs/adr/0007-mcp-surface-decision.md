@@ -64,7 +64,7 @@ The next decision is taken once the semantic extra has shipped and one release c
 
 - **zero invocations** in that window: the server is removed in the next minor release, with the exit path in section 5;
 - **any invocations**: the surface stays and the review reads the record -- which tools were called, how often, and whether the narrowed set was the right one;
-- the record itself is the deliverable that makes the next decision cheap, and a second "we have no evidence" verdict is not an acceptable outcome of this record.
+- the record itself is the deliverable that makes the next decision cheap, and a second "we have no evidence" verdict is not an acceptable outcome of this record. The decider is the owner: this record supplies the numbers the decision reads, and no second review cycle is needed to make it.
 
 ### 5. What a caller experiences when a tool goes away
 

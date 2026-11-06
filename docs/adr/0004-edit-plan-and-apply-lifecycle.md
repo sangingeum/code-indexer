@@ -14,7 +14,7 @@ An edit plan is an immutable JSON document named by the sha256 of its own canoni
 1. None of this exists. The audit's gap matrix records edit-plan generation, preview, structural edits and the provider interface as absent, each with a `rg` over `src/` that returns nothing (audit section 8). So there is no format to extend, only one to choose.
 2. The identity question is settled but constraining. ADR-0002 section 1 defines the symbol key and section 2 states that the surrogate `id` is revision-scoped and may not be a plan locator. Whatever this record writes must be expressible in that key.
 3. The read side must stay write-free. ADR-0003 section 1 says preview and validation write nothing, so a plan store with mutable ids would put a write inside `show` and a lock inside `validate`. Content addressing is the only plan identity that survives that rule without an exception.
-4. The mutation primitive constrains the range model. Measured on this host: `keeper file replace-lines|insert-lines|delete-lines` take 1-based inclusive line numbers, reject out-of-range references instead of clamping, and preserve the file's newline convention and byte-order mark (`keeper file --help`; the tool's `README.md`, "Line numbers" and "Line ranges"; artifact `runs/milestone0/keeper-capabilities.txt`, produced by `runs/milestone0/probe_keeper_capabilities.py`). A plan whose coordinates cannot be expressed as a line range cannot be applied by the primitive ADR-0005 selects.
+4. The mutation primitive constrains the range model. Measured on this host: `keeper file replace-lines|insert-lines|delete-lines` take 1-based inclusive line numbers, reject out-of-range references instead of clamping, and preserve the file's newline convention and byte-order mark (`keeper file --help`; the tool's `README.md`, "Line numbers" and "Line ranges"; and `keeper file replace-lines --help`, whose option list ends `[--expected-content TEXT] [--expected-hash HASH] [--dry-run]`). A plan whose coordinates cannot be expressed as a line range cannot be applied by the primitive ADR-0005 selects.
 5. The proposal leaves the ambiguity to us. Section 6.4 requires that "the implementation must define precise coordinate conventions, encoding, newline handling, and range semantics", shows a range with `start_column`/`end_column` and no unit, and section 6.5 defers the CLI shape. Left as is, every plan is a guess about what line 3 column 7 means.
 
 ## Decision
@@ -47,11 +47,13 @@ What a plan explicitly does not embed: full source files; the declaration's text
 
 ### 2. The locator, and what revalidation proves
 
-A locator is exactly ADR-0002's key plus the file hash:
+A locator is ADR-0002's key plus the file hash -- five members and the hash, and nothing else about the node is identity:
 
 ```
 path, language, qualified_name, symbol_type, decl_hash, range{start_line, end_line, start_byte, end_byte}
 ```
+
+The range travels with the locator as evidence: it is what a reader and the region guard compare against, and a node whose range moved while its declaration hash held is still the same symbol. It is not a sixth member of the identity, and the distinction is the one ADR-0002 section 1 draws between the key and the attributes beside it.
 
 What invalidates a locator, and what `validate` therefore checks:
 
@@ -77,7 +79,7 @@ identity: {verified: "structural", basis: ["file_hash", "decl_hash", "region_has
 5. **Replacement text** always uses `\n` and never carries `\r`; the adapter translates it to the file's convention. A plan that encodes a carriage return is refused.
 6. **End of file**: a final line without a terminator is a legal last line, and its `end_byte` is the end of the file's bytes as rule 2 counts them. Insertion after the last line uses `position: end` and never a line number, mirroring the primitive.
 7. **Encoding** is UTF-8. A file that does not decode as UTF-8 is refused (`NotUtf8`): no lossy decode, no replacement characters, no writing back a lossy round trip.
-8. **No columns.** Lines and byte offsets are both always present and `validate` cross-checks them -- line N's start byte must equal the recorded `start_byte`, and its end byte the recorded `end_byte` -- so a corrupted offset is caught by arithmetic rather than trusted. Code points and UTF-16 code units appear nowhere in the format. A provider that speaks UTF-16, which is the LSP default the proposal's section 6.4 flags, converts at its own adapter boundary; a converted position that does not land on a line boundary is refused for phase-1 operations, and the conversion is named in the plan's `provider` member.
+8. **No columns.** Lines and byte offsets are both always present and `validate` cross-checks them -- line N's start byte must equal the recorded `start_byte`, and its end byte the recorded `end_byte` -- so a corrupted offset is caught by arithmetic rather than trusted. Code points and UTF-16 code units appear nowhere in the format. A provider that speaks UTF-16, which is the LSP default the proposal's section 6.4 flags, converts at its own adapter boundary, and the conversion is named in the plan's `provider` member. The boundary test is not this record's to state: there is exactly one, it belongs to the adapter, and ADR-0006 section 5 states it -- a converted position must land on a byte boundary of the decoded line, and a position in the middle of a line is not a conversion failure at all. Phase 1 never receives one, because its operations are whole-line and its ranges are line-granular; phase 2 accepts it and expands the edit to the whole lines it touches (ADR-0006 section 6).
 
 ### 4. Preconditions, and the validate/apply gap
 
@@ -111,10 +113,12 @@ The exact command names may change in the implementation leg; they may not chang
 | Level | What proves it | What this tool may claim |
 |---|---|---|
 | bytes | keeper's hash guard and the region guard | the intended bytes were written |
-| parse | reparsing each touched file with the language's extractor | the file parses, or it does not, per file: `parsed`, `parse_error`, `no_parser` |
+| parse | reparsing each touched file with the language's extractor | the file parses, or it does not, per file: `parsed`, `parse_error`, `parse_unavailable` |
 | compile | a compiler or a semantic provider | nothing, in phase 1 |
 
-`syntax_required: true` means the parse rung runs and its verdict is reported. The verdict may not be taken from the chunker, which cannot fail: `chunk_text` falls back to the regex chunker when a language has no grammar, when the parse raises, and when it yields no chunks, and it uses an error-tolerant tree when `root.has_error` is set (`src/code_indexer/ts_chunker.py:122-160`). The syntax verdict therefore reads the parser's result directly -- `has_error`, `is_missing` -- and a file that went through the regex fallback reports `parse_unavailable`, never `parsed`. `no_parser` and `parse_unavailable` are failed claims, not passes. `semantic_required: true` is refused in phase 1 (`SemanticProviderUnavailable`, exit 3) because no semantic provider exists; a plan may not buy a stronger promise than the tool can keep. No output of this feature says "valid", "compiles" or "type-checks", and the syntax verdict is printed next to the caveat rather than above it.
+`syntax_required: true` means the parse rung runs and its verdict is reported. The verdict may not be taken from the chunker, which cannot fail: `chunk_text` falls back to the regex chunker when a language has no grammar, when the parse raises, and when it yields no chunks, and it uses an error-tolerant tree when `root.has_error` is set (`src/code_indexer/ts_chunker.py:122-160`). The syntax verdict therefore reads the parser's result directly -- `has_error`, `is_missing` -- and a file that went through the regex fallback reports `parse_unavailable`, never `parsed`. `parse_unavailable` is a failed claim, not a pass. `semantic_required: true` is refused in phase 1 (`SemanticProviderUnavailable`, exit 3) because no semantic provider exists; a plan may not buy a stronger promise than the tool can keep. No output of this feature says "valid", "compiles" or "type-checks", and the syntax verdict is printed next to the caveat rather than above it.
+
+**In the index as well.** The same three verdicts are what `index-status` counts per project -- files `parsed`, files `parse_error`, files `parse_unavailable` -- so the verdict is reachable from the CLI and not only from a plan report or a test. `index-status` reports the counts and never reports a file as parsed on the strength of the chunker's fallback, which is the defect this section names.
 
 ### 8. The first operation set
 
@@ -143,11 +147,10 @@ None of the three uses the surrogate id, and none needs a range sharper than who
 
 ## Consequences
 
-- A new artifact family appears, `.code-indexer/plans/`, holding generated documents that must never be committed; ignoring it is an implementation-leg task, named here so it is not forgotten. `plan-apply` is a write command: ADR-0003 section 1's roster predates it, so this record adds it to the class that record defined rather than superseding that record.
+- A new artifact family appears, `.code-indexer/plans/`, holding generated documents that must never be committed; ignoring it is an implementation-leg task, named here so it is not forgotten. `plan-apply` is a write command, and the list that says so is ADR-0003 section 1's, which names the plan writers, `plan-apply` and its receipt. That roster is the only place a command's class is stated; this record does not restate it, because a second statement beside a closed list is what produced the contradiction this fold closes.
 - Four commands appear that must carry `--json` from the first commit; the audit section 8 row records thirteen existing commands that do not, and this feature may not join them.
 - A plan is executable input, not a human note: a plan file that cannot be validated is a refusal, a plan file edited by hand is a hash mismatch, and since a plan records the tree and not the user's intent, preview is the only place intent is checked -- which is why preview writes nothing and shows every affected file rather than a summary.
 - Tests that must exist: coordinate cross-checking, CRLF, BOM, end-of-file insertion, mixed terminators, non-UTF-8 input, overlap and adjacency, stale refusal at apply, and the ambiguity refusal for two identically-signatured nodes.
-- A plan records the tree it was prepared against and nothing about the user's intent, so the preview is the only place intent is checked -- which is why preview writes nothing and shows every affected file rather than a summary.
 
 ## What this record does not decide
 

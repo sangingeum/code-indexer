@@ -21,9 +21,12 @@ Every command is either a write command or a read command, and a read command ne
 
 ### 1. Two command classes
 
-- **Write commands**: `add-project`, `index-more`, `remove-project`, `reindex-project`, `watch`, `unwatch`, `sweep-orphans --apply`, and any invocation carrying `--vectors on|off` or `--refresh`.
+- **Write commands**: `add-project`, `index-more`, `remove-project`, `reindex-project`, `watch`, `unwatch`, `sweep-orphans --apply`, the three plan writers (`plan-replace-body`, `plan-insert-symbol`, `plan-delete-declaration`: each writes one plan document into the plan directory, and writes nothing at all under `--print`), `plan-apply` (the sources, through filekeeper, plus one apply receipt under the project's state directory), and any invocation carrying `--vectors on|off` or `--refresh`.
 - **Read commands**: every other command. A read command opens no write transaction, calls no `maybe_refresh`, and dials no service to reach a staleness verdict. A read command invoked with `--refresh` performs one pass first and therefore writes; the guarantee below applies to every invocation without that flag.
+
 - `--skip-stale-check` stays accepted and becomes inert; it is documented as "the default". `--fresh` on `get-code-context` keeps its meaning (read the live file, ignore cached symbol rows) and writes nothing.
+
+The roster is closed and complete for the whole set: the twenty-seven commands that exist and the four plan commands together account for every command the plan schedules, and each is in exactly one of the two lists. The plan commands that only read are reads -- `plan-validate` and `plan-show` write nothing, and `plan-apply --dry-run` runs the same pre-pass and mutates nothing. A command a later record adds is classified by that record; no command classifies itself, and a command outside these lists is a defect in this list rather than a third class.
 
 ### 2. What "stale" means
 
@@ -33,7 +36,7 @@ Every command is either a write command or a read command, and a read command ne
 
 ### 3. How staleness is reported
 
-JSON, on every read command that already has a JSON mode -- additive, `schema` stays 1:
+JSON, on every read command's answer -- in the commands that have a JSON mode today and in the five that gain one under section 7 -- additive, `schema` stays 1:
 
 | Field | Meaning |
 |---|---|
@@ -60,11 +63,11 @@ Text mode prints exactly one stderr line and nothing on stdout: `Warning: index 
 | 0 | success, including zero hits -- "no results" is an answer |
 | 1 | any other runtime failure |
 | 2 | usage or argument error |
-| 3 | backend or extension unavailable: service unreachable, extension not installed |
+| 3 | backend or extension unavailable: service unreachable, extension not installed, no language server installed for the requested operation |
 | 4 | the index requires a rebuild: fingerprint mismatch, vectors absent, needs-reindex |
 | 5 | lock or concurrency conflict -- the same meaning filekeeper gives code 5, so an agent that branches on 5 learns one thing across both tools |
 
-The `ErrorType:` line stays the semantic discriminator; the number is the coarse branch. Breaking changes, stated plainly: a failed search moves 0 -> 1 (this is the defect being fixed); 3, 4 and 5 were all 1 before, so only a consumer that parsed the error type notices; a consumer testing `== 0` is unaffected; and reads that used to index implicitly no longer write at all.
+Two situations that look alike get different numbers, because a caller's next move differs. **Nothing installed or nothing reachable** -- no service, no extension, no language server -- is 3: the remedy is to install or start something. **A working provider answering that it does not implement the operation** is 2: the request asked the tool for something it does not offer, which ADR-0006 section 3 records as a usage-class refusal. A taxonomy that gave both 3 would tell a caller to install what is already running; one that gave both 2 would say the tool was asked wrongly when the provider is simply absent. Breaking changes, stated plainly: a failed search moves 0 -> 1 (this is the defect being fixed); 3, 4 and 5 were all 1 before, so only a consumer that parsed the error type notices; a consumer testing `== 0` is unaffected; and reads that used to index implicitly no longer write at all.
 
 ### 6. Unbounded cost
 
@@ -72,6 +75,15 @@ The `ErrorType:` line stays the semantic discriminator; the number is the coarse
 - The query path makes one embedding attempt with a short timeout. The retry chain belongs to the write path, where a retry can actually succeed.
 - A wall budget (default 30 s per invocation) stops the fan-out; remaining projects are reported as skipped with `reason=budget`, JSON carries `partial: true`, and the exit code is 0 only if at least one project answered. If none answered, the exit code is 3 when the cause was backend unavailability and 4 when the index required a rebuild.
 - All three factors behind 804 s -- twelve projects, a retry chain, an unbounded wall -- are removed by construction rather than tuned.
+
+### 7. JSON mode on the commands that lack it
+
+Thirteen registered commands answer in text only (audit section 8). This record decides the gap instead of leaving it to a round:
+
+- **Gain `--json`**: `list-projects`, `lookup-project`, `index-status`, `find-definition`, `find-references`, and the four pass commands `add-project`, `index-more`, `remove-project`, `reindex-project`. The first five are read answers a consumer must parse; the four are the commands whose outcome a caller most often branches on, and a pass that reports its result in prose is a pass an agent cannot check.
+- **Stay text-only**: `watch`, `unwatch`, `eval`, `eval-compare`. Two drive a daemon whose state is read through `index-status`, and two write report files that are already machine-readable; a second output format there would have no consumer.
+- **Shape**: additive, `schema` stays 1, like section 3 -- the object carries the fields the text renderer prints, plus `ErrorType` on failure. The five read commands also carry section 3's staleness block, because they answer from the index; the four pass commands do not, because a pass reports its own work rather than a verdict about the index.
+- **Scope**: this decides which commands have a mode, not what every shape contains. The plan commands' shapes are ADR-0004's, and they carry `--json` from their first commit.
 
 ## Requirements this record resolves
 
@@ -103,4 +115,4 @@ The `ErrorType:` line stays the semantic discriminator; the number is the coarse
 - The plan store, preview output and validation protocol behind `show`/`validate`/`apply`.
 - The filekeeper apply path and its multi-file recovery semantics (requirement 3).
 - The watcher's default scope and debounce policy.
-- Whether the thirteen registered commands that have no `--json` mode gain one (audit section 8 tracks them as a separate gap).
+- Which members each `--json` shape carries beyond the staleness block and the `ErrorType` line. Section 7 decides which commands have a mode; the plan commands' shapes are ADR-0004's.

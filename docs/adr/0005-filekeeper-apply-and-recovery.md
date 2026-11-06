@@ -11,7 +11,7 @@ A plan is applied as one filekeeper line-range mutation per edit, each carrying 
 
 ## Context
 
-1. **The interface that exists, measured on this host.** `keeper --version` answers `keeper 0.1.8` (artifact `runs/milestone0/keeper-capabilities.txt`, produced by `runs/milestone0/probe_keeper_capabilities.py`; the gate's `runs/milestone0-gate/keeper-probe.txt` and its bar 12 record the same version). The mutation primitives and the guards their argument parsers actually accept:
+1. **The interface that exists, measured on this host.** `keeper --version` answers `keeper 0.1.8`; the guards below are read from each command's own help, and the argument parsers are what decide them, not the README. The mutation primitives and the guards their argument parsers actually accept:
 
 | Primitive | `--expected-hash` | `--expected-content` | `--dry-run` | Journal and undo |
 |---|---|---|---|---|

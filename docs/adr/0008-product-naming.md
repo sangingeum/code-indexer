@@ -11,13 +11,13 @@ The tool keeps the name `code-indexer` for this phase and is not renamed to `cod
 
 ## Context
 
-1. **What a rename would touch inside the repository.** Measured over the tracked tree (artifact `runs/milestone0/probe-naming-inventory.txt`, produced by `runs/milestone0/probe_naming_inventory.py`): 315 tracked files, of which 202 contain the name, for 1,441 occurrences. About 60 percent of that is run evidence and the evaluation corpus, which are not product surface: excluding `runs/` and `eval/`, 89 tracked files carry 582 occurrences.
+1. **What a rename would touch inside the repository.** Measured over the tracked tree at `8d841ac`: `git ls-files | wc -l` -> `320`, `git ls-files | xargs rg -il 'code[-_ ]?indexer' | wc -l` -> `206`, `git ls-files | xargs rg -io --no-filename 'code[-_ ]?indexer' | wc -l` -> `1,478`. About 55 percent of that is run evidence and the evaluation corpus, which are not product surface: excluding `runs/` and `eval/`, 93 tracked files carry 619 occurrences. The counts move with the tree -- these records added a few -- so the command, not the number, is the citable fact.
 
 | Surface | Files | Occurrences |
 |---|---|---|
 | source under `src/` | 19 | 72 |
 | tests | 48 | 305 |
-| `docs/` | 13 | 100 |
+| `docs/` | 17 | 137 |
 | README, the skill, AGENT and CHANGELOG | 4 | 91 |
 | `scripts/` and `pyproject.toml` | 3 | 12 |
 | `.gitignore` and `uv.lock` | 2 | 2 |
@@ -36,7 +36,7 @@ The distribution, the import package, the console scripts, the repository, the s
 
 ### 2. What changes instead
 
-The description and the documentation are allowed to broaden before the name does. `pyproject.toml`'s description is corrected in the round that makes it false (ADR-0001's), and the README's opening paragraph states what the tool does now: read code, and prepare precise edits to it. The wording of that sentence is not decided here.
+The description and the documentation are allowed to broaden before the name does. `pyproject.toml`'s description is corrected in the round that makes it false -- round 1, which lands ADR-0001's dependency split -- and the README's opening paragraph states what the tool does now: read code, and prepare precise edits to it. The wording of that sentence is not decided here.
 
 ### 3. What would have to be true for a rename to be worth it
 
@@ -59,7 +59,7 @@ All five, in this order, and none of them is a matter of taste:
 
 ### 5. The cost, stated as what would be edited
 
-89 tracked product files and 582 occurrences, two console scripts, one distribution name, one package directory, one repository, one state directory, one environment variable, 17 documentation and skill files, 13 normative mentions in the household convention document, and an unknown number of copied client configurations. That is the inventory a future decision should be priced against, and it is deliberately not converted into an estimate of effort.
+93 tracked product files and 619 occurrences, two console scripts, one distribution name, one package directory, one repository, one state directory, one environment variable, 17 documentation and skill files, 13 normative mentions in the household convention document, and an unknown number of copied client configurations. That is the inventory a future decision should be priced against, and it is deliberately not converted into an estimate of effort.
 
 ## Requirements this record resolves
 
