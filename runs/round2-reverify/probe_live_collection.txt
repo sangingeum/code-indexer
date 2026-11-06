@@ -1,0 +1,32 @@
+========================================================================
+FOLD-3 live  three vector-writing paths against the real Qdrant
+========================================================================
+    qdrant=<qdrant>
+  $ code-indexer add-project <workdir>/proj --vectors on  ->  exit=0
+    OUT | registered <workdir>/proj (slug cbe6ff5f)
+    OUT | cbe6ff5f: {"files_indexed": 2, "chunks_embedded": 3, "chunks_reused": 0, "files_deleted": 0, "duration_s": 0.62, "chunks_skipped": 0, "files_committed": 2, "sensitive_skipped": 0}
+    slug=cbe6ff5f  identity=qwen3-embedding:8b/4096/contextual-header-v1
+    expected physical name: idx_cbe6ff5f__dc5868ea
+  [full pass] collections with the slug: ['idx_cbe6ff5f__dc5868ea']
+  [full pass] alias idx_cbe6ff5f -> idx_cbe6ff5f__dc5868ea
+  [full pass] points in idx_cbe6ff5f: 3
+
+  -- incremental pass: one file edited, then a read with --refresh
+  $ code-indexer find-symbol delta --refresh  ->  exit=0
+    OUT | - <workdir>/proj::a.py:9-10 delta (function, confidence=exact)  def delta(y):
+  [incremental pass] collections with the slug: ['idx_cbe6ff5f__dc5868ea']
+  [incremental pass] alias idx_cbe6ff5f -> idx_cbe6ff5f__dc5868ea
+  [incremental pass] points in idx_cbe6ff5f: 4
+
+  -- vectors rebuild (rows current: embeds from chunks, swaps alias)
+  $ code-indexer reindex-project <workdir>/proj --vectors on  ->  exit=0
+    OUT | cbe6ff5f: {"files_indexed": 0, "chunks_embedded": 0, "chunks_reused": 4, "files_deleted": 0, "duration_s": 0.02, "chunks_skipped": 0, "files_committed": 0, "sensitive_skipped": 0}
+  [vectors rebuild] collections with the slug: ['idx_cbe6ff5f__dc5868ea']
+  [vectors rebuild] alias idx_cbe6ff5f -> idx_cbe6ff5f__dc5868ea
+  [vectors rebuild] points in idx_cbe6ff5f: 4
+
+  cleanup: drop the alias and every physical collection the slug owns
+    remaining with the slug: []  alias=None
+
+========================================================================
+RESULT: PASS

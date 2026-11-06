@@ -1,0 +1,14 @@
+========================================================================
+FOLD-5  the last-resort declaration hash is line-free
+========================================================================
+    decl_hash(alpha function 10-12) = sha256:7f6fb0acc6c8d3dac36607c3d7047a034c9731bac148a85042d9be6e2c27c2bd
+    decl_hash(alpha function 99-120) = sha256:7f6fb0acc6c8d3dac36607c3d7047a034c9731bac148a85042d9be6e2c27c2bd
+    decl_hash(beta function 10-12)   = sha256:69df7d3992bf8799dd912cbf4d16c7f33090b7ba0e5162a8515564364da7908d
+    decl_hash(alpha class 10-12)     = sha256:d8d987b8a6696c2f442238a1c66ffbf08a204cf2d2c7a72793baf6034f919daa
+    ok   same declaration, lines 10-12 vs 99-120 -> same hash
+    ok   different name -> different hash
+    ok   different kind -> different hash
+    ok   a signature takes precedence over the fallback
+    ok   the basis is recomputable from name and kind alone
+
+RESULT: PASS

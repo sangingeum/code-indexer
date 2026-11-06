@@ -1,0 +1,13 @@
+========================================================================
+SIDE  remove-project vs the identity-stamped physical collection
+========================================================================
+  $ code-indexer add-project <workdir>/proj --vectors on  ->  exit=0
+    | registered <workdir>/proj (slug 13981014)
+    | 13981014: {"files_indexed": 1, "chunks_embedded": 1, "chunks_reused": 0, "files_deleted": 0, "duration_s": 0.54, "chunks_skipped": 0, "files_committed": 1, "sensitive_skipped": 0}
+    slug=13981014
+    after the pass: collections=['idx_13981014__dc5868ea'] aliases={'idx_13981014': 'idx_13981014__dc5868ea'}
+  $ code-indexer remove-project <workdir>/proj  ->  exit=0
+    | removed <workdir>/proj: collection idx_13981014 dropped, registry entry deleted
+    after remove-project: collections=['idx_13981014__dc5868ea'] aliases={'idx_13981014': 'idx_13981014__dc5868ea'}
+    residue left behind: True
+    cleaned up: ([], {})
