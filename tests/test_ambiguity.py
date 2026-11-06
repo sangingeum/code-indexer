@@ -262,6 +262,25 @@ def test_find_callers_text_prints_the_target_labels(ambiguous_rig):
     assert result.exit_code == 0, result.output
     assert "targets: alpha.py:1-2" in result.output
     assert "beta.py:1-2" in result.output
+    # The tree alone does not say the name had two definitions; the one-line
+    # sentence does, as `find-symbol` text mode already did for its answer.
+    assert "2 definitions match 'step'" in result.output
+    assert "ambiguous" in result.output
+
+
+def test_find_callees_text_says_the_subject_name_was_ambiguous(
+        ambiguous_rig):
+    _, _, _, project = ambiguous_rig
+    result = _invoke(project, "find-callees", "step")
+    assert result.exit_code == 0, result.output
+    assert "2 definitions match 'step'" in result.output
+
+
+def test_a_single_definition_says_nothing_about_ambiguity(ambiguous_rig):
+    _, _, _, project = ambiguous_rig
+    result = _invoke(project, "find-callers", "run_alpha")
+    assert result.exit_code == 0, result.output
+    assert "definitions match" not in result.output
 
 
 def test_find_callees_labels_the_definition_each_callee_came_from(

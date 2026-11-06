@@ -249,6 +249,9 @@ candidate (`candidates` as data in `--json`). `find-callers` and
 `targets` — the candidate definition(s) it can belong to, narrowed to one
 where the store attributes the edge (an import resolves to a file) and
 naming every candidate where a name-level reference cannot be attributed.
+Their text mode prints the tree, those `targets` labels, and one line saying
+the subject name matched several definitions, so an ambiguous walk is never
+read as the walk of one definition.
 
 ## Staleness, refresh and exit codes
 

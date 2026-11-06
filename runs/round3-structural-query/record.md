@@ -302,8 +302,9 @@ fixes and records in `runs/round3-folds/record.md`.)
 - **`ambiguity` is emitted in exact-name mode only.** Browse and
   `--name-pattern` answers report `match_count` and `truncated`; they are not
   a request for one symbol, so they carry no candidate block. `find-callers`
-  and `find-callees` carry `match_count`/`ambiguity` whenever the subject
-  name has several definitions.
+  and `find-callees` carry `match_count`/`ambiguity` in JSON whenever the
+  subject name has several definitions; their text mode prints the tree, the
+  `targets` labels and one line saying the name matched several definitions.
 - **`--exactly-one` on `find-definition`** is where the single-symbol refusal
   lives. No shipped structural filter needs to pick, which is why the refusal
   is not on every command: `find-symbol` reports, `find-callers`/`-callees`

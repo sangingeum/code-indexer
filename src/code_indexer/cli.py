@@ -446,14 +446,20 @@ def find_callers(
     hits, each with its own line and receiver), and an answer the depth or
     node cap left incomplete says so: the JSON payload carries `truncated`
     and `omitted` beside `roots`, and the tree gains a `note:` line naming
-    the cap. For every reference TO a name use `find-references`."""
+    the cap. The answer is honest about the NAME too: JSON carries
+    `match_count` and, when the subject has more than one definition, an
+    `ambiguity` block listing every candidate the walk unions over; each
+    direct hit then carries `targets`, the candidate definition(s) it can
+    belong to. Text mode prints the tree plus one line saying the name
+    resolved to several definitions. For every reference TO a name use
+    `find-references`."""
     core, entry = _core_entry(project, skip_stale_check)
     _refuse_obsolete_rows(core, entry, refresh=refresh)
     verdict_block, _ = _read_staleness(core, entry, refresh=False,
                                        json_output=json_output)
     result = graph.find_callers(core, entry.slug, name, depth=depth,
                                 max_nodes=max_nodes)
-    _emit_graph(result, json_output, verdict_block)
+    _emit_graph(result, json_output, verdict_block, subject=name)
 
 
 @app.command()
@@ -472,8 +478,12 @@ def find_callees(
     call site — this walk answers "what does this symbol reach", so one target
     reached twice is one callee. The opposite of `find-callers`, deliberately.
     An answer the depth or node cap left incomplete reports `truncated` /
-    `omitted` in JSON and a `note:` line in the tree. For references TO a
-    symbol across both stores use `find-references`.
+    `omitted` in JSON and a `note:` line in the tree. The subject NAME is
+    reported too: JSON carries `match_count` and, when the name has several
+    definitions, an `ambiguity` block, with `targets` on each direct callee
+    naming the definition it was reached from. Text mode prints the tree plus
+    one line saying the name resolved to several definitions. For references
+    TO a symbol across both stores use `find-references`.
     """
     core, entry = _core_entry(project, skip_stale_check)
     _refuse_obsolete_rows(core, entry, refresh=refresh)
@@ -481,11 +491,12 @@ def find_callees(
                                        json_output=json_output)
     result = graph.find_callees(core, entry.slug, name, depth=depth,
                                 max_nodes=max_nodes)
-    _emit_graph(result, json_output, verdict_block)
+    _emit_graph(result, json_output, verdict_block, subject=name)
 
 
 def _emit_graph(result: graph.GraphResult, json_output: bool,
-                staleness_block: dict[str, Any] | None = None) -> None:
+                staleness_block: dict[str, Any] | None = None,
+                subject: str | None = None) -> None:
     """Render a graph result; `notes` explain an empty or near-empty answer so
     it is never a bare `no results` (an empty caller list must not read as
     "nothing calls this"). A result the caps left incomplete also carries a
@@ -508,6 +519,13 @@ def _emit_graph(result: graph.GraphResult, json_output: bool,
         for note in result.notes:
             typer.echo(f"note: {note}")
         return
+    if result.match_count > 1:
+        # `find-symbol` text mode already says this about its own answer; the
+        # sibling surface says it in one line, so a tree of several roots is
+        # never read as the walk of one definition.
+        typer.echo(f"{result.match_count} definitions match {subject!r} and "
+                   "this name is ambiguous: every one is a root above, and "
+                   "each direct hit names the definition(s) it can belong to")
     for note in result.notes:
         typer.echo(f"note: {note}", err=not result.truncated)
 

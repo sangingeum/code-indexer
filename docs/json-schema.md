@@ -333,7 +333,11 @@ because the name is ambiguous rather than missing).
 `find-symbol`. The walk unions over every candidate, and each DIRECT hit
 carries `targets` — the `file:start-end` candidate label(s) it can belong to.
 An import-resolved edge is attributed to the candidate in its file; a
-name-level reference cannot be attributed, so it names every candidate.
+name-level reference cannot be attributed, so it names every candidate. A
+root's `confidence` is the evidence of the row it was built from (`ast` or
+`unknown`), never a constant — the same label the `ambiguity` candidate for
+that row carries. Text mode prints the tree, the `targets` labels and one
+line saying the subject name matched several definitions.
 `targets` is empty when the subject has one definition (nothing to pick) and
 on transitive nodes.
 
