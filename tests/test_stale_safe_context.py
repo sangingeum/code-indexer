@@ -182,22 +182,40 @@ def test_cli_get_code_context_json_carries_stale(rig, monkeypatch):
     assert payload["stale"] is True
 
 
-def test_cli_fresh_bypasses_ttl(rig, monkeypatch):
+def test_cli_fresh_reads_the_live_file_and_writes_nothing(rig, monkeypatch):
+    """get-code-context --fresh keeps its meaning: live read, no index pass."""
     import code_indexer.cli as cli
     c, reg, entry, project, src = rig
     c.run_index(entry.slug, project)
-    calls = []
-    original = c.maybe_refresh
-    def spy(slug, path, force=False):
-        calls.append(force)
-        return original(slug, path, force=force)
-    c.maybe_refresh = spy  # type: ignore[method-assign]
+    src.write_text(EDITED)  # three lines inserted above target_fn
+    calls: list = []
+    c.run_index = lambda *a, **kw: calls.append(a) or {
+        "state": "idle", "result": {}}
     cli._core = c
     cli._core_skip = False
-    result = runner.invoke(app, ["semantic-search", "target_fn",
-                                 "--project", project, "--fresh"])
+    result = runner.invoke(app, ["get-code-context", "a.py",
+                                 "--project", project,
+                                 "--symbol", "target_fn", "--fresh"])
     assert result.exit_code == 0, result.output
-    assert calls and calls[0] is True  # fresh forced the scan
+    assert calls == [], "--fresh ran an index pass"
+    # The answer is the LIVE definition: shifted three lines down.
+    assert "a.py:4-" in result.output, result.output
+
+
+def test_cli_refresh_runs_exactly_one_pass(rig, monkeypatch):
+    """--refresh is the only flag that makes a read write."""
+    import code_indexer.cli as cli
+    c, reg, entry, project, src = rig
+    c.run_index(entry.slug, project)
+    calls: list = []
+    c.run_index = lambda *a, **kw: calls.append(a) or {
+        "state": "idle", "result": {}}
+    cli._core = c
+    cli._core_skip = False
+    result = runner.invoke(app, ["overview", "--project", project,
+                                 "--refresh"])
+    assert result.exit_code == 0, result.output
+    assert len(calls) == 1, calls
 
 
 def test_search_hits_carry_staleness_provenance(rig):

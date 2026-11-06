@@ -397,14 +397,16 @@ def test_find_symbol_browse_mode_with_filters(core):
         m.close()
 
 
-def test_skip_stale_check_short_circuit(cfg, project):
+def test_read_never_runs_a_pass_regardless_of_the_skip_flag(cfg, project):
+    """--skip-stale-check is inert: a read indexes nothing either way."""
     core = Core(cfg, skip_stale_check=True)
     calls = []
-    core.maybe_refresh = lambda slug, path, force=False: calls.append(1) or {"state": "fresh"}
+    core.run_index = lambda *a, **kw: calls.append(1) or {
+        "state": "idle", "result": {}}
     reg = Registry(os.path.join(cfg.index_root, "registry.db"))
     entry = reg.add(project, name="sc")
     core.skeleton(entry)
-    assert not calls, "--skip-stale-check must skip the refresh probe"
+    assert not calls, "a read ran an index pass"
     reg.close()
     shutil.rmtree(cfg.index_root, ignore_errors=True)
 

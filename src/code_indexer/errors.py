@@ -2,18 +2,25 @@
 
 CLI surface rules:
 - stdout carries ONLY the result (data lines).
-- Diagnostics go to stderr, and only with --verbose (or on failure).
+- Diagnostics go to stderr, and only on failure (or with --verbose).
 - The only non-verbose stderr output on success is the documented single-line
-  stale-file Warning (`Warning: file changed since last index; line numbers
-  may be shifted`).
+  staleness Warning (see ``staleness.warning_line``).
 - Failures print exactly one line `ErrorType: description` on stderr and exit
   with the taxonomy's exit code.
 
-Exit codes: 0 success; 1 failure (any error below); 2 usage/argument error
-(Typer already emits 2 for CLI parsing errors — ArgumentError keeps that).
+Exit codes (ADR-0003 section 5):
 
-Taxonomy: ArgumentError (2), ConfigError (1), NotFoundError (1),
-BackendError (1), LockedError (1), InternalError (1).
+| Code | Meaning |
+|---|---|
+| 0 | success, including zero hits -- "no results" is an answer |
+| 1 | any other runtime failure |
+| 2 | usage or argument error |
+| 3 | backend or extension unavailable (nothing reachable/installed) |
+| 4 | the index requires a rebuild (fingerprint mismatch, needs-reindex) |
+| 5 | lock or concurrency conflict (the same meaning filekeeper gives 5) |
+
+Taxonomy: ArgumentError (2), BackendError (3), RebuildRequiredError (4),
+LockedError (5), ConfigError (1), NotFoundError (1), InternalError (1).
 
 JSON outputs carry "schema": 1 and stable field names (docs/json-schema.md).
 """
@@ -27,6 +34,9 @@ from typing import NoReturn
 EXIT_OK = 0
 EXIT_FAIL = 1
 EXIT_USAGE = 2
+EXIT_BACKEND = 3
+EXIT_REINDEX = 4
+EXIT_LOCK = 5
 
 
 class IndexerError(Exception):
@@ -55,13 +65,22 @@ class NotFoundError(IndexerError):
 
 
 class BackendError(IndexerError):
+    """Nothing installed or reachable: the remedy is to install or start it."""
+
     error_type = "BackendError"
-    exit_code = EXIT_FAIL
+    exit_code = EXIT_BACKEND
+
+
+class RebuildRequiredError(IndexerError):
+    """The index was built by a different configuration and must be rebuilt."""
+
+    error_type = "RebuildRequiredError"
+    exit_code = EXIT_REINDEX
 
 
 class LockedError(IndexerError):
     error_type = "LockedError"
-    exit_code = EXIT_FAIL
+    exit_code = EXIT_LOCK
 
 
 class InternalError(IndexerError):
@@ -73,27 +92,34 @@ def classify(exc: BaseException) -> IndexerError:
     """Map any exception onto the taxonomy (mechanical, no content change).
 
     Existing error strings keep their meaning: known messages map to their
-    historical type (NotFoundError-ish 'not registered'/'no project',
-    ConfigError from the fingerprint/embedder stays ConfigError, lock
-    contention becomes LockedError, everything else InternalError). The
-    CLI's legacy 'error: ' prefix is stripped so the render is exactly
+    historical type (NotFoundError-ish 'not registered'/'no project', lock
+    contention becomes LockedError, a fingerprint mismatch (the message names
+    ``reindex-project``) becomes RebuildRequiredError, a missing model or an
+    unreachable service becomes BackendError, everything else InternalError).
+    The CLI's legacy 'error: ' prefix is stripped so the render is exactly
     'ErrorType: description'.
     """
     if isinstance(exc, IndexerError):
         return exc
     from .fingerprint import ConfigError as LegacyConfigError
-    if isinstance(exc, LegacyConfigError):
-        return ConfigError(_strip_prefix(str(exc)))
     text = _strip_prefix(str(exc))
+    if isinstance(exc, LegacyConfigError):
+        # The fingerprint/configuration family. A mismatch is a rebuild (4);
+        # an absent model or unreachable embedder is a missing install (3).
+        if "reindex-project" in text or "does not match the current" in text:
+            return RebuildRequiredError(text)
+        return BackendError(text)
     if ("not registered" in text or "no projects registered" in text
             or "path does not exist" in text or "no results for project" in text
             # watch could not start because nothing requested is watchable —
             # the same "what you asked for is not there" family.
             or "no watchable project roots" in text):
         return NotFoundError(text)
-    if "lock" in text.lower() or "indexing in progress" in text.lower():
+    if "indexing in progress" in text.lower() or "lock" in text.lower():
         return LockedError(text)
-    if "ollama" in text.lower() or "qdrant" in text.lower():
+    if ("ollama" in text.lower() or "qdrant" in text.lower()
+            or "embedding service" in text.lower()
+            or "connection refused" in text.lower()):
         return BackendError(text)
     return InternalError(text)
 

@@ -28,6 +28,10 @@ logger = logging.getLogger("code-indexer.embedder")
 DEFAULT_TIMEOUT = 120
 DEFAULT_RETRIES = 5
 
+# The query path makes ONE embedding attempt with this short timeout; the
+# configured OLLAMA_TIMEOUT (and its retry chain) belongs to the write path.
+QUERY_ATTEMPT_TIMEOUT = 10.0
+
 # Substrings that mark an error as NOT worth retrying: the request would fail
 # identically forever. Everything else (timeouts, 5xx, connection reset,
 # connection refused mid-restart) is treated as retryable.
@@ -85,6 +89,56 @@ class Embedder:
                     close()
             self._dim = len(res[0])
         return self._dim
+
+    def dimension_once(self) -> int:
+        """One dimension probe with the query timeout; no retry chain.
+
+        The read path uses this so a dead embedder cannot cost the retry
+        chain's backoff before the answer. A failure propagates: the caller
+        reports the fingerprint as unverified rather than guessing it.
+        """
+        probe = ollama.Client(host=self._host, timeout=QUERY_ATTEMPT_TIMEOUT)
+        try:
+            res = probe.embed(model=self.model, input=["dimension probe"],
+                              keep_alive="10m")
+            embs = res.get("embeddings") or res["embeddings"]
+            self._dim = len(embs[0])
+            return self._dim
+        finally:
+            close = getattr(probe, "close", None)
+            if close is not None:
+                close()
+
+    def embed_query_once(self, text: str) -> list[float]:
+        """Exactly ONE embedding attempt with a short timeout (query path).
+
+        The retry chain belongs to the write path, where a retry can
+        actually succeed. A query makes one attempt and reports the failure;
+        an unreachable service is the caller's answer, not a 30-second
+        backoff. The content-addressed cache is still consulted first.
+        """
+        if self.cache is not None and self._dim is not None:
+            cached = self.cache.get(cache_key(
+                text, self.model, self._dim, EMBED_FORMAT))
+            if cached is not None:
+                return cached
+        client = ollama.Client(host=self._host, timeout=QUERY_ATTEMPT_TIMEOUT)
+        try:
+            res = client.embed(model=self.model, input=[text],
+                               keep_alive="10m")
+            embs = res.get("embeddings") or res["embeddings"]
+            if len(embs) != 1:
+                raise RuntimeError(
+                    f"Ollama returned {len(embs)} embeddings for 1 input")
+        finally:
+            close = getattr(client, "close", None)
+            if close is not None:
+                close()
+        vector = embs[0]
+        if self.cache is not None and self._dim is not None:
+            self.cache.put(cache_key(text, self.model, self._dim, EMBED_FORMAT),
+                           vector)
+        return vector
 
     def close(self) -> None:
         """Release the Ollama HTTP connection pool (keeps -W error runs clean)."""

@@ -121,9 +121,7 @@ def env(monkeypatch):
                    1, 1, 0.6, '{"key": "value"}'),
     ]
     core.store = fake_store  # type: ignore[assignment]
-    # Never let the staleness pass run a real index against backends.
-    monkeypatch.setattr(core, "maybe_refresh",
-                        lambda *a, **kw: {"state": "skipped"})
+    # Reads no longer refresh: nothing to stub on the staleness path.
     yield core, reg, entry, project, cfg, fake_store
     reg.close()
     shutil.rmtree(cfg.index_root, ignore_errors=True)

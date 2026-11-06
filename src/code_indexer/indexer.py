@@ -493,6 +493,10 @@ class Indexer:
             _commit_metadata(path)
         manifest.mark_scanned(manifest.read_git_branch(project_path))
         manifest.set_meta("last_indexed", str(time.time()))
+        # One revision per committed pass: the revision a read answer was
+        # read from. A counter (never a timestamp) so two passes in the same
+        # second are still distinguishable.
+        manifest.set_meta("index_revision", _next_revision(manifest))
         # Record the construction that produced (or refreshed) the vectors in
         # this pass, so a later construction change is detected as a rebuild.
         manifest.set_meta("embed_format", EMBED_FORMAT)
@@ -538,6 +542,16 @@ class Indexer:
             lines = [ln for ln in raw.split("\n") if ln]
             lines.append(key)
             manifest.set_meta("chunk_hashes", "\n".join(lines[-5000:]))
+
+
+def _next_revision(manifest: Manifest) -> str:
+    """The next index revision for this manifest: one per committed pass."""
+    raw = manifest.get_meta("index_revision") or "0"
+    try:
+        return str(int(raw) + 1)
+    except ValueError:
+        # A legacy/manual value that is not a counter: start a clean sequence.
+        return "1"
 
 
 def _lang_from_ext(path: str) -> str:

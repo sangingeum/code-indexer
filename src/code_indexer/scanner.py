@@ -4,6 +4,10 @@ Filters: .gitignore (pathspec, nested per-directory), .codeindexignore,
 directory skip-list, size cap, binary sniff. Hash = sha256 of content —
 NEVER mtime (mtimes lie after branch switches/checkout; the content-hash
 diff is what makes incremental indexing correct and cheap).
+
+A caller may pass a ``ScanBudget`` so a very large tree stops the walk and
+reports that it stopped, instead of walking for minutes: the staleness check
+uses this to degrade to ``unknown`` rather than silence.
 """
 
 from __future__ import annotations
@@ -11,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import time
 from dataclasses import dataclass
 
 import pathspec
@@ -43,6 +48,18 @@ _BUILTIN_IGNORE_LINES = [
     "*.lock", "*.min.js", "*.min.css", "*.map",
     "*.pb.go", "*_pb2.py", "*_generated.*",
 ]
+
+
+class ScanBudgetExceeded(Exception):
+    """The walk exceeded its own budget; the caller reports it, never guesses."""
+
+
+@dataclass(frozen=True)
+class ScanBudget:
+    """Bounds one walk. ``None`` on either field means unbounded there."""
+
+    max_files: int | None = None
+    max_seconds: float | None = None
 
 
 @dataclass
@@ -114,6 +131,7 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
                  previous: dict[str, tuple[int, int, int, str]] | None = None,
                  include: list[str] | None = None,
                  priority: list[str] | None = None,
+                 budget: ScanBudget | None = None,
                  ) -> list[ScannedFile]:
     """Walk ``root`` and return ScannedFile rows.
 
@@ -139,6 +157,22 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
     root = os.path.abspath(root)
     results: list[ScannedFile] = []
     _GITIGNORE_CACHE.clear()
+    walked = 0
+    started = time.monotonic()
+
+    def check_budget() -> None:
+        """Stop the walk when its own budget is spent (never a silent long run)."""
+        nonlocal walked
+        walked += 1
+        if budget is None:
+            return
+        if budget.max_files is not None and walked > budget.max_files:
+            raise ScanBudgetExceeded(
+                f"scan budget exceeded after {budget.max_files} entries")
+        if (budget.max_seconds is not None and walked % 256 == 0
+                and time.monotonic() - started > budget.max_seconds):
+            raise ScanBudgetExceeded(
+                f"scan budget exceeded after {budget.max_seconds:g}s")
 
     for dirpath, dirnames, filenames in os.walk(root, topdown=True):
         rel_dir = os.path.relpath(dirpath, root)
@@ -159,6 +193,7 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
 
         for fname in filenames:
+            check_budget()
             abs_path = os.path.join(dirpath, fname)
             rel_path = os.path.relpath(abs_path, root).replace(os.sep, "/")
             # Check every ignore spec from root down to this directory

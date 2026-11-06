@@ -249,7 +249,7 @@ def test_json_format_snapshot(rig):
     out = core.search_for_display("query", project=entry.path, fmt="json")
     payload = json.loads(out)
     assert set(payload) == {"schema", "hits", "truncated", "dropped",
-                            "skipped", "skipped_count"}
+                            "skipped", "skipped_count", "partial"}
     assert payload["schema"] == 1
     assert payload["skipped"] == [] and payload["skipped_count"] == 0
     # Merged hit carries both symbols.

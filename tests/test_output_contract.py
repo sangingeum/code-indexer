@@ -20,7 +20,7 @@ from code_indexer.core import Core  # noqa: E402
 from code_indexer.registry import Registry  # noqa: E402
 from code_indexer.errors import (  # noqa: E402
     ArgumentError, BackendError, ConfigError, InternalError, LockedError,
-    NotFoundError, classify)
+    NotFoundError, RebuildRequiredError, classify)
 
 runner = CliRunner()
 
@@ -33,8 +33,10 @@ def test_taxonomy_render_and_exit_codes():
     assert NotFoundError("x not registered").render() == \
         "NotFoundError: x not registered"
     assert ArgumentError("bad").exit_code == 2
-    for t in (ConfigError, NotFoundError, BackendError, LockedError,
-              InternalError):
+    assert BackendError("x").exit_code == 3
+    assert RebuildRequiredError("x").exit_code == 4
+    assert LockedError("x").exit_code == 5
+    for t in (ConfigError, NotFoundError, InternalError):
         assert t("x").exit_code == 1
 
 
@@ -57,8 +59,9 @@ def test_classify_wraps_fingerprint_config_error():
     from code_indexer.fingerprint import ConfigError as LegacyConfigError
     err = classify(LegacyConfigError("error: embed model changed; run: "
                                      "code-indexer reindex-project /p"))
-    assert isinstance(err, ConfigError)
-    assert err.render().startswith("ConfigError: embed model changed")
+    assert isinstance(err, RebuildRequiredError)
+    assert err.exit_code == 4
+    assert err.render().startswith("RebuildRequiredError: embed model changed")
 
 
 def _record_stale_fingerprint(core, entry, model="older-model"):
@@ -98,9 +101,9 @@ def test_fingerprint_refusal_renders_the_type_prefix_exactly_once(rig):
     with pytest.raises(FingerprintConfigError) as excinfo:
         core.assert_fingerprint_ok(entry)
     rendered = classify(excinfo.value).render()
-    assert rendered.startswith("ConfigError: index for "), rendered
-    assert rendered.count("ConfigError:") == 1, rendered
-    assert "ConfigError: ConfigError" not in rendered
+    assert rendered.startswith("RebuildRequiredError: index for "), rendered
+    assert rendered.count("RebuildRequiredError:") == 1, rendered
+    assert "RebuildRequiredError: RebuildRequiredError" not in rendered
     assert "run: code-indexer reindex-project" in rendered
 
 
@@ -114,12 +117,12 @@ def test_semantic_search_refusal_is_one_taxonomy_line(rig):
 
     result = runner.invoke(app, ["semantic-search", "q", "--project",
                                  str(project), "--skip-stale-check"])
-    assert result.exit_code == 1, result.output
+    assert result.exit_code == 4, result.output
     lines = [ln for ln in result.output.splitlines()
-             if ln.startswith("ConfigError:")]
+             if ln.startswith("RebuildRequiredError:")]
     assert len(lines) == 1, result.output
-    assert lines[0].startswith("ConfigError: index for "), lines[0]
-    assert "ConfigError: ConfigError" not in result.output
+    assert lines[0].startswith("RebuildRequiredError: index for "), lines[0]
+    assert "RebuildRequiredError: RebuildRequiredError" not in result.output
     assert "Traceback" not in result.output
 
 
@@ -157,7 +160,7 @@ def test_verbose_refusal_logs_the_traceback_but_keeps_stdout_clean(rig):
         app_logger.removeHandler(handler)
 
     # (a) --verbose: one diagnostic record, carrying the exception.
-    assert verbose.exit_code == 1, verbose.output
+    assert verbose.exit_code == 4, verbose.output
     seam = [r for r in verbose_records
             if r.name == "code-indexer.cli"
             and r.getMessage() == "semantic-search failed"]
@@ -168,12 +171,12 @@ def test_verbose_refusal_logs_the_traceback_but_keeps_stdout_clean(rig):
     assert "Traceback" in rendered and "ConfigError" in rendered, rendered
     # The result (stdout) stream stays result-only: no traceback, no log.
     assert verbose.stdout == "", verbose.stdout
-    assert verbose.stderr.count("ConfigError:") == 1, verbose.stderr
+    assert verbose.stderr.count("RebuildRequiredError:") == 1, verbose.stderr
 
     # (b) default level: the INFO record is filtered out entirely.
-    assert default.exit_code == 1, default.output
+    assert default.exit_code == 4, default.output
     assert default.stdout == ""
-    assert default.stderr.count("ConfigError:") == 1, default.stderr
+    assert default.stderr.count("RebuildRequiredError:") == 1, default.stderr
     assert seen == [], [r.getMessage() for r in seen]
 
 
@@ -214,7 +217,8 @@ def test_subcommand_error_contract(args, expected_type, tmp_path,
     err_lines = [ln for ln in result.output.splitlines()
                  if ln.startswith(tuple(f"{t}:" for t in (
                      "ArgumentError", "ConfigError", "NotFoundError",
-                     "BackendError", "LockedError", "InternalError")))]
+                     "BackendError", "RebuildRequiredError", "LockedError",
+                     "InternalError")))]
     assert len(err_lines) == 1, result.output
     assert err_lines[0].startswith(f"{expected_type}:"), err_lines[0]
 

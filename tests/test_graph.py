@@ -882,17 +882,19 @@ def test_find_symbol_exact_name_is_uncapped_and_honours_limit(
     """No surface could list all 40 definitions even by asking: exact-name
     mode never forwarded --limit. Browse mode keeps its default cap."""
     core, reg, entry, project = _many_definitions_rig(tmp_path, monkeypatch)
-    rows = json.loads(runner.invoke(
+    payload = json.loads(runner.invoke(
         app, ["find-symbol", "step", "--project", str(project),
               "--json"]).stdout)
+    assert payload["schema"] == 1 and isinstance(payload["stale_known"], bool)
+    rows = payload["symbols"]
     assert len(rows) == 40, len(rows)
     asked = json.loads(runner.invoke(
         app, ["find-symbol", "step", "--project", str(project),
-              "--limit", "100", "--json"]).stdout)
+              "--limit", "100", "--json"]).stdout)["symbols"]
     assert len(asked) == 40, len(asked)
     bounded = json.loads(runner.invoke(
         app, ["find-symbol", "step", "--project", str(project),
-              "--limit", "3", "--json"]).stdout)
+              "--limit", "3", "--json"]).stdout)["symbols"]
     assert len(bounded) == 3, len(bounded)
     # find-definition is the same exact-name read, same answer.
     text = runner.invoke(app, ["find-definition", "step", "--project",
@@ -913,11 +915,11 @@ def test_find_symbol_browse_mode_keeps_its_default_cap(tmp_path, monkeypatch):
     core, reg, entry, project = _many_definitions_rig(tmp_path, monkeypatch)
     rows = json.loads(runner.invoke(
         app, ["find-symbol", "--type", "class", "--project", str(project),
-              "--json"]).stdout)
+              "--json"]).stdout)["symbols"]
     assert len(rows) == 25, len(rows)
     stored = json.loads(runner.invoke(
         app, ["find-symbol", "--type", "class", "--project", str(project),
-              "--limit", "40", "--json"]).stdout)
+              "--limit", "40", "--json"]).stdout)["symbols"]
     assert len(stored) == 40, len(stored)
 
 

@@ -22,6 +22,7 @@ import pytest
 
 from code_indexer.config import Config
 from code_indexer.core import Core
+from code_indexer.errors import LockedError
 from code_indexer.locks import project_lock
 
 
@@ -98,28 +99,27 @@ def project(tmp_path):
     return root
 
 
-def test_four_parallel_cli_searches_run_exactly_one_pass(core, project):
-    """4 parallel one-shot search invocations -> exactly one indexer pass."""
+def test_parallel_reads_run_no_index_pass(core, project):
+    """Four concurrent reads: the index is never repaired by a read."""
     entry = core.registry.add(str(project))
     first = core.run_index(entry.slug, entry.path)
     assert first["state"] == "idle"
 
-    # A fresh set of cores simulating 4 independent one-shot processes
-    # (fresh staleness cache and registry connection each — the same way a
-    # CLI subprocess would construct its own Core), all sharing the same
-    # index root and lock file.
+    # A fresh set of cores simulating 4 independent one-shot processes.
     cores = [_stub_core(core.cfg) for _ in range(4)]
-
-    # Touch a file so the incremental pass has real work to (re)do.
+    # Touch a file: the reads must REPORT this, never repair it.
     (project / "extra.py").write_text("def extra():\n    pass\n")
 
-    results: list[dict] = []
+    verdicts: list[str] = []
+    calls: list = []
     lock = threading.Lock()
 
     def worker(c: Core) -> None:
-        r = c.maybe_refresh(entry.slug, entry.path)
+        c.run_index = lambda *a, **kw: calls.append(a) or {
+            "state": "idle", "result": {}}
+        v = c.staleness(entry)
         with lock:
-            results.append(r)
+            verdicts.append(v.state)
 
     threads = [threading.Thread(target=worker, args=(c,)) for c in cores]
     for t in threads:
@@ -127,13 +127,39 @@ def test_four_parallel_cli_searches_run_exactly_one_pass(core, project):
     for t in threads:
         t.join()
 
-    idle = [r for r in results if r["state"] == "idle"]
-    held = [r for r in results if r["state"] == "indexing"]
-    # Exactly one pass runs; everyone else reports 'indexing in progress'.
-    assert len(idle) == 1, f"expected exactly one pass, got {len(idle)}: {results}"
-    assert len(held) == 3
-    assert all("indexing in progress" in r["detail"] for r in held)
+    assert calls == [], "a read ran an index pass"
+    assert verdicts == ["stale"] * 4
 
+
+def test_concurrent_refreshes_serialize_on_the_flock(core, project):
+    """Explicit refreshes serialize: one pass, everyone else LockedError."""
+    entry = core.registry.add(str(project))
+    first = core.run_index(entry.slug, entry.path)
+    assert first["state"] == "idle"
+
+    cores = [_stub_core(core.cfg) for _ in range(4)]
+    (project / "extra.py").write_text("def extra():\n    pass\n")
+
+    outcomes: list[str] = []
+    lock = threading.Lock()
+
+    def worker(c: Core) -> None:
+        try:
+            c.refresh(entry)
+            outcome = "refreshed"
+        except LockedError:
+            outcome = "locked"
+        with lock:
+            outcomes.append(outcome)
+
+    threads = [threading.Thread(target=worker, args=(c,)) for c in cores]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert outcomes.count("refreshed") == 1, outcomes
+    assert outcomes.count("locked") == 3, outcomes
 
 def test_two_indexers_one_searcher(core, project):
     """Two processes index concurrently while a third searches: exactly one
@@ -297,7 +323,7 @@ def test_cli_search_json_contract(core, project):
         pytest.fail(f"unexpected search output: {out!r}")
     payload = json.loads(out)
     assert set(payload) == {"schema", "hits", "truncated", "dropped",
-                            "skipped", "skipped_count"}
+                            "skipped", "skipped_count", "partial"}
     assert payload["schema"] == 1
     assert payload["skipped"] == [] and payload["skipped_count"] == 0
     hits = payload["hits"]

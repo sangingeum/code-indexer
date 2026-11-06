@@ -25,6 +25,7 @@ import code_indexer.cli as cli  # noqa: E402
 from code_indexer.cli import app  # noqa: E402
 from code_indexer.config import Config  # noqa: E402
 from code_indexer.core import Core  # noqa: E402
+from code_indexer.errors import BackendError  # noqa: E402
 from code_indexer.fingerprint import ConfigError as FingerprintConfigError  # noqa: E402
 from code_indexer.registry import Registry  # noqa: E402
 
@@ -150,10 +151,11 @@ def _mark_indexed(core, slug):
 def test_search_skips_unresolvable_project(tmp_path, caplog):
     core, live, dead = _rig(tmp_path)
     with caplog.at_level(logging.WARNING, logger="code-indexer.core"):
-        result = core.search("q", skip_refresh=True)
+        result = core.search("q", all_projects=True)
     # The live project answered; the dead one did not kill the run.
     assert result["hits"], result
     assert [s["project"] for s in result["skipped"]] == [dead.path]
+    assert result["partial"] is True
     # It is named, loudly, on the warning stream (stdout stays result-only).
     assert dead.path in caplog.text
     assert "skipped" in caplog.text
@@ -162,14 +164,14 @@ def test_search_skips_unresolvable_project(tmp_path, caplog):
 def test_search_all_projects_unresolvable_errors(tmp_path):
     core, live, dead = _rig(tmp_path)
     core.registry.remove(live.path)  # only the dead project remains
-    with pytest.raises(ValueError, match="every project"):
-        core.search("q", skip_refresh=True)
+    with pytest.raises(BackendError, match="every project"):
+        core.search("q", all_projects=True)
 
 
 def test_search_single_dead_project_errors(tmp_path):
     core, live, dead = _rig(tmp_path)
-    with pytest.raises(ValueError, match="every project"):
-        core.search("q", project=dead.path, skip_refresh=True)
+    with pytest.raises(BackendError, match="every project"):
+        core.search("q", project=dead.path)
 
 
 def test_fingerprint_gate_stays_fatal(tmp_path, monkeypatch):
@@ -184,7 +186,7 @@ def test_fingerprint_gate_stays_fatal(tmp_path, monkeypatch):
 
     monkeypatch.setattr(core, "assert_fingerprint_ok", gate)
     with pytest.raises(FingerprintConfigError):
-        core.search("q", skip_refresh=True)
+        core.search("q", all_projects=True)
 
 
 # ---------------------------------------------------------------------------

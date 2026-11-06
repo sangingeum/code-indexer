@@ -20,8 +20,10 @@ import typer
 logger = logging.getLogger("code-indexer.cli")
 
 from .errors import fail
+from .errors import classify, IndexerError
 from .core import (NEEDS_REINDEX, NEVER_INDEXED, UNVERIFIED, Core,
                    MIGRATION_HINT)
+from . import staleness
 from .doctor import run_doctor
 from . import graph
 from . import overview as overview_mod
@@ -121,21 +123,25 @@ def _echo_index_result(slug: str, result: dict) -> None:
 
 SkipOpt = typer.Option(
     False, "--skip-stale-check",
-    help="Skip the staleness probe / incremental index pass on this invocation.")
+    help="Accepted on every command and INERT: reads never index, so there "
+         "is nothing to skip. Reporting staleness without repairing it is "
+         "the default; use --refresh to repair.")
 RefreshOpt = typer.Option(
     False, "--refresh",
-    help="Force a fresh staleness pass on this query (runs an incremental "
-         "index now; default is to index only when actually stale, quietly).")
+    help="Run one incremental index pass first, then answer from the result. "
+         "This is the ONLY flag that turns a read command into a write; a "
+         "pass held by another process fails with LockedError (exit 5).")
 FreshOpt = typer.Option(
     False, "--fresh",
-    help="Ignore STALE_TTL for this call: run the hash scan now (equivalent "
-         "to --refresh; named for the MCP fresh parameter).")
+    help="Read the live file and ignore cached symbol rows (this command "
+         "only). Writes nothing.")
 
 
 @app.command()
 def doctor(
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
     skip_stale_check: bool = SkipOpt,
+    refresh: bool = RefreshOpt,
 ) -> None:
     """Health-check the installation: runtime versions, Ollama (reachable /
     model present / dimension probe), Qdrant (reachable / version / client
@@ -147,6 +153,11 @@ def doctor(
     tool — agents use index-status for per-project state. Network calls go
     only to the configured Ollama/Qdrant URLs."""
     core = _get_core(skip_stale_check)
+    if refresh:
+        # Doctor answers no index query, but its per-project fingerprint
+        # checks inspect the index: --refresh refreshes what it inspects.
+        for registered in core.registry.list_projects():
+            core.refresh(registered)
     # Reuse the core embedder's own Ollama client when it carries one (keeps
     # doctor on the same configured URL and lets test stubs inject).
     client = getattr(core.embedder, "client", None)
@@ -172,9 +183,14 @@ def overview(
     max_lines: int = typer.Option(60, "--max-lines", help="Output line cap."),
     json_output: bool = typer.Option(False, "--json"),
     skip_stale_check: bool = SkipOpt,
+    refresh: bool = RefreshOpt,
 ) -> None:
     """Project-level map from manifest data: languages, directories, entry
     points, tests, config, hotspots (orientation surface).
+
+    Answers from the index as of meta.last_indexed and reports whether that
+    index is fresh, stale or unknown; --refresh is the only flag that makes
+    this read write.
 
     CLI-only by design: this is a rendered orientation text surface; MCP
     agents already have skeleton/outline/search and the graph tools, so an
@@ -182,6 +198,8 @@ def overview(
     """
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
+    verdict_block = _read_staleness(core, entry, refresh=refresh,
+                                    json_output=json_output)
     m = core.manifest_for(entry.slug)
     try:
         data = overview_mod.build_overview(m, entry.path,
@@ -189,6 +207,7 @@ def overview(
     finally:
         m.close()
     if json_output:
+        data.update(verdict_block)
         typer.echo(json.dumps(data))
     else:
         typer.echo(overview_mod.format_overview(data, max_lines=max_lines))
@@ -210,12 +229,15 @@ def changed_symbols(
     max_nodes: int = typer.Option(40, "--max-nodes", help="Impact node cap."),
     json_output: bool = typer.Option(False, "--json"),
     skip_stale_check: bool = SkipOpt,
+    refresh: bool = RefreshOpt,
 ) -> None:
     """What changed in symbols: parse NEW/OLD contents from the git diff
     (never trusts the possibly-stale manifest). Post-edit read-only loop:
     run this, then search/get-code-context only for what actually changed."""
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
+    verdict_block = _read_staleness(core, entry, refresh=refresh,
+                                    json_output=json_output)
     try:
         changed = changed_mod.changed_symbols(
             entry.path, base=base, head=head, staged=staged,
@@ -232,6 +254,7 @@ def changed_symbols(
         payload = dict(changed, schema=1)
         if impact_data is not None:
             payload["impact"] = impact_data
+        payload.update(verdict_block)
         typer.echo(json.dumps(payload))
         return
     typer.echo(changed_mod.render(changed, impact_data))
@@ -253,6 +276,66 @@ def _warn_rows_staleness(core: Core, entry: ProjectEntry) -> None:
         typer.echo(warning, err=True)
 
 
+def _read_staleness(core: Core, entry: ProjectEntry, *, refresh: bool,
+                    json_output: bool) -> dict[str, Any]:
+    """Refresh when asked, then report the index's verdict for one project.
+
+    Text mode prints at most ONE stderr line (the record's shape) and nothing
+    on stdout. JSON mode adds the block to the answer instead, so a machine
+    consumer branches on fields rather than parsing prose. A read without
+    ``--refresh`` never writes.
+    """
+    if refresh:
+        try:
+            core.refresh(entry)
+        except IndexerError as exc:
+            fail(exc)
+    verdict = core.staleness(entry)
+    if not json_output:
+        line = staleness.warning_line(verdict, entry.path)
+        if line:
+            typer.echo(line, err=True)
+    return staleness.block(verdict)
+
+
+def _read_staleness_many(core: Core, entries: list[ProjectEntry], *,
+                         refresh: bool,
+                         json_output: bool) -> tuple[dict[str, Any],
+                                                     list[dict[str, Any]]]:
+    """The aggregate block plus one per-project block, for a fan-out answer."""
+    verdicts: dict[str, staleness.StalenessVerdict] = {}
+    blocks: list[dict[str, Any]] = []
+    for entry in entries:
+        if refresh:
+            try:
+                core.refresh(entry)
+            except IndexerError as exc:
+                fail(exc)
+        verdict = core.staleness(entry)
+        verdicts[entry.path] = verdict
+        blocks.append(dict(staleness.block(verdict), project=entry.path))
+        if not json_output:
+            line = staleness.warning_line(verdict, entry.path)
+            if line:
+                typer.echo(line, err=True)
+    return staleness.aggregate(verdicts), blocks
+
+
+def _json_failure(exc: BaseException, json_output: bool) -> NoReturn:
+    """Failure reporting for a command that has a JSON mode.
+
+    With --json the object carries ``ErrorType`` (ADR-0003 section 7) and the
+    taxonomy's exit code; without it the one-line ``ErrorType: message``
+    lands on stderr. Never a traceback either way.
+    """
+    if not json_output:
+        fail(exc)
+    err = classify(exc)
+    typer.echo(json.dumps({"schema": 1, "ErrorType": err.error_type,
+                           "error": str(err)}, ensure_ascii=False))
+    raise typer.Exit(err.exit_code)
+
+
 @app.command()
 def find_callers(
     name: str = typer.Argument(..., help="Symbol name to find callers of."),
@@ -261,6 +344,7 @@ def find_callers(
     max_nodes: int = typer.Option(40, "--max-nodes", help="Node cap."),
     json_output: bool = typer.Option(False, "--json"),
     skip_stale_check: bool = SkipOpt,
+    refresh: bool = RefreshOpt,
 ) -> None:
     """Who references this symbol: fan-in BFS over the single reference store
     (tree-sitter `call`/`type`/`base_class`/`member` rows, confidence `ast`,
@@ -286,9 +370,11 @@ def find_callers(
     the cap. For every reference TO a name use `find-references`."""
     core, entry = _core_entry(project, skip_stale_check)
     _warn_rows_staleness(core, entry)
+    verdict_block = _read_staleness(core, entry, refresh=refresh,
+                                    json_output=json_output)
     result = graph.find_callers(core, entry.slug, name, depth=depth,
                                 max_nodes=max_nodes)
-    _emit_graph(result, json_output)
+    _emit_graph(result, json_output, verdict_block)
 
 
 @app.command()
@@ -299,6 +385,7 @@ def find_callees(
     max_nodes: int = typer.Option(40, "--max-nodes", help="Node cap."),
     json_output: bool = typer.Option(False, "--json"),
     skip_stale_check: bool = SkipOpt,
+    refresh: bool = RefreshOpt,
 ) -> None:
     """What this symbol references: fan-out BFS over the `refs` table
     (same store and confidence rules as `find-callers`; the graph is textual
@@ -311,12 +398,15 @@ def find_callees(
     """
     core, entry = _core_entry(project, skip_stale_check)
     _warn_rows_staleness(core, entry)
+    verdict_block = _read_staleness(core, entry, refresh=refresh,
+                                    json_output=json_output)
     result = graph.find_callees(core, entry.slug, name, depth=depth,
                                 max_nodes=max_nodes)
-    _emit_graph(result, json_output)
+    _emit_graph(result, json_output, verdict_block)
 
 
-def _emit_graph(result: graph.GraphResult, json_output: bool) -> None:
+def _emit_graph(result: graph.GraphResult, json_output: bool,
+                staleness_block: dict[str, Any] | None = None) -> None:
     """Render a graph result; `notes` explain an empty or near-empty answer so
     it is never a bare `no results` (an empty caller list must not read as
     "nothing calls this"). A result the caps left incomplete also carries a
@@ -328,7 +418,9 @@ def _emit_graph(result: graph.GraphResult, json_output: bool) -> None:
     an explanatory note that is not itself about the cap.
     """
     if json_output:
-        typer.echo(json.dumps(graph.result_to_json(result)))
+        payload = graph.result_to_json(result)
+        payload.update(staleness_block or {})
+        typer.echo(json.dumps(payload))
         return
     typer.echo(graph.render_tree(result.nodes))
     if not result.nodes:
@@ -352,6 +444,7 @@ def deps(
     graph_format: str = typer.Option("tree", "--format",
                                      help="tree | edges | json"),
     skip_stale_check: bool = SkipOpt,
+    refresh: bool = RefreshOpt,
 ) -> None:
     """Import graph around one file (resolved edges only). The payload keeps
     its per-level `in` / `out` dicts and gains `truncated` and `omitted`; a
@@ -359,10 +452,13 @@ def deps(
     naming the cap."""
     core, entry = _core_entry(project, skip_stale_check)
     _warn_rows_staleness(core, entry)
+    verdict_block = _read_staleness(core, entry, refresh=refresh,
+                                    json_output=graph_format == "json")
     result = graph.deps_for_file(core, entry.slug, path,
                                  direction=direction, depth=depth,
                                  max_nodes=max_nodes)
     if graph_format == "json":
+        result.update(verdict_block)
         typer.echo(json.dumps(result))
         return
     lines: list[str] = []
@@ -529,23 +625,46 @@ def remove_project(
 
 
 @app.command(name="list-projects")
-def list_projects(skip_stale_check: bool = SkipOpt) -> None:
+def list_projects(json_output: bool = typer.Option(False, "--json",
+                                                   help="JSON output."),
+                  skip_stale_check: bool = SkipOpt,
+                  refresh: bool = RefreshOpt) -> None:
     """List registered projects with per-project index summary.
 
-    One collection listing (physical collections + aliases) is fetched once
-    so a registered project whose collection is gone is reported as
-    `state=error collection=missing` instead of a healthy `idle` — no
-    per-project network round trip."""
+    A read: it answers from the manifests as of their last passes and
+    reports a staleness verdict per project. One collection listing
+    (physical collections + aliases) is fetched once so a registered project
+    whose collection is gone is reported as `state=error collection=missing`
+    instead of a healthy `idle` — no per-project network round trip.
+
+    With --json the answer is one object: `projects` holds the fields the
+    text lines print plus each project's staleness block, and the top-level
+    staleness fields aggregate them (a fan-out answer must not hide a stale
+    project).
+    """
     core = _get_core(skip_stale_check)
     entries = core.registry.list_projects()
     if not entries:
-        typer.echo("no projects registered")
+        if json_output:
+            typer.echo(json.dumps({"schema": 1, "projects": [],
+                                   **staleness.block(staleness.unknown(
+                                       "no projects registered"))}))
+        else:
+            typer.echo("no projects registered")
         return
     try:
         collections: set[str] | None = core.store.list_collections()
     except Exception as exc:  # noqa: BLE001 — a dead store must not kill the listing
         logger.debug("collection listing unavailable: %s", exc)
         collections = None
+    aggregate, blocks = _read_staleness_many(
+        core, entries, refresh=refresh, json_output=json_output)
+    if json_output:
+        projects = [dict(core.status_fields(e, collections=collections), **b)
+                    for e, b in zip(entries, blocks)]
+        typer.echo(json.dumps({"schema": 1, "projects": projects, **aggregate},
+                              ensure_ascii=False))
+        return
     for e in entries:
         typer.echo(f"- {core.status_summary(e, collections=collections)}")
 
@@ -559,20 +678,37 @@ def lookup_project(
         None, "--project", "--name",
         help="Project path, slug, or name. Takes precedence over the "
              "positional PATH when both are given."),
+    json_output: bool = typer.Option(False, "--json", help="JSON output."),
     skip_stale_check: bool = SkipOpt,
+    refresh: bool = RefreshOpt,
 ) -> None:
     """Check whether a project is registered (no indexing triggered).
 
     A check, not an error path: an unregistered selector prints
     ``not registered: <path>`` and exits 0. With no selector at all the
-    read-only cwd resolution used by ``index-status`` applies.
+    read-only cwd resolution used by ``index-status`` applies. The JSON
+    answer carries the fields the text line prints, the collection name, and
+    the staleness block (an unregistered project's verdict is ``unknown``).
     """
     core = _get_core(skip_stale_check)
     selector = project or path
     entry, _err = core.resolve_entry(selector)
     if entry is None:
         raw = os.path.abspath(os.path.expanduser(selector or os.getcwd()))
+        if json_output:
+            typer.echo(json.dumps({
+                "schema": 1, "registered": False, "path": raw,
+                **staleness.block(staleness.unknown("project not registered")),
+            }, ensure_ascii=False))
+            return
         typer.echo(f"not registered: {raw}")
+        return
+    block = _read_staleness(core, entry, refresh=refresh,
+                            json_output=json_output)
+    if json_output:
+        payload = dict(core.status_fields(entry), schema=1, registered=True,
+                       collection=f"idx_{entry.slug}", **block)
+        typer.echo(json.dumps(payload, ensure_ascii=False))
         return
     typer.echo(f"registered {core.status_summary(entry)} collection=idx_{entry.slug}")
 
@@ -619,11 +755,27 @@ def semantic_search(
     skip_stale_check: bool = SkipOpt,
     refresh: bool = RefreshOpt,
     fresh: bool = FreshOpt,
+    all_projects: bool = typer.Option(
+        False, "--all-projects",
+        help="Search every registered project. The default resolves ONE "
+             "project (the containing project inferred from the invocation "
+             "path); fan-out is bounded by the 30 s wall."),
 ) -> None:
-    """Semantic code search. The staleness pass runs only when the index is
-    actually stale (quietly); --refresh/--fresh force it now (ignoring
-    STALE_TTL), --skip-stale-check
-    skips the probe entirely. --ranking metadata applies small metadata
+    """Semantic code search over the index as of meta.last_indexed.
+
+    A read: it never indexes. The default resolves ONE project — the
+    containing project inferred from the invocation path — and fan-out
+    requires --all-projects. The query makes ONE embedding attempt with a
+    short timeout (no retry chain); the fan-out stops at a 30 s wall and
+    reports the projects it did not reach as skipped with reason=budget.
+
+    --refresh runs one incremental pass first and answers from the result
+    (the only flag that makes this read write; a held flock is LockedError,
+    exit 5); --fresh and --skip-stale-check are accepted and inert. The
+    answer carries the staleness block, and text mode prints the record's
+    one stderr line when the index is stale or the check did not run.
+
+    --ranking metadata applies small metadata
     score adjustments (definition boost, test-path penalty); --ranking
     hybrid fuses the vector score with a lexical token-overlap score
     (weighted sum, fused = vector_score + 0.25 * lexical). In every mode
@@ -632,41 +784,63 @@ def semantic_search(
     (waived when the query names a data format). Same-file overlapping/adjacent
     hits are merged into their union range; --per-file diversifies across
     files; --max-chars/--max-tokens trim the lowest-ranked hits (one trailing
-    dropped-count line in text/compact output). Multi-project searches fuse
+    dropped-count line in text/compact output). A --all-projects answer fuses
     per-collection lists with Reciprocal Rank Fusion instead of comparing raw
     cross-collection cosine."""
     core = _get_core(skip_stale_check)
-    forced = refresh or fresh
-    if project:
-        entry, err = core.resolve_entry(project)
-        if entry is None:
-            _die(err)
-        core.maybe_refresh(entry.slug, entry.path, force=forced)
-    else:
-        for e in core.registry.list_projects():
-            core.maybe_refresh(e.slug, e.path, force=forced)
+    if all_projects and project:
+        _usage_die("--all-projects and --project are mutually exclusive; "
+                   "omit --project to fan out, or pass one project")
     fmt = "json" if json_output else output_format
+    if all_projects:
+        entries = core.registry.list_projects()
+        if not entries:
+            _usage_die("no projects registered")
+        entry = None
+        aggregate, blocks = _read_staleness_many(
+            core, entries, refresh=refresh, json_output=True)
+        verdict_block: dict[str, Any] = dict(aggregate, staleness=blocks)
+        stale_lines = [staleness.warning_line(
+            core.staleness(e), e.path) for e in entries]
+    else:
+        if project:
+            entry, err = core.resolve_entry(project)
+            if entry is None:
+                _die(err)
+        else:
+            entry, err = core.resolve_entry(None)
+            if entry is None:
+                _usage_die(err)
+        verdict_block = _read_staleness(core, entry, refresh=refresh,
+                                        json_output=True)
+        stale_lines = [staleness.warning_line(core.staleness(entry), entry.path)]
     rerank_mode = "none" if no_rerank else rerank
     try:
         output = core.search_for_display(
-            query, project=project, limit=limit, file_filter=file_filter,
-            symbol_type=symbol_type, language=language, ranking_mode=ranking,
-            fmt=fmt, skip_refresh=True, per_file=per_file, max_chars=max_chars,
+            query, project=(entry.path if entry else None), limit=limit,
+            file_filter=file_filter, symbol_type=symbol_type,
+            language=language, ranking_mode=ranking, fmt=fmt,
+            skip_refresh=True, per_file=per_file, max_chars=max_chars,
             max_tokens=max_tokens, context_lines=context_lines,
-            rerank=rerank_mode, mode=search_mode)
+            rerank=rerank_mode, mode=search_mode,
+            all_projects=all_projects, staleness_block=verdict_block)
     except Exception as exc:  # noqa: BLE001 — the shared failure seam
         # Search is the one surface that REFUSES a fingerprint-mismatched
         # index (the graph surfaces warn and answer) — that refusal must
         # render exactly like every other failure in this CLI: one
         # taxonomy line (`<ErrorType>: <message>`), the taxonomy's exit
         # code, and no rich traceback. The traceback stays available
-        # under --verbose.
+        # under --verbose. A total backend failure exits 3 with stdout
+        # empty, so it is never mistaken for an empty result.
         logger.info("semantic-search failed", exc_info=True)
         fail(exc)
     typer.echo(output)
+    if fmt != "json":
+        for line in stale_lines:
+            if line:
+                typer.echo(line, err=True)
     # Scoped indexing note: when the index covers only part of the
     # project, say so instead of letting out-of-scope paths look empty.
-    entry = core.resolve_entry(project)[0] if project else None
     if entry is not None:
         m = core.manifest_for(entry.slug)
         try:
@@ -689,12 +863,16 @@ def index_status(
         None, "--project", "--name",
         help="Project path, slug, or name. Takes precedence over the "
              "positional PATH when both are given."),
+    json_output: bool = typer.Option(False, "--json", help="JSON output."),
     skip_stale_check: bool = SkipOpt,
     refresh: bool = RefreshOpt,
 ) -> None:
     """Report indexing state (idle | indexing | never-indexed | error). By
-    default this is informational only — it does NOT trigger a re-index.
-    --refresh runs the staleness pass now (output notes the pass). A
+    default this is a read: it answers from the manifest and does NOT trigger
+    a re-index. --refresh runs one incremental pass first (the only flag that
+    makes this read write; a held flock is LockedError, exit 5). A
+    --json answer is one object carrying the fields the text line prints,
+    plus the staleness block.
     registered project with no completed indexing pass reports
     state=never-indexed rather than a misleading idle.
 
@@ -719,11 +897,12 @@ def index_status(
     # The --project/--name flag wins when both are given; the positional PATH
     # is the historical form the MCP server still uses.
     entry = _resolve(core, project or path)
-    refresh_result = (core.maybe_refresh(entry.slug, entry.path, force=True)
-                      if refresh else {"state": "not-requested"})
+    if refresh:
+        core.refresh(entry)
     st = core.state_for(entry.slug)
     state = core.effective_state(entry.slug, st.get("state", "idle"))
     parts = [f"project={entry.path}", f"state={state}"]
+    fields: dict[str, Any] = {"project": entry.path, "state": state}
     # The pass state says nothing about whether the index still matches the
     # current configuration. Query paths refuse on a mismatch (ConfigError)
     # and list-projects/doctor already call it needs-reindex; index-status
@@ -731,30 +910,40 @@ def index_status(
     fp = core.fingerprint_status(entry)
     if fp["state"] == NEEDS_REINDEX:
         parts.append(f"fingerprint=needs-reindex reason={fp['reason']}")
+        fields["fingerprint"] = "needs-reindex"
+        fields["reason"] = fp["reason"]
     elif fp["state"] == UNVERIFIED:
         # Verdict unavailable (the embedder could not be probed). Say which
         # it is rather than omitting the field: a bare pass state would read
         # exactly like a verified match.
         parts.append(f"fingerprint=unverified reason={fp['reason']}")
+        fields["fingerprint"] = "unverified"
+        fields["reason"] = fp["reason"]
     if st.get("last_result"):
         parts.append(f"last_pass={st['last_result']}")
+        fields["last_pass"] = st["last_result"]
     if st.get("progress"):
         p = st["progress"]
         parts.append(
             f"progress=files {p['files_done']}/{p['files_total']} "
             f"chunks {p['chunks_done']}/{p['chunks_total']} "
             f"{p['docs_per_s']} chunks/s eta={p['eta_s']}s")
+        fields["progress"] = p
     if st.get("last_result") and st["last_result"].get("sensitive_skipped"):
         parts.append(
             f"sensitive={st['last_result']['sensitive_skipped']} files skipped "
             "(privacy; override with --allow-sensitive on add-project)")
+        fields["sensitive_skipped"] = st["last_result"]["sensitive_skipped"]
     if st.get("error"):
         parts.append(f"error={st['error']}")
+        fields["error"] = st["error"]
     # Languages mapped to a grammar but without AST references queries
     # (heuristic/textual refs only) — orientation honesty.
     from .langmatrix import languages_without_ast
+    languages_without_ast_rows = languages_without_ast()
     parts.append("languages_without_ast=[" + ", ".join(
-        languages_without_ast()) + "]")
+        languages_without_ast_rows) + "]")
+    fields["languages_without_ast"] = languages_without_ast_rows
     # Scoped-indexing coverage: per top-level dir, indexed or not.
     try:
         m = Manifest(os.path.join(core.cfg.index_root, entry.slug,
@@ -774,8 +963,10 @@ def index_status(
                            if f.is_dir() and not f.name.startswith(".")}
                 not_indexed = sorted(on_disk - covered)
                 parts.append(f"scope={', '.join(scope)}")
+                fields["scope"] = scope
                 if not_indexed:
                     parts.append("not indexed: " + ", ".join(not_indexed[:6]))
+                    fields["not_indexed"] = not_indexed
         finally:
             m.close()
     except Exception as exc:  # noqa: BLE001 — status must never fail
@@ -790,13 +981,21 @@ def index_status(
                 parts.append("last_errors=" + " | ".join(
                     f"{e['file']}#{e['chunk_index']}: {e['error'][:60]}"
                     for e in errs))
+                fields["last_errors"] = errs
         finally:
             m.close()
     if state == NEVER_INDEXED:
         parts.append("note=registered but no indexing pass has completed; "
                      "run reindex-project to build the index")
-    if refresh_result.get("state") == "indexing":
-        parts.append("note=incremental pass ran/was held by another process")
+        fields["note"] = ("registered but no indexing pass has completed; "
+                          "run reindex-project to build the index")
+    block = _read_staleness(core, entry, refresh=False,
+                            json_output=json_output)
+    if json_output:
+        fields.update(block)
+        fields["schema"] = 1
+        typer.echo(json.dumps(fields, ensure_ascii=False))
+        return
     typer.echo(" ".join(parts))
 
 
@@ -809,6 +1008,7 @@ def sweep_orphans(
              "prints what it would clear and changes nothing."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
     skip_stale_check: bool = SkipOpt,
+    refresh: bool = RefreshOpt,
 ) -> None:
     """Remove residue rows for files that are gone from the project tree.
 
@@ -829,10 +1029,15 @@ def sweep_orphans(
     entry = core.registry.get_by_path(path)
     if entry is None:
         _die(f"error: not registered: {path}")
+    block = ({} if apply else _read_staleness(
+        core, entry, refresh=refresh, json_output=json_output))
     result = core.sweep_orphans(entry, entry.path, apply=apply)
     if json_output:
-        typer.echo(json.dumps({"project": entry.path, **result},
-                              ensure_ascii=False))
+        payload = {"project": entry.path, **result}
+        if block:
+            payload["schema"] = 1
+            payload.update(block)
+        typer.echo(json.dumps(payload, ensure_ascii=False))
         return
     counts = result["per_table"]
     counts_line = " ".join(
@@ -1347,11 +1552,14 @@ def skeleton(
         None, help="Cap symbol lines per file (ignored in --tree mode)."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
     skip_stale_check: bool = SkipOpt,
+    refresh: bool = RefreshOpt,
     fresh: bool = FreshOpt,
 ) -> None:
     """Whole-project or per-subtree structural map from the manifest only
     (design §2.1): files with their symbol lines, one symbol per line,
-    schema-v3 signature when stored."""
+    schema-v3 signature when stored. A read: answers from the index and
+    reports its staleness; --refresh is the only flag that makes it write.
+    --fresh is accepted and inert."""
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project, hint=path_prefix)
     # Normalize the prefix: `.` or an absolute path under the project root
@@ -1364,9 +1572,13 @@ def skeleton(
         elif apath.startswith(root + "/"):
             path_prefix = apath[len(root) + 1:]
     _warn_rows_staleness(core, entry)
+    block = _read_staleness(core, entry, refresh=refresh,
+                            json_output=json_output)
     data = core.skeleton(entry, prefix=path_prefix, tree_mode=tree_mode,
                          limit=limit,
-                         include_signatures=not no_signatures, fresh=fresh)
+                         include_signatures=not no_signatures)
+    if json_output:
+        data.update(block)
     text = core.format_skeleton(data, "json" if json_output else "text")
     if core.schema_migrated(entry):
         text += "\n" + MIGRATION_HINT
@@ -1386,17 +1598,22 @@ def outline(
         help="Add one docstring line under each declaration (bounded read)."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
     skip_stale_check: bool = SkipOpt,
+    refresh: bool = RefreshOpt,
     fresh: bool = FreshOpt,
 ) -> None:
-    """One file: declarations, signatures, one-line docstrings (design §2.2)."""
+    """One file: declarations, signatures, one-line docstrings (design §2.2).
+    A read; --refresh is the only flag that makes it write, --fresh is inert."""
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
     _warn_rows_staleness(core, entry)
+    block = _read_staleness(core, entry, refresh=refresh,
+                            json_output=json_output)
     try:
-        data = core.outline(entry, file, include_docstrings=docstrings,
-                            fresh=fresh)
+        data = core.outline(entry, file, include_docstrings=docstrings)
     except ValueError as exc:
-        _die(str(exc))
+        _json_failure(exc, json_output)
+    if json_output:
+        data.update(block)
     text = core.format_outline(data, "json" if json_output else "text")
     if core.schema_migrated(entry):
         text += "\n" + MIGRATION_HINT
@@ -1423,15 +1640,20 @@ def find_symbol(
              "Browse mode and the substring fallback: default cap 25."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
     skip_stale_check: bool = SkipOpt,
+    refresh: bool = RefreshOpt,
     fresh: bool = FreshOpt,
 ) -> None:
     """Look up symbols by name in the manifest symbol index (no semantic
     search). Exact AST-first, capped substring fallback. With NAME omitted,
     browse mode: --type/--file filters only, capped at --limit (design §2.3).
-    Output gains the schema-v3 signature when stored."""
+    A read: --refresh is the only flag that makes it write, --fresh is inert,
+    and the JSON object carries the staleness block."""
     core = _get_core(skip_stale_check)
-    entry = _resolve(core, project)
-    core.maybe_refresh(entry.slug, entry.path, force=fresh)
+    entry, err = core.resolve_entry(project)
+    if entry is None:
+        _json_failure(ValueError(err), json_output)
+    block = _read_staleness(core, entry, refresh=refresh,
+                            json_output=json_output)
     m = core.manifest_for(entry.slug)
     try:
         if name:
@@ -1451,19 +1673,24 @@ def find_symbol(
                 None, symbol_type=symbol_type, file=file_filter,
                 limit=limit if limit is not None else _BROWSE_CAP)
             match_label = False
+        payload_rows = [
+            {"file": r.file, "name": r.name, "type": r.symbol_type,
+             "start_line": r.start_line, "end_line": r.end_line,
+             "signature": r.signature}
+            for r in rows]
+        if json_output:
+            typer.echo(json.dumps({
+                "schema": 1, "symbols": payload_rows,
+                "match": ("browse" if not name else
+                          "exact" if not match_label else "substring"),
+                **block}, ensure_ascii=False, indent=2))
+            return
         if not rows:
             msg = (f"no symbols matching {name!r}" if name
                    else "no symbols matching the given filters")
             if core.schema_migrated(entry):
                 msg += "\n" + MIGRATION_HINT
             typer.echo(msg)
-            return
-        if json_output:
-            typer.echo(json.dumps([
-                {"file": r.file, "name": r.name, "type": r.symbol_type,
-                 "start_line": r.start_line, "end_line": r.end_line,
-                 "signature": r.signature}
-                for r in rows], ensure_ascii=False, indent=2))
             return
         for r in rows:
             label = ""
@@ -1484,16 +1711,34 @@ def find_definition(
     project: str = typer.Option(
         None, "--project", "--name",
         help="Project path, slug, or name (--project X or --name X)."),
+    json_output: bool = typer.Option(False, "--json", help="JSON output."),
     skip_stale_check: bool = SkipOpt,
+    refresh: bool = RefreshOpt,
     fresh: bool = FreshOpt,
 ) -> None:
-    """Find where a symbol is declared (exact name match only)."""
+    """Find where a symbol is declared (exact name match only). A read:
+    --refresh is the only flag that makes it write, --fresh is inert, and
+    the JSON object carries the staleness block."""
     core = _get_core(skip_stale_check)
-    entry = _resolve(core, project)
-    core.maybe_refresh(entry.slug, entry.path, force=fresh)
+    entry, err = core.resolve_entry(project)
+    if entry is None:
+        _json_failure(ValueError(err), json_output)
+    block = _read_staleness(core, entry, refresh=refresh,
+                            json_output=json_output)
     m = core.manifest_for(entry.slug)
     try:
         rows = m.definitions_of(name)
+        definitions = [
+            {"file": r.file, "name": r.name, "type": r.symbol_type,
+             "start_line": r.start_line, "end_line": r.end_line,
+             "confidence": "exact" if r.source == "ast" else "heuristic"}
+            for r in rows]
+        if json_output:
+            typer.echo(json.dumps({"schema": 1, "name": name,
+                                   "project": entry.path,
+                                   "definitions": definitions, **block},
+                                  ensure_ascii=False, indent=2))
+            return
         if not rows:
             msg = f"no exact-match symbols named {name!r}"
             if core.schema_migrated(entry):
@@ -1520,30 +1765,39 @@ def get_code_context(
     context_lines: int = typer.Option(0, help="Pad each range by N lines."),
     json_output: bool = typer.Option(False, "--json", help="JSON output (carries stale/re_resolved)."),
     skip_stale_check: bool = SkipOpt,
+    refresh: bool = RefreshOpt,
     fresh: bool = FreshOpt,
 ) -> None:
     """Retrieve ONLY the relevant source lines instead of whole files.
 
-    Stale-safe: when the file changed since indexing, symbol mode re-resolves
-    the symbol against the live file (fresh lines); line mode returns the
-    requested lines but emits one stderr warning line ('Warning: file changed
-    since last index; line numbers may be shifted') and sets stale=true in
-    JSON — the documented exception to stderr-empty-on-success (exit stays 0).
-    --fresh/--refresh ignores STALE_TTL and runs the hash scan now."""
+    Stale-safe: when the file changed since indexing (or --fresh is passed),
+    symbol mode re-resolves the symbol against the live file (fresh lines);
+    line mode returns the requested lines but emits one stderr warning line
+    ('Warning: file changed since last index; line numbers may be shifted')
+    and sets stale=true in JSON — the documented exception to
+    stderr-empty-on-success (exit stays 0).
+
+    A read: --fresh means "read the live file, ignore cached symbol rows" and
+    writes nothing; --refresh runs one incremental pass first (the only flag
+    that makes this read write). The JSON answer carries the index staleness
+    block, while its `stale` field keeps its file-level meaning."""
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
-    if fresh:
-        core.maybe_refresh(entry.slug, entry.path, force=True)
+    block = _read_staleness(core, entry, refresh=refresh, json_output=True)
     try:
         data = core.code_context(
             entry, file, start_line=start_line, end_line=end_line,
-            symbol=symbol, context_lines=context_lines)
+            symbol=symbol, context_lines=context_lines, live=fresh)
     except ValueError as exc:
-        _die(str(exc))
+        _json_failure(exc, json_output)
     if json_output:
-        typer.echo(json.dumps(dict(data, schema=1), ensure_ascii=False,
-                              indent=2))
+        payload = {**block, **data, "schema": 1}
+        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
         return
+    if not data.get("stale"):
+        line = staleness.warning_line(core.staleness(entry), entry.path)
+        if line:
+            typer.echo(line, err=True)
     for seg in data["segments"]:
         typer.echo(f"--- {data['file']}:{seg['start_line']}-{seg['end_line']} ---")
         if seg.get("error"):
@@ -1563,7 +1817,9 @@ def find_references(
         None, help="calls|includes|inherits|references — a filter over the "
                    "relationship each row actually carries."),
     limit: int = typer.Option(25, help="Max rows."),
+    json_output: bool = typer.Option(False, "--json", help="JSON output."),
     skip_stale_check: bool = SkipOpt,
+    refresh: bool = RefreshOpt,
     fresh: bool = FreshOpt,
 ) -> None:
     """Find references TO a symbol in the single reference store. Every row
@@ -1588,14 +1844,34 @@ def find_references(
     edges from the same store. The reference graph is textual and unbound by
     design: there is no compiler resolution, names are matched as text."""
     core = _get_core(skip_stale_check)
-    entry = _resolve(core, project)
-    core.maybe_refresh(entry.slug, entry.path, force=fresh)
+    entry, err = core.resolve_entry(project)
+    if entry is None:
+        _json_failure(ValueError(err), json_output)
+    block = _read_staleness(core, entry, refresh=refresh,
+                            json_output=json_output)
     _warn_rows_staleness(core, entry)
     try:
         rows = core.find_references(entry, name, relationship=relationship,
                                     limit=limit)
     except ValueError as exc:
-        _die(str(exc))
+        _json_failure(exc, json_output)
+    known = core.all_symbol_names(entry)
+    references = [
+        dict(r, project=entry.path,
+             target_confidence=("exact" if r["target"] in known
+                                else "heuristic"))
+        for r in rows]
+    if json_output:
+        payload: dict[str, Any] = {
+            "schema": 1, "name": name, "project": entry.path,
+            "relationship": relationship, "references": references,
+            "total": len(references), **block}
+        if not rows and relationship is not None:
+            counts = core.reference_relationship_counts(entry, name)
+            if counts:
+                payload["unfiltered_count"] = sum(n for _rel, n in counts)
+                payload["unfiltered_relationships"] = [rel for rel, _n in counts]
+        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
         return
     if not rows:
         # A filtered-empty result must never read as "the name is absent":
@@ -1613,7 +1889,6 @@ def find_references(
                 return
         typer.echo(f"no references to {name!r}")
         return
-    known = core.all_symbol_names(entry)
     typer.echo(f"references to {name!r} (confidence=how the row was "
                "extracted, receiver=the receiver expression as written, "
                "target_confidence=whether the name has a definition row):")
@@ -1668,6 +1943,7 @@ def eval_command(
         None, "--rerank", help="Rerank mode: heuristic | none (default off)."),
     out: str = typer.Option(None, "--out", help="Write the JSON report to this path."),
     skip_stale_check: bool = SkipOpt,
+    refresh: bool = RefreshOpt,
 ) -> None:
     """Run a labeled query set against a project's index and report ranking
     metrics (recall@k, MRR, nDCG@10, latency, approx output tokens). Dev
@@ -1676,6 +1952,11 @@ def eval_command(
     currently aliases the dense pipeline (the lexical index is not built
     yet)."""
     core = _get_core(skip_stale_check)
+    if refresh:
+        entry, _err = core.resolve_entry(project)
+        if entry is None:
+            _die(f"error: project not registered: {project}")
+        core.refresh(entry)
     ks = _parse_ks(k)
     if mode not in EVAL_MODES:
         _die(f"error: unknown eval mode {mode!r} (expected one of {EVAL_MODES})")
@@ -1698,10 +1979,11 @@ def eval_compare(
     a: str = typer.Argument(..., help="Baseline report path (JSON)."),
     b: str = typer.Argument(..., help="Candidate report path (JSON)."),
     skip_stale_check: bool = SkipOpt,
+    refresh: bool = RefreshOpt,
 ) -> None:
     """Compare two eval reports: metric delta table + per-query win/loss.
-    b is the candidate, a the baseline. --skip-stale-check is accepted and
-    ignored: this utility reads report files, never an index."""
+    b is the candidate, a the baseline. --skip-stale-check and --refresh are
+    accepted and inert: this utility reads report files, never an index."""
     for path in (a, b):
         if not os.path.isfile(path):
             _die(f"error: not found: {path}")

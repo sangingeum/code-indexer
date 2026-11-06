@@ -18,6 +18,7 @@ from typing import Any
 
 from .config import Config, load_config
 from .embedder import Embedder
+from .errors import BackendError, InternalError, LockedError
 from .fingerprint import (ConfigError, current_fingerprint,
                           current_version_stamp, fingerprint_mismatches,
                           mismatch_error, read_fingerprint,
@@ -26,13 +27,24 @@ from .indexer import Indexer
 from .locks import project_lock
 from .manifest import SCHEMA_VERSION, Manifest, SymbolRow
 from . import ranking
+from . import staleness
 from . import ts_chunker
 from .registry import ProjectEntry, Registry
+from .scanner import (ScanBudget, ScanBudgetExceeded, ScannedFile,
+                      scan_project)
 from .store import Store
 
 logger = logging.getLogger("code-indexer.core")
 
 STALE_TTL_DEFAULT = 60
+
+# Wall budget for one unscoped query invocation (ADR-0003 section 6): the
+# fan-out stops at this wall and reports the remaining projects as skipped
+# with reason=budget instead of running for minutes.
+QUERY_BUDGET_DEFAULT_S = 30.0
+
+# Sentinel for "the fingerprint probe has not run in this process yet".
+_PROBE_UNSET = object()
 
 # State reported for a registered project whose manifest records no completed
 # indexing pass (interrupted/killed initial add-project, or a pass that never
@@ -110,6 +122,13 @@ class Core:
         self._last_scan: dict[str, float] = {}
         # Indexing state per slug (state, error, last_result) for status.
         self._index_state: dict[str, dict[str, Any]] = {}
+        # One fingerprint probe per process: a read must not pay a service
+        # round trip per project (and must not pay a retry chain at all).
+        # Keyed on the embedder instance, so a replaced embedder (a test
+        # seam, or a re-probe after --refresh) is never answered from the
+        # previous probe's verdict.
+        self._current_fp: Any = _PROBE_UNSET
+        self._current_fp_key: int | None = None
 
     @staticmethod
     def _embed_cache():
@@ -217,27 +236,77 @@ class Core:
         """
         return self.run_index(slug, project_path, force=False)
 
-    def maybe_refresh(self, slug: str, project_path: str,
-                      force: bool = False) -> dict[str, Any]:
-        """Staleness probe: incremental re-index if last check > stale_ttl ago.
+    def refresh(self, entry: ProjectEntry) -> dict[str, Any]:
+        """One explicit incremental pass under the per-project flock.
 
-        Default (quiet) mode: within TTL, or on a flock miss, this returns
-        without indexing — a query-path re-index costs latency and noise.
-        The pass is silent (no logging at INFO) and only runs when actually
-        stale. Callers that want the pass regardless of TTL pass force=True
-        (CLI --refresh). Skipped entirely when the core was built with
-        skip_stale_check=True (--skip-stale-check on the CLI; the vetoed
-        daemon is NOT used).
+        Called only when the caller asked for it (``--refresh``) — never by a
+        plain read. A flock miss is a hard failure, not a quiet stale answer:
+        an explicit request for fresh data must not print an old answer under
+        a "refreshed" label. Returns the pass result; raises LockedError (exit
+        5) when another process holds the lock and InternalError when the
+        pass itself failed.
         """
-        if self.skip_stale_check:
-            return {"state": "fresh"}
-        last = self._last_scan.get(slug, 0.0)
-        if not force and time.monotonic() - last < self.cfg.stale_ttl:
-            return {"state": "fresh"}
-        entry = self.registry.get_by_slug(slug)
-        if entry is None or not os.path.isdir(entry.path):
-            return {"state": "idle"}
-        return self.run_index(slug, entry.path, force=False, verbose=force)
+        result = self.run_index(entry.slug, entry.path, force=False,
+                                verbose=True)
+        if result.get("state") == "indexing":
+            raise LockedError("indexing in progress")
+        if result.get("state") == "error":
+            raise InternalError(
+                f"index pass failed for {entry.path}: {result.get('error')}")
+        return result
+
+    # ------------------------------------------------------------------
+    # staleness (detect, never repair)
+    # ------------------------------------------------------------------
+
+    def staleness(self, entry: ProjectEntry) -> staleness.StalenessVerdict:
+        """The index's verdict against the tree: fresh, stale or unknown.
+
+        Pure read: the manifest is opened only to read rows and meta, the
+        tree is walked with the scanner's own include/exclude rules and stat
+        fast-path, and only files whose stat identity changed are hashed. No
+        service is contacted. The walk carries its own budget so a very large
+        tree degrades to ``unknown`` rather than a long silence.
+        """
+        if not os.path.isdir(entry.path):
+            return staleness.unknown(f"project path absent: {entry.path}")
+        mdir = os.path.join(self.cfg.index_root, entry.slug, "manifest.db")
+        if not os.path.isfile(mdir):
+            return staleness.unknown("no index manifest for this project")
+        m = Manifest(mdir)
+        try:
+            indexed = m.all_files()
+            last_indexed = staleness.iso_timestamp(m.get_meta("last_indexed"))
+            index_revision = (m.get_meta("index_revision")
+                              or m.get_meta("last_indexed"))
+            scope = [ln for ln in (m.get_meta("scope_include") or "")
+                     .splitlines() if ln.strip()]
+        finally:
+            m.close()
+        if not indexed or last_indexed is None:
+            return staleness.unknown("no indexing pass has completed",
+                                     last_indexed=last_indexed,
+                                     index_revision=index_revision)
+        previous = {
+            path: (row.size, row.mtime_ns, row.inode, row.content_hash)
+            for path, row in indexed.items()
+            if row.mtime_ns is not None and row.inode is not None
+        }
+        budget = ScanBudget(max_files=staleness.SCAN_BUDGET_FILES,
+                            max_seconds=staleness.SCAN_BUDGET_SECONDS)
+        try:
+            scanned: list[ScannedFile] = scan_project(
+                entry.path, max_file_bytes=self.cfg.max_file_bytes,
+                previous=previous, include=scope or None, budget=budget)
+        except ScanBudgetExceeded as exc:
+            return staleness.unknown(str(exc), last_indexed=last_indexed,
+                                     index_revision=index_revision)
+        except OSError as exc:
+            return staleness.unknown(f"tree unreadable: {exc}",
+                                     last_indexed=last_indexed,
+                                     index_revision=index_revision)
+        return staleness.detect(indexed, scanned, last_indexed=last_indexed,
+                                index_revision=index_revision)
 
     # ------------------------------------------------------------------
     # project resolution / summaries
@@ -289,7 +358,27 @@ class Core:
 
     def status_summary(self, entry: ProjectEntry,
                        collections: set[str] | None = None) -> str:
-        """Human-readable per-project summary (path, slug, counts, times).
+        """Human-readable per-project summary (one line, ``key=value``).
+
+        The text renderer of ``status_fields``; both surfaces come from the
+        same read so the text and JSON answers can never disagree.
+        """
+        fields = self.status_fields(entry, collections=collections)
+        parts = [f"path={fields['path']}", f"slug={fields['slug']}",
+                 f"state={fields['state']}", f"files={fields['files']}",
+                 f"chunks={fields['chunks']}",
+                 f"last_indexed={fields['last_indexed']}"]
+        if fields.get("reason"):
+            parts.append(f"reason={fields['reason']}")
+        if fields.get("collection"):
+            parts.append(f"collection={fields['collection']}")
+        if fields.get("note"):
+            parts.append(f"note={fields['note']}")
+        return " ".join(parts)
+
+    def status_fields(self, entry: ProjectEntry,
+                      collections: set[str] | None = None) -> dict[str, Any]:
+        """Structured per-project summary: the fields both renderers carry.
 
         ``collections`` is an optional shared listing of the names that
         exist in the store (physical collections + aliases, from
@@ -322,25 +411,35 @@ class Core:
         if st in (None, "idle") and last_indexed is None:
             st = NEVER_INDEXED
         fp = self.fingerprint_status(entry)
-        suffix = ""
+        reason = None
+        note = None
         if last_indexed is not None and not fp["ok"]:
             st = NEEDS_REINDEX
-            suffix = f" reason={fp['reason']}"
+            reason = fp["reason"]
         if fp["recorded"] is None and last_indexed is not None:
-            suffix += " note=fingerprint backfills on next index pass"
+            note = "fingerprint backfills on next index pass"
         # Dead registration: a project that HAS a completed pass (state idle)
         # but whose collection is gone — the manifest looks healthy while the
         # store has nothing for it (e.g. the index root was cleaned under
         # it). Surface it as an error so an operator sees it without a
         # search that would otherwise fail per project. A never-indexed
         # project legitimately has no collection yet and keeps its own state.
+        collection_missing = False
         if (collections is not None and st == "idle"
                 and f"idx_{entry.slug}" not in collections):
             st = "error"
-            suffix += " collection=missing"
-        return (f"path={entry.path} slug={entry.slug} state={st} "
-                f"files={file_count} chunks={chunk_count} "
-                f"last_indexed={last_indexed or 'never'}{suffix}")
+            collection_missing = True
+        return {
+            "path": entry.path,
+            "slug": entry.slug,
+            "state": st,
+            "files": file_count,
+            "chunks": chunk_count,
+            "last_indexed": last_indexed or "never",
+            "reason": reason,
+            "collection": "missing" if collection_missing else None,
+            "note": note,
+        }
 
     def schema_migrated(self, entry: ProjectEntry) -> bool:
         """True when this manifest was just upgraded from a pre-symbol schema."""
@@ -356,15 +455,26 @@ class Core:
 
     def _current_fingerprint_or_none(self):
         """The running configuration's fingerprint, or None when the embed
-        dimension cannot be probed (Ollama unreachable) — absence of a probe
-        must not turn every offline command into a hard failure, but query
-        paths call this only right before they need the embedder anyway."""
+        dimension cannot be probed (Ollama unreachable).
+
+        Probed at most once per process with ONE short-timeout attempt: a
+        read must not pay a service round trip (much less the write path's
+        retry chain) to answer, and a fan-out must not pay one per project.
+        Absence of a probe must not turn every offline read into a hard
+        failure -- the fingerprint is then reported ``unverified``.
+        """
+        key = id(self.embedder)
+        if self._current_fp is not _PROBE_UNSET and self._current_fp_key == key:
+            return self._current_fp
         try:
-            return current_fingerprint(self.cfg.embed_model,
-                                       self.embedder.dimension())
+            once = getattr(self.embedder, "dimension_once", None)
+            dim = once() if once is not None else self.embedder.dimension()
+            self._current_fp = current_fingerprint(self.cfg.embed_model, dim)
         except Exception as exc:  # noqa: BLE001
             logger.debug("fingerprint probe failed: %s", exc)
-            return None
+            self._current_fp = None
+        self._current_fp_key = key
+        return self._current_fp
 
     def fingerprint_status(self, entry: ProjectEntry) -> dict[str, Any]:
         """{'ok': bool, 'state': str, 'reason': str|None, 'recorded': str|None}.
@@ -542,12 +652,34 @@ class Core:
     # search
     # ------------------------------------------------------------------
 
+    def _query_vector(self, query: str) -> list[float]:
+        """ONE embedding attempt for the query, short timeout, no retry chain.
+
+        The vector is computed once per invocation and reused for every
+        project, so fan-out cost is bounded by project count in the store
+        calls only — never by a retry chain. A failure is a BackendError
+        (exit 3): the service is absent, not the answer empty.
+        """
+        qtext = query
+        qtext_fn = getattr(self.embedder, "query_instruction_text", None)
+        if qtext_fn is not None:
+            qtext = qtext_fn(query)
+        once = getattr(self.embedder, "embed_query_once", None)
+        try:
+            if once is not None:
+                return once(qtext)
+            return self.embedder.embed([qtext])[0]
+        except Exception as exc:  # noqa: BLE001 — the query path's one attempt
+            raise BackendError(
+                f"embedding service unavailable: {exc}") from exc
+
     def search_one(self, entry: ProjectEntry, query: str, limit: int,
                    file_filter: str | None,
                    symbol_type: str | None = None,
                    language: str | None = None,
                    ranking_mode: str = "vector",
-                   rerank: str | None = None) -> list[dict[str, Any]]:
+                   rerank: str | None = None,
+                   vector: list[float] | None = None) -> list[dict[str, Any]]:
         """One project's search. `ranking_mode` selects the query-time
         ranking on the candidate pool: 'vector' (default, pure cosine),
         'metadata' (cosine + metadata adjustments), 'hybrid'
@@ -569,11 +701,8 @@ class Core:
         # here; document embeddings stay raw. The cache key is the exact
         # text, so instructed and raw embeddings never collide. Embedder
         # duck-typing: stubs without query_instruction_text embed verbatim.
-        qtext = query
-        qtext_fn = getattr(self.embedder, "query_instruction_text", None)
-        if qtext_fn is not None:
-            qtext = qtext_fn(query)
-        vector = self.embedder.embed([qtext])[0]
+        if vector is None:
+            vector = self._query_vector(query)
         # Over-fetch: re-ranking (and the data-file cap) operates on a wider
         # pool; the final truncate back to `limit` happens in search().
         fetch = max(limit * 3, 24)
@@ -624,45 +753,67 @@ class Core:
                max_chars: int | None = None,
                max_tokens: int | None = None,
                merge: bool = True,
-               rerank: str | None = None) -> dict[str, Any]:
-        """Semantic search across one or all registered projects.
+               rerank: str | None = None,
+               all_projects: bool = False,
+               budget_s: float | None = None) -> dict[str, Any]:
+        """Semantic search across one project, or (``all_projects``) all.
 
-        Runs the staleness probe per project first (unless skipped). Raises
-        ValueError with a user-facing message on resolution/search errors —
-        the adapters turn that into their error surface.
+        A read: it never indexes, never calls a staleness pass and never
+        retries an embedding. Resolution defaults to the containing project
+        inferred from the invocation path; fan-out requires ``all_projects``.
+        The query makes ONE embedding attempt (short timeout) and reuses its
+        vector for every project, so cost is bounded by construction. The
+        fan-out stops at ``budget_s`` (default 30 s) and reports the
+        remaining projects as skipped with ``reason=budget``.
+
+        ``skip_refresh`` is accepted and inert: reads no longer refresh, and
+        ``--refresh`` is the explicit write trigger.
+
+        Raises ValueError with a user-facing message on resolution errors,
+        ConfigError (a rebuild) from the fingerprint gate before any
+        embedding work, and BackendError when no project could answer.
 
         Result shaping (token-budget work item): same-file overlapping/adjacent
         hits are merged, at most ``per_file`` hits per file are kept (0 = no
         generic cap), and ``max_chars``/``max_tokens`` trim the lowest-ranked
-        hits. Returns {'hits': [...], 'dropped': int} so adapters can report
-        trimming. Multi-project (project=None) fuses per-collection lists with
-        Reciprocal Rank Fusion — raw cosine is not comparable across
-        collections.
-
-        ``mode``: 'dense' (default, embeddings only), 'lexical' (FTS5 bm25
-        only — no Ollama round trip), or 'hybrid' (dense + lexical fused with
-        RRF). The default stays dense pending an eval win for hybrid.
+        hits. Returns {'hits': [...], 'dropped': int, 'skipped': [...],
+        'partial': bool} so adapters can report trimming and a partial answer.
         """
         if mode not in ("dense", "lexical", "hybrid"):
             raise ValueError(f"error: unknown search mode: {mode}")
-        if project:
+        if all_projects:
+            entries = self.registry.list_projects()
+            if not entries:
+                raise ValueError("error: no projects registered")
+        elif project:
             entry, err = self.resolve_entry(project)
             if entry is None:
                 raise ValueError(err)
             entries = [entry]
         else:
-            entries = self.registry.list_projects()
-            if not entries:
-                raise ValueError("error: no projects registered")
+            entry, err = self.resolve_entry(None)
+            if entry is None:
+                raise ValueError(err)
+            entries = [entry]
         per_project: dict[str, list[dict[str, Any]]] = {}
-        # Projects whose store could not answer (e.g. a registered project
-        # whose collection is missing). One dead registration must not kill
-        # the whole search: it is skipped, named in a warning, and reported
-        # in the result so the caller can say how many were skipped.
+        # Projects whose store could not answer (or that the wall budget did
+        # not reach). One dead registration must not kill the whole search:
+        # it is skipped, named, and reported so the caller can say the answer
+        # is partial.
         skipped: list[dict[str, str]] = []
         lexical_only = mode == "lexical"
         hybrid = mode == "hybrid"
-        for entry in entries:
+        vector: list[float] | None = None
+        if not lexical_only:
+            vector = self._query_vector(query)
+        budget = QUERY_BUDGET_DEFAULT_S if budget_s is None else budget_s
+        started = time.monotonic()
+        for index, entry in enumerate(entries):
+            if time.monotonic() - started > budget:
+                skipped.extend(
+                    {"project": e.path, "reason": "budget"}
+                    for e in entries[index:])
+                break
             # Fingerprint gate BEFORE any embedding work: a query against a
             # wrong-model index is wrong regardless of staleness, and
             # --skip-stale-check must not bypass it. Pure-lexical mode needs
@@ -677,8 +828,6 @@ class Core:
             # skipped-with-a-warning path. Do not "fix" this into silence.
             if not lexical_only:
                 self.assert_fingerprint_ok(entry)
-            if not skip_refresh:
-                self.maybe_refresh(entry.slug, entry.path)
             try:
                 if lexical_only:
                     per_project[entry.path] = self._lexical_hits(
@@ -687,7 +836,7 @@ class Core:
                 dense_hits = self.search_one(
                     entry, query, limit, file_filter,
                     symbol_type=symbol_type, language=language,
-                    ranking_mode=ranking_mode, rerank=rerank)
+                    ranking_mode=ranking_mode, rerank=rerank, vector=vector)
                 if hybrid:
                     per_project[entry.path] = self._fuse_lexical_dense(
                         entry, query, dense_hits, limit)
@@ -703,13 +852,13 @@ class Core:
                 "search: %d of %d project(s) skipped: %s", len(skipped),
                 len(entries), ", ".join(s["project"] for s in skipped))
         if not per_project:
-            # Nothing answered at all — every project failed. This is a real
-            # failure, not an empty success: there is no partial result to
-            # return, so error out rather than printing "no results".
+            # Nothing answered at all. This is a real failure, not an empty
+            # success: there is no partial result to return. A dead backend
+            # is a missing install (exit 3), never an empty result.
             detail = "; ".join(f"{s['project']}: {s['reason']}"
                                for s in skipped)
-            raise ValueError(
-                f"error: search failed on every project ({detail})")
+            raise BackendError(
+                f"search failed on every project ({detail})")
 
         if len(per_project) == 1:
             all_hits = next(iter(per_project.values()))
@@ -737,7 +886,7 @@ class Core:
         # per-project isolation above); the hit contract in format_hits JSON
         # is unchanged — this rides on the Core result dict only.
         return {"hits": all_hits[:max(1, limit)], "dropped": dropped,
-                "skipped": skipped}
+                "skipped": skipped, "partial": bool(skipped)}
 
     # ------------------------------------------------------------------
     # lexical / hybrid retrieval (FTS5 + RRF)
@@ -828,31 +977,34 @@ class Core:
 
     def format_hits(self, hits: list[dict[str, Any]], fmt: str = "text",
                 dropped: int = 0, context_lines: int = 0,
-                skipped: list[dict[str, Any]] | None = None) -> str:
+                skipped: list[dict[str, Any]] | None = None,
+                partial: bool = False,
+                staleness_block: dict[str, Any] | None = None) -> str:
         """Format search hits (stable field contract).
 
         ``text`` — the original verbose two-line-per-hit render (default;
         kept for compatibility with existing agent workflows).
         ``compact`` — one line per hit: ``path:start-end  symbol  score``;
         the token-budget agent loop (search compact -> get-code-context).
-        ``json`` — the JSON contract, which now also carries ``skipped`` and
-        ``skipped_count`` so a consumer can tell the result is partial.
+        ``json`` — the JSON contract, which carries ``skipped`` /
+        ``skipped_count`` / ``partial`` and the additive staleness block, so
+        a consumer can tell the result is partial.
         ``dropped`` > 0 appends one trailing truncation line in text/compact
         mode, and a non-empty ``skipped`` appends one trailing partial-result
         line (the documented exceptions to single-line stderr reporting).
-        ``context_lines`` expands each hit's snippet window by padding the
-        snippet with surrounding lines up to N (0 = location+symbol only in
-        compact; the snippet itself already carries the source window).
         """
+        if fmt == "json":
+            payload: dict[str, Any] = {
+                "schema": 1,
+                "hits": hits, "truncated": dropped > 0, "dropped": dropped,
+                "skipped": skipped or [],
+                "skipped_count": len(skipped or []),
+                "partial": partial or bool(skipped),
+            }
+            payload.update(staleness_block or {})
+            return json.dumps(payload, ensure_ascii=False, indent=2)
         if not hits:
             return "no results"
-        if fmt == "json":
-            return json.dumps(
-                {"schema": 1,
-                 "hits": hits, "truncated": dropped > 0, "dropped": dropped,
-                 "skipped": skipped or [],
-                 "skipped_count": len(skipped or [])},
-                ensure_ascii=False, indent=2)
         lines: list[str] = []
         if fmt == "compact":
             for h in hits:
@@ -901,20 +1053,31 @@ class Core:
                            max_tokens: int | None = None,
                            context_lines: int = 0,
                            rerank: str | None = None,
-                           mode: str = "dense") -> str:
-        try:
-            result = self.search(query, project=project, limit=limit,
-                               file_filter=file_filter,
-                               symbol_type=symbol_type, language=language,
-                               ranking_mode=ranking_mode,
-                               skip_refresh=skip_refresh, per_file=per_file,
-                               max_chars=max_chars, max_tokens=max_tokens,
-                               rerank=rerank, mode=mode)
-        except ValueError as exc:
-            return str(exc)
-        return self.format_hits(result["hits"], fmt, dropped=result["dropped"],
-                                context_lines=context_lines,
-                                skipped=result.get("skipped", []))
+                           mode: str = "dense",
+                           all_projects: bool = False,
+                           budget_s: float | None = None,
+                           staleness_block: dict[str, Any] | None = None) -> str:
+        """Answer text for one search. Failures PROPAGATE.
+
+        The old shape caught every ValueError and printed the message as the
+        answer on stdout with exit 0, which made a total backend failure
+        indistinguishable from an empty result. This surface raises (the CLI
+        maps it onto the taxonomy and stderr), so "no results" is only ever
+        an answer when the search actually ran.
+        """
+        result = self.search(query, project=project, limit=limit,
+                             file_filter=file_filter,
+                             symbol_type=symbol_type, language=language,
+                             ranking_mode=ranking_mode,
+                             skip_refresh=skip_refresh, per_file=per_file,
+                             max_chars=max_chars, max_tokens=max_tokens,
+                             rerank=rerank, mode=mode,
+                             all_projects=all_projects, budget_s=budget_s)
+        return self.format_hits(
+            result["hits"], fmt, dropped=result["dropped"],
+            context_lines=context_lines, skipped=result.get("skipped", []),
+            partial=result.get("partial", False),
+            staleness_block=staleness_block)
 
     # ------------------------------------------------------------------
     # reference surfaces (find-references): the single reference store
@@ -993,15 +1156,15 @@ class Core:
 
     def skeleton(self, entry: ProjectEntry, prefix: str | None = None,
                  tree_mode: bool = False, limit: int | None = None,
-                 include_signatures: bool = True, fresh: bool = False) -> dict[str, Any]:
+                 include_signatures: bool = True) -> dict[str, Any]:
         """Whole-project or per-subtree structural map (design §2.1).
 
         Manifest only — files joined with symbols ordered by start_line.
-        Zero re-parsing. Pre-v3 manifests simply have NULL signatures (and
-        and the caller emits MIGRATION_HINT when a migration just happened).
+        Zero re-parsing, and no index pass: a read answers from the index as
+        of ``meta.last_indexed``. Pre-v3 manifests simply have NULL
+        signatures (and the caller emits MIGRATION_HINT when a migration just
+        happened).
         """
-        if not self.skip_stale_check:
-            self.maybe_refresh(entry.slug, entry.path, force=fresh)
         m = self.manifest_for(entry.slug)
         try:
             files, symbols = m.symbols_with_files()
@@ -1089,7 +1252,7 @@ class Core:
         return "\n".join(lines) if lines else "(no files)"
 
     def outline(self, entry: ProjectEntry, file: str,
-                include_docstrings: bool = False, fresh: bool = False) -> dict[str, Any]:
+                include_docstrings: bool = False) -> dict[str, Any]:
         """One file: declarations, signatures, optional docstrings (§2.2).
 
         FILE is relative to the project root (manifest path space); absolute
@@ -1104,8 +1267,6 @@ class Core:
             entry.path).replace(os.sep, "/")
         if rel.startswith(".."):
             raise ValueError(f"error: path outside registered project: {file}")
-        if not self.skip_stale_check:
-            self.maybe_refresh(entry.slug, entry.path, force=fresh)
         m = self.manifest_for(entry.slug)
         try:
             rows = m.symbols_for_file(rel)
@@ -1206,12 +1367,14 @@ class Core:
                      start_line: int | None = None,
                      end_line: int | None = None,
                      symbol: str | None = None,
-                     context_lines: int = 0) -> dict[str, Any]:
+                     context_lines: int = 0,
+                     live: bool = False) -> dict[str, Any]:
         """Stale-safe get_code_context.
 
-        Symbol mode: when the file changed since indexing, re-resolve the
-        symbol against the LIVE file with tree-sitter and return fresh line
-        ranges (stale stays false — the answer is current). Line mode: the
+        Symbol mode: when the file changed since indexing (or the caller
+        passes ``live=True``, the CLI's --fresh), re-resolve the symbol
+        against the LIVE file with tree-sitter and return fresh line ranges
+        (stale stays false — the answer is current). Line mode: the
         requested lines are returned as-is with ``stale: true`` so the
         caller knows the numbers may be shifted.
 
@@ -1248,7 +1411,7 @@ class Core:
         if symbol:
             # The rows' OWN ranges, before any --context-lines padding.
             own_ranges: list[tuple[int, int]] = []
-            if changed:
+            if changed or live:
                 # Re-resolve against the live file; the manifest rows are
                 # stale by definition here.
                 with open(abs_path, encoding="utf-8", errors="replace") as f:
