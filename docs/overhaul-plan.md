@@ -65,7 +65,7 @@ ADR-0007 sections 1 to 3 (extra, narrowed surface, relay, usage record); ADR-000
 
 - every one of the 27 commands classified as read or write, with the flag that turns a read into
   a write (`--refresh`) named in the help text; `--vectors` belongs to round 2 (ADR-0001 section 4)
-  and is documented with the pass commands there; the four plan commands round 4 adds are already
+  and is documented with the pass commands there; the six plan commands round 4 adds are already
   classified in ADR-0003 section 1, which this round lands;
 - staleness reported as `fresh`, `stale` or `unknown` in text and in JSON, and repaired only by
   an explicit `--refresh`; `--skip-stale-check` accepted and inert;
@@ -208,8 +208,8 @@ per file when it fails partway.
 
 **Records.** ADR-0004 and ADR-0005, which are the format and its apply path.
 
-**Deliverable.** Plan files named by the hash of their canonical bytes; the four commands
-(prepare, validate, show, apply) each with `--json`; the three structural operations; the
+**Deliverable.** Plan files named by the hash of their canonical bytes; the six plan commands
+(three writers, validate, show, apply), each with `--json`; the three structural operations; the
 read-only pre-pass that refuses before the first mutation; one keeper mutation per edit with
 `--expected-hash` and, where it fits, `--expected-content`; the per-file report with applied,
 failed and not-attempted; the ordered operation ids and the receipt path.

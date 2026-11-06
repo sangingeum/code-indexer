@@ -22,10 +22,10 @@ The documentation an agent loads is split into one small entry document and refe
 
 ### 1. The entry document
 
-`SKILL-CLI.md` stays where it is and keeps its name, so the README's five links and the installer's path keep working. It carries, and carries nothing else:
+`SKILL-CLI.md` stays where it is and keeps its name, so the README's five links to it keep working and the installed copy has one place to come from. It carries, and carries nothing else:
 
 - the decision tree: one row per question shape, question to command;
-- the command roster: every registered command with its read-or-write class (ADR-0003 section 1) and one line on when to reach for it -- the twenty-seven commands that exist plus the four plan commands the plan adds;
+- the command roster: every registered command with its read-or-write class (ADR-0003 section 1) and one line on when to reach for it -- the twenty-seven commands that exist plus the six plan commands the plan adds;
 - the exit-code table of ADR-0003 section 5, with the rule that `ErrorType` on stderr is the semantic discriminator and the number is the coarse branch;
 - the staleness rule in three sentences: `fresh`, `stale`, `unknown`; `unknown` is not `fresh`; `--refresh` is the only repair a read offers;
 - the read-only guarantee in one sentence, naming that a read never writes the manifest, the vector store or the sources;
@@ -43,7 +43,7 @@ One file per concern, under `skill/references/`, each addressed by a trigger nam
 |---|---|---|
 | `indexing.md` | `add-project`, `index-more`, `remove-project`, `reindex-project`, `sweep-orphans`, `watch`, `unwatch`: flags, defaults, two examples each, what each writes | the task is to build or repair an index |
 | `query.md` | `overview`, `skeleton`, `outline`, `find-*`, `get-code-context`, `deps`, `changed-symbols`, `map`, `file-outline`: flags, defaults, examples | a query answered the wrong shape and its flags need reading |
-| `plans.md` | the four plan commands, the plan document's members, validation, preview, apply, the receipt and recovery | the task is to change code through a plan |
+| `plans.md` | the six plan commands, the plan document's members, validation, preview, apply, the receipt and recovery | the task is to change code through a plan |
 | `machine-output.md` | `--json` shapes, schema versions, the staleness block, one `jq` recipe per shape | an agent parses output instead of reading prose |
 | `failures.md` | every exit code with its `ErrorType`s, the cause and the remedy for each | a command failed and the remedy is not obvious from its line |
 
@@ -85,7 +85,7 @@ The MCP tool list stays a separate check (ADR-0007 section 5), in the same modul
 ## Alternatives considered, and why rejected
 
 - **Keep one document with a table of contents.** Table-of-contents navigation still loads the whole file; 613 lines of it were loaded to answer a question that twenty lines answer.
-- **Document nothing and send agents to `--help`.** Help is accurate and unsearchable across commands: an agent would have to know which of thirty-one commands to ask before it could learn which one it wanted.
+- **Document nothing and send agents to `--help`.** Help is accurate and unsearchable across commands: an agent would have to know which of thirty-three commands to ask before it could learn which one it wanted.
 - **References without an entry document.** The agent then guesses at a filename, which is a worse index than a table.
 - **Generate the whole skill from the registry and docstrings.** The command blocks can be generated; the decision tree and the remedies cannot without a template that guesses at intent.
 - **Publish the skill only, and drop the tracked copy.** The installed copy would then be the only source, and the repository would document a tool it no longer describes.

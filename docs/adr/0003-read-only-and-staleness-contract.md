@@ -26,7 +26,7 @@ Every command is either a write command or a read command, and a read command ne
 
 - `--skip-stale-check` stays accepted and becomes inert; it is documented as "the default". `--fresh` on `get-code-context` keeps its meaning (read the live file, ignore cached symbol rows) and writes nothing.
 
-The roster is closed and complete for the whole set: the twenty-seven commands that exist and the four plan commands together account for every command the plan schedules, and each is in exactly one of the two lists. The plan commands that only read are reads -- `plan-validate` and `plan-show` write nothing, and `plan-apply --dry-run` runs the same pre-pass and mutates nothing. A command a later record adds is classified by that record; no command classifies itself, and a command outside these lists is a defect in this list rather than a third class.
+The roster is closed and complete for the whole set: the twenty-seven commands that exist and the six plan commands together account for every command the plan schedules, and each is in exactly one of the two lists. The six are the three plan writers, `plan-validate`, `plan-show` and `plan-apply`; the four stages of ADR-0004 section 6 are the stages, not the count. The plan commands that only read are reads -- `plan-validate` and `plan-show` write nothing, and `plan-apply --dry-run` runs the same pre-pass and mutates nothing. A command a later record adds is classified by that record; no command classifies itself, and a command outside these lists is a defect in this list rather than a third class.
 
 ### 2. What "stale" means
 
