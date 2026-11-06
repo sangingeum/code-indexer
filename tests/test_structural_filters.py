@@ -364,3 +364,73 @@ def test_a_zero_from_an_attributed_filter_is_labelled_not_negated(
     assert "unknown" in text.output and "not absent" in text.output
     # The note never claims to have ruled the files out.
     assert "no symbol carries" in text.output
+
+
+# ---------------------------------------------------------------------------
+# one row, one label — the parse_error case
+# ---------------------------------------------------------------------------
+
+# A python file with a syntax error: tree-sitter recovers, so the rows are
+# AST-shaped (`source='ast'`) while the file's verdict is `parse_error`. It is
+# the one state where the extraction and the verdict disagree, and therefore
+# the only case that can expose two surfaces answering differently about the
+# same row.
+BROKEN = (
+    "def twin(a):\n"
+    "    return a\n"
+    "\n"
+    "def twin(b):\n"
+    "    return b\n"
+    "\n"
+    "def broken(:\n"
+    "    pass\n"
+)
+
+
+def test_a_parse_error_row_is_unknown_on_every_surface(tmp_path, monkeypatch):
+    """One payload must never answer `unknown` and `ast` about one row.
+
+    `find-symbol`, the ambiguity candidates and a graph root all read the
+    same column list and call the same label function, so the failed-parse
+    file's AST rows are `unknown` everywhere — not `ast` on the surface that
+    skipped the verdict join.
+    """
+    core, reg, entry, project = _build_rig(
+        tmp_path, monkeypatch, {"broken.py": BROKEN})
+    try:
+        m = core.read_manifest(entry.slug)
+        try:
+            for rows in (m.definitions_of("twin"),
+                         m.symbols_for_file("broken.py"),
+                         m.all_symbols()):
+                twins = [r for r in rows if r.name == "twin"]
+                assert len(twins) == 2, rows
+                # The row exists and was extracted by the parser ...
+                assert all(r.source == "ast" for r in twins)
+                # ... while the file's own verdict says the parse failed.
+                assert all(r.parse_verdict == "parse_error" for r in twins)
+        finally:
+            m.close()
+
+        payload = _json(project, "twin")
+        assert payload["match_count"] == 2
+        assert [row["evidence"] for row in payload["symbols"]] == [
+            "unknown", "unknown"]
+        assert [c["evidence"] for c in payload["ambiguity"]["candidates"]] == [
+            "unknown", "unknown"]
+
+        walk = runner.invoke(app, ["find-callers", "twin",
+                                   "--project", str(project), "--json"])
+        assert walk.exit_code == 0, walk.output
+        graph_payload = json.loads(walk.output)
+        assert graph_payload["match_count"] == 2
+        # The roots and the candidates are the same rows: one answer.
+        assert [root["confidence"] for root in graph_payload["roots"]] == [
+            "unknown", "unknown"]
+        assert [c["evidence"]
+                for c in graph_payload["ambiguity"]["candidates"]] == [
+            "unknown", "unknown"]
+    finally:
+        reg.close()
+        cli._core = None
+        cli._core_skip = False

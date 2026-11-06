@@ -158,6 +158,21 @@ def _root_label(row) -> str:
     return f"{row.file}:{row.start_line}-{row.end_line}"
 
 
+def _definition_roots(rows: list) -> list[GraphNode]:
+    """Every definition row as a root node, labelled from its OWN evidence.
+
+    The label is `identity.evidence_of`, the same function the ambiguity
+    candidates beside it call, so one payload can never answer `unknown` in a
+    candidate record and `ast` on the root of the same row. A file whose parse
+    failed still yields AST-shaped rows, and it is exactly there that a
+    constant would lie.
+    """
+    return [GraphNode(file=r.file, symbol=r.name, line=r.start_line,
+                      relationship="definition",
+                      confidence=identity.evidence_of(r))
+            for r in rows]
+
+
 def _targets_for(edge_target: str | None,
                  labels_by_file: dict[str, list[str]],
                  all_labels: list[str]) -> list[str]:
@@ -284,9 +299,7 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
         else:
             target = member
         definition_rows = m.definitions_of(target)
-        all_roots = [GraphNode(file=r.file, symbol=r.name, line=r.start_line,
-                               relationship="definition", confidence="ast")
-                     for r in definition_rows]
+        all_roots = _definition_roots(definition_rows)
         # One label per candidate, and per file, so a direct hit can name the
         # definition(s) it can belong to instead of being reported against
         # whichever row sorted first.
@@ -416,9 +429,7 @@ def find_callees(core, slug: str, name: str, depth: int = 2,
     depth_capped = False
     try:
         definition_rows = m.definitions_of(name)
-        all_roots = [GraphNode(file=r.file, symbol=r.name, line=r.start_line,
-                               relationship="definition", confidence="ast")
-                     for r in definition_rows]
+        all_roots = _definition_roots(definition_rows)
         root_labels = [_root_label(r) for r in definition_rows]
         ambiguous = len(definition_rows) > 1
         roots = all_roots[:max_nodes] if max_nodes >= 0 else []

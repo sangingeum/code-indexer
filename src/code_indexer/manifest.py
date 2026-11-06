@@ -563,10 +563,16 @@ class Manifest:
                 s.container, s.language, s.start_line, s.end_line, s.source,
                 s.signature, s.visibility)
 
-    _SYMBOL_COLS = (
-        "SELECT file, name, symbol_type, start_line, end_line, source, "
-        "signature, visibility, qualified_name, container, language, "
-        "decl_hash, id FROM symbols")
+    # ONE column list serves EVERY symbol surface, and the file's parse
+    # verdict is joined in, so each row carries the evidence it can honestly
+    # be labelled with (`identity.evidence_of`). A second column list without
+    # that join would answer a different evidence question about the SAME row
+    # — `unknown` on one surface and `ast` on another (ADR-0002 section 4).
+    _SYMBOL_SELECT = (
+        "SELECT s.file, s.name, s.symbol_type, s.start_line, s.end_line, "
+        "s.source, s.signature, s.visibility, s.qualified_name, s.container, "
+        "s.language, s.decl_hash, s.id, f.parse_verdict "
+        "FROM symbols s LEFT JOIN files f ON f.path = s.file")
 
     def index_revision(self) -> str | None:
         """The revision these rows were written in (``meta.index_revision``).
@@ -594,15 +600,6 @@ class Manifest:
             if verdict in out:
                 out[verdict] = int(n)
         return out
-
-    # The filter read joins the file's parse verdict in: a symbol row is
-    # labelled ast|heuristic|unknown from the file it came from, and the
-    # caller never has to open a second read to say which.
-    _SYMBOL_FILTER_SELECT = (
-        "SELECT s.file, s.name, s.symbol_type, s.start_line, s.end_line, "
-        "s.source, s.signature, s.visibility, s.qualified_name, s.container, "
-        "s.language, s.decl_hash, s.id, f.parse_verdict "
-        "FROM symbols s LEFT JOIN files f ON f.path = s.file")
 
     _SYMBOL_ORDER = (
         " ORDER BY CASE s.source WHEN 'ast' THEN 0 ELSE 1 END, "
@@ -702,7 +699,7 @@ class Manifest:
             file=file, name_pattern=name_pattern, container=container,
             visibility=visibility, language=language, inherits=inherits,
             has_call=has_call)
-        sql = self._SYMBOL_FILTER_SELECT
+        sql = self._SYMBOL_SELECT
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += self._SYMBOL_ORDER
@@ -755,7 +752,7 @@ class Manifest:
             name_pattern=name_pattern, container=container,
             visibility=visibility, language=language, inherits=inherits,
             has_call=has_call)
-        sql = self._SYMBOL_FILTER_SELECT
+        sql = self._SYMBOL_SELECT
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += self._SYMBOL_ORDER
@@ -798,13 +795,13 @@ class Manifest:
         """
         files = self.all_files()
         syms = [SymbolRow(*row) for row in self._conn.execute(
-            self._SYMBOL_COLS + " ORDER BY file, start_line").fetchall()]
+            self._SYMBOL_SELECT + " ORDER BY s.file, s.start_line").fetchall()]
         return files, syms
 
     def symbols_for_file(self, file: str) -> list[SymbolRow]:
         return [SymbolRow(*row) for row in self._conn.execute(
-            self._SYMBOL_COLS +
-            " WHERE file = ? ORDER BY start_line", (file,)
+            self._SYMBOL_SELECT +
+            " WHERE s.file = ? ORDER BY s.start_line", (file,)
         ).fetchall()]
 
     def all_symbol_names(self) -> set[str]:
@@ -1076,7 +1073,7 @@ class Manifest:
 
     def all_symbols(self) -> list[SymbolRow]:
         cur = self._conn.execute(
-            self._SYMBOL_COLS + " ORDER BY file, start_line")
+            self._SYMBOL_SELECT + " ORDER BY s.file, s.start_line")
         return [SymbolRow(*row) for row in cur.fetchall()]
 
     def read_git_branch(self, project_root: str) -> str | None:
