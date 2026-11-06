@@ -24,7 +24,7 @@ from .fingerprint import (current_fingerprint,
                           fingerprint_mismatches, manifest_newer_than,
                           read_fingerprint, write_fingerprint)
 from . import ts_chunker
-from .manifest import Manifest, ManifestFile, SymbolRow
+from .manifest import ChunkRow, Manifest, ManifestFile, SymbolRow
 from .scanner import ScannedFile, scan_project
 from . import graph_extract
 from .sensitive import SensitiveReport, file_is_sensitive
@@ -337,6 +337,16 @@ class Indexer:
             manifest.fts_add_chunks([
                 (path, c.chunk_index, c.text, c.symbol or "", path,
                  c.start_line) for c in chunks])
+            # The chunk content itself (ADR-0001 section 3): the manifest is
+            # authoritative for what a chunk is, so a vectors-on pass can
+            # embed without re-reading this file. Replaced per file, so a
+            # chunk that vanished from the file vanishes here too.
+            manifest.replace_file_chunks(path, [
+                ChunkRow(file=path, chunk_index=c.chunk_index,
+                         start_line=c.start_line, end_line=c.end_line,
+                         symbol=c.symbol, symbol_type=c.symbol_type,
+                         chunk_hash=c.chunk_hash, text=c.text)
+                for c in chunks])
             for chunk_ in chunks:
                 key = f"{path}|{chunk_.chunk_hash}"
                 if key in seen_hashes and not rebuild:

@@ -41,7 +41,7 @@ from code_indexer.registry import Registry  # noqa: E402
 
 runner = CliRunner()
 
-TABLES = ("symbols", "refs", "imports")
+TABLES = ("symbols", "refs", "imports", "chunks")
 
 
 class StubEmbedder:
@@ -190,7 +190,8 @@ def test_delete_files_purges_imports_rows(rig):
     finally:
         m.close()
     after = _file_rows(core, entry.slug, "gone.py")
-    assert after == {"symbols": 0, "refs": 0, "imports": 0}, after
+    assert after == {"symbols": 0, "refs": 0, "imports": 0,
+                     "chunks": 0}, after
 
 
 # ---------------------------------------------------------------------------
@@ -253,7 +254,7 @@ def test_apply_removes_exactly_the_expected_rows(rig, monkeypatch):
     assert "removed=" in text
     # gone.py's residue is gone …
     assert _file_rows(core, entry.slug, "gone.py") == {
-        "symbols": 0, "refs": 0, "imports": 0}
+        "symbols": 0, "refs": 0, "imports": 0, "chunks": 0}
     # … the live file is untouched …
     assert _file_rows(core, entry.slug, "keep.py") == keep_before
     # … and the present-on-disk path survives apply.
