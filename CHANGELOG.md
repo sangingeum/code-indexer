@@ -1,5 +1,37 @@
 # Changelog
 
+## [Unreleased] — dependency boundary and the narrowed MCP surface
+
+- **Core installs and runs with no service.** `ollama` and `qdrant-client`
+  moved into the `code-indexer[semantic]` extra and `mcp` into
+  `code-indexer[mcp]`; `numpy` is listed nowhere (it arrives with
+  `qdrant-client`). A core command constructs neither client, and an absent
+  semantic extra fails with one line — `ConfigError: the semantic extension
+  is not installed; install code-indexer[semantic]` — and exit 3, instead of
+  a traceback. The MCP server is imported only by `code-indexer-mcp`.
+- **Ten MCP tools removed, and `find-definition` with them.** The surface is
+  now the eight read-only query shapes: `list_projects`, `overview`,
+  `skeleton`, `find_symbol`, `find_references`, `find_callers`,
+  `get_code_context`, and `semantic_search` when the semantic extra is
+  installed. Removed: `add_project`, `index_status`, `lookup_project`,
+  `reindex_project`, `remove_project`, `changed_symbols`, `deps`,
+  `find_callees`, `find_symbols`, `find_definition`, `outline` — **use the
+  CLI subcommand of the same name**. `code-indexer-mcp --help` prints the
+  registered set and the removals; the install line is now
+  `uvx --from "code-indexer[mcp]" code-indexer-mcp`.
+- **The MCP relay stops reporting failure as success.** A successful call
+  returns the CLI's stdout; a failing call returns the CLI's stderr with
+  `isError: true` and the exit code and `ErrorType` in the structured
+  result. Reads publish `readOnlyHint=true` with `idempotentHint=true`.
+- **Every MCP call appends one usage line** to
+  `$INDEX_ROOT/mcp-usage.jsonl` (tool, outcome, exit code, response bytes,
+  duration, timestamp — never the arguments).
+- **Reads no longer probe a service for the fingerprint verdict.**
+  `list-projects`, `lookup-project`, `index-status` and `doctor` compare the
+  recorded fingerprint with the values configuration alone can state; the
+  recorded embedding dimension is reported `unverified`, not guessed.
+- **The package description no longer claims a semantic core.**
+
 ## [Unreleased] — read contract
 
 - **Reads stop repairing the index; a failed query stops exiting 0.** Every

@@ -20,15 +20,19 @@ meanings. This README is the overview; each fact lives in exactly one place.
 
 ## Installation (CLI)
 
-From the repo directory, install both executables as editable `uv` tools (on
-PATH in `~/.local/bin`, edits to the checkout take effect immediately):
+From the repo directory, install the CLI as an editable `uv` tool (on PATH
+in `~/.local/bin`, edits to the checkout take effect immediately):
 
 ```bash
-uv tool install -e .
+uv tool install -e .                       # core: no service, no MCP server
+uv tool install -e ".[semantic]"           # + Ollama and Qdrant clients
+uv tool install -e ".[mcp]"                # + the code-indexer-mcp server
 ```
 
-This installs `code-indexer` (and the optional `code-indexer-mcp` server
-executable). Verify with `code-indexer list-projects`.
+Core installs and runs with no service of any kind. The semantic extension
+(`OLLAMA_URL`, `QDRANT_URL`) is needed for indexing and semantic search; the
+MCP server ships only with the `mcp` extra and is imported by that entry
+point alone. Verify with `code-indexer list-projects`.
 
 ## Quick start
 
@@ -60,42 +64,59 @@ The agent workflow (overview → skeleton → search → get-code-context) is in
   FTS5 lexical table, index fingerprint.
 - **CLI** (`code-indexer`): every operation, one-shot, foreground; per-project
   flock serializes concurrent passes.
-- **MCP server** (`code-indexer-mcp`): thin wrapper over the same CLI
-  subprocess; all foreground.
+- **MCP server** (`code-indexer-mcp`, `code-indexer[mcp]` only): a
+  narrowed, read-only view over the same CLI subprocess; all foreground, no
+  store or manifest access of its own.
 
 ### CLI ↔ MCP parity
 
+The MCP surface carries the read-only query shapes and nothing else. Every
+tool is one CLI subcommand; `code-indexer-mcp --help` prints this list from
+the server's own registry, so it cannot go stale.
+
 | CLI subcommand | MCP tool |
 |---|---|
-| `add-project` | `add_project` |
-| `lookup-project` | `lookup_project` |
-| `remove-project` | `remove_project` |
 | `list-projects` | `list_projects` |
-| `semantic-search` | `semantic_search` |
-| `index-status` | `index_status` |
-| `reindex-project` | `reindex_project` |
-| `find-symbol` / browse mode | `find_symbol` / `find_symbols` |
-| `skeleton` (alias `map`) | `skeleton` |
-| `outline` (alias `file-outline`) | `outline` |
-| `find-definition` | `find_definition` |
+| `overview` | `overview` |
+| `skeleton` | `skeleton` |
+| `find-symbol` | `find_symbol` |
 | `find-references` | `find_references` |
 | `find-callers` | `find_callers` |
-| `find-callees` | `find_callees` |
-| `deps` | `deps` |
-| `changed-symbols` | `changed_symbols` |
 | `get-code-context` | `get_code_context` |
-| `overview`, `index-more`, `doctor`, `watch`, `unwatch`, `sweep-orphans`, `eval`, `eval-compare` | **CLI-only** (no MCP tool) |
+| `semantic-search` (only with the semantic extra) | `semantic_search` |
 
-MCP options are a subset of CLI flags; the MCP tool schemas (see
+Removed from the surface — **use the CLI subcommand of the same name**:
+`add-project`, `index-status`, `lookup-project`, `reindex-project`,
+`remove-project`, `changed-symbols`, `deps`, `find-callees`, `find-symbols`,
+`find-definition` and `outline`. Writes are exactly what an MCP client should
+not trigger by a call that carries no preview, and the removed reads
+duplicate a kept tool's shape or the CLI.
+
+**CLI-only** (no MCP tool): `index-more`, `doctor`, `watch`, `unwatch`,
+`sweep-orphans`, `eval`, `eval-compare`.
+
+Every tool is a read: `readOnlyHint=True` with `idempotentHint=True` is a
+claim about what a client sees, and it holds because reads never repair the
+index and the relay reports a failure as a failure. A successful call
+returns the CLI's stdout as its content; a failing call returns the CLI's
+stderr with `isError: true` and the numeric exit code plus its `ErrorType` in
+the structured result. Nothing is synthesized over a nonzero exit.
+
+MCP options are a subset of CLI flags; the tool schemas (see
 `src/code_indexer/server.py`) are the source of truth for what each tool
-accepts — e.g. `semantic_search` exposes `project`, `limit`, `file_filter`,
-`symbol_type`, `language`, `ranking`, `format`, `fresh`, `per_file`,
-`max_tokens`, `rerank`, `mode`. There is no MCP `watch`/`unwatch`: a watcher
-makes no sense inside an already long-lived server. The server resolves the
-CLI from `CODE_INDEXER_BIN`, else `code-indexer` on `PATH`, else
+accepts. There is no MCP `watch`/`unwatch`: a watcher makes no sense inside
+an already long-lived server. The server resolves the CLI from
+`CODE_INDEXER_BIN`, else `code-indexer` on `PATH`, else
 `python -m code_indexer.cli`; `CODE_INDEXER_BIN` is the only env var the
-server process reads itself — all other configuration flows through the
-CLI subprocess's inherited environment.
+server process reads itself — all other configuration flows through the CLI
+subprocess's inherited environment.
+
+**Usage record.** Every tool call appends one line to
+`$INDEX_ROOT/mcp-usage.jsonl` (`~/.code-indexer/mcp-usage.jsonl` by
+default): tool name, outcome, exit code, response bytes, duration and a
+timestamp. Nothing else, and never the arguments — a query string may be
+source code. The line is written by the MCP process, never by a CLI read
+command, and a failed write does not fail the call.
 
 ## Index states
 
@@ -266,10 +287,27 @@ re-embed only changed chunks. Qdrant upserts ~550 pts/s. Baseline numbers are
 }
 ```
 
-When installed as a tool, point `command` at `code-indexer-mcp` directly (no
-`uv` wrapper). **stdout is reserved for the MCP transport** — all log output
-goes to stderr; never pipe server stdout into anything that expects log
-lines. Tool listing does not require Ollama or Qdrant to be reachable.
+When installed as a tool, point `command` at `code-indexer-mcp` directly
+(installed from the `mcp` extra; no `uv` wrapper). **stdout is reserved for
+the MCP transport** — all log output goes to stderr; never pipe server stdout
+into anything that expects log lines. Listing tools does not require Ollama or
+Qdrant to be reachable, and with the semantic extra absent the server starts
+with the seven tools that need no embedding client.
+
+```json
+{
+  "mcpServers": {
+    "code-indexer": {
+      "command": "uvx",
+      "args": ["--from", "code-indexer[mcp]", "code-indexer-mcp"],
+      "env": {
+        "OLLAMA_URL": "http://192.168.X.X:11434",
+        "QDRANT_URL": "http://192.168.X.X:6333"
+      }
+    }
+  }
+}
+```
 
 ## Development
 

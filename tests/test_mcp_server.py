@@ -1,35 +1,53 @@
-"""MCP surface tests: the server is a thin wrapper over the CLI.
+"""MCP surface tests: a narrowed, read-only view that relays honestly.
 
-Every tool must build exactly one ``code-indexer`` subcommand's argv and relay
-its output, so the MCP surface and the CLI can never diverge. No network: the
-runner seam (``server._run_cli``) is stubbed for the mapping tests, and one
-subprocess end-to-end test drives the real CLI against a throwaway
-``INDEX_ROOT`` (registry-only — no Ollama/Qdrant traffic).
+Every tool builds exactly one ``code-indexer`` subcommand's argv and relays
+its result. No network: the runner seam (``server._run_cli``) is stubbed for
+the mapping tests, and the end-to-end test drives the real CLI against a
+throwaway ``INDEX_ROOT`` (registry-only — no Ollama/Qdrant traffic).
+
+The surface is asserted as a SET, not as a count: the documented list is the
+registry's, so a stale "all N tools" cannot recur.
 """
 
 from __future__ import annotations
 
+import asyncio
 import os
+import subprocess
 import sys
 import types
 
 import pytest
 
-from code_indexer import server
+from code_indexer import mcp_usage, server
 from code_indexer.registry import Registry
+
+# The documented read-only set. `semantic_search` is conditional on the
+# semantic extra, which this environment has installed.
+DOCUMENTED_TOOLS = frozenset({
+    "list_projects", "overview", "skeleton", "find_symbol",
+    "find_references", "find_callers", "get_code_context",
+    "semantic_search",
+})
 
 
 @pytest.fixture()
-def captured(monkeypatch):
-    """Replace the runner seam: record argv, return a sentinel string."""
+def captured(monkeypatch, tmp_path):
+    """Replace the runner seam: record argv, return a sentinel outcome."""
     calls: list[list[str]] = []
+    monkeypatch.setenv("INDEX_ROOT", str(tmp_path / "state"))
 
-    def fake(argv: list[str]) -> str:
+    def fake(argv: list[str]) -> server.CliOutcome:
         calls.append(list(argv))
-        return "SENTINEL"
+        return server.CliOutcome(stdout="SENTINEL", stderr="",
+                                 returncode=0, duration_ms=1)
 
     monkeypatch.setattr(server, "_run_cli", fake)
     return calls
+
+
+def _text(result) -> str:
+    return result.content[0].text
 
 
 # ---------------------------------------------------------------------------
@@ -37,72 +55,28 @@ def captured(monkeypatch):
 # ---------------------------------------------------------------------------
 
 MAPPING_CASES: list[tuple[str, object, list[str]]] = [
-    ("lookup_project",
-     lambda: server.lookup_project("/p"), ["lookup-project", "/p"]),
-    ("add_project",
-     lambda: server.add_project("/p"), ["add-project", "/p"]),
-    ("add_project_named",
-     lambda: server.add_project("/p", name="myproj"),
-     ["add-project", "/p", "--name", "myproj"]),
-    ("add_project_name_ignored_when_empty",
-     lambda: server.add_project("/p", name=""),
-     ["add-project", "/p"]),
-    ("remove_project",
-     lambda: server.remove_project("/p"), ["remove-project", "/p"]),
     ("list_projects",
      lambda: server.list_projects(), ["list-projects"]),
-    ("index_status",
-     lambda: server.index_status("/p"), ["index-status", "/p"]),
-    ("reindex_project",
-     lambda: server.reindex_project("/p"), ["reindex-project", "/p"]),
-    ("semantic_search_default",
-     lambda: server.semantic_search("auth refresh"),
-     ["semantic-search", "auth refresh", "--limit", "8",
-      "--mode", "hybrid"]),
-    ("semantic_search_full",
-     lambda: server.semantic_search(
-         "auth", project="p", limit=3, file_filter="*.py",
-         symbol_type="class", language="python", ranking="hybrid",
-         format="json"),
-     ["semantic-search", "auth", "--limit", "3", "--project", "p",
-      "--file-filter", "*.py", "--symbol-type", "class",
-      "--language", "python", "--ranking", "hybrid",
-      "--mode", "hybrid", "--json"]),
-    ("semantic_search_vector_omits_ranking_flag",
-     lambda: server.semantic_search("q", ranking="vector"),
-     ["semantic-search", "q", "--limit", "8", "--mode", "hybrid"]),
-    ("find_symbol",
-     lambda: server.find_symbol("FileTransferSession"),
-     ["find-symbol", "FileTransferSession"]),
-    ("find_symbol_filtered",
-     lambda: server.find_symbol("S", project="p", symbol_type="class"),
-     ["find-symbol", "S", "--project", "p", "--symbol-type", "class"]),
-    ("find_symbols_browse",
-     lambda: server.find_symbols(),
-     ["find-symbol", "--limit", "25"]),
-    ("find_symbols_filtered_json",
-     lambda: server.find_symbols(project="p", symbol_type="method",
-                                 file="a.py", limit=5, format="json"),
-     ["find-symbol", "--project", "p", "--symbol-type", "method",
-      "--file", "a.py", "--limit", "5", "--json"]),
+    ("overview",
+     lambda: server.overview(), ["overview"]),
+    ("overview_full",
+     lambda: server.overview(project="p", path_prefix="src", max_lines=20,
+                             format="json"),
+     ["overview", "--project", "p", "--path-prefix", "src",
+      "--max-lines", "20", "--json"]),
     ("skeleton",
      lambda: server.skeleton(), ["skeleton"]),
     ("skeleton_full",
      lambda: server.skeleton(project="p", path_prefix="src", limit=3,
                              format="json"),
      ["skeleton", "--project", "p", "src", "--limit", "3", "--json"]),
-    ("outline",
-     lambda: server.outline("a.py"), ["outline", "a.py"]),
-    ("outline_full",
-     lambda: server.outline("a.py", project="p", docstrings=True,
-                            format="json"),
-     ["outline", "a.py", "--project", "p", "--docstrings", "--json"]),
-    ("find_definition",
-     lambda: server.find_definition("main"),
-     ["find-definition", "main"]),
-    ("find_definition_project",
-     lambda: server.find_definition("main", project="p"),
-     ["find-definition", "main", "--project", "p"]),
+    ("find_symbol",
+     lambda: server.find_symbol("Core"), ["find-symbol", "Core"]),
+    ("find_symbol_filtered",
+     lambda: server.find_symbol("S", project="p", symbol_type="class",
+                                fresh=True),
+     ["find-symbol", "S", "--fresh", "--project", "p",
+      "--symbol-type", "class"]),
     ("find_references",
      lambda: server.find_references("QTimer"),
      ["find-references", "QTimer", "--limit", "25"]),
@@ -111,6 +85,14 @@ MAPPING_CASES: list[tuple[str, object, list[str]]] = [
                                     relationship="calls", limit=7),
      ["find-references", "QTimer", "--project", "p",
       "--relationship", "calls", "--limit", "7"]),
+    ("find_callers",
+     lambda: server.find_callers("Core"),
+     ["find-callers", "Core", "--depth", "2", "--max-nodes", "40"]),
+    ("find_callers_json",
+     lambda: server.find_callers("Core", project="p", depth=1, max_nodes=5,
+                                 format="json"),
+     ["find-callers", "Core", "--depth", "1", "--max-nodes", "5",
+      "--project", "p", "--json"]),
     ("get_code_context_range",
      lambda: server.get_code_context("a.py", start_line=3, end_line=9),
      ["get-code-context", "a.py", "--start-line", "3", "--end-line", "9"]),
@@ -119,20 +101,112 @@ MAPPING_CASES: list[tuple[str, object, list[str]]] = [
                                      symbol="Foo::bar", context_lines=2),
      ["get-code-context", "a.py", "--project", "p", "--symbol", "Foo::bar",
       "--context-lines", "2"]),
+    ("semantic_search",
+     lambda: server.semantic_search("auth refresh"),
+     ["semantic-search", "auth refresh", "--limit", "8",
+      "--mode", "hybrid"]),
+    ("semantic_search_full",
+     lambda: server.semantic_search(
+         "auth", project="p", limit=3, file_filter="*.py",
+         symbol_type="class", language="python", ranking="hybrid",
+         format="json", mode="dense"),
+     ["semantic-search", "auth", "--limit", "3", "--project", "p",
+      "--file-filter", "*.py", "--symbol-type", "class",
+      "--language", "python", "--ranking", "hybrid", "--json"]),
 ]
 
 
 @pytest.mark.parametrize("name,call,expected", MAPPING_CASES,
                          ids=[c[0] for c in MAPPING_CASES])
 def test_tool_builds_cli_argv(captured, name, call, expected):
-    assert call() == "SENTINEL"
+    result = call()
     assert captured == [expected], f"{name}: {captured}"
+    assert _text(result) == "SENTINEL"
+    assert result.isError is False
 
 
 def test_server_is_thread_free_and_core_free():
     """The wrapper model forbids hidden threads and its own core state."""
     assert not hasattr(server, "threading")
     assert not hasattr(server, "CORE")
+
+
+# ---------------------------------------------------------------------------
+# The documented set IS the registered set
+# ---------------------------------------------------------------------------
+
+def _registered() -> set[str]:
+    return set(server.registered_tool_names())
+
+
+def test_registered_tool_set_equals_the_documented_list():
+    """The defect that produced "all 14 tools": a stale count in prose.
+
+    This asserts the SET, both ways: nothing registered that is not
+    documented, nothing documented that is not registered.
+    """
+    assert _registered() == DOCUMENTED_TOOLS
+
+
+def test_removed_tools_are_absent_from_the_registry():
+    assert _registered().isdisjoint(server.REMOVED_TOOLS)
+
+
+def test_help_is_generated_from_the_registry():
+    text = server.help_text()
+    tools = asyncio.run(server.mcp.list_tools())
+    assert f"registered tools ({len(tools)})" in text
+    for tool in tools:
+        assert tool.name in text
+    for removed in server.REMOVED_TOOLS:
+        assert removed in text
+    assert "use the CLI subcommand of the same name" in text
+    assert 'uvx --from "code-indexer[mcp]" code-indexer-mcp' in text
+
+
+def test_without_the_semantic_extra_the_surface_has_seven_tools(tmp_path):
+    """`semantic_search` is registered only when its extra is importable."""
+    script = (
+        "import importlib.util\n"
+        "real = importlib.util.find_spec\n"
+        "def fake(name, *a, **k):\n"
+        "    if name in ('ollama', 'qdrant_client'):\n"
+        "        return None\n"
+        "    return real(name, *a, **k)\n"
+        "importlib.util.find_spec = fake\n"
+        "import code_indexer.server as s\n"
+        "print(','.join(s.registered_tool_names()))\n"
+        "print(s.help_text())\n"
+    )
+    proc = subprocess.run([sys.executable, "-c", script],
+                          capture_output=True, text=True, check=False,
+                          cwd=str(tmp_path),
+                          env={**os.environ, "INDEX_ROOT": str(tmp_path)})
+    assert proc.returncode == 0, proc.stderr
+    names = proc.stdout.splitlines()[0].split(",")
+    assert set(names) == DOCUMENTED_TOOLS - {"semantic_search"}
+    assert "semantic_search is not registered" in proc.stdout
+
+
+# ---------------------------------------------------------------------------
+# Annotations: reads only, and the hints are true of the relay
+# ---------------------------------------------------------------------------
+
+def test_every_tool_declares_all_four_annotation_hints_as_read_only():
+    tools = asyncio.run(server.mcp.list_tools())
+    assert {t.name for t in tools} == DOCUMENTED_TOOLS
+    for tool in tools:
+        annotations = tool.annotations
+        assert annotations is not None, f"{tool.name}: no annotations"
+        for field in ("readOnlyHint", "destructiveHint", "idempotentHint",
+                      "openWorldHint"):
+            value = getattr(annotations, field)
+            assert isinstance(value, bool), (
+                f"{tool.name}: {field} is {value!r}, not an explicit bool")
+        assert annotations.readOnlyHint is True
+        assert annotations.destructiveHint is False
+        assert annotations.idempotentHint is True
+        assert annotations.openWorldHint is False
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +234,7 @@ def test_cli_argv_falls_back_to_module(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Output relay / exit codes (the _run_cli seam itself)
+# The relay: two streams, one exit code
 # ---------------------------------------------------------------------------
 
 def _patch_run(monkeypatch, *, rc: int, out: str = "", err: str = ""):
@@ -172,36 +246,85 @@ def _patch_run(monkeypatch, *, rc: int, out: str = "", err: str = ""):
     monkeypatch.setattr(server.subprocess, "run", fake_run)
 
 
-def test_run_cli_relays_stdout(monkeypatch):
+def test_success_returns_stdout_only(monkeypatch, tmp_path):
+    monkeypatch.setenv("INDEX_ROOT", str(tmp_path))
     monkeypatch.setenv("CODE_INDEXER_BIN", "/custom/ci")
-    _patch_run(monkeypatch, rc=0, out="registered path=/p\n")
-    assert server._run_cli(["lookup-project", "/p"]) == "registered path=/p"
+    _patch_run(monkeypatch, rc=0, out="registered path=/p\n",
+               err="warning: stale\n")
+    result = server.list_projects()
+    assert _text(result) == "registered path=/p"
+    assert result.isError is False
+    assert result.structuredContent["exit_code"] == 0
+    assert result.structuredContent["outcome"] == "ok"
 
 
-def test_run_cli_relays_stderr_on_failure(monkeypatch):
-    monkeypatch.setenv("CODE_INDEXER_BIN", "/custom/ci")
-    _patch_run(monkeypatch, rc=1, err="error: not registered: /p\n")
-    assert server._run_cli(["lookup-project", "/p"]) == "error: not registered: /p"
+def test_failure_returns_stderr_with_the_code_and_no_synthesis(
+        monkeypatch, tmp_path):
+    monkeypatch.setenv("INDEX_ROOT", str(tmp_path))
+    _patch_run(monkeypatch, rc=3, out="stdout is not content on failure\n",
+               err="BackendError: embedding service unavailable\n")
+    result = server.find_symbol("Core")
+    assert result.isError is True
+    assert _text(result) == "BackendError: embedding service unavailable"
+    assert result.structuredContent["exit_code"] == 3
+    assert result.structuredContent["ErrorType"] == "BackendError"
+    assert result.structuredContent["outcome"] == "error"
 
 
-def test_run_cli_reports_silent_failure(monkeypatch):
-    monkeypatch.setenv("CODE_INDEXER_BIN", "/custom/ci")
-    _patch_run(monkeypatch, rc=2)
-    assert server._run_cli(["list-projects"]) == (
-        "error: command failed with exit code 2")
+def test_silent_failure_stays_a_failure(monkeypatch, tmp_path):
+    """No synthesized message replaces a nonzero exit (ADR-0007 section 2)."""
+    monkeypatch.setenv("INDEX_ROOT", str(tmp_path))
+    _patch_run(monkeypatch, rc=4)
+    result = server.list_projects()
+    assert result.isError is True
+    assert _text(result) == ""
+    assert result.structuredContent["exit_code"] == 4
 
 
-def test_run_cli_ok_when_silent_success(monkeypatch):
-    monkeypatch.setenv("CODE_INDEXER_BIN", "/custom/ci")
+def test_silent_success_stays_empty(monkeypatch, tmp_path):
+    monkeypatch.setenv("INDEX_ROOT", str(tmp_path))
     _patch_run(monkeypatch, rc=0)
-    assert server._run_cli(["list-projects"]) == "ok"
+    result = server.list_projects()
+    assert result.isError is False
+    assert _text(result) == ""
+
+
+# ---------------------------------------------------------------------------
+# Usage record: one line per invocation, never a reason to fail
+# ---------------------------------------------------------------------------
+
+def test_each_invocation_appends_one_line_without_arguments(
+        monkeypatch, tmp_path):
+    monkeypatch.setenv("INDEX_ROOT", str(tmp_path / "root"))
+    _patch_run(monkeypatch, rc=0, out="ok\n")
+    server.find_symbol("a_very_secret_identifier")
+    server.find_symbol("another")
+    lines = mcp_usage.read_invocations(str(tmp_path / "root"))
+    assert len(lines) == 2
+    assert [ln["tool"] for ln in lines] == ["find_symbol", "find_symbol"]
+    for line in lines:
+        assert set(line) == {"tool", "outcome", "exit_code",
+                             "response_bytes", "duration_ms", "timestamp"}
+    raw = (tmp_path / "root" / "mcp-usage.jsonl").read_text(encoding="utf-8")
+    assert "a_very_secret_identifier" not in raw
+
+
+def test_failed_record_write_does_not_fail_the_call(monkeypatch, tmp_path,
+                                                    caplog):
+    blocker = tmp_path / "root-file"
+    blocker.write_text("not a directory", encoding="utf-8")
+    monkeypatch.setenv("INDEX_ROOT", str(blocker))
+    _patch_run(monkeypatch, rc=0, out="answer\n")
+    result = server.list_projects()
+    assert result.isError is False
+    assert _text(result) == "answer"
 
 
 # ---------------------------------------------------------------------------
 # End-to-end: the tool really runs the CLI (registry-only path, no network)
 # ---------------------------------------------------------------------------
 
-def test_lookup_project_end_to_end_matches_cli(tmp_path, monkeypatch):
+def test_list_projects_end_to_end_matches_cli(tmp_path, monkeypatch):
     index_root = tmp_path / "state"
     index_root.mkdir()
     monkeypatch.setenv("INDEX_ROOT", str(index_root))
@@ -212,126 +335,24 @@ def test_lookup_project_end_to_end_matches_cli(tmp_path, monkeypatch):
     entry = reg.add(str(proj), name="myproj")
     reg.close()
 
-    out = server.lookup_project(str(proj))
-    assert out.startswith("registered")
-    assert f"path={proj}" in out
-    assert f"slug={entry.slug}" in out
-    assert f"collection=idx_{entry.slug}" in out
-    assert "state=" in out and "files=" in out and "chunks=" in out
-    assert "last_indexed=" in out
-
-    nope = tmp_path / "nope"
-    assert server.lookup_project(str(nope)) == f"not registered: {nope}"
+    result = server.list_projects()
+    assert result.isError is False
+    assert f"path={proj}" in _text(result)
+    assert f"slug={entry.slug}" in _text(result)
+    # The record is written by the MCP process, not by the CLI read command.
+    lines = mcp_usage.read_invocations(str(index_root))
+    assert len(lines) == 1 and lines[0]["exit_code"] == 0
 
 
-def test_lookup_project_normalizes_symlink_and_trailing_slash(tmp_path,
-                                                              monkeypatch):
-    index_root = tmp_path / "state"
-    index_root.mkdir()
-    monkeypatch.setenv("INDEX_ROOT", str(index_root))
-    monkeypatch.delenv("CODE_INDEXER_BIN", raising=False)
-    proj = tmp_path / "proj"
-    proj.mkdir()
-    reg = Registry(str(index_root / "registry.db"))
-    reg.add(str(proj))
-    reg.close()
-
-    assert server.lookup_project(str(proj) + "/").startswith("registered")
-    link = tmp_path / "link-to-proj"
-    link.symlink_to(proj)
-    assert server.lookup_project(str(link)).startswith("registered")
-
-
-def test_run_cli_reports_unknown_subcommand_error(tmp_path, monkeypatch):
-    """A real CLI failure surfaces as an ``error:`` string, never an exception."""
+def test_missing_project_is_an_error_to_the_client(tmp_path, monkeypatch):
+    """A real CLI failure arrives as isError with its code, not as success."""
     monkeypatch.setenv("INDEX_ROOT", str(tmp_path / "state"))
     monkeypatch.delenv("CODE_INDEXER_BIN", raising=False)
-    out = server.lookup_project("/definitely/not/registered")
-    assert out.startswith("not registered: ") or out.startswith("error:")
-    assert os.sep in out
+    result = server.get_code_context("nope.py", project="/not/registered")
+    assert result.isError is True
+    assert result.structuredContent["exit_code"] != 0
+    assert result.structuredContent["ErrorType"] != "Unknown"
 
 
-# ---------------------------------------------------------------------------
-# Tool annotations (audit finding: all four hints must be declared explicitly)
-# ---------------------------------------------------------------------------
-
-# The full expected surface: tool name -> the four hint booleans
-# (readOnlyHint, destructiveHint, idempotentHint, openWorldHint).
-# readOnlyHint is False wherever the wrapped CLI can write — including the
-# staleness-triggered incremental index pass on the query path (see
-# server.py's module docstring); it is True only for the three tools that
-# never run that probe.
-EXPECTED_ANNOTATIONS: dict[str, tuple[bool, bool, bool, bool]] = {
-    "lookup_project": (True, False, True, False),
-    "add_project": (False, False, True, False),
-    "remove_project": (False, True, True, False),
-    "list_projects": (True, False, True, False),
-    "semantic_search": (False, False, True, False),
-    "index_status": (True, False, True, False),
-    "reindex_project": (False, False, True, False),
-    "find_symbol": (False, False, True, False),
-    "find_symbols": (False, False, True, False),
-    "skeleton": (False, False, True, False),
-    "outline": (False, False, True, False),
-    "find_definition": (False, False, True, False),
-    "find_references": (False, False, True, False),
-    "find_callers": (False, False, True, False),
-    "find_callees": (False, False, True, False),
-    "deps": (False, False, True, False),
-    "changed_symbols": (True, False, True, False),
-    "get_code_context": (False, False, True, False),
-}
-
-
-def _list_tools():
-    """Every registered tool (sync registry — works for mcp 1.x)."""
-    return server.mcp._tool_manager.list_tools()
-
-
-def test_every_tool_declares_all_four_annotation_hints():
-    """No tool may leave a hint unset or non-boolean — OpenAI's directory
-    rejects a tool with a missing hint."""
-    tools = _list_tools()
-    assert len(tools) == 18, f"expected 18 tools, got {len(tools)}"
-    for tool in tools:
-        annotations = tool.annotations
-        assert annotations is not None, f"{tool.name}: no annotations"
-        for field in ("readOnlyHint", "destructiveHint", "idempotentHint",
-                      "openWorldHint"):
-            value = getattr(annotations, field)
-            assert isinstance(value, bool), (
-                f"{tool.name}: {field} is {value!r}, not an explicit bool")
-
-
-def test_tool_annotation_values_match_handler_behaviour():
-    """The hint values must match the wrapped CLI semantics."""
-    tools = {t.name: t for t in _list_tools()}
-    assert set(tools) == set(EXPECTED_ANNOTATIONS)
-    for name, expected in EXPECTED_ANNOTATIONS.items():
-        annotations = tools[name].annotations
-        assert annotations is not None, f"{name}: no annotations"
-        got = (annotations.readOnlyHint, annotations.destructiveHint,
-               annotations.idempotentHint, annotations.openWorldHint)
-        assert got == expected, f"{name}: {got} != {expected}"
-
-
-def test_only_remove_project_is_destructive():
-    destructive = [t.name for t in _list_tools()
-                   if t.annotations is not None and t.annotations.destructiveHint]
-    assert destructive == ["remove_project"]
-
-
-def test_list_tools_serializes_annotations():
-    """Smoke check: the list_tools() payload carries the hints on the wire."""
-    import asyncio
-    import json
-
-    tools = asyncio.run(server.mcp.list_tools())
-    assert len(tools) == 18
-    for tool in tools:
-        payload = json.loads(tool.model_dump_json(exclude_none=False))
-        annotations = payload["annotations"]
-        for field in ("readOnlyHint", "destructiveHint", "idempotentHint",
-                      "openWorldHint"):
-            assert isinstance(annotations[field], bool), (
-                f"{tool.name}: {field} missing from serialized payload")
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(pytest.main([__file__, "-v"]))

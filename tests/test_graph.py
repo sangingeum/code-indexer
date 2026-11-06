@@ -923,10 +923,12 @@ def test_find_symbol_browse_mode_keeps_its_default_cap(tmp_path, monkeypatch):
     assert len(stored) == 40, len(stored)
 
 
-def test_mcp_graph_tools_exist():
+def test_mcp_graph_surface_is_one_direction():
+    """One graph direction has a tool; the others are CLI-only now."""
     import code_indexer.server as server
-    assert hasattr(server, "find_callers") and hasattr(server, "find_callees")
-    assert hasattr(server, "deps")
+    assert hasattr(server, "find_callers")
+    assert not hasattr(server, "find_callees")
+    assert not hasattr(server, "deps")
 
 
 if __name__ == "__main__":  # pragma: no cover

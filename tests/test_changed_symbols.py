@@ -394,9 +394,11 @@ def test_impact_reports_no_bound_when_the_list_is_complete(
         changed_data, imp)
 
 
-def test_mcp_changed_symbols_tool_exists():
+def test_mcp_changed_symbols_tool_is_gone():
+    """`changed_symbols` left the MCP surface: the CLI subcommand remains."""
     import code_indexer.server as server
-    assert hasattr(server, "changed_symbols")
+    assert not hasattr(server, "changed_symbols")
+    assert "changed_symbols" in server.REMOVED_TOOLS
 
 
 if __name__ == "__main__":  # pragma: no cover
