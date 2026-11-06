@@ -630,6 +630,13 @@ class Manifest:
         extractor holds no such row, so an empty answer there means "not
         attributed", never "no": the caller labels that with
         ``identity.evidence_of`` and must not render it as a negative.
+
+        That join is NAME-LEVEL and knowingly so: ``refs.from_symbol``
+        carries no container, so two same-named symbols in one file are both
+        credited with the union of both bodies' attributed references. There
+        is no column to join on that would narrow it; reference resolution to
+        a container is the staged work the identity model's section 3
+        schedules, and no read here pretends to have it.
         """
         clauses: list[str] = []
         args: list = []

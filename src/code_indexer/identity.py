@@ -7,15 +7,21 @@ index 91.8% of reference rows are textual. So `--inherits` and `--has-call`
 answer from attributed syntax ONLY, and the answer must say where it stands:
 
 * ``ast`` — the row was extracted by a parser, so the claim is attributed;
-* ``heuristic`` — the row came from a textual scan (no grammar, or a parse
-  that fell back), so the claim is a navigation aid;
+* ``heuristic`` — RESERVED, and produced by nothing today. The chunker labels
+  every row of a parsed file ``ast`` and takes the regex fallback only
+  together with a ``parse_unavailable`` verdict, whose rows are ``unknown``,
+  so no symbol row can be ``heuristic``. The value stays in the vocabulary
+  for a future extractor that supplements an AST with textual rows; it is not
+  a state a row is in now, and no description should sell it as one;
 * ``unknown`` — the file has no AST extractor (or its parse failed), so NOTHING
   is attributed for it. `unknown` is never a negative: it is the statement
   that absence of an attributed call is not absence of a call.
 
 The evidence of a symbol belongs to its FILE, not to the query, so it is
 read from the file's parse verdict and carried on the row by the filtered
-read (``Manifest.find_symbols``).
+read (``Manifest.find_symbols``). One column list and this one function serve
+every surface that reports evidence, so one payload cannot answer two ways
+about one row.
 """
 
 from __future__ import annotations
@@ -26,18 +32,20 @@ from .manifest import SymbolRow
 EVIDENCE_AST = "ast"
 EVIDENCE_HEURISTIC = "heuristic"
 EVIDENCE_UNKNOWN = "unknown"
-EVIDENCE_VALUES = (EVIDENCE_AST, EVIDENCE_HEURISTIC, EVIDENCE_UNKNOWN)
 
 
 def evidence_of(row: SymbolRow) -> str:
-    """``ast`` | ``heuristic`` | ``unknown`` for one symbol row.
+    """``ast`` | ``unknown`` for one symbol row (``heuristic`` is reserved).
 
     ``parse_verdict`` is the recorded verdict for the row's file (`parsed`,
     `parse_error`, `parse_unavailable`). Only a parsed file carries attributed
-    syntax; a textual row inside one is a heuristic answer; anything else is
-    unknown. When the read did not join the file row, the extraction's own
-    ``source`` is all there is — an ``ast`` row was attributed when it was
-    written, a textual one is not attributable at all.
+    syntax; anything else is unknown. When the read carries no verdict at all
+    the extraction's own ``source`` is all there is — an ``ast`` row was
+    attributed when it was written, a textual one is not attributable.
+
+    Every surface that reports evidence calls THIS function over the one
+    symbol column list, which joins the verdict in; a surface that skipped the
+    join would label the same row differently from its neighbour.
     """
     verdict = row.parse_verdict
     if verdict is None:
@@ -94,8 +102,9 @@ def ambiguity_block(rows: list[SymbolRow]) -> dict:
 def resolve_one(name: str, rows: list[SymbolRow]) -> SymbolRow:
     """The ONE symbol a single-symbol command may act on.
 
-    No rows is ``NotFoundError``; more than one is ``AmbiguousSymbolError``
-    (an ``ArgumentError``, exit 2) carrying every candidate. A caller that
+    No rows is ``NotFoundError`` (exit 1, the documented empty answer of
+    ``--exactly-one``); more than one is ``AmbiguousSymbolError`` (an
+    ``ArgumentError``, exit 2) carrying every candidate. A caller that
     cannot disambiguate must refuse and show the list, never take a row that
     happened to sort first.
     """

@@ -103,6 +103,29 @@ nothing here at all — the fixture's `Base` lives in the tests, not in
 `src/`. A zero from either filter is labelled (see the evidence section),
 never printed as "no".
 
+**The join is name-level, and that is disclosed, not hidden.**
+`refs.from_symbol` carries no container, so both filters match a reference to
+the symbol's own name in its own file: two same-named symbols in ONE file are
+both credited with the union of both bodies' attributed references. Measured
+on this index at `index_revision=62`, 37 of the 1,488 call-filter hits share
+their `(file, name)` with another symbol row, while `base_class` has none
+(20 hits, 0 shared). That is the identity model's own join (its section 4),
+not a defect in the filter implementation, so this record discloses it: the
+structural fix — resolving a reference to one container — is the staged
+reference-resolution work the identity model's section 3 schedules. Read a hit
+as "this file's `name` makes this call", not "this exact symbol does".
+
+### the name index, honestly
+
+No index was added by this round. `--name-pattern` is a case-sensitive GLOB:
+a PREFIX pattern is answered by the existing name index as a range seek
+(`SEARCH s USING INDEX idx_symbols_name`), while a leading wildcard cannot be
+a range and is a scan of `symbols` (`SCAN s`) — cheap at this size, and
+captured in the gate's own query-plan file. The same capture shows a scan for
+`--language` and `--visibility`, the symbols autoindex for `--kind`, and
+`idx_symbols_file_start` for `--file`, `--inherits`, `--has-call` and plain
+browse.
+
 ### composition
 
 ```
@@ -133,8 +156,11 @@ answer can never quietly disagree with its own population.
 
 Evidence belongs to the FILE a symbol came from, not to the query, so every
 `find-symbol` row carries one: `ast` when the file parsed and the row came
-from the parser, `heuristic` when the row was a textual scan inside a parsed
-file, `unknown` when the file has no AST extractor or its parse failed.
+from the parser, `unknown` when the file has no AST extractor or its parse
+failed. A third value, `heuristic`, is reserved in the vocabulary and
+produced by nothing today — a textual row inside a parsed file would be the
+case, and the chunker labels every row of a parsed file `ast` — so no row is
+in it and this record does not describe it as reachable.
 
 ```
 $ code-indexer find-symbol --inherits IndexerError --json \
@@ -268,10 +294,11 @@ fixes and records in `runs/round3-folds/record.md`.)
   range, so `*Manager` scans `symbols` — measured, not assumed; the test
   asserts the index-backed cases against `EXPLAIN QUERY PLAN`.
   `*Manager` also has no hit on this repository.
-- **`heuristic` has no rows here.** The label exists for a textual row inside
-  a parsed file; this index has none, so the whole-index counts are `ast`
-  2,033 / `unknown` 289. No synthetic example was invented to make the bucket
-  populate.
+- **`heuristic` has no rows here, and none anywhere.** The value is reserved
+  for a future extractor that supplements an AST with textual rows; today the
+  chunker labels a parsed file's rows `ast` and its regex fallback `unknown`,
+  so the whole-index counts are `ast` 2,033 / `unknown` 289. No synthetic
+  example was invented to make a reserved bucket populate.
 - **`ambiguity` is emitted in exact-name mode only.** Browse and
   `--name-pattern` answers report `match_count` and `truncated`; they are not
   a request for one symbol, so they carry no candidate block. `find-callers`

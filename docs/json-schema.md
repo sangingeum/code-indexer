@@ -262,10 +262,12 @@ revision-scoped surrogate and belongs to the `index_revision` in the staleness
 block — it is not a durable identifier. No rows is `symbols: []` with exit 0.
 
 `evidence` is a property of the file the row came from, not of the query:
-`ast` (attributed syntax), `heuristic` (a textual scan) or `unknown` (no AST
-extractor, or the parse failed). It is present on every row, so a caller can
-tell `unknown` from a negative — most indexed repositories are mostly files
-with no grammar.
+`ast` (attributed syntax) or `unknown` (no AST extractor, or the parse failed).
+It is present on every row, so a caller can tell `unknown` from a negative —
+most indexed repositories are mostly files with no grammar. The third value,
+`heuristic`, is reserved in the vocabulary and produced by no extractor today
+(a parsed file's rows are `ast`, the regex fallback's are `unknown`), so treat
+it as a value a future extractor may emit, not one a row is in.
 
 `match_count` is the uncapped number of rows the same filters match, and
 `truncated` is true when `--limit` showed fewer. `ambiguity` appears in
@@ -283,7 +285,12 @@ case-sensitive GLOB over the name), `--file`, `--container`, `--visibility`
 (NULL reads as public), `--language`, `--inherits NAME` and `--has-call NAME`
 compose as AND in one read. `--inherits`/`--has-call` answer from the
 `refs` rows whose `from_symbol` is this symbol's own name in its own file,
-attributed syntax only.
+attributed syntax only. That join is **name-level by design**: `from_symbol`
+carries no container, so two same-named symbols in one file are both credited
+with the union of both bodies' attributed references. Narrowing it needs
+reference resolution to a container (the staged work the identity model's
+section 3 schedules); until then a hit means "this file's `name` does this",
+not "this exact symbol does".
 
 ## find-definition --json
 
@@ -302,6 +309,15 @@ With `--exactly-one`, a name with more than one definition is refused: exit 2,
 one `ArgumentError:` line, and — in `--json` — `{"schema": 1,
 "ErrorType": "ArgumentError", "error": str, "candidates": [<the ambiguity
 candidate records>]}`. A single definition answers as usual.
+
+`--exactly-one` changes the EMPTY answer too, deliberately: with no definition
+at all it is `NotFoundError: no indexed definition for '<name>'` — exit 1,
+empty stdout, the usual one-line failure shape — where without the flag the
+same query is `definitions: []` and exit 0. The flag means "I must act on
+exactly one symbol", so a caller that asked for one is told it cannot have
+one rather than handed an empty set to inspect. This is the documented choice
+(not an alignment with the other refusals, which are `ArgumentError`, exit 2,
+because the name is ambiguous rather than missing).
 
 ## find-callers / find-callees --json
 

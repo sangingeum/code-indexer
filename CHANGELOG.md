@@ -13,7 +13,7 @@ at this size), `--container`, `--visibility`, `--language`,
 No schema change, no new index, no reindex: this release is query-only.
 
 - **`--inherits` and `--has-call` are syntax-evidence filters, and say so.**
-  Every symbol row now carries `evidence: ast|heuristic|unknown`, read from
+  Every symbol row now carries `evidence: ast|unknown`, read from
   the file's parse verdict. A symbol in a file with no AST extractor reports
   `unknown`, never a negative: on this repository's own index 91.8% of
   reference rows are textual, so absence of an attributed call is not
@@ -36,6 +36,19 @@ No schema change, no new index, no reindex: this release is query-only.
   candidate definition(s) it can belong to — narrowed to one where the store
   attributes the edge (an import resolves to a file), all candidates where a
   name-level reference cannot be attributed.
+- **The attributed filters' join is name-level, and documented as such.**
+  `--inherits`/`--has-call` match a reference to the symbol's own name in its
+  own file (`from_symbol` carries no container), so two same-named symbols in
+  one file are both credited with the union of both bodies' attributed
+  references. Narrowing that needs the staged reference resolution, not a
+  query change; the docs say what a hit means today.
+- **`heuristic` is reserved, not reachable.** No extractor produces it — a
+  parsed file's rows are `ast`, the regex fallback's are `unknown` — and the
+  identity docstring, SKILL-CLI.md and docs/json-schema.md now say so.
+- **`--exactly-one`'s empty answer is documented.** A name with no definition
+  is `NotFoundError`, exit 1, where the same query without the flag answers
+  `definitions: []` with exit 0 — the flag asked for exactly one, so it
+  refuses rather than hand back an empty set.
 - **Documented:** SKILL-CLI.md and docs/json-schema.md describe the filters,
   the evidence label, the ambiguity envelope and the truncation signal.
 

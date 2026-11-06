@@ -209,12 +209,24 @@ AND clause in the same read, so they compose without a second command.
 | `--container X` | the parent qualified name (`Manifest` for its methods) |
 | `--visibility public\|private` | the stored column; a NULL visibility reads as public |
 | `--language python` | the denormalized file language |
-| `--inherits Base` | an ATTRIBUTED `base_class` reference to `Base` |
-| `--has-call name` | an ATTRIBUTED `call` reference to `name` |
+| `--inherits Base` | an ATTRIBUTED `base_class` reference to `Base`, joined to the symbol by file and bare name |
+| `--has-call name` | an ATTRIBUTED `call` reference to `name`, joined to the symbol by file and bare name |
+
+**The join is name-level, and that is a known limit.** `refs.from_symbol`
+carries no container, so the two filters match a reference to a symbol's own
+name in its own file. Two same-named symbols in ONE file are therefore both
+credited with the union of both bodies' attributed references. Fixing that
+needs reference resolution to a container, which is the staged work the
+identity model's section 3 schedules — no shipped command narrows the join
+today, so read a hit from these two filters as "this file's `name` makes this
+call", not "this exact symbol does".
 
 **Evidence.** Every symbol row carries `evidence`:
-`ast` (attributed syntax), `heuristic` (a textual scan) or `unknown` (the file
-has no AST extractor, or its parse failed). `--inherits` and `--has-call`
+`ast` (attributed syntax) or `unknown` (the file has no AST extractor, or its
+parse failed). `heuristic` is reserved in the vocabulary and produced by
+nothing today — the chunker labels a parsed file's rows `ast` and its regex
+fallback `unknown` — so it is not a state a row can be in. `--inherits` and
+`--has-call`
 answer from attributed syntax only, so a symbol in a docs/data file reports
 `unknown` — never "no". Most repositories this tool indexes are mostly files
 with no grammar, so an empty answer from those two filters prints an
