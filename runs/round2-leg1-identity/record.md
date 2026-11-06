@@ -145,6 +145,43 @@ round's gate and to the owner, not to a development leg's side effect.
 not move, so vectors stay valid and the pass re-embeds from the content-addressed
 cache rather than from the model.
 
+## Parse verdicts
+
+Source: the parser's own result, never the chunker. `ts_chunker.parse_file`
+runs ONE parse and returns `(chunks, verdict)`:
+
+- `parse_error` when `root.has_error` is set or the tree contains a missing
+  node (`is_missing`); the tree is still walked and its chunks are kept.
+- `parsed` otherwise.
+- `parse_unavailable` whenever the function cannot stand behind an AST — no
+  grammar pack, no grammar for the extension, a parser exception, or an AST
+  walk that produced no chunks. Every one of those paths takes the regex
+  fallback, so "the regex chunker handled this file" and "parse_unavailable"
+  are the same statement.
+
+How it differs from the chunker's own behaviour, which is why it cannot be
+inferred: the chunker never fails. It falls back on a missing grammar, on a
+parser exception and on zero chunks, and it happily walks an error-tolerant
+tree. A file with a syntax error therefore returns a full chunk list, and a
+chunker-derived verdict would call it `parsed`; a declaration-free file that
+took the fallback would also read as `parsed`. Both cases are pinned in
+`tests/test_parse_verdict.py`.
+
+Shape: a per-file column, `files.parse_verdict` (one of the three values, NULL
+only on rows written before revision 7). A column rather than a side table
+because the verdict is a property of the file row the pass already writes, and
+because `index-status` needs one `GROUP BY` rather than a join.
+
+`index-status` reports all three counts per project, always all three keys:
+
+- text: `parse=parsed:3,parse_error:1,parse_unavailable:2`
+- JSON: `"parsed": 3, "parse_error": 1, "parse_unavailable": 2` alongside
+  `schema: 1` (additive; the schema number does not move).
+
+`index-status` stays answerable on a `needs-reindex` project by contract: it
+reports the counts the rows carry, including when those rows are about to be
+replaced.
+
 ## Refusal matrix — to be completed at step 3
 
 ## Extraction-version bump — to be completed at step 1

@@ -1023,6 +1023,13 @@ def index_status(
                     f"{e['file']}#{e['chunk_index']}: {e['error'][:60]}"
                     for e in errs))
                 fields["last_errors"] = errs
+            # Per-file parse verdicts (ADR-0004 section 7): the parser's own
+            # result is counted here, never the chunker's fallback. All three
+            # keys are always present, so a zero never reads as "not counted".
+            verdicts = m.parse_verdict_counts()
+            parts.append("parse=" + ",".join(
+                f"{kind}:{n}" for kind, n in verdicts.items()))
+            fields.update(verdicts)
         finally:
             m.close()
     if state == NEVER_INDEXED:
