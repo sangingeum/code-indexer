@@ -1,0 +1,1 @@
+RebuildRequiredError: index for /tmp/pytest-of-keum/pytest-193/test_end_to_end_index_and_sear0/liveproj does not match the current configuration (extraction_version: 1 -> 4); run: code-indexer reindex-project /tmp/pytest-of-keum/pytest-193/test_end_to_end_index_and_sear0/liveproj

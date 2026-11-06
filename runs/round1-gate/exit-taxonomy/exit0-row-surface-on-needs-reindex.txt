@@ -1,0 +1,7 @@
+$ code-indexer find-symbol Core --project liveproj   # row surface on a needs-reindex index
+EXIT=0
+STDOUT_BYTES=27
+--- stdout ---
+no symbols matching 'Core'
+--- stderr ---
+Warning: index staleness check did not run (project path absent: /tmp/pytest-of-keum/pytest-193/test_end_to_end_index_and_sear0/liveproj); answers describe the index, not the tree.
