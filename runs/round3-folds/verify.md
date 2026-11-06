@@ -1,6 +1,7 @@
 # Narrow re-verify of the round-3 folds
 
-- Card: T-000085 (board `code-indexer`, read-only to me)
+- Board card id withheld: an authored `runs/*.md` record is hygiene-governed and a board id is a
+  prohibited token there; the dispatch brief carries it.
 - Range verified: `f3d6b1e..d4dc39e`; tip `d4dc39e`; `origin/main` == `d4dc39e`
 - Verifier: QA / test engineer
 - Object: the eight folds in `runs/round3-review/record.md` (`## Folds for the fix leg`),
