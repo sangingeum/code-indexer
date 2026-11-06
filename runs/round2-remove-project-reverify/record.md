@@ -131,7 +131,7 @@ Fresh output this leg, full output under `runs/round2-remove-project-reverify/`:
 ```
 680 passed, 2 deselected in 88.54s    uv run pytest tests/ -q -W error   (pytest-full.txt)
 All checks passed!                    uvx ruff check src tests scripts   (ruff.txt)
-publishing hygiene: scanned=616 skipped=0 violations=0                    (hygiene.txt)
+publishing hygiene: scanned=617 skipped=0 violations=0                    (hygiene.txt)
 ```
 
 The baseline was 680 passed, 2 deselected; the count is unchanged. The hygiene
