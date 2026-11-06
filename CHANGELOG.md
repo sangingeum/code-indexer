@@ -2,6 +2,54 @@
 
 ## [Unreleased] — structural query on a stable identity
 
+**A change can now be prepared as a content-addressed plan, validated and
+previewed without writing.** Six plan commands appear: three writers
+(`plan-replace-body`, `plan-insert-symbol`, `plan-delete-declaration`),
+`plan-validate`, `plan-show`, and `plan-rename-symbol` as a reserved, refused
+verb. No command applies a plan yet — that is the next leg.
+
+- **A plan is its file.** The document's canonical bytes (UTF-8, sorted keys,
+  no insignificant whitespace, no trailing newline) are hashed to
+  `plan_id: sha256:<hex>` with the member absent, then written in; the file is
+  `<project>/.code-indexer/plans/<hex>.json`. There is no store: a reference
+  is a path or `sha256:<hex>`, and a path whose content hash differs from the
+  requested hash is refused.
+- **The locator is line-free identity plus evidence.** `path`, `language`,
+  `qualified_name`, `symbol_type`, `decl_hash` and the observed `range`; the
+  revision-scoped `symbol_id` appears nowhere. A plan carries one whole-file
+  hash per touched file, the declared newline convention, one region hash per
+  edit, and the old bytes when they fit under 8 KiB.
+- **Coordinates are rules, not conventions.** 1-based inclusive lines, byte
+offsets into the stored bytes with offset 0 after any BOM (the BOM is
+  preserved and lies inside no range), the terminator not part of its line, no
+  columns, and a line/byte cross-check that turns a corrupted offset into
+  arithmetic failure instead of a silent wrong edit. A final line without a
+  terminator is legal; insertion after it is `position: end`, never a line
+  number.
+- **Ordering is part of the format.** Within a file descending start line,
+  across files ascending path. Adjacent edits are legal; overlaps
+  (`OverlappingEdits`, exit 2) and two insertions at one point
+  (`AmbiguousOrder`, exit 2) are refused, never ordered.
+- **`plan-validate` reports and never claims.** Per-check verdicts for the
+  plan hash, schema, paths, file hash and newline, node re-derivation, the
+  line/byte cross-check, region hashes, overlap and ordering, plus the
+  parser's `parsed` / `parse_error` / `parse_unavailable` per file — read from
+  the parser, never from the chunker's fallback. A stale file is `PlanStale`
+  (exit 5) naming both hashes; an ambiguous node lists both candidates; a
+  `semantic_required` plan is `SemanticProviderUnavailable` (exit 3).
+- **`plan-show --diff` draws the change from the plan plus the current
+  bytes** and writes nothing; without `--diff` it prints the document as read,
+  unknown members preserved, because rewriting a plan would change its hash.
+- **`--print` writes nothing at all** on the three writers: the canonical
+  document goes to stdout, no plan file, no plan directory.
+- New refusals ride ADR-0003's existing exit codes and add no number:
+  `PathEscapesProject`, `NotUtf8`, `NewlineMismatch`, `MixedNewlines`,
+  `CarriageReturnInPlan`, `SubLineEditUnsupported`, `OverlappingEdits`,
+  `AmbiguousOrder`, `AmbiguousNode`, `LocatorMismatch`, `PlanStale`,
+  `PlanFormatError`, `PlanHashMismatch`, `SemanticProviderUnavailable`.
+- `.code-indexer/` (the plan directory) is now ignored: plans are generated
+  documents and are never committed.
+
 **The identity model is now a query surface, and an ambiguous name is
 reported instead of guessed.** `find-symbol` gains the structural filters
 over the rows the identity pass already writes — `--kind` (with `--type` and

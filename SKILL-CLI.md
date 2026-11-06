@@ -127,6 +127,11 @@ is a read: it opens no write transaction, runs no index pass, and contacts no
 service to reach a staleness verdict. An invocation carrying `--refresh` is a
 write, because it runs one incremental pass first.
 
+The three plan writers — `plan-replace-body`, `plan-insert-symbol`,
+`plan-delete-declaration` — are write commands whose only write is one plan
+document in the plan directory; under `--print` they write nothing at all.
+`plan-validate` and `plan-show` are reads and write nothing, always.
+
 Global flags: every command accepts `--skip-stale-check`, and it is
 **inert**: reads never index, so there is nothing to skip, and reporting
 staleness without repairing it is the default. Exactly seven commands also
@@ -144,7 +149,10 @@ incremental pass, and answers from the result. A held lock is
 `--refresh` is also accepted by `doctor` (it refreshes each registered
 project's index before the checks run), `eval` (refreshes the evaluated
 project), and accepted-and-inert on `eval-compare`, which reads report files
-rather than an index. No separate `refresh` command exists.
+rather than an index. No separate `refresh` command exists. The plan reads
+(`plan-validate`, `plan-show`) and the reserved `plan-rename-symbol` accept
+`--skip-stale-check` and **not** `--refresh`: they answer from a plan file and
+the live sources, so there is no index answer behind them to refresh.
 
 ```bash
 uv run code-indexer <cmd>   # or installed console script
@@ -180,6 +188,14 @@ code-indexer semantic-search "query" [--project P] [--all-projects] [--limit 8] 
 
 # edits
 code-indexer changed-symbols [--project P] [--base HEAD] [--head REF] [--staged] [--include-untracked] [--impact] [--depth 1] [--max-nodes 40] [--json]   # post-edit diff -> symbols; --impact lists callers + candidate tests, prints the first six as `(+N more)`, and names the bound its list hit; json reports truncated/omitted/bounds per file
+
+# edit plans (prepare writes one plan file; validate and show write nothing)
+code-indexer plan-replace-body SYMBOL [--project P] [--file F] [--kind K] [--container C] --text '...' | --body-file F [--plan-dir D] [--print] [--json]   # replaces the body node's whole line range
+code-indexer plan-insert-symbol SYMBOL [--project P] [--file F] [--kind K] [--container C] [--position before|after|end] --text '...' | --body-file F [--note N] [--plan-dir D] [--print] [--json]   # before|after a declaration boundary, or at end of file
+code-indexer plan-delete-declaration SYMBOL [--project P] [--file F] [--kind K] [--container C] [--plan-dir D] [--print] [--json]   # whole declaration range, never a body-only delete
+code-indexer plan-rename-symbol SYMBOL   # RESERVED: refused (exit 2), nothing written
+code-indexer plan-validate REF [--project P] [--plan-dir D] [--json]   # per-check verdicts; writes nothing; a stale file exits 5
+code-indexer plan-show REF [--project P] [--diff] [--plan-dir D] [--json]   # the document as read; --diff adds the unified diff; writes nothing
 
 # lifecycle
 code-indexer index-status [--project P | --name P | /path/repo] [--json] [--refresh]
@@ -350,6 +366,66 @@ to the regex chunker and walks error-tolerant trees):
 Do not read "the file was chunked" as "the file parses". `index-status`
 counts the three per project (`parse=parsed:N,parse_error:N,parse_unavailable:N`
 in text; three flat fields in `--json`).
+
+## Edit plans (prepare, validate, preview)
+
+A change can be prepared as a plan: an immutable JSON document named by the
+sha256 of its own canonical bytes. There is no plan store to keep in sync — a
+plan reference is a path or `sha256:<hex>`, resolved in the plan directory
+(`<project>/.code-indexer/plans/` unless `--plan-dir` says otherwise), and
+deleting the file deletes the plan. A path reference whose content hash
+differs from the requested hash is refused.
+
+```bash
+code-indexer plan-replace-body SYMBOL --project P --file src/x.py --text '    return 41'
+code-indexer plan-insert-symbol SYMBOL --project P --file src/x.py --position before --text 'def helper():\n    pass'
+code-indexer plan-delete-declaration SYMBOL --project P --file src/x.py
+code-indexer plan-validate sha256:<hex> --project P
+code-indexer plan-show sha256:<hex> --project P --diff
+```
+
+- **Discovery** is the symbol query. `--file` searches that file's live
+  declarations, so preparing never needs an index; without it the manifest's
+  symbol index finds the file. A name with two definitions is refused with
+  every candidate listed (`ArgumentError`, exit 2) — never resolved to the
+  row that sorted first.
+- **One write per prepare**: the plan file. `--print` emits the canonical
+  document on stdout and writes nothing at all — not the file, not the
+  directory. Use `--print` when you want the plan in a variable or a pipe;
+  `code-indexer plan-replace-body ... --print | jq -r .plan_id` equals the
+  sha256 of the document's own bytes with `plan_id` removed.
+- **The locator is structural**: `path`, `language`, `qualified_name`,
+  `symbol_type`, `decl_hash`, plus the observed `range` as evidence. There is
+  no `symbol_id` in a plan — it is revision-scoped. Two nodes in one file
+  with the same name, kind and declaration hash collide by construction and
+  are refused with both listed (`AmbiguousNode`, exit 2).
+- **Coordinates** are 1-based inclusive lines plus byte offsets into the
+  stored bytes; offset 0 is the first byte after any BOM, and a terminator is
+  not part of its line. `validate` cross-checks the two, so a corrupted offset
+  fails arithmetic instead of being trusted. Columns do not exist in the
+  format.
+- **Replacement text always uses `\n`**; the apply adapter translates to the
+  file's declared convention. A plan that encodes a carriage return is
+  refused. `--body-file` input is translated at the input boundary.
+- **`plan-validate` writes nothing and reports, it does not claim**: plan
+  hash, schema, paths, file hashes and newlines, node re-derivation, the
+  line/byte cross-check, region hashes, overlap and ordering, and the parser's
+  verdict per file (`parsed` / `parse_error` / `parse_unavailable`). Nothing
+  in its output says the result is valid, compiles or type-checks.
+- **`plan-show --diff` writes nothing** and prints every affected file with a
+  unified diff computed from the plan plus the current bytes. Without `--diff`
+  it prints the document as read, unknown members included: reading never
+  rewrites a plan, because a rewrite changes its hash.
+- **Ordering is part of the format**: within a file descending start line,
+  across files ascending path. Adjacent edits are legal; overlapping edits are
+  refused (`OverlappingEdits`, exit 2), two insertions at one point are refused
+  (`AmbiguousOrder`, exit 2), and an insertion after the last line is
+  `position: end` with no line number.
+- **A stale file refuses.** The plan's `files[].expected_hash` is checked
+  first: a mismatch is `PlanStale`, exit 5, naming the file and both hashes.
+  `plan-apply` is not built yet — this leg prepares, validates and previews.
+  `plan-rename-symbol` is reserved and refused, because references are textual
+  and nothing would verify a rename.
 
 ## Vectors are an option, not a precondition
 
@@ -721,6 +797,30 @@ the command then answers normally.
   residue (the delete path purges `imports` too), but this sweep clears what
   earlier deletions left behind. CLI-only (no MCP tool); the owner decides
   when to `--apply` on a live index.
+- **plan-replace-body / plan-insert-symbol / plan-delete-declaration** —
+  prepare a plan: one JSON document written into `<project>/.code-indexer/`
+  `plans/`, named by the sha256 of its canonical bytes. `--text` or
+  `--body-file` carries the replacement block (LF only; a body file's CRLF is
+  translated at the input boundary). `--file` narrows the query to one live
+  file; `--kind` and `--container` narrow it further. `--print` emits the
+  document on stdout and writes nothing at all. Nothing is applied: no source
+  file is touched by any of these commands.
+- **plan-validate** — report, per check, what the plan claims against the
+  tree: plan hash, schema, paths, file hash and declared newline, node
+  re-derivation, line/byte cross-check, region hashes, overlap and ordering,
+  and the parser's verdict per file. Writes nothing. A stale file is
+  `PlanStale` with exit 5, an overlap `OverlappingEdits` with exit 2, an
+  ambiguous node `AmbiguousNode` with both candidates listed, and a plan that
+  asks for a semantic promise `SemanticProviderUnavailable` with exit 3.
+  `--json` carries the whole report; the text mode prints one line per check
+  followed by the caveat that this is not a compile check.
+- **plan-show** — print the plan as read (unknown members preserved; reading
+  never rewrites it), and with `--diff` print every affected file with the
+  unified diff computed from the plan plus the current bytes. Writes nothing;
+  a stale file refuses rather than drawing a diff against bytes the plan
+  never saw.
+- **plan-rename-symbol** — reserved and refused (exit 2). References are
+  textual, so nothing in this tool would verify a rename.
 
 ## Token reduction (schema v3)
 

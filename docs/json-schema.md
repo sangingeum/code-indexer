@@ -355,6 +355,98 @@ on transitive nodes.
 The two `unfiltered_*` fields appear only when a relationship filter came
 back empty and the store does carry the name under another relationship.
 
+## plan-replace-body / plan-insert-symbol / plan-delete-declaration --json
+
+```json
+{"schema": 1, "plan_id": "sha256:<hex>", "plan_path": str|null,
+ "document": {<the plan document>}}
+```
+
+`plan_path` is the file written; it is `null` only when `--print` was used,
+and `--print` then emits the document's canonical bytes alone on stdout (no
+wrapper, no trailing newline).
+
+## The plan document
+
+Canonical bytes: UTF-8, keys sorted, no insignificant whitespace, no trailing
+newline, a newline inside a string always encoded as `\n`. `plan_id` is
+`sha256:<hex>` over those bytes with the `plan_id` member absent, then written
+in; the file is `<plan-dir>/<hex>.json`.
+
+```json
+{"schema_version": 1,
+ "plan_id": "sha256:<hex>",
+ "operation": "replace_body|insert_symbol|delete_declaration",
+ "repository": {"project": str, "index_revision": str},
+ "created_at": "YYYY-MM-DDTHH:MM:SSZ",
+ "provider": {"name": "tree-sitter-structural", "version": str},
+ "target": {"path": str, "language": str, "qualified_name": str,
+            "symbol_type": str, "decl_hash": "sha256:<hex>",
+            "range": {"start_line": int, "end_line": int,
+                      "start_byte": int, "end_byte": int}},
+ "files": [{"path": str, "expected_hash": "sha256:<hex>",
+            "newline": "lf|crlf", "language": str}],
+ "edits": [<edit>],
+ "validation": {"syntax_required": bool, "semantic_required": bool}}
+```
+
+Everything above is required and nothing else is. `notes`, `diagnostics[]` and
+`warnings[]` are optional; a reader ignores unknown members and `plan-show`
+preserves them, and no command rewrites a plan.
+
+An edit record:
+
+```json
+{"kind": "replace_body|delete_declaration|insert_symbol",
+ "path": str,
+ "start_line": int, "end_line": int,
+ "start_byte": int, "end_byte": int,
+ "expected_old_text_hash": "sha256:<hex>",
+ "expected_old_text": str,          // optional, omitted above 8 KiB
+ "new_text": str,                   // present for replace_body and insert_symbol
+ "position": "before|after|end",    // insert_symbol only
+ "note": str}                       // optional
+```
+
+`position: end` carries no `start_line`, `start_byte` or `end_byte`: insertion
+after the last line is never a line number. For the other insertions the record
+carries no `end_line`, and its byte span is empty (`start_byte == end_byte`) at
+the line boundary, with `start_line` the first line of the inserted block. Lines
+are 1-based and
+inclusive, a terminator is not part of its line, and every byte offset indexes
+the stored bytes after any BOM.
+
+## plan-validate --json
+
+```json
+{"schema": 1, "plan_id": str, "operation": str, "ref": str|null,
+ "identity": {"verified": "structural",
+              "basis": ["file_hash", "decl_hash", "region_hash"]},
+ "syntax": [{"path": str, "verdict": "parsed|parse_error|parse_unavailable"}],
+ "checks": [{"check": str, "status": "ok|failed|reported", "detail": str}],
+ "passed": bool,
+ "caveat": str,
+ "ErrorType": str, "error": str, "exit_code": int}
+```
+
+The last three appear only when a check refused. `passed` means the structural
+checks passed; `caveat` says so in words ("structural checks only ... nothing
+here claims the result compiles or type-checks"). Check names in order: plan
+hash, schema, requests, paths, file bytes, file hash and newline declaration,
+replacement text, node re-derivation, line and byte cross-check, region
+hashes, overlap and ordering, syntax verdicts.
+
+## plan-show --json
+
+```json
+{"schema": 1, "plan_id": str, "ref": str|null, "plan": {<the document>},
+ "diff": [{"path": str, "diff": str}]}
+```
+
+`diff` appears only with `--diff`, and each `diff` is a unified diff computed
+from the plan plus the current bytes with `--- a/<path>` / `+++ b/<path>`
+headers.
+
 ## Error contract (non-JSON)
 
 Failures print exactly one line `ErrorType: description` to stderr:

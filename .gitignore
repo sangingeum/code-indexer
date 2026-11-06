@@ -10,3 +10,5 @@ test-index/
 *.lock
 logs/runs/
 !uv.lock
+# Generated plan documents (ADR-0004): never committed.
+.code-indexer/
