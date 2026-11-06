@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from .config import Config, load_config
 from .errors import (BackendError, ExtensionUnavailableError, InternalError,
-                     LockedError)
+                     LockedError, RebuildRequiredError)
 from .extensions import SEMANTIC_EXTENSION_MESSAGE
 from .fingerprint import (ConfigError, configured_values, probe_free_mismatches,
                           current_version_stamp, read_fingerprint,
@@ -558,6 +558,31 @@ class Core:
                 f"index for {entry.path} does not match the "
                 f"current configuration ({status['reason']}); "
                 f"run: code-indexer reindex-project {entry.path}")
+
+    def assert_rows_acceptable(self, entry: ProjectEntry) -> None:
+        """Refuse a row-reading surface on a needs-reindex project (exit 4).
+
+        Round 1's review found that only the search path gated
+        (``assert_fingerprint_ok`` above), so ``find-symbol``/``outline``
+        answered "no symbols" with exit 0 from an index whose stored rows this
+        build would not produce. The extraction-version bump makes every
+        project needs-reindex the moment the new extraction lands, so answering
+        from those rows would become a universal defect rather than a local one.
+
+        Every surface that reads stored symbol/reference/import rows therefore
+        refuses: one ``RebuildRequiredError`` line naming the remedy, empty
+        stdout, exit 4. Surfaces that answer without rows (``list-projects``,
+        ``lookup-project``, ``index-status``, ``doctor``) never call this.
+        """
+        status = self.fingerprint_status(entry)
+        if status["ok"]:
+            return
+        raise RebuildRequiredError(
+            f"index for {entry.path} does not match the current "
+            f"configuration ({status['reason']}); the stored rows are "
+            f"obsolete, so this answer would describe an index this build "
+            f"would not produce; run: code-indexer reindex-project "
+            f"{entry.path}")
 
     def reindex_with_swap(self, slug: str, project_path: str) -> dict[str, Any]:
         """Full rebuild into idx_<slug>__new, then swap.

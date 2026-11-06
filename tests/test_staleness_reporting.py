@@ -9,12 +9,13 @@ readers, two answers. This file pins the fix:
 
 1. ``index-status`` surfaces the fingerprint state on a mismatched project and
    prints nothing extra on a matching one.
-2. the manifest-only surfaces (``outline`` is the deterministic representative)
-   print ONE stderr warning when the stored rows may predate the current
-   extraction code, and none on a match.
-3. the warning deliberately ignores the embedding-configuration keys
-   (``embed_model`` / ``embed_dim`` / ``embed_text_version``) — those affect
-   vectors, not stored rows.
+2. the row-reading surfaces (``outline`` is the deterministic representative)
+   REFUSE on a mismatched project: exit 4, empty stdout, one
+   ``RebuildRequiredError`` line naming the remedy, and nothing extra on a
+   match.
+3. the refusal still ignores nothing it should: a mismatch that only concerns
+   the embedding configuration is still a needs-reindex project, and those
+   surfaces refuse there too — the index is not what this build would build.
 4. ``search`` stays fatal on a mismatch (unchanged behaviour).
 
 All assertions are revert-sensitive: they pin the exact field and strings, so
@@ -37,6 +38,7 @@ import code_indexer.cli as cli  # noqa: E402
 from code_indexer.cli import app  # noqa: E402
 from code_indexer.config import Config  # noqa: E402
 from code_indexer.core import Core  # noqa: E402
+from code_indexer.errors import RebuildRequiredError  # noqa: E402
 from code_indexer.fingerprint import (ConfigError, Fingerprint,  # noqa: E402
                                       rows_staleness_warning)
 from code_indexer.graph_extract import EXTRACTION_VERSION  # noqa: E402
@@ -204,25 +206,22 @@ def test_index_status_quiet_on_a_matching_project(rig, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# the manifest-only surfaces warn once, and never refuse
+# the row-reading surfaces refuse, and never answer from obsolete rows
 # ---------------------------------------------------------------------------
 
-def test_manifest_only_surface_warns_once_on_a_mismatch(rig, monkeypatch):
+def test_row_reading_surface_refuses_on_a_mismatch(rig, monkeypatch):
     core, reg, entry, project = rig
     _set_extraction_version(core, entry.slug, EXTRACTION_VERSION - 1)
     monkeypatch.setattr(cli, "_get_core", lambda skip: core)
     result = runner.invoke(
         app, ["outline", "a.py", "--project", str(project)])
-    assert result.exit_code == 0, result.output  # a warning, never fatal
-    warnings = [ln for ln in _text(result).splitlines()
-                if ln.startswith("warning: stored rows were produced by")]
-    assert len(warnings) == 1, warnings
-    assert "older extraction code" in warnings[0]
-    assert f"extraction_version: {EXTRACTION_VERSION - 1} -> " \
-           f"{EXTRACTION_VERSION}" in warnings[0]
+    assert result.exit_code == 4, result.output
+    assert result.stdout == "", result.stdout
+    assert result.stderr.count("RebuildRequiredError:") == 1, result.stderr
+    assert "reindex-project" in result.stderr
 
 
-def test_manifest_only_surface_quiet_on_a_match(rig, monkeypatch):
+def test_row_reading_surface_answers_on_a_match(rig, monkeypatch):
     core, reg, entry, project = rig
     monkeypatch.setattr(cli, "_get_core", lambda skip: core)
     result = runner.invoke(
@@ -231,17 +230,19 @@ def test_manifest_only_surface_quiet_on_a_match(rig, monkeypatch):
     assert "stored rows were produced by" not in _text(result)
 
 
-def test_warning_ignores_an_embed_model_change(rig):
-    """A model change is a needs-reindex mismatch (search refuses) but it is
-    NOT a stored-row staleness — the manifest-only surfaces stay quiet."""
+def test_an_embedding_only_mismatch_also_refuses_the_row_surfaces(rig):
+    """A model change is a needs-reindex project, so the surfaces refuse.
+
+    The rows themselves are still readable, but the index is not the one this
+    build would produce and the remedy is the same single pass; answering
+    would put two different verdicts on the same project.
+    """
     core, reg, entry, project = rig
-    assert core.rows_staleness(entry) is None
     cfg2 = _config(core.cfg.index_root, embed_model="other-model")
     core2 = _wire(cfg2, registry=reg)
-    # The mismatch is real for the query path …
     assert "state=needs-reindex" in core2.status_summary(entry)
-    # … but tells the manifest-only surfaces nothing about their rows.
-    assert core2.rows_staleness(entry) is None
+    with pytest.raises(RebuildRequiredError, match="reindex-project"):
+        core2.assert_rows_acceptable(entry)
 
 
 # ---------------------------------------------------------------------------

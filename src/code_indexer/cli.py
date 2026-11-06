@@ -21,7 +21,7 @@ import typer
 logger = logging.getLogger("code-indexer.cli")
 
 from .errors import fail
-from .errors import classify, IndexerError
+from .errors import classify, IndexerError, RebuildRequiredError
 from .errors import ExtensionUnavailableError
 from .extensions import SEMANTIC_EXTENSION_MESSAGE, semantic_available
 from .core import (NEEDS_REINDEX, NEVER_INDEXED, UNVERIFIED, Core,
@@ -232,7 +232,8 @@ def overview(
     """
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
-    verdict_block, _ = _read_staleness(core, entry, refresh=refresh,
+    _refuse_obsolete_rows(core, entry, refresh=refresh)
+    verdict_block, _ = _read_staleness(core, entry, refresh=False,
                                        json_output=json_output)
     m = core.manifest_for(entry.slug)
     try:
@@ -270,7 +271,8 @@ def changed_symbols(
     run this, then search/get-code-context only for what actually changed."""
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
-    verdict_block, _ = _read_staleness(core, entry, refresh=refresh,
+    _refuse_obsolete_rows(core, entry, refresh=refresh)
+    verdict_block, _ = _read_staleness(core, entry, refresh=False,
                                        json_output=json_output)
     try:
         changed = changed_mod.changed_symbols(
@@ -299,15 +301,28 @@ def _core_entry(project: str | None, skip_stale_check: bool = False):
     return core, _resolve(core, project)
 
 
-def _warn_rows_staleness(core: Core, entry: ProjectEntry) -> None:
-    """One stderr line when the stored rows a manifest-only surface reads may
-    have been produced by different extraction code than this build (see
-    Core.rows_staleness). A warning, never a refusal: the command still
-    answers. On stdout for --json would corrupt the payload, so it is always
-    stderr."""
-    warning = core.rows_staleness(entry)
-    if warning:
-        typer.echo(warning, err=True)
+def _refuse_obsolete_rows(core: Core, entry: ProjectEntry, *,
+                          refresh: bool = False) -> None:
+    """Refuse a row-reading surface on a needs-reindex project (exit 4).
+
+    Called before the staleness verdict is rendered, so a refusal is exactly
+    one stderr line with empty stdout. ``--refresh`` keeps its meaning: the
+    pass runs FIRST, and a successful pass makes the rows current, so the
+    command then answers normally.
+
+    Replaces the former stderr warning. A warning was the wrong shape once the
+    extraction-version bump made every project needs-reindex: an answer built
+    from obsolete rows reads as a fact about the code, not as a caveat.
+    """
+    if refresh:
+        try:
+            core.refresh(entry)
+        except IndexerError as exc:
+            fail(exc)
+    try:
+        core.assert_rows_acceptable(entry)
+    except RebuildRequiredError as exc:
+        fail(exc)
 
 
 def _read_staleness(core: Core, entry: ProjectEntry, *, refresh: bool,
@@ -413,8 +428,8 @@ def find_callers(
     and `omitted` beside `roots`, and the tree gains a `note:` line naming
     the cap. For every reference TO a name use `find-references`."""
     core, entry = _core_entry(project, skip_stale_check)
-    _warn_rows_staleness(core, entry)
-    verdict_block, _ = _read_staleness(core, entry, refresh=refresh,
+    _refuse_obsolete_rows(core, entry, refresh=refresh)
+    verdict_block, _ = _read_staleness(core, entry, refresh=False,
                                        json_output=json_output)
     result = graph.find_callers(core, entry.slug, name, depth=depth,
                                 max_nodes=max_nodes)
@@ -441,8 +456,8 @@ def find_callees(
     symbol across both stores use `find-references`.
     """
     core, entry = _core_entry(project, skip_stale_check)
-    _warn_rows_staleness(core, entry)
-    verdict_block, _ = _read_staleness(core, entry, refresh=refresh,
+    _refuse_obsolete_rows(core, entry, refresh=refresh)
+    verdict_block, _ = _read_staleness(core, entry, refresh=False,
                                        json_output=json_output)
     result = graph.find_callees(core, entry.slug, name, depth=depth,
                                 max_nodes=max_nodes)
@@ -495,8 +510,8 @@ def deps(
     result the depth or node cap left incomplete also prints a `note:` line
     naming the cap."""
     core, entry = _core_entry(project, skip_stale_check)
-    _warn_rows_staleness(core, entry)
-    verdict_block, _ = _read_staleness(core, entry, refresh=refresh,
+    _refuse_obsolete_rows(core, entry, refresh=refresh)
+    verdict_block, _ = _read_staleness(core, entry, refresh=False,
                                        json_output=graph_format == "json")
     result = graph.deps_for_file(core, entry.slug, path,
                                  direction=direction, depth=depth,
@@ -1622,8 +1637,8 @@ def skeleton(
             path_prefix = None
         elif apath.startswith(root + "/"):
             path_prefix = apath[len(root) + 1:]
-    _warn_rows_staleness(core, entry)
-    block, _ = _read_staleness(core, entry, refresh=refresh,
+    _refuse_obsolete_rows(core, entry, refresh=refresh)
+    block, _ = _read_staleness(core, entry, refresh=False,
                                json_output=json_output)
     data = core.skeleton(entry, prefix=path_prefix, tree_mode=tree_mode,
                          limit=limit,
@@ -1656,8 +1671,8 @@ def outline(
     A read; --refresh is the only flag that makes it write, --fresh is inert."""
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
-    _warn_rows_staleness(core, entry)
-    block, _ = _read_staleness(core, entry, refresh=refresh,
+    _refuse_obsolete_rows(core, entry, refresh=refresh)
+    block, _ = _read_staleness(core, entry, refresh=False,
                                json_output=json_output)
     try:
         data = core.outline(entry, file, include_docstrings=docstrings)
@@ -1703,7 +1718,8 @@ def find_symbol(
     entry, err = core.resolve_entry(project)
     if entry is None:
         _json_failure(ValueError(err), json_output)
-    block, _ = _read_staleness(core, entry, refresh=refresh,
+    _refuse_obsolete_rows(core, entry, refresh=refresh)
+    block, _ = _read_staleness(core, entry, refresh=False,
                                json_output=json_output)
     m = core.manifest_for(entry.slug)
     try:
@@ -1782,7 +1798,8 @@ def find_definition(
     entry, err = core.resolve_entry(project)
     if entry is None:
         _json_failure(ValueError(err), json_output)
-    block, _ = _read_staleness(core, entry, refresh=refresh,
+    _refuse_obsolete_rows(core, entry, refresh=refresh)
+    block, _ = _read_staleness(core, entry, refresh=False,
                                json_output=json_output)
     m = core.manifest_for(entry.slug)
     try:
@@ -1847,7 +1864,8 @@ def get_code_context(
     block, while its `stale` field keeps its file-level meaning."""
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
-    block, _ = _read_staleness(core, entry, refresh=refresh, json_output=True)
+    _refuse_obsolete_rows(core, entry, refresh=refresh)
+    block, _ = _read_staleness(core, entry, refresh=False, json_output=True)
     try:
         data = core.code_context(
             entry, file, start_line=start_line, end_line=end_line,
@@ -1911,9 +1929,9 @@ def find_references(
     entry, err = core.resolve_entry(project)
     if entry is None:
         _json_failure(ValueError(err), json_output)
-    block, _ = _read_staleness(core, entry, refresh=refresh,
+    _refuse_obsolete_rows(core, entry, refresh=refresh)
+    block, _ = _read_staleness(core, entry, refresh=False,
                                json_output=json_output)
-    _warn_rows_staleness(core, entry)
     try:
         rows = core.find_references(entry, name, relationship=relationship,
                                     limit=limit)
