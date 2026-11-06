@@ -21,7 +21,7 @@ import typer
 logger = logging.getLogger("code-indexer.cli")
 
 from .errors import fail
-from .errors import classify, IndexerError, RebuildRequiredError
+from .errors import ArgumentError, classify, IndexerError, RebuildRequiredError
 from .errors import ExtensionUnavailableError
 from .extensions import SEMANTIC_EXTENSION_MESSAGE, semantic_available
 from .core import NEEDS_REINDEX, NEVER_INDEXED, UNVERIFIED, Core
@@ -1779,10 +1779,27 @@ def find_symbol(
         None, "--project", "--name",
         help="Project path, slug, or name (--project X or --name X)."),
     symbol_type: str = typer.Option(
-        None, "--type", "--symbol-type",
+        None, "--kind", "--type", "--symbol-type",
         help="function|method|class|struct|enum|namespace."),
     file_filter: str = typer.Option(
         None, "--file", help="Restrict to this file (project-relative)."),
+    name_pattern: str = typer.Option(
+        None, "--name-pattern",
+        help="Glob over the name, case-sensitive (`*Manager`, `get_*`)."),
+    container: str = typer.Option(
+        None, "--container",
+        help="Parent qualified name (exact), e.g. `UserManager`."),
+    visibility: str = typer.Option(
+        None, "--visibility",
+        help="public|private (a NULL visibility reads as public)."),
+    language: str = typer.Option(
+        None, "--language", help="File language, e.g. python."),
+    inherits: str = typer.Option(
+        None, "--inherits",
+        help="Base class name from an attributed `base_class` reference."),
+    has_call: str = typer.Option(
+        None, "--has-call",
+        help="Callee name from an attributed `call` reference."),
     substring: bool = typer.Option(
         False, "--substring", help="Substring match (browse mode)."),
     limit: int | None = typer.Option(
@@ -1796,7 +1813,18 @@ def find_symbol(
 ) -> None:
     """Look up symbols by name in the manifest symbol index (no semantic
     search). Exact AST-first, capped substring fallback. With NAME omitted,
-    browse mode: --type/--file filters only, capped at --limit (design §2.3).
+    browse mode: filters only, capped at --limit (design §2.3).
+
+    The structural filters (--kind, --name-pattern, --file, --container,
+    --visibility, --language, --inherits, --has-call) compose as AND in one
+    SQL read. --inherits/--has-call answer from attributed syntax only, so
+    an empty answer there is "not attributed", never "no" — the payload
+    labels every row and names the unattributed files.
+
+    --limit keeps its meaning and its default, and a capped answer says it
+    was capped: JSON carries match_count and truncated, text mode prints
+    how many of how many were shown.
+
     A read: --refresh is the only flag that makes it write, --fresh is inert,
     and the JSON object carries the staleness block."""
     core = _get_core(skip_stale_check)
@@ -1806,25 +1834,45 @@ def find_symbol(
     _refuse_obsolete_rows(core, entry, refresh=refresh)
     block, _ = _read_staleness(core, entry, refresh=False,
                                json_output=json_output)
+    if visibility is not None and visibility not in ("public", "private"):
+        _json_failure(ArgumentError(
+            f"--visibility must be 'public' or 'private', "
+            f"not {visibility!r}"), json_output)
+    filters: dict[str, Any] = dict(
+        symbol_type=symbol_type, file=file_filter,
+        name_pattern=name_pattern, container=container,
+        visibility=visibility, language=language,
+        inherits=inherits, has_call=has_call)
+    structural = any(filters[k] for k in (
+        "name_pattern", "container", "visibility", "language",
+        "inherits", "has_call"))
     m = core.read_manifest(entry.slug)
     try:
         if name:
             # Exact-name mode answers with EVERY definition; --limit is
             # honoured when the caller asks for a bound (issue #22).
-            rows = m.find_symbols(name, symbol_type=symbol_type,
-                                  substring=False, limit=limit)
+            rows = m.find_symbols(name, substring=False, limit=limit,
+                                  **filters)
             match_label = False
-            if not rows:
+            if not rows and not structural:
+                # The substring tier stays a fallback for a bare name. With
+                # a structural filter the caller asked for an attributed
+                # answer, and a fuzzy substitute would answer a different
+                # question than the one asked.
                 rows = m.find_symbols(
-                    name, symbol_type=symbol_type, substring=True,
-                    limit=limit if limit is not None else _BROWSE_CAP)
+                    name, substring=True,
+                    limit=limit if limit is not None else _BROWSE_CAP,
+                    **filters)
                 match_label = True
+            total = m.count_symbols(name, substring=match_label, **filters)
         else:
             # Browse mode (design §2.3): no name clause, filters only.
             rows = m.find_symbols(
-                None, symbol_type=symbol_type, file=file_filter,
-                limit=limit if limit is not None else _BROWSE_CAP)
+                None, limit=limit if limit is not None else _BROWSE_CAP,
+                **filters)
             match_label = False
+            total = m.count_symbols(None, **filters)
+        truncated = total > len(rows)
         payload_rows = [
             {"file": r.file, "name": r.name, "type": r.symbol_type,
              "start_line": r.start_line, "end_line": r.end_line,
@@ -1843,6 +1891,7 @@ def find_symbol(
                 "schema": 1, "symbols": payload_rows,
                 "match": ("browse" if not name else
                           "exact" if not match_label else "substring"),
+                "match_count": total, "truncated": truncated,
                 **block}, ensure_ascii=False, indent=2))
             return
         if not rows:
@@ -1859,6 +1908,10 @@ def find_symbol(
             typer.echo(f"- {entry.path}::{r.file}:{r.start_line}-{r.end_line} "
                        f"{r.name} ({r.symbol_type}, confidence={conf}{label})"
                        f"{sig}")
+        if truncated:
+            cap = limit if limit is not None else _BROWSE_CAP
+            typer.echo(f"... {len(rows)} of {total} matches shown "
+                       f"(--limit {cap} reached; raise it to see the rest)")
     finally:
         m.close()
 

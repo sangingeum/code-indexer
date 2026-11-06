@@ -202,6 +202,10 @@ class SymbolRow:
     language: str | None = None    # v7: copied from files.language
     decl_hash: str = ""            # v7: sha256 of the normalized signature
     symbol_id: int | None = None   # v7: revision-scoped surrogate (column id)
+    # Read-only join: the file's parse verdict (parsed|parse_error|
+    # parse_unavailable), carried so a row can be labelled ast|heuristic|
+    # unknown without a second lookup. None for reads that do not join.
+    parse_verdict: str | None = None
 
 
 @dataclass
@@ -591,43 +595,182 @@ class Manifest:
                 out[verdict] = int(n)
         return out
 
-    def find_symbols(self, name: str | None, symbol_type: str | None = None,
-                     substring: bool = False, limit: int | None = 25,
-                     file: str | None = None) -> list[SymbolRow]:
-        """Exact-first (ast rows above regex rows); optional capped substring tier.
+    # The filter read joins the file's parse verdict in: a symbol row is
+    # labelled ast|heuristic|unknown from the file it came from, and the
+    # caller never has to open a second read to say which.
+    _SYMBOL_FILTER_SELECT = (
+        "SELECT s.file, s.name, s.symbol_type, s.start_line, s.end_line, "
+        "s.source, s.signature, s.visibility, s.qualified_name, s.container, "
+        "s.language, s.decl_hash, s.id, f.parse_verdict "
+        "FROM symbols s LEFT JOIN files f ON f.path = s.file")
 
-        name=None is browse mode (design §2.3): --type/--file filters only,
-        capped by ``limit``. ``limit=None`` is the WHOLE read — a definition
-        list is an answer, not a sample, so ``definitions_of`` uses it and the
-        caller above owns whatever cap it applies (issue #22).
+    _SYMBOL_ORDER = (
+        " ORDER BY CASE s.source WHEN 'ast' THEN 0 ELSE 1 END, "
+        "s.name, s.start_line, s.file, s.qualified_name, s.decl_hash")
 
-        The order key ends in ``file`` so it is total: ``(name, start_line)``
-        alone is not, and a capped read is only a reproducible prefix when no
-        tie can straddle the cut.
+    def _symbol_filters(self, name: str | None = None,
+                        symbol_type: str | None = None,
+                        substring: bool = False, file: str | None = None,
+                        name_pattern: str | None = None,
+                        container: str | None = None,
+                        visibility: str | None = None,
+                        language: str | None = None,
+                        inherits: str | None = None,
+                        has_call: str | None = None
+                        ) -> tuple[list[str], list]:
+        """The WHERE clauses every symbol read shares; filters compose (AND).
+
+        ``name_pattern`` is a GLOB over the name and stays case-sensitive
+        (shell semantics): ``idx_symbols_name`` answers it, so a prefix
+        pattern is an index range and a suffix pattern an index scan, never a
+        pass over the table.
+
+        ``inherits`` and ``has_call`` are answered from ATTRIBUTED syntax
+        only — a ``base_class`` / ``call`` row whose ``from_symbol`` is this
+        symbol's own name in this symbol's own file. A file with no AST
+        extractor holds no such row, so an empty answer there means "not
+        attributed", never "no": the caller labels that with
+        ``identity.evidence_of`` and must not render it as a negative.
         """
         clauses: list[str] = []
         args: list = []
         if name:
             op = "LIKE" if substring else "="
             pattern = f"%{name}%" if substring else name
-            clauses.append(f"name {op} ? COLLATE NOCASE")
+            clauses.append(f"s.name {op} ? COLLATE NOCASE")
             args.append(pattern)
+        if name_pattern:
+            clauses.append("s.name GLOB ?")
+            args.append(name_pattern)
         if symbol_type:
-            clauses.append("symbol_type = ?")
+            clauses.append("s.symbol_type = ?")
             args.append(symbol_type)
         if file:
-            clauses.append("file = ?")
+            clauses.append("s.file = ?")
             args.append(file)
-        sql = self._SYMBOL_COLS
+        if container:
+            clauses.append("s.container = ?")
+            args.append(container)
+        if visibility == "public":
+            # NULL visibility is the documented spelling of public.
+            clauses.append("(s.visibility = 'public' OR s.visibility IS NULL)")
+        elif visibility:
+            clauses.append("s.visibility = ?")
+            args.append(visibility)
+        if language:
+            clauses.append("s.language = ? COLLATE NOCASE")
+            args.append(language)
+        for relationship, target in (("base_class", inherits),
+                                     ("call", has_call)):
+            if not target:
+                continue
+            clauses.append(
+                "EXISTS (SELECT 1 FROM refs r WHERE r.relationship = ?"
+                " AND r.file = s.file AND r.from_symbol = s.name"
+                " AND r.to_name = ? COLLATE NOCASE)")
+            args.extend([relationship, target])
+        return clauses, args
+
+    def find_symbols(self, name: str | None, symbol_type: str | None = None,
+                     substring: bool = False, limit: int | None = 25,
+                     file: str | None = None, *,
+                     name_pattern: str | None = None,
+                     container: str | None = None,
+                     visibility: str | None = None,
+                     language: str | None = None,
+                     inherits: str | None = None,
+                     has_call: str | None = None) -> list[SymbolRow]:
+        """Exact-first (ast rows above regex rows); optional capped substring tier.
+
+        name=None is browse mode (design §2.3): filters only, capped by
+        ``limit``. ``limit=None`` is the WHOLE read — a definition list is an
+        answer, not a sample, so ``definitions_of`` uses it and the caller
+        above owns whatever cap it applies (issue #22).
+
+        Every structural filter composes with the name/file filters as AND.
+        A capped read is never a claim about the population: ``count_symbols``
+        answers that from the SAME clause set, so the two cannot drift.
+
+        The order key ends in ``file`` so it is total: ``(name, start_line)``
+        alone is not, and a capped read is only a reproducible prefix when no
+        tie can straddle the cut.
+        """
+        clauses, args = self._symbol_filters(
+            name=name, symbol_type=symbol_type, substring=substring,
+            file=file, name_pattern=name_pattern, container=container,
+            visibility=visibility, language=language, inherits=inherits,
+            has_call=has_call)
+        sql = self._SYMBOL_FILTER_SELECT
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
-        sql += (" ORDER BY CASE source WHEN 'ast' THEN 0 ELSE 1 END, "
-                "name, start_line, file, qualified_name, decl_hash")
+        sql += self._SYMBOL_ORDER
         if limit is not None:
             sql += " LIMIT ?"
             args.append(limit)
         return [SymbolRow(*row) for row in
                 self._conn.execute(sql, args).fetchall()]
+
+    def count_symbols(self, name: str | None, symbol_type: str | None = None,
+                      substring: bool = False, file: str | None = None, *,
+                      name_pattern: str | None = None,
+                      container: str | None = None,
+                      visibility: str | None = None,
+                      language: str | None = None,
+                      inherits: str | None = None,
+                      has_call: str | None = None) -> int:
+        """How many rows this filter set matches, uncapped.
+
+        The honest companion of a capped read: the CLI reports it as
+        ``match_count``, so a truncated answer names the population it was
+        drawn from instead of looking complete.
+        """
+        clauses, args = self._symbol_filters(
+            name=name, symbol_type=symbol_type, substring=substring,
+            file=file, name_pattern=name_pattern, container=container,
+            visibility=visibility, language=language, inherits=inherits,
+            has_call=has_call)
+        sql = "SELECT count(*) FROM symbols s"
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        return int(self._conn.execute(sql, args).fetchone()[0])
+
+    def symbol_query_plan(self, name: str | None = None, *,
+                          name_pattern: str | None = None,
+                          file: str | None = None,
+                          container: str | None = None,
+                          language: str | None = None,
+                          symbol_type: str | None = None,
+                          visibility: str | None = None,
+                          inherits: str | None = None,
+                          has_call: str | None = None) -> list[str]:
+        """SQLite's plan for the filter read (diagnostics and tests only).
+
+        Exists so the claim "the name index answers a name pattern" is
+        checked against the planner rather than asserted in a comment.
+        """
+        clauses, args = self._symbol_filters(
+            name=name, symbol_type=symbol_type, file=file,
+            name_pattern=name_pattern, container=container,
+            visibility=visibility, language=language, inherits=inherits,
+            has_call=has_call)
+        sql = self._SYMBOL_FILTER_SELECT
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += self._SYMBOL_ORDER
+        return [str(row[3]) for row in
+                self._conn.execute("EXPLAIN QUERY PLAN " + sql, args)]
+
+    def symbol_files_without_ast(self) -> int:
+        """How many files holding symbol rows have no AST extraction.
+
+        The count behind an honest empty answer: those files' references are
+        unattributed, so "no attributed call" cannot be read as "no call".
+        """
+        row = self._conn.execute(
+            "SELECT count(*) FROM (SELECT DISTINCT s.file FROM symbols s "
+            "LEFT JOIN files f ON f.path = s.file WHERE f.parse_verdict "
+            "IS NULL OR f.parse_verdict <> 'parsed')").fetchone()
+        return int(row[0])
 
     def definitions_of(self, name: str,
                        symbol_type: str | None = None) -> list[SymbolRow]:
