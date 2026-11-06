@@ -110,7 +110,7 @@ mutating commands (`add-project`, `index-more`, `remove-project`,
 
 ## 2. Module map
 
-`src/code_indexer/` holds **33 modules, 10,649 lines** (`wc -l`; imports
+`src/code_indexer/` holds **32 modules, 10,649 lines** (`wc -l`; imports
 extracted by `runs/milestone0/module_map.py`).
 
 | Module | Lines | Owns | Imports from inside the package |
