@@ -2,6 +2,30 @@
 
 ## [Unreleased] — the indexed tree
 
+**A structural answer is ordered, not merely counted.** `find-definition`,
+`find-symbol`, `find-references`, `find-callers` and the two `overview`
+hotspot lists now share one ordering policy: source before tests before docs
+before generated/artifact files, then identity quality (a hit that can name
+what it matched before one that merely shares a name), then a deterministic
+tie-break over the row's identity fields. It is an ordering, not a filter:
+every hit is still returned, the demoted ones after the promoted ones, and
+each surface keeps its existing cap.
+
+- **Why.** A test fixture and an audit document accumulate identifier
+  mentions because they exercise or quote the code beneath them, so a list
+  ordered by fan-in or by path alone put `tests/conftest.py` (1,460) above the
+  server module (1,006) in an orientation answer, and left fifteen
+  `confidence=exact` `Tick` definitions interleaving test files with
+  production. The class is a property of the path, so the order no longer
+  moves with the index's incidental hit distribution.
+- **One classifier, both layers.** `src/code_indexer/ordering.py` owns the
+  path classes; a capped SQL read calls it as the `file_class_weight`
+  function, so the store and the graph layer cannot disagree about what a
+  test file is.
+- **Nothing was reindexed.** Ordering is decided at query time from stored
+  rows: no schema change, no `EXTRACTION_VERSION` bump, no change to what is
+  stored.
+
 **Captures are no longer part of this repository's index.** A root
 `.codeindexignore` now names the two non-source trees the scanner skips:
 `runs/` (round records, gate output and captured command logs) and `eval/`

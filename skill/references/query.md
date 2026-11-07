@@ -143,6 +143,44 @@ code-indexer find-definition Tracker
 code-indexer get-code-context src/code_indexer/core.py --symbol Core.search
 ```
 
+## Ordering: source, then tests, then docs, then artifacts
+
+Every structural list -- `find-definition`, `find-symbol`, `find-references`,
+`find-callers`, and both `overview` hotspot lists -- is ordered by one policy,
+in this order:
+
+1. **File class** -- `source`, then `tests`, then `docs`, then
+   `generated`/artifact. Build output, lock files, minified assets and
+   dependency caches are artifacts; a `docs` directory or a Markdown,
+   reStructuredText, AsciiDoc or plain-text file is a document; `tests`,
+   `test`, `spec` and `__tests__` directories, a `Foo.Tests` project,
+   `conftest.py`, `test_*`, `*_test.py`, `*.spec.ts` and `*Tests.cs` names are
+   tests; everything else -- unknown shapes included -- is source.
+2. **Identity quality** -- a hit that can name what it matched sorts above one
+   that merely shares a name: an exact name above a substring hit, a symbol
+   row with a recorded kind above one without, a reference whose target has a
+   definition row above one that only matches text, a caller site inside a
+   named symbol above a module-level one. A hit that cannot name its match
+   sorts last within its class.
+3. **A deterministic tie-break** over the row's own identity fields (file,
+   line, qualified name, declaration hash) -- never insertion order, so the
+   same index answers the same way twice.
+
+**This is an ordering, not a filter.** Every hit is still returned, the
+demoted ones after the promoted ones. Each surface keeps its existing cap and
+default (`--limit`, `--max-nodes`, the ten-row hotspot lists); the policy
+decides which hits fill a capped answer, and an uncapped answer never drops
+one.
+
+Why class outranks count: a test fixture or an audit document accumulates
+identifier mentions because it exercises or quotes the code beneath it, so a
+list ordered by fan-in alone reports the fixture as the centre of the
+codebase. The class is a property of the path, so the order does not move with
+the index's incidental hit distribution.
+
+The classifier lives in `src/code_indexer/ordering.py`; a capped SQL read
+calls it as the `file_class_weight` function rather than restating the rules.
+
 The workflow that keeps context small: `semantic-search` to locate,
 `find-symbol`/`find-definition` to confirm identity, `get-code-context
 --symbol` to read. Never read whole files.
