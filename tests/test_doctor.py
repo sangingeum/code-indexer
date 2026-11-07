@@ -3,6 +3,10 @@
 Every failure mode exercised with fakes; no network call besides the
 configured URLs (the doctor itself is driven with stub ollama/qdrant clients
 here).
+
+The reachability probes used by the bound tests are stubs that never answer,
+standing in for a blackholed host (TEST-NET-1): what is under test is the
+doctor's own cost, so the wait is real while the peer is absent.
 """
 
 from __future__ import annotations
@@ -11,6 +15,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import types
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -19,14 +24,16 @@ import pytest  # noqa: E402
 from typer.testing import CliRunner  # noqa: E402
 
 import code_indexer.cli as cli  # noqa: E402
+from code_indexer import doctor as doctor_mod  # noqa: E402
 from code_indexer.cli import app  # noqa: E402
-from code_indexer.config import Config  # noqa: E402
+from code_indexer.config import Config, load_config  # noqa: E402
 from code_indexer.core import Core  # noqa: E402
 from code_indexer.doctor import (Check, _versions_compatible,  # noqa: E402
                                  any_fail, check_fingerprints,
                                  check_index_root, check_locks,
                                  check_ollama, check_qdrant, check_runtime,
                                  check_sqlite, run_doctor)
+from code_indexer import doctor as doctor_mod  # noqa: E402
 from code_indexer.registry import Registry  # noqa: E402
 
 runner = CliRunner()
@@ -482,3 +489,110 @@ def test_cli_doctor_json(env, monkeypatch):
     assert payload["healthy"] is True
     assert all(set(c) == {"status", "name", "detail"}
                for c in payload["checks"])
+
+
+# ---------------------------------------------------------------------------
+# probe bound + streaming (the doctor's own cost)
+# ---------------------------------------------------------------------------
+
+class BlackholedOllama:
+    """A peer that accepts the call and never answers."""
+
+    def list(self):
+        time.sleep(30)  # the abandoned daemon thread wakes after the test
+        return {"models": []}
+
+    def close(self):
+        pass
+
+
+class BlackholedStore:
+    """A Qdrant stand-in whose reachability call never returns."""
+
+    def __init__(self) -> None:
+        self.client = types.SimpleNamespace(info=self._info)
+
+    def _info(self):
+        time.sleep(30)
+        return types.SimpleNamespace(version="0.0.0")
+
+
+def test_a_blackholed_ollama_probe_is_bounded(env):
+    cfg, reg = env
+    start = time.monotonic()
+    checks, dim = check_ollama(cfg, StubEmbedder(), BlackholedOllama(),
+                               probe_timeout=0.2)
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 3.0, f"the probe waited {elapsed:.1f}s for a 0.2s bound"
+    assert dim is None
+    reachable = _by_name(checks)["ollama-reachable"]
+    assert reachable.status == "fail"          # a timeout is never a pass
+    assert "timed out after 0.2s" in reachable.detail
+
+
+def test_a_blackholed_qdrant_probe_is_bounded(env):
+    cfg, reg = env
+    start = time.monotonic()
+    checks = check_qdrant(cfg, BlackholedStore(), reg, probe_timeout=0.2)
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 3.0, f"the probe waited {elapsed:.1f}s for a 0.2s bound"
+    reachable = _by_name(checks)["qdrant-reachable"]
+    assert reachable.status == "fail"
+    assert "timed out after 0.2s" in reachable.detail
+
+
+def test_the_probe_bound_defaults_to_five_seconds():
+    assert doctor_mod.PROBE_TIMEOUT_SECONDS == 5.0
+
+
+def test_the_environment_sets_the_probe_bound(monkeypatch):
+    monkeypatch.setenv("DOCTOR_PROBE_TIMEOUT", "1.5")
+    assert load_config([]).doctor_probe_timeout == 1.5
+
+
+def test_run_doctor_streams_each_check_before_the_probes_finish(env):
+    """Every check is handed to the caller as its section returns: the local
+    lines arrive while the blackholed probe is still waiting."""
+    cfg, reg = env
+    seen: list[tuple[float, str]] = []
+    start = time.monotonic()
+    checks = run_doctor(
+        cfg, reg, StubEmbedder(), BlackholedStore(), BlackholedOllama(),
+        probe_timeout=0.5,
+        on_check=lambda c: seen.append((time.monotonic(), c.name)))
+    elapsed = time.monotonic() - start
+
+    names = [name for _, name in seen]
+    assert names[:2] == ["python", "uv"]
+    assert seen[0][0] - start < 0.5, "nothing was printed before the bound"
+    # Two bounded probes: the run costs about two bounds, not two minutes.
+    assert elapsed < 5.0, f"run_doctor took {elapsed:.1f}s for two 0.5s bounds"
+    assert [c.name for c in checks] == names  # the list is the same set
+    assert "ollama-reachable" in names and "qdrant-reachable" in names
+
+
+def test_a_reachable_service_still_passes_under_the_bound(env):
+    cfg, reg = env
+    checks, dim = check_ollama(cfg, StubEmbedder(),
+                               StubOllama(models=(cfg.embed_model,)),
+                               probe_timeout=2.0)
+    assert _by_name(checks)["ollama-reachable"].status == "ok"
+    assert dim == 4
+
+
+def test_cli_doctor_honours_the_probe_timeout_flag(env, monkeypatch):
+    cfg, reg = env
+    core = _cli_core(cfg, reg, store=BlackholedStore(),
+                     ollama=BlackholedOllama())
+    monkeypatch.setattr(cli, "_get_core", lambda skip: core)
+    start = time.monotonic()
+    result = runner.invoke(app, ["doctor", "--probe-timeout", "0.2"])
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 5.0, f"doctor took {elapsed:.1f}s for two 0.2s bounds"
+    assert result.exit_code == 1
+    assert "fail ollama-reachable" in result.output
+    assert "timed out after 0.2s" in result.output
+    assert "fail qdrant-reachable" in result.output

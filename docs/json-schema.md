@@ -127,6 +127,18 @@ budget. The text output names the bound that fired rather than advising both.
 `{"checks": [{"status": "ok|warn|fail", "name": str, "detail": str}],
  "healthy": bool}`.
 
+Each reachability probe (Ollama, Qdrant) carries its own wall bound:
+`--probe-timeout` seconds, default 5 (the `DOCTOR_PROBE_TIMEOUT` environment
+variable sets the default). Five seconds is a starting point rather than a
+measured threshold -- a healthy LAN handshake is milliseconds, and two
+blackholed services then cost about ten seconds instead of the client
+libraries' own minutes each; a deployment with a slow peer raises it. An
+expired wait is reported honestly as
+`fail <check>: <url>: timed out after <n>s` and keeps the non-zero exit -- a
+timeout is never a pass. Text mode prints one line per check, flushed as each
+section returns, so the local checks are visible while a probe is still
+dialling; `--json` is one document, so its payload is written at the end.
+
 ## find-callers/find-callees --json
 
 ```json

@@ -9,6 +9,15 @@ Network discipline: the only network calls go to the CONFIGURED URLs
 (``cfg.ollama_url``, ``cfg.qdrant_url``) — never anywhere else. Every check
 function takes its backends as parameters so tests can pass fakes; each
 failure mode is individually testable offline.
+
+Cost discipline: a reachability probe answers one question -- does the
+service answer -- so it carries a short wall bound of its own
+(``PROBE_TIMEOUT_SECONDS``), which a caller can override. A blackholed or
+unroutable host therefore costs the bound, not the client library's own
+minutes-long default, and the honest ``timed out`` wording is kept: a wait
+that expired is a FAIL, never a pass. Each check is emitted through
+``run_doctor``'s ``on_check`` callback as soon as the section producing it
+returns, so the CLI can print while later probes are still dialling.
 """
 
 from __future__ import annotations
@@ -18,8 +27,9 @@ import os
 import shutil
 import sqlite3
 import sys
+import threading
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from .config import Config
 from .extensions import SEMANTIC_EXTENSION_MESSAGE
@@ -32,6 +42,53 @@ FAIL = "fail"
 
 LOW_DISK_BYTES = 1 << 30  # 1 GiB
 _MIN_PYTHON = (3, 11)
+# Wall bound for ONE reachability probe. A probe only has to establish
+# that the service answers, and a healthy LAN handshake is milliseconds; five
+# seconds leaves a wide margin for a slow-but-alive service while keeping the
+# worst case for two blackholed services near ten seconds instead of the
+# client libraries' own ~93 s each. The number is a starting point a caller
+# can raise (``--probe-timeout`` / ``DOCTOR_PROBE_TIMEOUT``), not a ceiling on
+# how long a real deployment may take.
+PROBE_TIMEOUT_SECONDS = 5.0
+
+
+class ProbeTimedOut(Exception):
+    """A bounded probe's wall expired before the call returned.
+
+    Its own type so a timeout is never mistaken for the backend's error: the
+    check reports ``timed out``, which is a FAIL, and never a pass.
+    """
+
+    def __init__(self, seconds: float):
+        super().__init__(seconds)
+        self.seconds = seconds
+
+
+def _bounded_probe(call: Callable[[], Any], timeout: float) -> Any:
+    """Run ``call`` with a hard wall; raise ProbeTimedOut when it expires.
+
+    A thread rather than a socket option is what bounds the wait: the client
+    libraries do their own retries and connect logic, and the probe's cost is
+    the caller's concern, not theirs. The abandoned worker is a daemon, so a
+    probe that outlives its bound cannot keep the process alive; whatever it
+    eventually reads is discarded.
+    """
+    box: dict[str, Any] = {}
+
+    def run() -> None:
+        try:
+            box["value"] = call()
+        except BaseException as exc:  # noqa: BLE001 — surfaced to the caller
+            box["error"] = exc
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive():
+        raise ProbeTimedOut(timeout)
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
 
 
 @dataclass
@@ -103,12 +160,16 @@ def _ollama_model_names(client: Any) -> list[str]:
 
 def check_ollama(cfg: Config, embedder: Any,
                  ollama_client: Any = None,
-                 available: bool = True) -> tuple[list[Check], int | None]:
+                 available: bool = True,
+                 probe_timeout: float = PROBE_TIMEOUT_SECONDS,
+                 ) -> tuple[list[Check], int | None]:
     """Returns (checks, probe_dim) — probe_dim is None when the probe failed.
 
     The caller threads probe_dim into the Qdrant dim comparison. ``available``
     is the semantic extra's presence: with the extra absent the checks report
-    that absence as unverified and dial nothing.
+    that absence as unverified and dial nothing. ``probe_timeout`` bounds the
+    reachability dial only; the model list is what that dial returns, so the
+    two share one bound.
     """
     checks: list[Check] = []
     created = False
@@ -125,10 +186,16 @@ def check_ollama(cfg: Config, embedder: Any,
                 WARN, "ollama-reachable",
                 f"unverified: {SEMANTIC_EXTENSION_MESSAGE} ({cfg.ollama_url})"))
             return checks, None
-        client = ollama.Client(host=cfg.ollama_url, timeout=cfg.ollama_timeout)
+        client = ollama.Client(host=cfg.ollama_url, timeout=probe_timeout)
         created = True
     try:
-        names = _ollama_model_names(client)
+        names = _bounded_probe(lambda: _ollama_model_names(client),
+                               probe_timeout)
+    except ProbeTimedOut:
+        checks.append(Check(
+            FAIL, "ollama-reachable",
+            f"{cfg.ollama_url}: timed out after {probe_timeout:g}s"))
+        return checks, None
     except Exception as exc:  # noqa: BLE001 — unreachable backend
         checks.append(Check(FAIL, "ollama-reachable",
                             f"{cfg.ollama_url}: {exc}"))
@@ -196,7 +263,8 @@ def _collection_dim(client: Any, name: str) -> int | None:
 
 
 def check_qdrant(cfg: Config, store: Any, registry: Any,
-                 probe_dim: int | None = None) -> list[Check]:
+                 probe_dim: int | None = None,
+                 probe_timeout: float = PROBE_TIMEOUT_SECONDS) -> list[Check]:
     checks: list[Check] = []
     if store is None:
         return [Check(WARN, "qdrant-reachable",
@@ -204,7 +272,15 @@ def check_qdrant(cfg: Config, store: Any, registry: Any,
                       f"({cfg.qdrant_url})")]
     client = store.client
     try:
-        server_version = client.info().version
+        # Bounded: the store's client was built for a pass, and its own
+        # timeout is minutes -- a probe must not inherit that cost.
+        server_version = _bounded_probe(
+            lambda: client.info().version, probe_timeout)
+    except ProbeTimedOut:
+        checks.append(Check(
+            FAIL, "qdrant-reachable",
+            f"{cfg.qdrant_url}: timed out after {probe_timeout:g}s"))
+        return checks
     except Exception as exc:  # noqa: BLE001 — unreachable backend
         checks.append(Check(FAIL, "qdrant-reachable",
                             f"{cfg.qdrant_url}: {exc}"))
@@ -507,20 +583,38 @@ def check_fingerprints(cfg: Config, registry: Any) -> list[Check]:
 
 def run_doctor(cfg: Config, registry: Any, embedder: Any, store: Any,
                ollama_client: Any = None,
-               semantic: bool = True) -> list[Check]:
+               semantic: bool = True,
+               probe_timeout: float = PROBE_TIMEOUT_SECONDS,
+               on_check: Callable[[Check], None] | None = None
+               ) -> list[Check]:
     """Every check, in order. ``embedder``/``store`` may be None when the
     semantic extra is absent: those sections then report the extra's absence
     as unverified instead of dialling or failing, and the local checks still
     answer.
+
+    ``probe_timeout`` bounds each reachability probe (see
+    ``PROBE_TIMEOUT_SECONDS``); ``on_check`` receives every check as soon as
+    the section that produced it returns, so a caller can print while the
+    remaining probes are still dialling. The returned list is the same set in
+    the same order, for callers that answer in JSON.
     """
     checks: list[Check] = []
-    checks += check_runtime()
+
+    def emit(section: list[Check]) -> None:
+        checks.extend(section)
+        if on_check is not None:
+            for check in section:
+                on_check(check)
+
+    emit(check_runtime())
     ollama_checks, probe_dim = check_ollama(cfg, embedder, ollama_client,
-                                            available=semantic)
-    checks += ollama_checks
-    checks += check_qdrant(cfg, store, registry, probe_dim)
-    checks += check_index_root(cfg)
-    checks += check_sqlite(cfg)
-    checks += check_locks(cfg)
-    checks += check_fingerprints(cfg, registry)
+                                            available=semantic,
+                                            probe_timeout=probe_timeout)
+    emit(ollama_checks)
+    emit(check_qdrant(cfg, store, registry, probe_dim,
+                      probe_timeout=probe_timeout))
+    emit(check_index_root(cfg))
+    emit(check_sqlite(cfg))
+    emit(check_locks(cfg))
+    emit(check_fingerprints(cfg, registry))
     return checks

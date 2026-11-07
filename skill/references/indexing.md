@@ -86,7 +86,7 @@ otherwise. The same is true of every pass command below.
 
 - **Class**: read
 - **Arguments**: none
-- **Flags**: `--json`, `--format` <value>, `--skip-stale-check`, `--refresh`
+- **Flags**: `--json`, `--format` <value>, `--skip-stale-check`, `--refresh`, `--probe-timeout` <value>
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 <!-- generated:commands-indexing:end -->
 

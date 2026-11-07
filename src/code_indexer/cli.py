@@ -401,16 +401,29 @@ def doctor(
     output_format: str | None = FormatOpt,
     skip_stale_check: bool = SkipOpt,
     refresh: bool = RefreshOpt,
+    probe_timeout: float | None = typer.Option(
+        None, "--probe-timeout",
+        help="Seconds one reachability probe (Ollama, Qdrant) may take before "
+             "that check fails with 'timed out'. Default: the "
+             "DOCTOR_PROBE_TIMEOUT environment variable, else 5."),
 ) -> None:
     """Health-check the installation: runtime versions, Ollama (reachable /
     model present / dimension probe), Qdrant (reachable / version / client
     compatibility / collections vs registry / dims), INDEX_ROOT writability
     and free disk, SQLite integrity of registry + manifests, watch pidfile
     and lock liveness, and per-project fingerprint status. One line per
-    check: ok|warn|fail <name>: <detail>. Exit 1 when any check fails
-    (warnings do not fail). Dev/ops surface: deliberately CLI-only, no MCP
-    tool — agents use index-status for per-project state. Network calls go
-    only to the configured Ollama/Qdrant URLs.
+    check: ok|warn|fail <name>: <detail>, printed as each section returns --
+    the runtime lines appear before the reachability probes dial. Exit 1 when
+    any check fails (warnings do not fail). Dev/ops surface: deliberately
+    CLI-only, no MCP tool — agents use index-status for per-project state.
+    Network calls go only to the configured Ollama/Qdrant URLs.
+
+    Each reachability probe is bounded by `--probe-timeout` (default 5 s,
+    from `DOCTOR_PROBE_TIMEOUT` when set), so a blackholed host costs seconds
+    rather than the client libraries' minutes. An expired wait is reported as
+    `fail <check>: ... timed out after <n>s` and keeps the non-zero exit: a
+    timeout is never a pass. `--json` still answers as one document, so its
+    payload is written once at the end.
 
     The per-project fingerprint verdict is reached from the manifests alone
     (the same comparison every read command makes), so it dials nothing; its
@@ -438,17 +451,31 @@ def doctor(
     # Reuse the core embedder's own Ollama client when it carries one (keeps
     # doctor on the same configured URL and lets test stubs inject).
     client = getattr(embedder, "client", None)
+    # The probe bound: the flag wins over the environment/default, and a value
+    # a caller cannot wait for is refused as a usage error rather than
+    # silently substituted.
+    bound = (core.cfg.doctor_probe_timeout if probe_timeout is None
+             else probe_timeout)
+    if bound <= 0:
+        raise typer.BadParameter(
+            "--probe-timeout must be greater than zero seconds")
+
+    def print_check(check) -> None:
+        # One line per check, flushed as it arrives: a buffered stream would
+        # hide the local results behind a blackholed probe.
+        typer.echo(check.line())
+        sys.stdout.flush()
+
     checks = run_doctor(core.cfg, core.registry, embedder, store,
-                        ollama_client=client, semantic=semantic_available())
+                        ollama_client=client, semantic=semantic_available(),
+                        probe_timeout=bound,
+                        on_check=(None if json_output else print_check))
     if json_output:
         typer.echo(json.dumps(
             {"checks": [c.to_dict() for c in checks],
              "coverage": coverage_mod.none_block(),
              "healthy": not any(c.status == "fail" for c in checks)},
             ensure_ascii=False, indent=2))
-    else:
-        for c in checks:
-            typer.echo(c.line())
     if any(c.status == "fail" for c in checks):
         raise typer.Exit(1)
 
