@@ -5,8 +5,9 @@ which commands matter is the listing itself: ``Core`` holds the six every
 survey respondent used, ``Advanced`` every other registered command. These
 checks read the panel assignment from the command registry the CLI builds --
 not from a list copied here -- so a command added without a panel fails the
-suite instead of shipping under a default heading, and they pin a sample of
-commands' own ``--help`` to the base tip so the grouping cannot reach one.
+suite instead of shipping under a default heading, and they pin every
+registered command's own ``--help`` to the base tip so the grouping cannot
+reach one.
 """
 
 from __future__ import annotations
@@ -47,14 +48,45 @@ CORE_NAMES = frozenset({
 })
 
 # ``code-indexer <name> --help`` as captured from the base tip 6ae37ad with
-# this module's own helper (CliRunner, COLUMNS=100). A grouping edit must not
-# move one byte of a command's own help; re-record only when that command's
-# own help is deliberately edited.
-BASE_TIP_HELP_SHA256 = {
-    "overview": "34b6bdc776bb130eff4a7fdf8e8c21e62cbdf52a30862ec578a28859e8b94353",
+# this module's own helper (CliRunner, COLUMNS=100). The KEY SET is not a
+# hand-maintained list: ``test_the_pin_set_is_the_command_registry`` compares
+# it with the typer registry, so every registered command -- hidden alias
+# spellings included -- carries a pin and none can be silently exempt. A
+# grouping edit must not move one byte of a command's own help; re-record a
+# value only when that command's own help is deliberately edited.
+HELP_SHA256 = {
+    "add-project": "3c40042d1e809ef9a945dec81b4097de2b883f58a976ab982f9080af822932e5",
+    "changed-symbols": "c32e58a721460d757cf9a1f8edcaecf994e819bc436c56393da5646db3397c1a",
+    "deps": "156c9942908585d4dc05a48fa5def3c94c55bfd891da39eba16b0e5d3f22b111",
+    "doctor": "e876133ea4e7a4a956a496e8c3eba1247d290368d571cb01f69bd1d9be6357cb",
+    "eval": "4073eb3dec0b32476a0b64f9eca2b25cb7779176630fed3c3a639ae665159041",
+    "eval-compare": "298652501bfcbf1a9ba91e6083375aa3c67779bcd200f2c561faf52d259dbfc4",
+    "file-outline": "0fd2dacf4af1dc9c18b64ea3472705a073590ab8901340029cc6f6f75ea61c3d",
+    "find-callees": "29f43f252176e490c2e9af1b979c9aeedc091fdecec44e6a04f2e48cd99a14e2",
+    "find-callers": "58db2d2cccabeec27af286e411f18ff8f608cc6607b6b501e15dde9825818c22",
+    "find-definition": "942d1b25ff86c60190b6a746964b45de7ed3007cef8949986ade85d2d313b507",
+    "find-references": "5c9f6d3ad0ad64a3c9fd61a5a6868620f68214efd75bfcb8d4aa1195bfe2d80b",
     "find-symbol": "18c1f1871ec4170e7b9f9bad259216f3192168af6b26ce07d7b2120951933c9a",
-    "semantic-search": "098d41eb03a885f3aa36598cef49e1997a15ea7e7a1fa07aa6c1acfe83c15b82",
+    "get-code-context": "a92b17bc85aec3447844f186ecdd22945d214d15762a33af7df8f29d85146bd9",
+    "index-more": "1fe062648cb4bf63c16cc5e5393f6e4f5cb8d384a18e0ed949a0e932683f5ca8",
+    "index-status": "cb1c55293291b32c4522baa4258323be4bba9db223abbfec50c8970ba02ca3ca",
+    "list-projects": "b5f210cdca0c74f18eb5853a67cdc9627db653b7a6c8198dc83f852959b92b92",
+    "lookup-project": "3a5e8aad291e70641cf1af94dcabaea7af38aaa151984216d8950a700336c0bc",
+    "map": "f995e7d5b5be510f91c42e90c883ef4b3cc8ab92613c2f598ac9232d9b8e3f93",
+    "outline": "fa81b8f04b9dcb7eed962bf4a3d7d097305de710cbfba3de5b35438fc85c5943",
+    "overview": "34b6bdc776bb130eff4a7fdf8e8c21e62cbdf52a30862ec578a28859e8b94353",
     "plan-apply": "1c71a2d7c364f2f6f1d1d42da8de91834c59e2a0839ba4df1798af0d164d81cb",
+    "plan-delete-declaration": "de9aa8113aa81a9f8718fa346a330790b971bdcda1486159efdd4ea8a36078ed",
+    "plan-insert-symbol": "64cca8d8e8bdc68f09e18689bff87e6742a62ee592f224442871f99ce82a6328",
+    "plan-replace-body": "738d981b80fd5c6d9cd0f878384064d5e22938c5f58c124a6b44ac43f2fedc8b",
+    "plan-show": "8a64f4b605f36f7d95954b4ac23ecda6db9a0be17978dd71a3922aa1345b95fc",
+    "plan-validate": "8b17537af3ee8b74d1b5db2e6d3fcd88c95d83fff18f4546ee0a8b3be84900c6",
+    "reindex-project": "4973cca1218b6f5ea2f6b00b3954f38bf4b9d8d1e4e095b4a6bf8e3d281638d5",
+    "remove-project": "1a37f2ef24f760adfafb6babed971e196d9ba84dd756edf31e4154c4634479f4",
+    "semantic-search": "098d41eb03a885f3aa36598cef49e1997a15ea7e7a1fa07aa6c1acfe83c15b82",
+    "skeleton": "4859e3b704822dbef3bc3a70c80578a21c6f8bcc7e5b6889f2ad4862a8163384",
+    "sweep-orphans": "b690817aa571ec8fd303926dd6b9b4d1739eda170a5f6c9bd1c4c914409ab587",
+    "unwatch": "15e1a02f5903d9fe8ceaefeda0796ad790521546c7111a6743a15c1a45c0d53b",
     "watch": "2acdcaf83c46dec5a1437b164bb0012f92e6eb5b6f5317246d50e58b3168c429",
 }
 
@@ -172,7 +204,15 @@ def test_the_six_core_names_are_the_core_panel():
     }
 
 
-@pytest.mark.parametrize("name", sorted(BASE_TIP_HELP_SHA256))
+def test_the_pin_set_is_the_command_registry():
+    """Every registered command has a pin, and no pin names a phantom."""
+    assert set(HELP_SHA256) == set(_click_commands()), (
+        "unpinned: "
+        f"{sorted(set(_click_commands()) - set(HELP_SHA256))}; pinned but not "
+        f"registered: {sorted(set(HELP_SHA256) - set(_click_commands()))}")
+
+
+@pytest.mark.parametrize("name", sorted(HELP_SHA256))
 def test_the_help_capture_does_not_read_the_ambient_width(name, monkeypatch):
     """Forty columns and two hundred give one hash: the width is pinned."""
     captured = []
@@ -183,14 +223,14 @@ def test_the_help_capture_does_not_read_the_ambient_width(name, monkeypatch):
         captured.append(_help_bytes(name, env={"TERM": "dumb"}))
     assert captured[0] == captured[1], (
         f"{name} --help rendered differently under COLUMNS=40 and COLUMNS=200")
-    assert hashlib.sha256(captured[0]).hexdigest() == BASE_TIP_HELP_SHA256[name]
+    assert hashlib.sha256(captured[0]).hexdigest() == HELP_SHA256[name]
 
 
-@pytest.mark.parametrize("name", sorted(BASE_TIP_HELP_SHA256))
+@pytest.mark.parametrize("name", sorted(HELP_SHA256))
 def test_a_command_help_is_byte_identical_to_the_base_tip(name):
-    """Five commands' own --help match the base tip byte for byte."""
+    """Every registered command's own --help matches the base tip byte for byte."""
     data = _help_bytes(name)
-    assert hashlib.sha256(data).hexdigest() == BASE_TIP_HELP_SHA256[name], (
+    assert hashlib.sha256(data).hexdigest() == HELP_SHA256[name], (
         f"{name} --help moved away from the base tip; the grouping is a "
         "top-level listing change only")
 
