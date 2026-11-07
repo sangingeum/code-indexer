@@ -34,6 +34,7 @@ from .errors import (
     ArgumentError,
     CarriageReturnInPlanError,
     IndexerError,
+    InternalError,
     LocatorMismatchError,
     MixedNewlinesError,
     NewlineMismatchError,
@@ -708,17 +709,45 @@ def locator(tf: TextFile, decl: Declaration,
             "range": decl.range_block()}
 
 
+def structural_provider() -> dict[str, Any]:
+    """The producer a syntax-only plan names: the only one phase 1 has.
+
+    A plan built from provider edits carries that provider's own member
+    instead, handed in by the caller that materialized the edits.
+    """
+    return {"name": PROVIDER_NAME, "version": PROVIDER_VERSION}
+
+
+_PROVIDER_MEMBER_KEYS = ("name", "version", "transport")
+
+
 def build_document(*, operation: str, repository: dict[str, str],
                    files: list[dict[str, Any]], target: dict[str, Any],
                    edits: list[dict[str, Any]], created_at: str | None = None,
                    syntax_required: bool = True,
-                   semantic_required: bool = False) -> dict[str, Any]:
+                   semantic_required: bool = False,
+                   provider: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Seal one plan document; ``provider`` names whichever produced it.
+
+    Defaulting to the structural producer keeps every syntax-only plan
+    unchanged. A caller that materialized provider edits passes the member
+    those edits carry, and this writer honours it rather than stamping the
+    structural constant over the provenance the edits arrived with.
+    """
+    if provider is not None:
+        missing = [key for key in _PROVIDER_MEMBER_KEYS
+                   if not provider.get(key)]
+        if missing:
+            raise InternalError(
+                "a provider-derived plan member needs "
+                + ", ".join(_PROVIDER_MEMBER_KEYS)
+                + f"; it is missing {missing}")
     document: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "operation": operation,
         "repository": repository,
         "created_at": created_at or timestamp_now(),
-        "provider": {"name": PROVIDER_NAME, "version": PROVIDER_VERSION},
+        "provider": provider if provider is not None else structural_provider(),
         "target": target,
         "files": files,
         "edits": edits,

@@ -211,7 +211,9 @@ def test_a_rename_edit_materializes_into_a_line_aligned_plan_edit():
     assert rename.provider.name == "stub-fixture"
     assert rename.edits[0].start.line == 0  # provider-native, pre-normalization
     tf = plans.read_text_file(ROOT, "sample.py")
-    edits = provider.materialize(tf, rename.edits)
+    body = provider.materialize(tf, rename)
+    assert body["provider"]["name"] == "stub-fixture"
+    edits = body["edits"]
     assert edits[0]["kind"] == provider.PROVIDER_EDIT_KIND
     assert edits[0]["new_text"] == "def hello(name):"
     assert edits[0]["start_line"] == 1 and edits[0]["end_line"] == 1

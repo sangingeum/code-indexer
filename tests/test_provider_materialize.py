@@ -40,11 +40,25 @@ def edit(start: tuple[int, int], end: tuple[int, int], new_text: str,
         new_text=new_text)
 
 
+IDENTITY = provider.ProviderIdentity(name="stub-fixture", version="1.0.0",
+                                     transport="in-process")
+
+
+def rename(*edits: provider.ProviderEdit) -> provider.RenameEdits:
+    """A provider's rename answer as the adapter hands it over."""
+    return provider.RenameEdits(provider=IDENTITY, edits=tuple(edits))
+
+
+def materialize(tf: plans.TextFile, edits) -> list[dict]:
+    """The candidate edits of a body; the provenance is asserted below."""
+    return provider.materialize(tf, rename(*edits))["edits"]
+
+
 # --- one edit becomes one whole-line edit -----------------------------------
 
 def test_an_intra_line_edit_expands_to_the_whole_line_it_touches():
     tf = text_file(b"def greet(name):\n    return 1\n")
-    edits = provider.materialize(tf, [edit((0, 4), (0, 9), "hello")])
+    edits = materialize(tf, [edit((0, 4), (0, 9), "hello")])
     assert len(edits) == 1
     record = edits[0]
     assert record["kind"] == provider.PROVIDER_EDIT_KIND
@@ -57,14 +71,14 @@ def test_an_intra_line_edit_expands_to_the_whole_line_it_touches():
 def test_bytes_outside_the_provider_range_are_preserved_exactly():
     raw = b"  x = value  # tail\n"
     tf = text_file(raw)
-    edits = provider.materialize(tf, [edit((0, 6), (0, 11), "other")])
+    edits = materialize(tf, [edit((0, 6), (0, 11), "other")])
     assert edits[0]["new_text"] == "  x = other  # tail"
 
 
 def test_the_old_text_hash_covers_the_whole_old_line():
     raw = b"  x = value  # tail\n"
     tf = text_file(raw)
-    record = provider.materialize(tf, [edit((0, 6), (0, 11), "other")])[0]
+    record = materialize(tf, [edit((0, 6), (0, 11), "other")])[0]
     whole_line = b"  x = value  # tail"
     assert record["expected_old_text"] == whole_line.decode("utf-8")
     assert record["expected_old_text_hash"] == (
@@ -78,7 +92,7 @@ def test_the_old_text_hash_covers_the_whole_old_line():
 
 def test_two_edits_on_one_line_merge_in_descending_byte_order():
     tf = text_file(b"x = a + b\n")
-    edits = provider.materialize(tf, [
+    edits = materialize(tf, [
         edit((0, 4), (0, 5), "alpha"),
         edit((0, 8), (0, 9), "beta"),
     ])
@@ -89,7 +103,7 @@ def test_two_edits_on_one_line_merge_in_descending_byte_order():
 
 def test_two_edits_on_different_lines_stay_separate_edits():
     tf = text_file(b"a = one\nb = two\n")
-    edits = provider.materialize(tf, [
+    edits = materialize(tf, [
         edit((0, 4), (0, 7), "ONE"),
         edit((1, 4), (1, 7), "TWO"),
     ])
@@ -102,7 +116,7 @@ def test_two_edits_on_different_lines_stay_separate_edits():
 def test_an_edit_crossing_a_line_terminator_is_refused():
     tf = text_file(b"one\ntwo\n")
     with pytest.raises(NonLineAlignedProviderEditError) as caught:
-        provider.materialize(tf, [edit((0, 1), (1, 1), "x")])
+        materialize(tf, [edit((0, 1), (1, 1), "x")])
     assert caught.value.exit_code != EXIT_USAGE
     assert "cross-line" in str(caught.value)
 
@@ -110,7 +124,7 @@ def test_an_edit_crossing_a_line_terminator_is_refused():
 def test_two_overlapping_edits_on_one_line_are_refused():
     tf = text_file(b"abcdefgh\n")
     with pytest.raises(OverlappingEditsError):
-        provider.materialize(tf, [
+        materialize(tf, [
             edit((0, 2), (0, 5), "X"),
             edit((0, 4), (0, 7), "Y"),
         ])
@@ -119,21 +133,21 @@ def test_two_overlapping_edits_on_one_line_are_refused():
 def test_an_edit_naming_another_file_is_refused():
     tf = text_file(b"x = 1\n")
     with pytest.raises(Exception) as caught:
-        provider.materialize(tf, [edit((0, 0), (0, 1), "y", rel_path="other.py")])
+        materialize(tf, [edit((0, 0), (0, 1), "y", rel_path="other.py")])
     assert "other.py" in str(caught.value)
 
 
 def test_empty_edits_is_a_defect_not_an_empty_plan():
     tf = text_file(b"x = 1\n")
     with pytest.raises(Exception):
-        provider.materialize(tf, [])
+        materialize(tf, [])
 
 
 # --- the file's own geometry survives --------------------------------------
 
 def test_a_crlf_file_materializes_to_lines_without_terminators():
     tf = text_file(b"a = one\r\nb = two\r\n")
-    edits = provider.materialize(tf, [edit((1, 4), (1, 7), "TWO")])
+    edits = materialize(tf, [edit((1, 4), (1, 7), "TWO")])
     assert edits[0]["start_byte"] == 9
     assert edits[0]["end_byte"] == 16
     assert edits[0]["expected_old_text"] == "b = two"
@@ -147,8 +161,52 @@ def test_an_astral_character_before_the_edit_does_not_shift_it_for_the_plan():
     start = line.index("greet")
     byte_start = len(line[:start].encode("utf-8"))
     character = sum(2 if ord(ch) > 0xFFFF else 1 for ch in line[:start])
-    edits = provider.materialize(tf, [
+    edits = materialize(tf, [
         edit((0, character), (0, character + 5), "hello")])
     assert edits[0]["start_byte"] == 0
     assert edits[0]["new_text"] == line.replace("greet", "hello")
     assert byte_start == len("label = '\U0001d54f'; ".encode("utf-8"))
+
+
+# --- the body carries the provider that produced it ------------------------
+
+def _document(edits: list[dict], **options) -> dict:
+    tf = text_file(b"def greet(name):\n    return 1\n")
+    return plans.build_document(
+        operation="replace_body",
+        repository={"project": "demo", "index_revision": "1"},
+        files=[plans.file_record(tf, "python")],
+        target={"path": tf.rel_path, "language": "python",
+                "qualified_name": "greet", "symbol_type": "function",
+                "decl_hash": "sha256:" + "0" * 64,
+                "range": {"start_line": 1, "end_line": 2,
+                          "start_byte": 0, "end_byte": 31}},
+        edits=edits, **options)
+
+
+def test_a_materialized_body_carries_the_provider_that_produced_it():
+    """ADR-0006 sections 4 and 5: the plan's member is the producer's own."""
+    tf = text_file(b"def greet(name):\n    return 1\n")
+    body = provider.materialize(tf, rename(edit((0, 4), (0, 9), "hello")))
+    assert body["provider"] == {
+        "name": "stub-fixture",
+        "version": "1.0.0",
+        "transport": "in-process",
+        "conversion_version": provider.CONVERSION_VERSION,
+    }
+    assert len(body["edits"]) == 1
+
+
+def test_the_document_honours_the_provider_member_it_is_given():
+    """The writer no longer stamps the structural constant over provenance."""
+    tf = text_file(b"def greet(name):\n    return 1\n")
+    body = provider.materialize(tf, rename(edit((0, 4), (0, 9), "hello")))
+    document = _document(body["edits"], provider=body["provider"])
+    assert document["provider"] == body["provider"]
+    assert document["provider"]["name"] != plans.PROVIDER_NAME
+
+
+def test_a_syntax_only_plan_still_names_the_structural_provider():
+    document = _document([])
+    assert document["provider"] == plans.structural_provider()
+    assert set(document["provider"]) == {"name", "version"}

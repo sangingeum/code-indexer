@@ -11,7 +11,8 @@ the provider what it offers, and one is the adapter's own normalization:
 ``find_references``  one declaration -> locations, or a typed refusal
 ``prepare_rename``   one declaration + a new name -> provider edits in
                      UTF-16 positions, before normalization
-``materialize``      provider edits -> line-aligned candidate plan edits
+``materialize``      one rename -> a plan body: line-aligned candidate edits
+                     plus the ``provider`` member they carry
 
 The interface is proved before any server exists: a stub in the test tree
 answers from fixture files and passes ``tests/test_provider_contract.py``,
@@ -35,8 +36,10 @@ per invocation, reused across that invocation's requests, terminated at
 close (``atexit`` covers process exit; there is no daemon). Every request
 carries a deadline; an expired request is cancelled and reported as a
 timeout, never as an empty semantic answer. Every semantic answer carries
-``provider: {name, version, transport}``. Nothing here writes the index: a
-provider identifier never reaches a symbol row.
+``provider: {name, version, transport}``, and a plan built from one carries
+the same object in ADR-0004's ``provider`` member, with the conversion's
+version beside it. Nothing here writes the index: a provider identifier never
+reaches a symbol row.
 
 Positions (section 5)
 ---------------------
@@ -73,7 +76,11 @@ from .errors import (
     ProviderUnavailableError,
     UnsupportedOperationError,
 )
-from .provider_positions import offset_to_position, position_to_offset
+from .provider_positions import (
+    CONVERSION_VERSION,
+    offset_to_position,
+    position_to_offset,
+)
 
 logger = logging.getLogger("code-indexer.provider")
 
@@ -648,12 +655,31 @@ class ProviderSession:
 
 
 # ---------------------------------------------------------------------------
-# provider edits -> line-aligned plan edits (ADR-0006 section 6)
+# provider edits -> line-aligned plan edits (ADR-0006 sections 4 to 6)
 # ---------------------------------------------------------------------------
 
-def materialize(tf: plans.TextFile,
-                edits: Sequence[ProviderEdit]) -> list[dict[str, Any]]:
-    """Expand provider edits to whole-line candidate plan edits.
+def plan_provider_member(identity: ProviderIdentity) -> dict[str, Any]:
+    """The plan's ``provider`` member for edits this provider produced.
+
+    Section 4 makes a plan built from a provider carry the provider object the
+    answers carry -- name, version, transport -- and section 5 adds the
+    conversion's version, so a plan written under one conversion is not
+    silently reinterpreted under another. Three keys plus that version.
+    """
+    member = identity.block()
+    member["conversion_version"] = CONVERSION_VERSION
+    return member
+
+
+def materialize(tf: plans.TextFile, rename: RenameEdits) -> dict[str, Any]:
+    """Expand one rename's provider edits into a candidate plan body.
+
+    Returns the ``provider`` member the plan carries -- the provider that
+    produced these edits, its version and transport, and the version of the
+    conversion that placed its positions -- together with the edits
+    themselves. Taking the ``RenameEdits`` rather than its ``edits`` is the
+    point: unwrapping them one call early dropped the identity at this seam,
+    and the document then stamped the structural provider over it.
 
     Each edit is applied to its line's old text, so bytes outside the
     provider's range are preserved exactly; two edits on one line merge into
@@ -662,6 +688,11 @@ def materialize(tf: plans.TextFile,
     whole old line; and an edit whose range crosses a line terminator is
     refused rather than approximated.
     """
+    if not isinstance(rename, RenameEdits):
+        raise InternalError(
+            "materialize takes the RenameEdits a provider answered, not "
+            f"{type(rename).__name__}: the provider member lives there")
+    edits = rename.edits
     if not edits:
         raise InternalError("materialize needs at least one provider edit")
     per_line: dict[int, list[tuple[int, int, str]]] = {}
@@ -724,7 +755,7 @@ def materialize(tf: plans.TextFile,
             edit["expected_old_text"] = old_bytes.decode("utf-8")
         edit["new_text"] = text.decode("utf-8")
         out.append(edit)
-    return out
+    return {"provider": plan_provider_member(rename.provider), "edits": out}
 
 
 # ---------------------------------------------------------------------------

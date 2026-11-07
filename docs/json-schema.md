@@ -409,7 +409,7 @@ in; the file is `<plan-dir>/<hex>.json`.
  "operation": "replace_body|insert_symbol|delete_declaration",
  "repository": {"project": str, "index_revision": str},
  "created_at": "YYYY-MM-DDTHH:MM:SSZ",
- "provider": {"name": "tree-sitter-structural", "version": str},
+ "provider": {"name": str, "version": str},
  "target": {"path": str, "language": str, "qualified_name": str,
             "symbol_type": str, "decl_hash": "sha256:<hex>",
             "range": {"start_line": int, "end_line": int,
@@ -423,6 +423,14 @@ in; the file is `<plan-dir>/<hex>.json`.
 Everything above is required and nothing else is. `notes`, `diagnostics[]` and
 `warnings[]` are optional; a reader ignores unknown members and `plan-show`
 preserves them, and no command rewrites a plan.
+
+`provider` names whichever produced the edits. A syntax-only plan names the
+structural producer, `{name, version}`. A plan built from provider edits
+carries that provider's own member -- `{name, version, transport}` as ADR-0006
+section 4 states -- with `conversion_version` beside it, recording which
+conversion placed the positions (section 5). The member's key set therefore
+depends on the producer, and the reader requires a `provider` object rather
+than a fixed set of keys inside it.
 
 An edit record:
 

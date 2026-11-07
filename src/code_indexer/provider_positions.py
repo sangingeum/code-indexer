@@ -26,7 +26,12 @@ import bisect
 from .errors import PositionConversionFailedError
 from .plans import TextFile
 
-__all__ = ["position_to_offset", "offset_to_position"]
+__all__ = ["position_to_offset", "offset_to_position", "CONVERSION_VERSION"]
+
+# The version of the conversion this module implements. ADR-0006 section 5 has
+# the plan record it in its ``provider`` member, so a plan written under one
+# conversion is not silently reinterpreted under another.
+CONVERSION_VERSION = 1
 
 
 def position_to_offset(tf: TextFile, line: int, character: int) -> int:
