@@ -1,0 +1,6 @@
+=== BAR 21b: command names, base vs tip ===
+13a14
+> @app.command(name="plan-apply")
+--- count tip ---
+24
+--- the six plan commands present? ---

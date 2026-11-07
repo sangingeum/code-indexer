@@ -1,0 +1,7 @@
+=== BAR 6b: unicode / attributes / nested / end-of-file in the suite ===
+51:        handle.write(raw if raw is not None else text.encode("utf-8"))
+319:    raw = b"\xef\xbb\xbf" + TWO_FUNCTIONS.encode("utf-8")
+333:    tf = sample(str(tmp_path), "win.py", raw=text.encode("utf-8"))
+--- attributes ---
+--- nested declarations ---
+--- CRLF/LF fixtures used by apply tests ---

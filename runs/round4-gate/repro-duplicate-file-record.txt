@@ -1,0 +1,100 @@
+$ <repo-root>/.venv/bin/code-indexer add-project <project-root> --name dupeproj --vectors off
+registered <project-root> (slug dupeproj)
+note: vectors=off — rows, symbols, references and chunks are indexed with no service; run reindex-project --vectors on later to embed them
+dupeproj: {"files_indexed": 1, "chunks_embedded": 0, "chunks_reused": 0, "files_deleted": 0, "duration_s": 0.02, "chunks_skipped": 0, "files_committed": 0, "sensitive_skipped": 0}
+exit 0
+
+# the plan names sample.py twice: ['sample.py', 'sample.py']
+
+$ <repo-root>/.venv/bin/code-indexer plan-validate <project-root>/.code-indexer/plans/80bd0b51ef9c88445af60bd7eb1a5616535c7643fa4d82cc33b2aa513f810630.json --project dupeproj
+plan sha256:80bd0b51ef9c88445af60bd7eb1a5616535c7643fa4d82cc33b2aa513f810630
+identity structural (file_hash, decl_hash, region_hash)
+- plan hash: ok -- sha256:80bd0b51ef9c88445af60bd7eb1a5616535c7643fa4d82cc33b2aa513f810630 recomputed from the document's canonical bytes
+- schema: ok -- schema_version 1, operation replace_body, 2 file(s), 1 edit(s)
+- requests: ok -- syntax_required true, semantic_required false
+- paths: ok -- 1 path(s) project-relative and inside the project root
+- file bytes: ok -- 1 file(s) decoded as UTF-8 and read as stored bytes
+- file hash and newline declaration: ok -- sample.py sha256:854d5c95c53c01074ee1a2b97babdc9cb23dd6d03098f6758a6667a27bdee848 (lf); sample.py sha256:854d5c95c53c01074ee1a2b97babdc9cb23dd6d03098f6758a6667a27bdee848 (lf)
+- replacement text: ok -- 1 replacement block(s), no carriage return
+- node re-derivation: ok -- sample.py:alpha (function) re-derived at lines 1-2, decl_hash sha256:12fe93c3307ce1f89b7b3483f3087295891450f3e879563f85701f913572943f
+- line and byte cross-check: ok -- every recorded line and byte offset agrees with the stored bytes
+- region hashes: ok -- 1 region(s) hash to the bytes the plan recorded
+- overlap and ordering: ok -- 1 edit(s) in application order (path ascending, then start line descending): sample.py:2
+- syntax verdicts: reported -- sample.py parsed; sample.py parsed
+structural checks only -- file bytes, the parser's verdict and region arithmetic; nothing here claims the result compiles or type-checks
+exit 0
+
+$ <repo-root>/.venv/bin/code-indexer plan-apply sha256:80bd0b51ef9c88445af60bd7eb1a5616535c7643fa4d82cc33b2aa513f810630 --project dupeproj --json
+{
+  "schema": 1,
+  "plan_id": "sha256:80bd0b51ef9c88445af60bd7eb1a5616535c7643fa4d82cc33b2aa513f810630",
+  "identity": {
+    "verified": "structural",
+    "basis": [
+      "file_hash",
+      "decl_hash",
+      "region_hash"
+    ]
+  },
+  "dry_run": false,
+  "partial": false,
+  "files": [
+    {
+      "path": "sample.py",
+      "status": "not_attempted",
+      "edits": []
+    },
+    {
+      "path": "sample.py",
+      "status": "applied",
+      "edits": [
+        {
+          "kind": "replace_body",
+          "start_line": 2,
+          "end_line": 2,
+          "operation_id": "op_db8c1a2d2bb04f5f"
+        }
+      ]
+    }
+  ],
+  "operations": [
+    "op_db8c1a2d2bb04f5f"
+  ],
+  "undo": [
+    "keeper history undo op_db8c1a2d2bb04f5f"
+  ],
+  "receipt_path": "<project-root>/.code-indexer/receipts/80bd0b51ef9c88445af60bd7eb1a5616535c7643fa4d82cc33b2aa513f810630-20261107T001920Z.json",
+  "post_apply": [
+    {
+      "path": "sample.py",
+      "verdict": "parsed",
+      "lines": []
+    }
+  ],
+  "refresh": "skipped",
+  "caveat": "parse verdicts only -- a file the parser accepts is not a file that compiles or type-checks, and a file whose language has no grammar here reports parse_unavailable, which is a failed claim rather than a pass"
+}
+exit 0
+
+# report files[]:
+[
+  {
+    "path": "sample.py",
+    "status": "not_attempted",
+    "edits": []
+  },
+  {
+    "path": "sample.py",
+    "status": "applied",
+    "edits": [
+      {
+        "kind": "replace_body",
+        "start_line": 2,
+        "end_line": 2,
+        "operation_id": "op_db8c1a2d2bb04f5f"
+      }
+    ]
+  }
+]
+# partial: False
+# records reported not_attempted while the file WAS written: 1
