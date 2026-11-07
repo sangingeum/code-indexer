@@ -33,7 +33,6 @@ from code_indexer.doctor import (Check, _versions_compatible,  # noqa: E402
                                  check_index_root, check_locks,
                                  check_ollama, check_qdrant, check_runtime,
                                  check_sqlite, run_doctor)
-from code_indexer import doctor as doctor_mod  # noqa: E402
 from code_indexer.registry import Registry  # noqa: E402
 
 runner = CliRunner()
