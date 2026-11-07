@@ -339,8 +339,9 @@ def test_the_stale_line_states_what_a_stale_answer_means(rig):
     assert "1 added file" in line, line
     assert "answers describe the index, not the tree" in line, line
     assert f"reindex-project {project}" in line, line
-    # the guidance comes before the repair, so the sentence is never a
-    # trailing fragment of the command
+    # count, then guidance, then repair: the ADR order, all three links, so a
+    # line that moved the sentence in front of the count fails here too
+    assert line.index("1 added file") < line.index("answers describe the index"), line
     assert line.index("answers describe the index") < line.index("reindex-project"), line
     assert "\n" not in line and "\r" not in line, line
 
