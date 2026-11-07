@@ -115,7 +115,7 @@ defect's own reproduction is the subject.
 
 ## Evidence
 
-`runs/r4a-gate/` — 63 captures (commands and their full output) plus this
+`runs/r4a-gate/` — 64 captures (commands and their full output) plus this
 report. Host paths in the captures were replaced by `<checkout>`, `<scratch>`,
 `<index-root>` and `<home>`; the unmodified captures are kept outside the
 repository, and the redaction was proven by diff (513 changed lines, every one
