@@ -282,9 +282,10 @@ def test_nothing_in_the_contract_path_spawns_a_process(monkeypatch):
 
 def test_the_index_storage_never_sees_a_provider_identifier():
     """ADR-0006 section 4: a provider's ids are not written into symbol rows."""
-    source = open(
-        os.path.join(os.path.dirname(__file__), "..", "src", "code_indexer",
-                     "refactoring_provider.py"), encoding="utf-8").read()
+    source_path = os.path.join(os.path.dirname(__file__), "..", "src",
+                              "code_indexer", "refactoring_provider.py")
+    with open(source_path, encoding="utf-8") as handle:
+        source = handle.read()
     for forbidden in ("from .store", "from .manifest", "manifest_for",
                       "INSERT INTO", "UPDATE ", "core.store", "core.manifest"):
         assert forbidden not in source, forbidden

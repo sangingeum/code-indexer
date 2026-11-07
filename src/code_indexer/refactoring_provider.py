@@ -476,6 +476,10 @@ class ProviderSession:
     # -- capabilities ------------------------------------------------------
 
     def capabilities(self) -> CapabilityReport:
+        if self._closed:
+            raise ProviderUnavailableError(
+                f"the {self.language} provider session is closed; a new "
+                "invocation needs a new session")
         if self._capabilities is None:
             provider = self._provider()
             answer = self._run(provider, "capabilities", provider.capabilities)

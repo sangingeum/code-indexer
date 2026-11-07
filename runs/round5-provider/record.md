@@ -10,13 +10,18 @@ No language server was installed, spawned or probed: the stub is the only provid
 | `db2b5f8` | the interface, typed refusals, provenance, the position module, and the plan format's reserved rename now refusing as `UnsupportedOperation` |
 | `467175b` | the five fixed position-conversion cases |
 | `9af08f0` | provider edits to line-aligned plan edits |
-| `becef85` | the stub provider and the contract suite (the registration test) |
+| `becef85` | the stub provider and the contract suite (the registration test) — **red until the follow-up below**: the working tree that passed there carried an uncommitted closed-session check, so that commit is a declared deviation, not a green one |
 | `9b92cea` | `--json` on the four pass commands, `json-schema.md`, the skill's command block |
-| the commit that carries this line | CHANGELOG, the installed skill copy, this record |
+| `2239b67` | the CHANGELOG entry and this record's first form |
+| the commit that carries this line | the slice-4 follow-up (the closed-session capability check and the test's unclosed file handle, together with this correction) — green |
 
-Every commit is signed (`git log -1 --format='%h %G?'` → `G`) and every
-intermediate tree is green. The full `-W error` run passed at the tip
-(`869 passed, 2 deselected`), against 822 passed at the base.
+Every commit is signed (`git log -1 --format='%h %G?'` → `G`). The tree is
+green from the follow-up commit on; the full `-W error` run passed at the tip
+(`869 passed, 2 deselected`), against 822 passed at the base. The one red
+intermediate commit above is named here rather than claimed green (the
+missing-dependency class the commit discipline names: a test whose passing
+depended on a fix left in the dirty tree). The installed skill copy is
+byte-identical to `SKILL-CLI.md`.
 
 ## What was built
 
