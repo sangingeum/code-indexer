@@ -1,0 +1,45 @@
+# after capture — tip a9fc264  2026-11-07T10:20:23Z
+# same throwaway project as the base capture: 2 files indexed, 1 added (gamma.py)
+# paths redacted at capture time: <scratch> = the throwaway root
+
+== read 1: overview --project <scratch>/r4b/proj ==
+exit=0
+Warning: index is stale: 1 added file -- <scratch>/proj; refresh with code-indexer reindex-project <scratch>/proj
+
+== read 2: overview --project <scratch>/r4b/proj ==
+exit=0
+Warning: index is stale: 1 added file -- <scratch>/proj; refresh with code-indexer reindex-project <scratch>/proj
+
+== read 3: overview --project <scratch>/r4b/proj ==
+exit=0
+Warning: index is stale: 1 added file -- <scratch>/proj; refresh with code-indexer reindex-project <scratch>/proj
+
+== read 4: overview --project <scratch>/r4b/proj ==
+exit=0
+Warning: index is stale: 1 added file -- <scratch>/proj; refresh with code-indexer reindex-project <scratch>/proj
+
+== read 5: overview --project <scratch>/r4b/proj ==
+exit=0
+Warning: index is stale: 1 added file -- <scratch>/proj; refresh with code-indexer reindex-project <scratch>/proj
+
+== another read with no session token in the environment (none is ever read) ==
+exit=0
+Warning: index is stale: 1 added file -- <scratch>/proj; refresh with code-indexer reindex-project <scratch>/proj
+
+== fan-out: list-projects (proj stale, proj2 stale+skipped, proj3 fresh) ==
+exit=0
+-- stderr --
+Warning: index is stale: 1 added file -- <scratch>/proj; refresh with code-indexer reindex-project <scratch>/proj
+Warning: index is stale: 1 added file; 1 file skipped (sensitive content) -- <scratch>/proj2; refresh with code-indexer reindex-project <scratch>/proj2
+-- stdout --
+- path=<scratch>/proj slug=b2a2af8c state=idle files=2 chunks=2 rows=current vectors=off vectors_state=absent last_indexed=2026-11-07 19:18:26 note=fingerprint backfills on next index pass
+- path=<scratch>/proj2 slug=f289cfc9 state=idle files=1 chunks=1 rows=current vectors=off vectors_state=absent last_indexed=2026-11-07 19:18:29 note=fingerprint backfills on next index pass
+- path=<scratch>/proj3 slug=4bb060d8 state=idle files=1 chunks=1 rows=current vectors=off vectors_state=absent last_indexed=2026-11-07 19:20:15 note=fingerprint backfills on next index pass
+
+== fan-out: semantic-search --all-projects on a vectors=off index ==
+exit=4
+ConfigError: index for <scratch>/proj was built with vectors=off; semantic search needs vectors; run: code-indexer reindex-project <scratch>/proj --vectors on
+
+== fresh project <scratch>/r4b/proj3 (stderr) ==
+exit=0
+stderr bytes=0

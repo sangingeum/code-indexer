@@ -1,0 +1,13 @@
+# after JSON capture — tip a9fc264  2026-11-07T10:20:27Z
+# same stale throwaway project as base-json.txt; the staleness block of five --json reads
+
+== read 1 ==
+{"stale":true,"stale_known":true,"stale_reasons":[{"kind":"added","file":"gamma.py"}],"stale_reason_count":1,"withheld_count":0,"withheld_files":[],"withheld_summary":null,"withheld_unexamined_count":0,"index_revision":"1","last_indexed":"2026-11-07T10:18:26Z"}
+== read 2 ==
+{"stale":true,"stale_known":true,"stale_reasons":[{"kind":"added","file":"gamma.py"}],"stale_reason_count":1,"withheld_count":0,"withheld_files":[],"withheld_summary":null,"withheld_unexamined_count":0,"index_revision":"1","last_indexed":"2026-11-07T10:18:26Z"}
+== read 3 ==
+{"stale":true,"stale_known":true,"stale_reasons":[{"kind":"added","file":"gamma.py"}],"stale_reason_count":1,"withheld_count":0,"withheld_files":[],"withheld_summary":null,"withheld_unexamined_count":0,"index_revision":"1","last_indexed":"2026-11-07T10:18:26Z"}
+== read 4 ==
+{"stale":true,"stale_known":true,"stale_reasons":[{"kind":"added","file":"gamma.py"}],"stale_reason_count":1,"withheld_count":0,"withheld_files":[],"withheld_summary":null,"withheld_unexamined_count":0,"index_revision":"1","last_indexed":"2026-11-07T10:18:26Z"}
+== read 5 ==
+{"stale":true,"stale_known":true,"stale_reasons":[{"kind":"added","file":"gamma.py"}],"stale_reason_count":1,"withheld_count":0,"withheld_files":[],"withheld_summary":null,"withheld_unexamined_count":0,"index_revision":"1","last_indexed":"2026-11-07T10:18:26Z"}

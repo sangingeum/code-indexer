@@ -1,0 +1,15 @@
+# after capture — tip a9fc264  2026-11-07T10:20:28Z
+# a project that is both stale (extra.py added) and holds 1 withheld file (notes.md)
+
+== overview --project <scratch>/r4b/proj2 (stderr) ==
+exit=0
+Warning: index is stale: 1 added file; 1 file skipped (sensitive content) -- <scratch>/proj2; refresh with code-indexer reindex-project <scratch>/proj2
+
+== index-status --project <scratch>/r4b/proj2 ==
+exit=0
+-- stderr --
+Warning: index is stale: 1 added file -- <scratch>/proj2; refresh with code-indexer reindex-project <scratch>/proj2
+-- stdout --
+project=<scratch>/proj2 state=idle rows=current vectors=off vectors_state=absent schema=7 languages_without_ast=[bash, css, html, java, json, kotlin, lua, markdown, php, ruby, rust, swift, toml, yaml] parse=parsed:1,parse_error:0,parse_unavailable:0 1 file skipped (sensitive content) — privacy; override with --allow-sensitive on add-project
+-- json block --
+{"stale":true,"stale_known":true,"stale_reasons":[{"kind":"added","file":"extra.py"}],"stale_reason_count":1,"withheld_count":1,"withheld_files":[{"file":"notes.md","reason":"sensitive content"}],"withheld_summary":"1 file skipped (sensitive content)"}
