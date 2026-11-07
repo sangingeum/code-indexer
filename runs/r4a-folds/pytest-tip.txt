@@ -1,0 +1,57 @@
+........................................................................ [  7%]
+...F.................................................................... [ 14%]
+........................................................................ [ 21%]
+........................................................................ [ 28%]
+........................................................................ [ 36%]
+........................................................................ [ 43%]
+........................................................................ [ 50%]
+........................................................................ [ 57%]
+....................................................................F... [ 64%]
+........................................................................ [ 72%]
+........................................................................ [ 79%]
+........................................................................ [ 86%]
+........................................................................ [ 93%]
+..............................................................           [100%]
+=================================== FAILURES ===================================
+_____________ test_installed_copy_digest_matches_the_tracked_copy ______________
+
+    def test_installed_copy_digest_matches_the_tracked_copy():
+        """Equal digest when installed in the new shape; skip with the reason when not."""
+        path, reason = _installed_skill()
+        if path is None:
+            pytest.skip(reason)
+>       assert _dir_digest(path) == _tracked_digest(), (
+            f"the installed copy at {path} differs from the tracked copy; "
+            "the release step installs after this test passes"
+        )
+E       AssertionError: the installed copy at <installed-skill-copy> differs from the tracked copy; the release step installs after this test passes
+E       assert '3a941f77021f...df1dbee537ed9' == '7a90724f67a9...194f74db4143a'
+E         
+E         - 7a90724f67a9314fac7ff3f3f16027b37dd1f453aae6c5060be194f74db4143a
+E         + 3a941f77021f8ec48731b6e443c788e3f7c87d9bdee9f18f262df1dbee537ed9
+
+tests/test_docs.py:497: AssertionError
+__________________________ test_tracked_tree_is_clean __________________________
+
+capsys = <_pytest.capture.CaptureFixture object at 0x718b03762ff0>
+
+    def test_tracked_tree_is_clean(capsys):
+        """The whole tracked tree must pass its own check, this file included."""
+        exit_code = _lint().main(["--root", str(REPO)])
+        output = capsys.readouterr().out
+        if exit_code != 0:
+>           pytest.fail("publishing hygiene violations in the tracked tree:\n" + output)
+E           Failed: publishing hygiene violations in the tracked tree:
+E           docs/review/r4a-review.md:3: board-card-id: T-000121
+E           docs/review/r4a-review.md:3: board-card-id: T-000102
+E           docs/review/r4a-review.md:6: internal-profile-name: forbidden internal name at column 11
+E           docs/review/r4a-review.md:243: internal-profile-name: forbidden internal name at column 66
+E           docs/review/r4a-review.md:302: internal-profile-name: forbidden internal name at column 16
+E           docs/review/r4a-review.md:302: internal-profile-name: forbidden internal name at column 25
+E           publishing hygiene: scanned=912 skipped=0 violations=6 (untracked files are out of scope)
+
+tests/test_publishing_hygiene.py:117: Failed
+=========================== short test summary info ============================
+FAILED tests/test_docs.py::test_installed_copy_digest_matches_the_tracked_copy
+FAILED tests/test_publishing_hygiene.py::test_tracked_tree_is_clean - Failed:...
+2 failed, 996 passed, 2 deselected in 104.89s (0:01:44)

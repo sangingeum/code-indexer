@@ -1,0 +1,7 @@
+docs/review/r4a-review.md:3: board-card-id: T-000121
+docs/review/r4a-review.md:3: board-card-id: T-000102
+docs/review/r4a-review.md:6: internal-profile-name: forbidden internal name at column 11
+docs/review/r4a-review.md:243: internal-profile-name: forbidden internal name at column 66
+docs/review/r4a-review.md:302: internal-profile-name: forbidden internal name at column 16
+docs/review/r4a-review.md:302: internal-profile-name: forbidden internal name at column 25
+publishing hygiene: scanned=912 skipped=0 violations=6 (untracked files are out of scope)
