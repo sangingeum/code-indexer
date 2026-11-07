@@ -405,3 +405,154 @@ def test_a_duplicated_files_path_is_refused_before_any_mutation(rig):
     assert "mod.py" in payload["error"]
     assert rig.mutations() == []
     assert "    return 41" not in rig.read("mod.py")
+
+
+# ---------------------------------------------------------------------------
+# the shapes the suite lacked: nesting, non-ASCII bytes, attribute blocks
+# ---------------------------------------------------------------------------
+
+NESTED = ("class Outer:\n"
+          "    def inner(self):\n"
+          "        return 1\n"
+          "\n"
+          "    def other(self):\n"
+          "        return 2\n")
+
+UNICODE = ("# héllo — ünïcode\n"
+           "def alpha():\n"
+           "    return 'héllo'\n"
+           "\n"
+           "\n"
+           "def beta():\n"
+           "    return '日本語'\n")
+
+DECORATED = ("import functools\n"
+             "\n"
+             "\n"
+             "@functools.cache\n"
+             "def decorated():\n"
+             "    return 1\n"
+             "\n"
+             "\n"
+             "class Thing:\n"
+             "    attr = 1\n"
+             "\n"
+             "    @staticmethod\n"
+             "    def helper():\n"
+             "        return attr\n")
+
+
+@pytest.fixture()
+def make_rig(tmp_path, monkeypatch):
+    """Build one throwaway project per call and close what it opened."""
+    built_rigs: list = []
+
+    def build(files):
+        built = apply_rig.build(tmp_path, monkeypatch, files)
+        built_rigs.append(built)
+        return built
+
+    yield build
+    for built in built_rigs:
+        built.registry.close()
+    import code_indexer.cli as cli
+
+    cli._core = None
+    cli._core_skip = False
+
+
+def test_a_nested_declaration_is_located_through_its_container(make_rig):
+    """Container recursion: the method's identity carries the class name.
+
+    Two methods in one class share a kind and a file; only the qualified name
+    and the declaration hash tell them apart, and only the container recursion
+    in the walk builds that name. The body path is the method's own block, so
+    the class line and the sibling method are outside the edit.
+    """
+    built = make_rig({"nest.py": NESTED})
+    tf = plans.read_text_file(built.root, "nest.py")
+    derived, _verdict = plans.declarations("nest.py", tf.text)
+    assert [decl.qualified_name for decl in derived] == [
+        "Outer", "Outer.inner", "Outer.other"]
+    inner = [decl for decl in derived if decl.qualified_name == "Outer.inner"][0]
+    assert (inner.start_line, inner.body_start_line) == (2, 3)
+    plan_path = apply_rig.plan_replacing_one(
+        built, "nest.py", "inner", "        return 41")
+    document = plans.load_plan(plan_path)
+    assert document["target"]["qualified_name"] == "Outer.inner"
+    assert document["target"]["range"]["start_line"] == 2
+    assert document["edits"][0]["start_line"] == 3
+    result = run(built, plan_path)
+    assert result.exit_code == 0, result.output
+    assert built.read("nest.py") == (
+        "class Outer:\n"
+        "    def inner(self):\n"
+        "        return 41\n"
+        "\n"
+        "    def other(self):\n"
+        "        return 2\n")
+    assert len(built.mutations()) == 1
+
+
+def test_a_non_ascii_line_keeps_line_and_byte_arithmetic_in_agreement(
+        make_rig):
+    """Byte geometry where lines and bytes diverge and ASCII stays green.
+
+    The line is sixteen characters and more than sixteen bytes, so an offset
+    computed as a character index and one computed as a byte index disagree
+    here and agree everywhere the rest of the suite looks. The locator records
+    bytes, the pre-pass cross-checks them against the line, and the applied
+    file is byte-for-byte what the replacement says.
+    """
+    built = make_rig({"uni.py": UNICODE})
+    plan_path = apply_rig.plan_replacing_one(
+        built, "uni.py", "beta", "    return 'さようなら'")
+    document = plans.load_plan(plan_path)
+    prefix = "".join(UNICODE.splitlines(keepends=True)[:5])
+    target_range = document["target"]["range"]
+    assert target_range["start_line"] == 6
+    assert target_range["start_byte"] == len(prefix.encode("utf-8"))
+    # The two arithmetic answers differ on this line; that is the point.
+    assert target_range["start_byte"] > len(prefix)
+    assert document["edits"][0]["start_line"] == 7
+    checked = runner.invoke(app, ["plan-validate", plan_path, "--project",
+                                  apply_rig.PROJECT_NAME])
+    assert checked.exit_code == 0, checked.output
+    assert "line and byte cross-check: ok" in checked.stdout
+    result = run(built, plan_path)
+    assert result.exit_code == 0, result.output
+    assert built.bytes_of("uni.py") == UNICODE.replace(
+        "    return '日本語'", "    return 'さようなら'").encode("utf-8")
+
+
+def test_an_attribute_block_stays_with_its_declaration(make_rig):
+    """Range and locator behaviour around a decorator.
+
+    A decorated definition's range begins at its decorator, its body path is
+    the inner function's block, so a body replacement leaves the decorator
+    untouched; an insertion before it lands above the decorator rather than
+    between the decorator and the declaration it belongs to.
+    """
+    built = make_rig({"deco.py": DECORATED})
+    tf = plans.read_text_file(built.root, "deco.py")
+    derived, _verdict = plans.declarations("deco.py", tf.text)
+    by_name = {decl.qualified_name: decl for decl in derived}
+    assert by_name["decorated"].start_line == 4
+    assert by_name["decorated"].body_start_line == 6
+    assert by_name["Thing.helper"].body_start_line == 14
+    replace_path = apply_rig.plan_replacing_one(
+        built, "deco.py", "decorated", "    return 41")
+    replace_document = plans.load_plan(replace_path)
+    assert replace_document["target"]["range"]["start_line"] == 4
+    assert replace_document["edits"][0]["start_line"] == 6
+    insertion = plans.insert_symbol_edit(tf, by_name["decorated"], "before",
+                                         "SETTING = 1")
+    assert insertion["start_line"] == 4
+    assert insertion["start_byte"] == tf.line_starts[3]
+    result = run(built, replace_path)
+    assert result.exit_code == 0, result.output
+    assert built.read("deco.py").startswith(
+        "import functools\n\n\n@functools.cache\ndef decorated():\n"
+        "    return 41\n")
+    assert "    @staticmethod\n    def helper():\n        return attr\n" \
+        in built.read("deco.py")
