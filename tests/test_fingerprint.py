@@ -50,6 +50,15 @@ class UnreachableEmbedder(StubEmbedder):
         raise RuntimeError("ollama unreachable")
 
 
+class PoisonedChunkEmbedder(StubEmbedder):
+    """An embedder that fails the first chunk and returns the rest."""
+
+    def embed_with_errors(self, texts):
+        vectors: list[list[float] | None] = [[0.1] * self.dim for _ in texts]
+        vectors[0] = None
+        return vectors, [(0, "embed failed: timeout")]
+
+
 runner = CliRunner()
 
 
@@ -414,3 +423,54 @@ def test_index_status_prints_the_unverified_verdict(rig, monkeypatch):
     assert (f"fingerprint=unverified reason={UNVERIFIED_REASON}"
             in result.output)
     assert "needs-reindex" not in result.output
+
+
+# ---------------------------------------------------------------------------
+# what a pass records, and what the read derives
+# ---------------------------------------------------------------------------
+
+def _state(core, entry) -> str | None:
+    m = core.manifest_for(entry.slug, writable=False)
+    try:
+        return m.get_meta("vectors_state")
+    finally:
+        m.close()
+
+
+def test_a_vectors_on_pass_records_current_or_error_never_stale(rig):
+    """A pass records what it did: success is `current`, a lost chunk `error`.
+
+    `stale` is not a fact any pass can record — it is the comparison an idle
+    read makes — so it must never appear as a write here.
+    """
+    core, reg, entry, project, store = rig
+    assert core.run_index(entry.slug, project, vectors="on")["state"] == "idle"
+    assert _state(core, entry) == "current"
+
+    # Drop the chunk-hash cache so the next pass re-embeds, then fail one
+    # chunk: the loss is recorded and the marker names it.
+    m = core.manifest_for(entry.slug)
+    try:
+        m.set_meta("chunk_hashes", "")
+    finally:
+        m.close()
+    poisoned = PoisonedChunkEmbedder()
+    core.embedder = poisoned                # type: ignore[assignment]
+    core.indexer.embedder = poisoned        # type: ignore[assignment]
+    assert core.run_index(entry.slug, project, vectors="on",
+                          force=True)["state"] == "idle"
+    assert _state(core, entry) == "error"
+
+
+def test_a_recorded_stale_marker_is_reported_as_it_stands(rig):
+    """The read repeats a recorded `stale`; it does not re-infer `current`."""
+    core, reg, entry, project, store = rig
+    core.run_index(entry.slug, project, vectors="on")
+    m = core.manifest_for(entry.slug)
+    try:
+        m.set_meta("vectors_state", "stale")
+    finally:
+        m.close()
+
+    summary = core.status_summary(entry)
+    assert "vectors_state=stale" in summary, summary

@@ -9,9 +9,12 @@ every question a read path asks, without dialling a service:
                          state of the collection relative to the rows
     meta.embedding_version  one composed identity: model/dimension/format
 
-A read never contacts Qdrant, so ``vectors_state`` is the state the LAST
-write recorded; ``absent`` on a project that was never vectored, ``current``
-after a successful embedding pass, ``error`` when that pass lost chunks.
+A read never contacts Qdrant, so ``vectors_state`` is the state the manifest
+records: ``absent``, ``current`` and ``error`` are written by a pass
+(``absent`` on a project that was never vectored, ``current`` after a
+successful embedding pass, ``error`` when that pass lost chunks). ``stale``
+is written by no pass; it is derived at read time, when the recorded
+embedding identity is not the one this build would write.
 """
 
 from __future__ import annotations

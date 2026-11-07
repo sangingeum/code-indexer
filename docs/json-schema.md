@@ -400,8 +400,9 @@ key matched -- on a project kept `vectors=off` under a different `EMBED_MODEL`
 the line prints `vectors=off vectors_state=current` and the sentence says the
 recorded identity differs.
 
-`stale` is accepted and documented, and this build never writes it: it is the
-marker an earlier build left when a vector rebuild was interrupted. An
+`stale` is accepted and documented, and no pass in this build writes it: it
+is the value the read derives from the identity comparison, and a manifest
+that records it is reported as it stands. An
 `error` marker (the last vector pass lost chunks to embed failures) is not a
 fingerprint branch, and the sentence does not speak to it -- the sentence
 describes the key comparison, so the error verdict is the line's own field to
