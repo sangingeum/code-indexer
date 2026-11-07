@@ -26,7 +26,6 @@ from code_indexer.cli import app
 from code_indexer.config import Config
 from code_indexer.core import Core
 from code_indexer.watcher import (
-    AlreadyRunning,
     PidFileLock,
     WatchEngine,
     probe_watcher_holder,
@@ -101,6 +100,104 @@ def _make_engine(core, project) -> WatchEngine:
         core, [(core.registry.get_by_path(str(project)).slug, str(project))],
         quiet=1, sweep_interval=3600, index_root=core.cfg.index_root,
         echo=lambda msg: print(msg))
+
+
+# ---------------------------------------------------------------------------
+# The forking call runs in a fresh process
+# ---------------------------------------------------------------------------
+# spawn_background forks, and fork's precondition is a single-threaded caller
+# (watcher.require_single_threaded_fork): this test process carries threads
+# from earlier tests. So every --background test runs the CLI in a SUBPROCESS
+# boot script below -- stubs at the Core seam, optional probe patches, then
+# the real app. Nothing about watch's own behaviour changes; only where the
+# fork happens.
+
+_BOOT_STUBS = (
+    "import code_indexer.core as cm\n"
+    "class S:\n"
+    "    def __init__(self, *a, **k): pass\n"
+    "    def dimension(self): return 4\n"
+    "    def embed(self, t): return [[0.0]] * len(t)\n"
+    "class Q:\n"
+    "    def __init__(self, *a, **k): pass\n"
+    "    def collection_exists(self, n): return True\n"
+    "    def create_collection(self, n, d): pass\n"
+    "    def upsert_points(self, n, p): pass\n"
+    "    def purge_file_points(self, *a, **k): pass\n"
+    "cm.Embedder, cm.Store = S, Q\n"
+)
+
+
+def _boot(extra: str = "") -> str:
+    """A subprocess boot script: stubs, then the given patch lines, then the CLI."""
+    return _BOOT_STUBS + extra + "from code_indexer.cli import app\napp()\n"
+
+
+def _boot_env(core) -> dict[str, str]:
+    env = dict(os.environ)
+    env["INDEX_ROOT"] = core.cfg.index_root
+    env["WATCH_DEBOUNCE"] = "1"
+    env["WATCH_SWEEP_INTERVAL"] = "3600"
+    return env
+
+
+def _run_boot(core, args: list[str], script: str | None = None):
+    """Run one CLI invocation in a fresh process; returns CompletedProcess."""
+    return subprocess.run(
+        [sys.executable, "-c", script if script is not None else _boot(), *args],
+        env=_boot_env(core), capture_output=True, text=True, timeout=60)
+
+
+def _holder_patch(holder_pid: int, roots: list[str]) -> str:
+    """Boot lines making the parent-side probe see the live holder's roots.
+
+    The patch has to live in the SUBPROCESS -- it is the process that forks,
+    and a test-process monkeypatch cannot reach it.
+    """
+    return (
+        "import code_indexer.watcher as w\n"
+        f"w._holder_roots = lambda pid: {roots!r} if pid == {holder_pid} else None\n"
+    )
+
+
+def _racing_probe_patch(holder_pid: int, roots: list[str]) -> str:
+    """Boot lines that lose the parent pre-check, then find the holder after."""
+    return _holder_patch(holder_pid, roots) + (
+        "real = w.probe_watcher_holder\n"
+        "calls = {'n': 0}\n"
+        "def racing(pidfile_path):\n"
+        "    calls['n'] += 1\n"
+        "    if calls['n'] == 1:\n"
+        "        return (False, None, None)\n"
+        "    return real(pidfile_path)\n"
+        "w.probe_watcher_holder = racing\n"
+    )
+
+
+def _spawn_probe_script(pidfile: str, log: str) -> str:
+    """A subprocess that calls spawn_background directly with a refusing setup."""
+    return (
+        "import code_indexer.watcher as w\n"
+        "def busy_setup():\n"
+        "    return w.BUSY_EXIT\n"
+        "def never_main():\n"
+        "    raise AssertionError('main must not run when setup refuses')\n"
+        "try:\n"
+        f"    w.spawn_background({pidfile!r}, {log!r}, busy_setup, never_main)\n"
+        "except w.AlreadyRunning as exc:\n"
+        "    print('already-running:' + str(exc.holder_pid))\n"
+        "else:\n"
+        "    print('no-exception')\n"
+    )
+
+
+def _wait_for(predicate, timeout: float = 25.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.1)
+    return False
 
 
 def test_event_triggers_pass(core, project, monkeypatch):
@@ -226,48 +323,31 @@ def test_moved_directory_events_dirty_project(core, project):
         observer.stop()
 
 
-def test_background_daemonizes_and_writes_pidfile(core, project, monkeypatch, tmp_path):
-    """--background double-forks; the parent returns after the daemon's
-    handshake; the pidfile holds the daemon pid and is flock-held."""
+def test_background_daemonizes_and_writes_pidfile(core, project):
+    """--background double-forks in a fresh process; the parent returns after
+    the daemon's handshake; the pidfile holds the daemon pid and is
+    flock-held."""
     core.registry.add(str(project))
-    _patch_core(monkeypatch, core)
-    pidfile = tmp_path / "watch.pid"
-    log = tmp_path / "watch.log"
-    import code_indexer.cli as cli
-
-    orig = cli._watch_background
-
-    def redirected(core_arg, targets, duration, pidfile_path, log_path):
-        orig(core_arg, targets, duration, str(pidfile), str(log))
-
-    monkeypatch.setattr(
-        cli, "_watch_background",
-        lambda c, t, d, p, l: redirected(c, t, d, p, l))
+    pidfile = os.path.join(core.cfg.index_root, "watch.pid")
+    log = os.path.join(core.cfg.index_root, "watch.log")
     # Keep the daemon short-lived: duration bounds its life.
-    result = runner.invoke(
-        app, ["watch", str(project), "--background", "--duration", "3"])
-    # NOTE: the daemon's Core() re-loads config from env; INDEX_ROOT is set
-    # by the fixture env so the daemon shares the same state root.
-    assert result.exit_code == 0, result.output
-    assert "watch daemon started" in result.output
-    daemon_pid = read_pid(str(pidfile))
+    started = _run_boot(core, ["watch", str(project), "--background",
+                              "--duration", "3"])
+    assert started.returncode == 0, started.stdout + started.stderr
+    assert "watch daemon started" in started.stdout
+    daemon_pid = read_pid(pidfile)
     assert daemon_pid, f"no pid in {pidfile}"
     # The pidfile is flock-held while the daemon lives.
-    lock = PidFileLock(str(pidfile))
+    lock = PidFileLock(pidfile)
     try:
         assert lock.acquire() is False, "pidfile not locked by live daemon"
     finally:
         lock.release(unlink=False)
     # Wait out --duration 3 and verify clean exit: pidfile unlinked.
-    deadline = time.monotonic() + 15
-    while time.monotonic() < deadline:
-        if not os.path.exists(pidfile):
-            break
-        time.sleep(0.3)
-    else:
-        pytest.fail("daemon did not release/remove its pidfile after --duration")
+    assert _wait_for(lambda: not os.path.exists(pidfile)), \
+        "daemon did not release/remove its pidfile after --duration"
     # Log file written.
-    assert log.exists() and "watch daemon" in log.read_text()
+    assert os.path.exists(log) and "watch daemon" in Path(log).read_text()
 
 
 def test_pidfile_refuses_second_watcher(tmp_path):
@@ -352,19 +432,16 @@ def test_background_sigterm_cleans_pidfile_and_lock(core, project):
             proc.communicate(timeout=10)
 
 
-def test_watch_background_honors_duration_exit_zero(core, project, monkeypatch):
+def test_watch_background_honors_duration_exit_zero(core, project):
     """--background --duration T: parent exits 0, daemon exits 0 after T."""
     core.registry.add(str(project))
-    _patch_core(monkeypatch, core)
-    result = runner.invoke(
-        app, ["watch", str(project), "--background", "--duration", "2"])
-    assert result.exit_code == 0, result.output
-    assert "watch daemon started" in result.output
+    started = _run_boot(core, ["watch", str(project), "--background",
+                               "--duration", "2"])
+    assert started.returncode == 0, started.stdout + started.stderr
+    assert "watch daemon started" in started.stdout
     pidfile = os.path.join(core.cfg.index_root, "watch.pid")
-    deadline = time.monotonic() + 15
-    while time.monotonic() < deadline and os.path.exists(pidfile):
-        time.sleep(0.3)
-    assert not os.path.exists(pidfile), "daemon did not exit after --duration"
+    assert _wait_for(lambda: not os.path.exists(pidfile)), \
+        "daemon did not exit after --duration"
 
 
 # ------------------------------------------------------------------
@@ -409,71 +486,59 @@ class _Holder:
                 os.unlink(path)
 
 
-def test_second_background_with_matching_target_exits_zero(
-        core, project, monkeypatch):
+def test_second_background_with_matching_target_exits_zero(core, project):
     """A second --background for an already-watched project is idempotent:
     exit 0 with a clear already-running message (never "failed to start")."""
-    from code_indexer import watcher as watcher_mod
-
-    entry = core.registry.add(str(project))
-    _patch_core(monkeypatch, core)
+    core.registry.add(str(project))
     pidfile = os.path.join(core.cfg.index_root, "watch.pid")
     holder = _Holder(pidfile, [str(project)])
     try:
-        # Parent-side probe patched so the holder's /proc cmdline (which is
-        # a bare python -c child) reports the roots the real daemon would.
-        monkeypatch.setattr(
-            watcher_mod, "_holder_roots",
-            lambda pid: holder.roots if pid == holder.pid else None)
-        result = runner.invoke(
-            app, ["watch", str(project), "--background"])
-        assert result.exit_code == 0, result.output
-        assert "failed to start" not in result.output
-        assert "already running" in result.output
-        assert f"pid={holder.pid}" in result.output
-        assert "already covered" in result.output
+        # The probe is patched IN THE SUBPROCESS (the process that forks):
+        # the holder's /proc cmdline is a bare python -c child, so the patch
+        # reports the roots the real daemon would.
+        script = _boot(_holder_patch(holder.pid, holder.roots))
+        started = _run_boot(core, ["watch", str(project), "--background"],
+                            script)
+        output = started.stdout + started.stderr
+        assert started.returncode == 0, output
+        assert "failed to start" not in output
+        assert "already running" in output
+        assert f"pid={holder.pid}" in output
+        assert "already covered" in output
         # The live holder was left untouched and still holds the lock.
-        assert _Holder is not None and os.path.exists(pidfile)
+        assert os.path.exists(pidfile)
         second = PidFileLock(pidfile)
         assert second.acquire() is False
         second.release(unlink=False)
-        assert entry.slug  # project registered; nothing re-indexed
     finally:
         holder.cleanup()
 
 
-def test_second_background_wording_never_says_failed_to_start(
-        core, project, monkeypatch):
+def test_second_background_wording_never_says_failed_to_start(core, project):
     """The already-running message is the distinct, friendly wording."""
-    from code_indexer import watcher as watcher_mod
-
     core.registry.add(str(project))
-    _patch_core(monkeypatch, core)
     pidfile = os.path.join(core.cfg.index_root, "watch.pid")
     holder = _Holder(pidfile, [str(project)])
     try:
-        monkeypatch.setattr(
-            watcher_mod, "_holder_roots", lambda pid: holder.roots)
-        result = runner.invoke(
-            app, ["watch", str(project), "--background"])
-        assert result.exit_code == 0
+        script = _boot(_holder_patch(holder.pid, holder.roots))
+        started = _run_boot(core, ["watch", str(project), "--background"],
+                            script)
+        output = started.stdout + started.stderr
+        assert started.returncode == 0, output
         # The old misleading phrasing must be gone from the caller output.
-        assert "failed to start" not in result.output
-        assert result.output.startswith("watch: already running")
-        assert f"pid={holder.pid}" in result.output
-        assert f"pidfile={pidfile}" in result.output
+        assert "failed to start" not in output
+        assert started.stdout.startswith("watch: already running"), output
+        assert f"pid={holder.pid}" in output
+        assert f"pidfile={pidfile}" in output
     finally:
         holder.cleanup()
 
 
 def test_second_background_unmatched_target_is_nonzero_and_worded(
-        core, project, monkeypatch, tmp_path):
+        core, project, tmp_path):
     """A second --background for a DIFFERENT project: clearly-worded nonzero
-    exit — still never the generic "failed to start" phrasing."""
-    from code_indexer import watcher as watcher_mod
-
+    exit -- still never the generic "failed to start" phrasing."""
     core.registry.add(str(project))
-    _patch_core(monkeypatch, core)
     other = tmp_path / "other-proj"
     other.mkdir()
     (other / "x.py").write_text("x = 1\n")
@@ -481,73 +546,51 @@ def test_second_background_unmatched_target_is_nonzero_and_worded(
     pidfile = os.path.join(core.cfg.index_root, "watch.pid")
     holder = _Holder(pidfile, [str(project)])
     try:
-        monkeypatch.setattr(
-            watcher_mod, "_holder_roots", lambda pid: holder.roots)
-        result = runner.invoke(
-            app, ["watch", str(other), "--background"])
-        assert result.exit_code != 0
-        assert "failed to start" not in result.output
-        assert "already running" in result.output
-        assert "NOT covered" in result.output
+        script = _boot(_holder_patch(holder.pid, holder.roots))
+        started = _run_boot(core, ["watch", str(other), "--background"],
+                            script)
+        output = started.stdout + started.stderr
+        assert started.returncode != 0, output
+        assert "failed to start" not in output
+        assert "already running" in output
+        assert "NOT covered" in output
     finally:
         holder.cleanup()
 
 
-def test_no_live_watcher_normal_startup_still_works(
-        core, project, monkeypatch):
+def test_no_live_watcher_normal_startup_still_works(core, project):
     """No pidfile holder: --background starts a real daemon as before."""
-    entry = core.registry.add(str(project))
-    _patch_core(monkeypatch, core)
-    result = runner.invoke(
-        app, ["watch", str(project), "--background", "--duration", "2"])
-    assert result.exit_code == 0, result.output
-    assert "watch daemon started" in result.output
+    core.registry.add(str(project))
+    started = _run_boot(core, ["watch", str(project), "--background",
+                               "--duration", "2"])
+    assert started.returncode == 0, started.stdout + started.stderr
+    assert "watch daemon started" in started.stdout
     pidfile = os.path.join(core.cfg.index_root, "watch.pid")
-    daemon_pid = read_pid(pidfile)
-    assert daemon_pid, "pidfile missing after normal startup"
-    deadline = time.monotonic() + 15
-    while time.monotonic() < deadline and os.path.exists(pidfile):
-        time.sleep(0.3)
-    assert not os.path.exists(pidfile), "daemon did not exit after --duration"
-    assert entry.slug
+    assert read_pid(pidfile), "pidfile missing after normal startup"
+    assert _wait_for(lambda: not os.path.exists(pidfile)), \
+        "daemon did not exit after --duration"
 
 
-def test_lost_race_reports_already_running_not_failed(
-        core, project, monkeypatch):
+def test_lost_race_reports_already_running_not_failed(core, project):
     """Lock lost between the parent pre-check and the daemon's flock: the
     parent reports the already-running case cleanly (exit 0 when covered),
     never "failed to start"."""
-    from code_indexer import watcher as watcher_mod
-
     core.registry.add(str(project))
-    _patch_core(monkeypatch, core)
     pidfile = os.path.join(core.cfg.index_root, "watch.pid")
     holder = _Holder(pidfile, [str(project)])
     try:
         # Bypass only the parent-side PRE-CHECK: the first probe call sees
         # nothing (race window), later calls (the post-handshake re-probe)
         # delegate to the real probe and find the live holder.
-        monkeypatch.setattr(
-            watcher_mod, "_holder_roots",
-            lambda pid: holder.roots if pid == holder.pid else None)
-        real_probe = watcher_mod.probe_watcher_holder
-        calls = {"n": 0}
-
-        def racing_probe(pidfile_path: str):
-            calls["n"] += 1
-            if calls["n"] == 1:
-                return (False, None, None)
-            return real_probe(pidfile_path)
-
-        monkeypatch.setattr(
-            watcher_mod, "probe_watcher_holder", racing_probe)
-        result = runner.invoke(
-            app, ["watch", str(project), "--background"])
+        script = _boot(_racing_probe_patch(holder.pid, holder.roots))
+        started = _run_boot(core, ["watch", str(project), "--background"],
+                            script)
+        output = started.stdout + started.stderr
         # The daemon refused with BUSY_EXIT; parent re-probed and found the
         # live holder -> already-running verdict.
-        assert result.exit_code == 0, result.output
-        assert "failed to start" not in result.output
-        assert "already running" in result.output
+        assert started.returncode == 0, output
+        assert "failed to start" not in output
+        assert "already running" in output
     finally:
         holder.cleanup()
 
@@ -575,23 +618,40 @@ def test_probe_watcher_holder_stale_and_missing(tmp_path):
 
 def test_spawn_background_raises_already_running(tmp_path):
     """spawn_background itself distinguishes the busy case from other
-    startup failures."""
-    from code_indexer import watcher as watcher_mod
-
+    startup failures. It runs in a SUBPROCESS: the call forks, and fork's
+    precondition is a single-threaded caller."""
     pidfile = str(tmp_path / "watch.pid")
     holder = _Holder(pidfile, [])
     try:
-        def busy_setup() -> int:
-            return watcher_mod.BUSY_EXIT  # daemon-side refusal
-
-        def never_main() -> None:  # pragma: no cover
-            raise AssertionError("main must not run when setup refuses")
-
-        with pytest.raises(AlreadyRunning):
-            watcher_mod.spawn_background(
-                pidfile, str(tmp_path / "watch.log"), busy_setup, never_main)
+        script = _spawn_probe_script(pidfile, str(tmp_path / "watch.log"))
+        done = subprocess.run([sys.executable, "-c", script],
+                              capture_output=True, text=True, timeout=60)
+        output = done.stdout + done.stderr
+        assert done.returncode == 0, output
+        assert f"already-running:{holder.pid}" in done.stdout, output
+        assert "no-exception" not in output
     finally:
         holder.cleanup()
+
+
+def test_spawn_background_refuses_the_fork_with_a_second_thread(tmp_path):
+    """The fork precondition guard: a live second thread refuses the fork
+    BEFORE anything is forked, with a message naming the guard and why."""
+    from code_indexer import watcher as watcher_mod
+
+    stop = threading.Event()
+    worker = threading.Thread(target=stop.wait, daemon=True)
+    worker.start()
+    try:
+        with pytest.raises(RuntimeError, match="single-threaded"):
+            watcher_mod.spawn_background(
+                str(tmp_path / "watch.pid"), str(tmp_path / "watch.log"),
+                lambda: 0, lambda: None)
+        assert not (tmp_path / "watch.log").exists(), \
+            "the guard refused after touching the log"
+    finally:
+        stop.set()
+        worker.join(timeout=5)
 
 
 def test_covers_root_and_subdir():

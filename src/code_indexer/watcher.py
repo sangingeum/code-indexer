@@ -66,6 +66,7 @@ import json
 import os
 import signal
 import sys
+import threading
 import time
 from collections.abc import Callable
 from typing import Any
@@ -324,6 +325,28 @@ def _redirect_stdio(log_path: str) -> None:
     sys.stdout.reconfigure(line_buffering=True)
 
 
+def require_single_threaded_fork() -> None:
+    """The daemonizer's fork precondition: this process has one thread.
+
+    ``os.fork()`` duplicates only the calling thread. A lock any OTHER thread
+    holds at that instant stays locked forever in the child, so the daemon can
+    deadlock before its first line runs. A real ``watch --background`` forks
+    before the watcher starts a thread, so a single-threaded caller never
+    meets this guard; a caller that forks late (a test process, or a host that
+    embedded the CLI after starting threads) must run the forking call in a
+    fresh process instead.
+    """
+    active = threading.active_count()
+    if active != 1:
+        raise RuntimeError(
+            "spawn_background refused to fork: the fork precondition guard "
+            f"requires a single-threaded process, and this one has {active} "
+            "threads. fork() copies only the calling thread, so a lock held "
+            "by another thread stays locked in the child and can deadlock "
+            "the daemon; fork before any thread starts, or run the forking "
+            "call in a fresh process.")
+
+
 def spawn_background(
     pidfile_path: str,
     log_path: str,
@@ -338,7 +361,11 @@ def spawn_background(
     (returns 0 == ready, nonzero == failed, message already logged), then
     runs ``main`` and exits 0. ``main`` must keep the pidfile lock for its
     whole life.
+
+    Raises RuntimeError, before forking anything, when this process has more
+    than one thread (``require_single_threaded_fork``): fork's precondition.
     """
+    require_single_threaded_fork()
     read_fd, write_fd = os.pipe()
     pid = os.fork()
     if pid:

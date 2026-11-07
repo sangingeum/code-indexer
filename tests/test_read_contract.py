@@ -9,17 +9,16 @@ hard (exit 5, no answer) when another process holds the per-project flock.
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
 import pathlib
 import sys
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import pytest  # noqa: E402
+from lock_holder import hold_project_lock  # noqa: E402
 from typer.main import get_command as typer_get_command  # noqa: E402
 from typer.testing import CliRunner  # noqa: E402
 
@@ -463,26 +462,14 @@ def test_refresh_writes_once_and_answers_from_the_result(rig):
 
 def test_refresh_on_a_held_flock_is_exit_5_with_no_answer(rig):
     core, entry, project, embedder, store = rig
-    lock_path = core._lock_path(entry.slug)
-    read_fd, write_fd = os.pipe()
-    pid = os.fork()
-    if pid == 0:  # pragma: no cover — child process
-        try:
-            fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            os.write(write_fd, b"1")
-            time.sleep(10)
-        finally:
-            os._exit(0)
-    os.close(write_fd)
+    # The holder is a SUBPROCESS (tests/lock_holder.py): this test process is
+    # multi-threaded, so an in-process fork would violate fork's precondition.
+    holder = hold_project_lock(core._lock_path(entry.slug))
     try:
-        os.read(read_fd, 1)
         result = runner.invoke(app, ["find-symbol", "Core", "--project",
                                      str(project), "--refresh"])
     finally:
-        os.close(read_fd)
-        os.kill(pid, 9)
-        os.waitpid(pid, 0)
+        holder.release()
     assert result.exit_code == 5, result.output
     assert result.stdout == "", result.stdout
     assert "LockedError: indexing in progress" in result.stderr

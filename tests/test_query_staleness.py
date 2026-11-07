@@ -9,16 +9,15 @@ hard when another process holds the per-project flock.
 
 from __future__ import annotations
 
-import fcntl
 import os
 import shutil
 import sys
 import tempfile
-import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import pytest  # noqa: E402
+from lock_holder import hold_project_lock  # noqa: E402
 
 from code_indexer.config import Config  # noqa: E402
 from code_indexer.core import Core  # noqa: E402
@@ -182,23 +181,11 @@ def test_skip_stale_check_is_inert_for_refresh(rig):
 def test_refresh_fails_hard_when_the_flock_is_held(rig):
     """A held per-project flock is LockedError (exit 5), never a stale answer."""
     core, entry, project = rig
-    lock_path = core._lock_path(entry.slug)
-    read_fd, write_fd = os.pipe()
-    pid = os.fork()
-    if pid == 0:  # pragma: no cover — child process
-        try:
-            fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o644)
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            os.write(write_fd, b"1")
-            time.sleep(10)
-        finally:
-            os._exit(0)
-    os.close(write_fd)
+    # The holder is a SUBPROCESS (tests/lock_holder.py): this test process is
+    # multi-threaded, so an in-process fork would violate fork's precondition.
+    holder = hold_project_lock(core._lock_path(entry.slug))
     try:
-        os.read(read_fd, 1)  # the child holds the lock now
         with pytest.raises(LockedError, match="indexing in progress"):
             core.refresh(entry)
     finally:
-        os.close(read_fd)
-        os.kill(pid, 9)
-        os.waitpid(pid, 0)
+        holder.release()
