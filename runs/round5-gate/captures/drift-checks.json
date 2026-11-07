@@ -1,0 +1,84 @@
+# masked capture: absolute host paths were elided (<checkout>, <scratch>,
+# <skills-root>, <home>); no other byte was changed. The unmodified
+# capture is kept in the local evidence store outside the repository.
+{
+  "mutations": [
+    {
+      "check": "1 roster equality (a class edited)",
+      "failed": true,
+      "message": "roster class disagrees with ADR-0003 section 1: {'changed-symbols': ('write', 'read')}"
+    },
+    {
+      "check": "2a index closure (a reference naming a nonexistent file)",
+      "failed": true,
+      "message": "the entry document names references that do not exist: ['ghost.md']"
+    },
+    {
+      "check": "2b index closure (a file nothing names)",
+      "failed": true,
+      "message": "reference files the entry document never names: ['extra.md']"
+    },
+    {
+      "check": "2c index closure (a command covered by none)",
+      "failed": true,
+      "message": "registered commands no reference documents: ['overview']"
+    },
+    {
+      "check": "2d index closure (a command covered twice)",
+      "failed": true,
+      "message": "commands documented by more than one reference: {'overview': ['failures.md', 'query.md']}"
+    },
+    {
+      "check": "3a budgets (entry document over 120 lines)",
+      "failed": true,
+      "message": "SKILL-CLI.md is 123 lines / 6511 bytes; the budget is 120 lines / 8192 bytes"
+    },
+    {
+      "check": "3b budgets (one reference over 400 lines)",
+      "failed": true,
+      "message": "skill/references/failures.md is 408 lines / 6704 bytes; the budget is 400 lines / 24576 bytes"
+    },
+    {
+      "check": "4 taxonomy coverage (one exit code dropped)",
+      "failed": true,
+      "message": "exit codes missing from the entry table: [4]"
+    },
+    {
+      "check": "5 generated-block equality (one block hand-edited)",
+      "failed": true,
+      "message": "generated blocks differ from scripts/generate_skill_docs.py output (run it): ['roster in SKILL-CLI.md']"
+    }
+  ],
+  "baseline": [
+    {
+      "check": "roster",
+      "passes_on_the_clean_copy": true
+    },
+    {
+      "check": "named",
+      "passes_on_the_clean_copy": true
+    },
+    {
+      "check": "files",
+      "passes_on_the_clean_copy": true
+    },
+    {
+      "check": "coverage",
+      "passes_on_the_clean_copy": true
+    },
+    {
+      "check": "budget",
+      "passes_on_the_clean_copy": true
+    },
+    {
+      "check": "taxonomy",
+      "passes_on_the_clean_copy": true
+    },
+    {
+      "check": "generated",
+      "passes_on_the_clean_copy": true
+    }
+  ],
+  "read_command_mutated": "changed-symbols",
+  "carrier": "query.md"
+}

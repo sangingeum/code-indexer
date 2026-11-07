@@ -1,0 +1,133 @@
+# masked capture: absolute host paths were elided (<checkout>, <scratch>,
+# <skills-root>, <home>); no other byte was changed. The unmodified
+# capture is kept in the local evidence store outside the repository.
+{
+  "db": "manifest.db",
+  "tables": [
+    "chunks",
+    "chunks_fts",
+    "chunks_fts_config",
+    "chunks_fts_content",
+    "chunks_fts_data",
+    "chunks_fts_docsize",
+    "chunks_fts_idx",
+    "files",
+    "imports",
+    "index_errors",
+    "meta",
+    "refs",
+    "symbols"
+  ],
+  "columns": {
+    "chunks": [
+      "file",
+      "chunk_index",
+      "start_line",
+      "end_line",
+      "symbol",
+      "symbol_type",
+      "chunk_hash",
+      "text"
+    ],
+    "chunks_fts": [
+      "content",
+      "symbol",
+      "path"
+    ],
+    "chunks_fts_config": [
+      "k",
+      "v"
+    ],
+    "chunks_fts_content": [
+      "id",
+      "c0",
+      "c1",
+      "c2"
+    ],
+    "chunks_fts_data": [
+      "id",
+      "block"
+    ],
+    "chunks_fts_docsize": [
+      "id",
+      "sz"
+    ],
+    "chunks_fts_idx": [
+      "segid",
+      "term",
+      "pgno"
+    ],
+    "files": [
+      "path",
+      "content_hash",
+      "size",
+      "chunk_count",
+      "status",
+      "mtime_ns",
+      "inode",
+      "loc",
+      "language",
+      "parse_verdict"
+    ],
+    "imports": [
+      "file",
+      "raw_target",
+      "resolved_file",
+      "kind",
+      "line"
+    ],
+    "index_errors": [
+      "file",
+      "chunk_index",
+      "error",
+      "at"
+    ],
+    "meta": [
+      "key",
+      "value"
+    ],
+    "refs": [
+      "file",
+      "line",
+      "from_symbol",
+      "to_name",
+      "relationship",
+      "confidence",
+      "receiver",
+      "target_symbol_id",
+      "resolution"
+    ],
+    "symbols": [
+      "file",
+      "qualified_name",
+      "symbol_type",
+      "decl_hash",
+      "id",
+      "name",
+      "container",
+      "language",
+      "start_line",
+      "end_line",
+      "source",
+      "signature",
+      "visibility"
+    ]
+  },
+  "provider_column_hits": [],
+  "provider_value_hits": [],
+  "row_counts": {
+    "chunks": 1,
+    "chunks_fts": 1,
+    "chunks_fts_config": 1,
+    "chunks_fts_content": 1,
+    "chunks_fts_data": 3,
+    "chunks_fts_docsize": 1,
+    "chunks_fts_idx": 1,
+    "files": 1,
+    "imports": 0,
+    "index_errors": 0,
+    "meta": 11,
+    "refs": 0,
+    "symbols": 1
+  }
+}

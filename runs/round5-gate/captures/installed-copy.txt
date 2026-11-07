@@ -1,0 +1,20 @@
+# masked capture: absolute host paths were elided (<checkout>, <scratch>,
+# <skills-root>, <home>); no other byte was changed. The unmodified
+# capture is kept in the local evidence store outside the repository.
+### equal copy, throwaway skills root
+...                                                                      [100%]
+3 passed, 32 deselected in 0.04s
+
+### one byte appended to one reference
+E         + 68f2aa2ea7d467b77d5b04c2490f02b624009a4cdb2032741e60fbf3841d1c2d
+
+tests/test_docs.py:435: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_docs.py::test_installed_copy_digest_matches_the_tracked_copy
+1 failed, 2 passed, 32 deselected in 0.09s
+
+### legacy single-file copy
+s..                                                                      [100%]
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_docs.py:434: <scratch>/legacy-root/code-indexer is not installed in this shape (a directory holding SKILL.md and references/); a legacy single-file copy cannot carry the references
+2 passed, 1 skipped, 32 deselected in 0.04s
