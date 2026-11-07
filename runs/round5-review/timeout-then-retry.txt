@@ -1,0 +1,4 @@
+request 1: ProviderTimeout: the slow-once provider did not answer 'resolve_symbol' within 0.05s: the request was cancelled ($/cancelRequest) and is reported as a timeout, never as an empty answer  [0.05s]
+request 2: ProviderTimeout: the slow-once provider did not answer 'resolve_symbol' within 0.05s: the request was cancelled ($/cancelRequest) and is reported as a timeout, never as an empty answer  [0.05s]
+request 3: answered (0 candidate(s))  [0.00s]
+provider calls made: 2

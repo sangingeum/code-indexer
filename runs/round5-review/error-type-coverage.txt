@@ -1,0 +1,17 @@
+error types declared in src/code_indexer/errors.py : 32
+of those named in skill/references/failures.md    : 17
+  missing: CarriageReturnInPlan
+  missing: InternalError
+  missing: LocatorMismatch
+  missing: MixedNewlines
+  missing: NewlineMismatch
+  missing: NonLineAlignedProviderEdit
+  missing: NotFoundError
+  missing: NotUtf8
+  missing: PathEscapesProject
+  missing: PositionConversionFailed
+  missing: ProviderFailure
+  missing: ProviderRefusal
+  missing: ProviderTimeout
+  missing: SemanticProviderUnavailable
+  missing: SubLineEditUnsupported
