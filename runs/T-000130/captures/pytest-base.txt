@@ -1,0 +1,36 @@
+........................................................................ [  7%]
+....F................................................................... [ 14%]
+........................................................................ [ 21%]
+........................................................................ [ 28%]
+........................................................................ [ 36%]
+........................................................................ [ 43%]
+........................................................................ [ 50%]
+........................................................................ [ 57%]
+........................................................................ [ 64%]
+........................................................................ [ 72%]
+........................................................................ [ 79%]
+........................................................................ [ 86%]
+........................................................................ [ 93%]
+...............................................................          [100%]
+=================================== FAILURES ===================================
+_____________ test_installed_copy_digest_matches_the_tracked_copy ______________
+
+    def test_installed_copy_digest_matches_the_tracked_copy():
+        """Equal digest when installed in the new shape; skip with the reason when not."""
+        path, reason = _installed_skill()
+        if path is None:
+            pytest.skip(reason)
+>       assert _dir_digest(path) == _tracked_digest(), (
+            f"the installed copy at {path} differs from the tracked copy; "
+            "the release step installs after this test passes"
+        )
+E       AssertionError: the installed copy at /home/keum/.hermes/skills/code-indexer differs from the tracked copy; the release step installs after this test passes
+E       assert '13457fd074b8...c6192bc3dda01' == '49d3833a9e9a...61a72a1ce7e7e'
+E         
+E         - 49d3833a9e9ad30d1ff9a347f7177d6283078371bf2d0d401f261a72a1ce7e7e
+E         + 13457fd074b8ea5fb51f3482ef4d26f08963d0e7adf4a5e6decc6192bc3dda01
+
+tests/test_docs.py:492: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_docs.py::test_installed_copy_digest_matches_the_tracked_copy
+1 failed, 998 passed, 2 deselected in 155.06s (0:02:35)

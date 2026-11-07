@@ -1,0 +1,8 @@
+exit=0
+stderr_bytes=123
+stdout_bytes=34
+-- stderr --
+Warning: index staleness check did not run (no index manifest for this project); answers describe the index, not the tree.
+-- stdout --
+project: proj4 — 0 files, 0 LOC
+
