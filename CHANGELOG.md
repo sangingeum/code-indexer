@@ -4,7 +4,10 @@
 
 **`semantic-search` returns byte-identical output for the same read against the
 same index, at any `--limit`, including the first call after the embedding
-service reloads a model.** Two layers were unstable, and neither was the store:
+service reloads a model — for a read whose query embedding is served from the
+embedding cache, which is the default.** The guarantee rests on that cache: with
+`EMBED_CACHE=0` and the model reloaded, the vector is recomputed and the cold and
+warm reads differ. Two layers were unstable, and neither was the store:
 Qdrant returned the same ordered point list on every call and in every process
 measured, and the SQL reads underneath are ordered. First, the query embedding
 was recomputed whenever the dimension was unknown — which is every read — and
@@ -21,8 +24,15 @@ produced a "union" spanning lines no chunk covers (5-110 from hits at 1-10,
 `file`, `start_line`, `end_line`, `symbol` — and the merge is the line-ordered
 union of the ranges, so the member set is a function of the chunks the store
 returned. A deep-limit answer therefore reports the true number of disjoint
-ranges instead of the over-merged set (on this repository at `--limit 3000`:
-915 ranges against 417 before), and the default depth answers the same hits.
+ranges instead of the over-merged set — on this repository's current snapshot
+(192 files, 3130 chunk rows, a 2926-row pool at `--limit 3000`) 915 ranges
+against 425 before. The default depth moves too: an answer can change there
+because a merge no longer spans a gap between chunks, so a range that used to
+run from the first hit to the last now reports only the lines its chunks
+actually cover (in 4 of 4 sampled queries at `--limit 8` the member set
+differed, up to 7 of 7 rows). The candidate pool is unchanged at every depth;
+what changes is which ranges the answer reports, and the reported ranges are
+more precise.
 Query-time only: no stored key changed, so no reindex is involved.
 
 ## [Unreleased] — four surface questions answered, one scan set corrected,

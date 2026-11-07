@@ -159,9 +159,13 @@ a test-defined exact match can still sit below source.
 Score ties inside a mode fall back to `project`, `file`, `start_line`,
 `end_line`, `symbol`, so the ordering is total: the same read against the same
 index returns byte-identical output at any `--limit`, including the first call
-after the embedding service reloads a model. The same-file merge is the
-line-ordered union of the chunk ranges, so which ranges an answer reports is a
-function of the chunks the store returned and not of their scores.
+after the embedding service reloads a model, as long as the query embedding is
+served from the embedding cache, which is the default -- with `EMBED_CACHE=0`
+and the model reloaded the vector is recomputed, and a cold and a warm read
+differ; and two reads taken across a reindex are two indexes, not one. The
+same-file merge is the line-ordered union of the chunk ranges, so which
+ranges an answer reports is a function of the chunks the store returned and
+not of their scores.
 
 Two waivers, and only two. A **test-targeting query** (`test`, `tests`,
 `testing`, `spec`, `specs`, `fixture`, `fixtures`, `unittest`, `unittests`)
