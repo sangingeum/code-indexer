@@ -214,11 +214,13 @@ def _print_version(value: bool) -> None:
 # one output-format flag across the read commands
 # ---------------------------------------------------------------------------
 # `--json` is an EXACT alias for `--format json`, so both spellings render the
-# same answer. Giving both is a usage error (exit 2) rather than a silent
-# precedence: one invocation, one answer format, and no caller has to know
-# which flag would have won. `--format compact` exists only on the read
-# commands in COMPACT_FORMAT_COMMANDS, whose compact rendering is one line per
-# record built from fields the text form already prints; everywhere else it is
+# same answer. Giving both is accepted only when the two spellings agree
+# (`--json --format json`), which asks for the same answer twice and never
+# leaves the answer in doubt; naming two different formats is a usage error
+# (exit 2) rather than a silent precedence, so no caller has to know which
+# flag would have won. `--format compact` exists only on the read commands in
+# COMPACT_FORMAT_COMMANDS, whose compact rendering is one line per record
+# built from fields the text form already prints; everywhere else it is
 # refused with the formats that command does take (entry document, one table).
 FORMATS = ("text", "json", "compact")
 
@@ -226,7 +228,8 @@ FormatOpt = typer.Option(
     None, "--format",
     help="Output format: text (default) | json (the same as --json) | "
          "compact, where the command has a one-line-per-record form. "
-         "Passing --json and --format together is a usage error (exit 2).")
+         "--json with --format json is accepted (same answer twice); --json "
+         "with any other --format is a usage error (exit 2).")
 
 
 def _output_format(fmt: str | None, json_output: bool, *,
@@ -234,16 +237,19 @@ def _output_format(fmt: str | None, json_output: bool, *,
     """Resolve `--format` / `--json` into the one format to render.
 
     Neither flag is text; `--json` alone is json; `--format` alone is what it
-    names. Both together is a usage error, and `compact` on a command with no
-    compact form is refused naming the formats that command does accept.
+    names. `--json` together with `--format json` is the same answer asked
+    twice and is accepted; together with any other format the two disagree
+    and the invocation is refused naming the contradiction. `compact` on a
+    command with no compact form is refused naming the formats that command
+    does accept.
     """
     compact_ok = command in COMPACT_FORMAT_COMMANDS
     supported = "|".join(FORMATS if compact_ok else FORMATS[:2])
     if fmt is not None and fmt not in FORMATS:
         _usage_die(f"unknown --format value: {fmt!r} (expected {supported})")
-    if fmt is not None and json_output:
-        _usage_die("--json and --format both given: --json is an alias of "
-                   "--format json, so pass one of them")
+    if fmt is not None and json_output and fmt != "json":
+        _usage_die(f"--json and --format {fmt} disagree: --json is an alias "
+                   "of --format json; pass one of them")
     if fmt == "compact" and not compact_ok:
         _usage_die(f"{command} has no compact form; supported formats: "
                    f"{supported}")

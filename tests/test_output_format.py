@@ -316,14 +316,36 @@ def test_unknown_format_value_is_a_usage_error(rig):
 @pytest.mark.parametrize("argv", [
     ["overview"],
     ["find-symbol", "helper"],
-], ids=["overview", "find-symbol"])
-def test_json_and_format_together_are_a_usage_error(rig, argv):
-    """One conflict rule, everywhere: both flags is exit 2, never a winner."""
+    ["semantic-search", "helper"],
+], ids=["overview", "find-symbol", "semantic-search"])
+def test_the_four_flag_combinations_agree_exactly_once(rig, argv):
+    """One rule for the pair: accepted when it agrees, refused when it does not.
+
+    `--json` alone, `--format json` alone and the agree-pair are one answer,
+    byte for byte; `--format text` alone renders the other format; and
+    `--json --format text|compact` is exit 2 naming the contradiction. A
+    silent `--format` precedence turns the agreement into a different answer
+    and the disagreement into exit 0, so both halves go red.
+    """
     _, _, _, project = rig
-    result = _run(project, *argv, "--json", "--format", "text")
-    assert result.exit_code == 2, result.output
-    assert "--json and --format both given" in result.stderr
-    assert result.stdout == ""
+    by_json = _run(project, *argv, "--json")
+    by_format = _run(project, *argv, "--format", "json")
+    agree = _run(project, *argv, "--json", "--format", "json")
+    by_text = _run(project, *argv, "--format", "text")
+    assert by_json.exit_code == 0, by_json.output
+    assert by_json.stdout, "the stub rig produced no payload"
+    assert by_format.exit_code == 0, by_format.output
+    assert by_format.stdout == by_json.stdout
+    assert agree.exit_code == 0, agree.output
+    assert agree.stdout == by_json.stdout
+    assert agree.stderr == by_json.stderr
+    assert by_text.exit_code == 0, by_text.output
+    assert by_text.stdout != by_json.stdout
+    for other in ("text", "compact"):
+        clash = _run(project, *argv, "--json", "--format", other)
+        assert clash.exit_code == 2, clash.output
+        assert f"--json and --format {other} disagree" in clash.stderr
+        assert clash.stdout == ""
 
 
 def test_the_compact_set_is_a_subset_of_the_read_commands():
