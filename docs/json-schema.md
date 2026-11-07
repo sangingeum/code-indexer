@@ -693,9 +693,10 @@ with its own condition and stream:
   indexed and how to extend the scope).
 * the `note: ...` lines of a graph answer -- `find-callers` and
   `find-callees`, text mode, whenever the walk carries notes (a node or depth
-  cap, a subject with no reference rows); on **stderr** beside a complete tree
-  and on **stdout** when the answer is `truncated`, where the notes are part of
-  what the reader is reading.
+  cap, a subject with no reference rows); on **stdout** when the answer is
+  `truncated` OR empty, where the notes are part of what the reader is reading
+  (an empty answer carries its explanation where it is read, as the coverage
+  bullet says), and on **stderr** beside a complete, non-empty tree.
 
 That is an enumeration, not a promise: every stderr write in the CLI is a
 literal `typer.echo(..., err=True)` except two writers with a computed stream

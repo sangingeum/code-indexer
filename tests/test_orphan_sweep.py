@@ -275,6 +275,23 @@ def test_apply_removes_exactly_the_expected_rows(rig, monkeypatch):
     assert _file_rows(core, entry.slug, "ondisk.py")["symbols"] == 1
 
 
+def test_a_successful_sweep_writes_the_shared_staleness_warning(
+        rig, monkeypatch):
+    """The row the reference owns is every stderr line, Warning included.
+
+    Measured on a stale tree: `sweep-orphans` at exit 0 writes the shared
+    `Warning: index is stale: ...` line as well as its own notes, because it
+    reads freshness before it sweeps.
+    """
+    core, reg, entry, project = rig
+    _delete_file_and_its_files_row(core, entry.slug, project, "gone.py")
+    monkeypatch.setattr(cli, "_get_core", lambda skip: core)
+    result = runner.invoke(app, ["sweep-orphans", entry.path])
+    assert result.exit_code == 0, result.output
+    assert "Warning: index is stale:" in result.stderr, result.stderr
+    assert "note:" in result.stderr, result.stderr
+
+
 def test_sweep_does_not_trigger_an_index_pass(rig):
     core, reg, entry, project = rig
     _delete_file_and_its_files_row(core, entry.slug, project, "gone.py")

@@ -100,7 +100,7 @@ a graph answer's `note:` lines). The lines each one writes on success:
 | command | **stdout** | **stderr** |
 |---|---|---|
 | `add-project`, `index-more`, `reindex-project`, `remove-project` | registration/result line, pass line and any `note:` line (`vectors=off`, `--allow-sensitive`, scoped indexing, `no indexing pass has completed`) | nothing on success |
-| `sweep-orphans` | counts line and file list | `note: <n> path(s) with rows but no files row are still present on disk and were left alone: ...`; `note: dry run — nothing was deleted; pass --apply to remove these rows` |
+| `sweep-orphans` | counts line and file list | the shared `Warning: index is stale: ...` line, whenever the freshness verdict is stale — the same line every other command that reads the index writes; `note: <n> path(s) with rows but no files row are still present on disk and were left alone: ...`; `note: dry run — nothing was deleted; pass --apply to remove these rows` |
 | `watch` | start/stop and watched-project lines | `watch: skipping project <slug> (<path>): path is missing or unreadable`; `watch: already running (pid=..., pidfile=...)`; `watch: requested project(s) are NOT covered by the live watcher ...`; the holder-undetermined note |
 | `unwatch` | the stopped pid and the projects it was serving | `unwatch: note: it did not cover every requested project` |
 
@@ -218,33 +218,38 @@ embedding identity is not the one this build would write -- plus
 (`parse=parsed:N,parse_error:N,parse_unavailable:N`).
 
 Both verdict pairs are flags a caller branches on, and the text form adds one
-stderr line saying what the pair MEANS. The sentence follows the verdict it
-is printed beside, because one run compares two things -- the row keys and
-the vector identity -- and `vectors_state` is printed in the same line:
+stderr line saying what the pair MEANS. It reads no source of its own: it is
+handed the same verdict object the line's `vectors=`/`vectors_state=` fields
+come from -- mode, marker and identity comparison -- so the sentence and the
+line cannot disagree.
 
-- `fingerprint=unverified` with `vectors_state` NOT `stale`: every
-  fingerprint key a read can compare matched (embedding model,
-  embedded-text format, chunker and extraction version) and the recorded
-  model and format are this build's; the embedding DIMENSION is the one key
-  left uncompared, because learning the configured dimension needs the
-  service, so vectors of another dimension recorded under the same model
-  name would not be flagged.
-- `vectors_state=stale` (with `fingerprint=unverified`): the sentence names
-  the key that did not match -- `embed_model: a -> b` or
-  `embed_text_version: a -> b` -- and says a rebuild with `reindex-project`
-  clears it. It never says every key matched: stale is the state in which
-  the embedding model did not.
-- `fingerprint=needs-reindex reason=<differences>`: the named keys differ
-  (chunker and/or extraction version), so the index was built by other
-  extraction or chunking code than this build runs and the row reads refuse
-  until a rebuild; a stale vector side is named too when both are true.
+- `fingerprint=unverified` with `vectors_state` NOT `stale`: every fingerprint
+  key a read can compare matched (embedding model, embedded-text format,
+  chunker, extraction version) and the recorded model and format are this
+  build's; the embedding DIMENSION is the one key left uncompared -- learning
+  it needs the service -- so another dimension under the same model name is
+  not flagged.
+- `vectors_state=stale` (with `fingerprint=unverified`): the sentence names the
+  key that did not match (`embed_model: a -> b`, `embed_text_version: a -> b`)
+  and says `reindex-project` clears it; it never says every key matched.
+- `fingerprint=needs-reindex reason=<differences>`: the named row keys differ
+  (chunker and/or extraction), so the row reads refuse until a rebuild; a
+  stale vector side is named too when both are true.
+- `vectors=off`: there is no vector side -- no vectors are stored and no
+  vector query runs -- so nothing about vectors can be stale and no vector
+  rebuild is prescribed. A recorded identity that differs from this build's
+  is an inert fact: it changes nothing until a vectors-on pass, which writes
+  a new collection under its own identity. (This is the state a line can read
+  `vectors=off vectors_state=current` beside a recorded model that differs.)
+- `vectors_state=stale` with a matching identity (a marker this build never
+  writes): the sentence says the MANIFEST's record is what is stale.
 - no recorded fingerprint (no `fingerprint` field on the line): the
   comparison did not run, and the sentence says so -- silence would read as a
   pass.
 
-JSON carries the same sentence as
-`fingerprint_meaning`; the pair's field names are unchanged, and the one-line
-answer keeps its shape because the sentence rides stderr.
+JSON carries the same sentence as `fingerprint_meaning`; the field names are
+unchanged and the one-line answer keeps its shape because the sentence rides
+stderr.
 
 Every read answer's JSON, `index-status` included, carries the `coverage`
 block -- files in scope, parsed and unparsed counts, withheld files, the

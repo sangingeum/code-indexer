@@ -544,6 +544,29 @@ def test_find_callers_generous_cap_is_not_truncated(tmp_path, monkeypatch):
     assert payload["omitted"] == 0
 
 
+def test_a_complete_empty_answer_prints_its_notes_on_stdout(tmp_path,
+                                                           monkeypatch):
+    """The third stream branch: empty and complete still explains on stdout.
+
+    `_emit_graph`'s empty branch echoes each note with no `err` argument, so
+    the notes ride beside the answer the reader is reading -- the same rule
+    the coverage line follows. A complete NON-empty tree puts them on stderr.
+    """
+    core, reg, entry, project = _rig(tmp_path, monkeypatch)
+    result = runner.invoke(app, ["find-callers", "never_mentioned_anywhere",
+                                 "--project", str(project)])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(runner.invoke(
+        app, ["find-callers", "never_mentioned_anywhere",
+              "--project", str(project), "--json"]).stdout)
+    assert payload["truncated"] is False
+    assert any("nothing in this index mentions it" in n
+               for n in payload["notes"])
+    assert "note:" in result.stdout, result.stdout
+    assert "nothing in this index mentions it" in result.stdout
+    assert "note:" not in result.stderr, result.stderr
+
+
 def test_unknown_symbol_is_not_reported_as_truncated(tmp_path, monkeypatch):
     """Negative control: nothing was refused, so nothing is truncated."""
     core, reg, entry, project = _rig(tmp_path, monkeypatch)

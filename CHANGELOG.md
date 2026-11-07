@@ -1,5 +1,35 @@
 # Changelog
 
+## [Unreleased] — one verdict source for the fingerprint sentence
+
+**The `index-status` sentence now reads the same vector verdict its line
+prints.** The sentence took its vector half from `fingerprint_status`'s
+`vectors`, which is the identity comparison alone, while the line printed
+`core.vectors_status`, which also knows the vectors mode and the recorded
+marker. On a project kept `vectors=off` and read under a different
+`EMBED_MODEL`, the line said `vectors=off vectors_state=current` and the
+sentence said the vector side was stale and prescribed a rebuild — at exit 0,
+beside a verdict that denied it. `core.vectors_status` now carries the
+identity comparison (`identity_reason`) inside the same object as the mode and
+the marker, and `fingerprint.meaning` is handed that object and nothing else,
+so the sentence and the line cannot disagree.
+
+With vectors off the sentence now says there is no vector side at all (no
+vectors are stored and no vector query runs), states a recorded identity that
+differs from this build's as an inert fact — it changes nothing until a
+vectors-on pass, which writes its own collection — and prescribes no rebuild.
+A recorded `stale` marker with a matching identity gets its own clause instead
+of leaving the reader to reconcile it with a sentence about matched keys. The
+verdict values, the field names and the JSON shape are unchanged; only the
+`fingerprint_meaning` sentence moved, and only for states it used to
+misdescribe.
+
+Two shipped document cells are corrected with it: the sweep-orphans stderr
+cell now names the shared `Warning: index is stale: ...` line a successful
+sweep writes, and the read contract's graph-notes bullet says a complete
+**empty** answer prints its `note:` lines on stdout (with `truncated: false`),
+as the coverage bullet already described.
+
 ## [Unreleased] -- an empty answer names its cause, and coverage travels with it
 
 **An empty read answer says why it is empty.** `find-symbol` returning

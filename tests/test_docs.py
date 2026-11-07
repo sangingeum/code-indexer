@@ -919,6 +919,38 @@ def test_the_error_contract_hands_lifecycle_commands_to_the_reference():
         assert name in reference, name
 
 
+def test_the_sweep_orphans_cell_names_every_line_a_success_writes():
+    """The reference cell is the whole stderr of a successful sweep.
+
+    Measured: a dry run at rc 0 on a stale tree writes the shared staleness
+    Warning as well as its notes, so a cell naming only the notes describes a
+    run that does not exist.
+    """
+    reference = _reference_text("indexing.md")
+    rows = [ln for ln in reference.splitlines()
+            if ln.startswith("| `sweep-orphans` |")]
+    assert len(rows) == 1, rows
+    assert "Warning: index is stale" in rows[0], rows[0]
+    assert "note:" in rows[0], rows[0]
+
+
+def test_the_graph_notes_bullet_names_the_empty_answer_stream():
+    """A complete EMPTY graph answer prints its notes on stdout, not stderr.
+
+    `_emit_graph`'s empty branch echoes each note with no `err` argument, so
+    the shipped rule is "an empty answer carries its explanation where it is
+    read" -- the rule the coverage bullet states and this one used to omit.
+    """
+    section = _error_contract_section()
+    m = re.search(r"\* the `note: \.\.\.` lines of a graph answer"
+                  r"(.*?)(?=\n\* |\n\n)", section, re.S)
+    assert m, "json-schema.md lost the graph-notes bullet"
+    bullet = " ".join(m.group(1).split())
+    assert "**stdout**" in bullet, bullet
+    assert "empty" in bullet, bullet
+    assert "**stderr**" in bullet, bullet
+
+
 def test_machine_output_says_which_stream_the_coverage_line_uses():
     text = _reference_text("machine-output.md")
     flat = " ".join(text.split())
