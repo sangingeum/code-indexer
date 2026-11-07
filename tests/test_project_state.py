@@ -8,6 +8,8 @@ output; a successful pass clears it back to idle.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from typer.testing import CliRunner
 
@@ -141,6 +143,36 @@ def test_index_status_returns_to_idle_after_a_pass(core, project):
     assert result.exit_code == 0
     assert "state=idle" in result.output
     assert "never-indexed" not in result.output
+
+
+def test_index_status_states_the_last_pass_in_words(core, project, monkeypatch):
+    """A just-refreshed project's text line states the pass as ONE phrase:
+    what was indexed, how many files, and that it completed.
+
+    The phrase is what the text form must print. The pass OBJECT belongs to
+    --json; its repr used to ride this line as `last_pass={'chunks_embedded':
+    0, ...}` -- an internal structure with braces, quoted keys and a literal
+    ')', wide enough to truncate on a narrow terminal.
+    """
+    import code_indexer.cli as cli
+
+    core.registry.add(str(project))
+    # The stubbed core answers the refresh: no service is dialled.
+    monkeypatch.setattr(cli, "_get_core", lambda skip: core)
+    result = runner.invoke(app, ["index-status", str(project), "--refresh"])
+    assert result.exit_code == 0, result.output
+    line = next(ln for ln in result.output.splitlines() if "last_pass=" in ln)
+    assert "last_pass=indexed 1 file (" in line, line
+    assert " embedded), completed" in line, line
+    # No dict repr: no braces, no quoted keys, no stray ')'. The phrase's own
+    # parentheses are balanced and it closes with ')', never with the repr.
+    assert "{" not in line and "}" not in line and "'" not in line, line
+    # JSON keeps the pass object exactly as it was.
+    as_json = runner.invoke(app, ["index-status", str(project), "--json"])
+    assert as_json.exit_code == 0, as_json.output
+    payload = json.loads(as_json.stdout)
+    assert isinstance(payload["last_pass"], dict), payload.get("last_pass")
+    assert payload["last_pass"]["files_indexed"] == 1
 
 
 def test_add_project_hints_at_the_unfinished_pass(core, project):

@@ -203,6 +203,35 @@ def _pass_line(slug: str, result: dict) -> str:
     return f"{slug}: {json.dumps(payload['result'], ensure_ascii=False)}"
 
 
+def _pass_phrase(result: dict[str, Any]) -> str:
+    """The last completed pass as one phrase: what was indexed, how many
+    files, and that it finished.
+
+    The pass OBJECT is data for --json only. Its repr on the text line was an
+    internal structure -- braces, quoted keys, a literal ')' -- that pulled the
+    line wide enough to truncate on a narrow terminal while stating one fact.
+    The phrase says the same fact in words and stays short at any width.
+    """
+    files = int(result.get("files_indexed") or 0)
+    chunks = int(result.get("chunks_embedded") or 0)
+    reused = int(result.get("chunks_reused") or 0)
+    deleted = int(result.get("files_deleted") or 0)
+    file_noun = "file" if files == 1 else "files"
+    chunk_noun = "chunk" if chunks == 1 else "chunks"
+    phrase = f"indexed {files} {file_noun} ({chunks} {chunk_noun} embedded"
+    if reused:
+        phrase += f", {reused} reused"
+    phrase += ")"
+    if deleted:
+        phrase += f", deleted {deleted} {'file' if deleted == 1 else 'files'}"
+    duration = result.get("duration_s")
+    if isinstance(duration, (int, float)) and duration >= 0.05:
+        phrase += f", completed in {duration:.1f}s"
+    else:
+        phrase += ", completed"
+    return phrase
+
+
 def _emit_pass(payload: dict[str, Any], lines: list[str],
                json_output: bool) -> None:
     """One pass answer: the JSON object, or the lines the text renderer prints."""
@@ -1542,7 +1571,8 @@ def index_status(
                                          fp["reason"],
                                          vectors=vs)
     if st.get("last_result"):
-        parts.append(f"last_pass={st['last_result']}")
+        # Text: one phrase. JSON: the pass object, unchanged.
+        parts.append(f"last_pass={_pass_phrase(st['last_result'])}")
         fields["last_pass"] = st["last_result"]
     if st.get("progress"):
         p = st["progress"]
