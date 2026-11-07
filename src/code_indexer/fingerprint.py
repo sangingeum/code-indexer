@@ -320,6 +320,46 @@ def _inert_vector_facts(vectors: Mapping[str, Any]) -> str:
     return "; ".join(parts)
 
 
+# The branches of `meaning`, named by the FIELD VALUES that reach them.
+# `meaning` dispatches on `meaning_branch`, so this tuple is the sentence's
+# own branch list: a branch with no id here cannot be reached, and the doc's
+# table is pinned to this tuple by name (docs/json-schema.md and the doc
+# test), so a new branch cannot ship with no row.
+ROW_KEYS_DIFFER = "row-keys-differ"
+ON_IDENTITY_MATCHED = "vectors-on-identity-matched"
+ON_IDENTITY_DIFFERS = "vectors-on-identity-differs"
+ON_MARKER_STALE = "vectors-on-marker-stale"
+OFF_IDENTITY_DIFFERS = "vectors-off-identity-differs"
+OFF_IDENTITY_MATCHED = "vectors-off-identity-matched"
+NO_VERDICT_RECORDED = "no-verdict-recorded"
+MEANING_BRANCHES = (ROW_KEYS_DIFFER, ON_IDENTITY_MATCHED, ON_IDENTITY_DIFFERS,
+                    ON_MARKER_STALE, OFF_IDENTITY_DIFFERS,
+                    OFF_IDENTITY_MATCHED, NO_VERDICT_RECORDED)
+
+
+def meaning_branch(state: str | None, *, vectors: Mapping[str, Any]) -> str:
+    """Which branch of :func:`meaning` these field values select.
+
+    The key is mode + marker + identity, in the order the sentence branches
+    on them -- never ``vectors_state`` alone, which is the marker the
+    manifest RECORDS, not a second comparison. A row key differing
+    (``needs-reindex``) outranks every vector-side branch, and no recorded
+    fingerprint is its own branch: the comparison did not run.
+    """
+    if state == "needs-reindex":
+        return ROW_KEYS_DIFFER
+    if state != "unverified":
+        return NO_VERDICT_RECORDED
+    if vectors.get("vectors") == MODE_OFF:
+        return (OFF_IDENTITY_DIFFERS if vectors.get("identity_reason")
+                else OFF_IDENTITY_MATCHED)
+    if vectors.get("identity_reason"):
+        return ON_IDENTITY_DIFFERS
+    if vectors.get("vectors_state") == STATE_STALE:
+        return ON_MARKER_STALE
+    return ON_IDENTITY_MATCHED
+
+
 def meaning(state: str | None, reason: str | None, *,
             vectors: Mapping[str, Any]) -> str:
     """What a fingerprint verdict means, in words, for the reader of a read.
@@ -354,7 +394,8 @@ def meaning(state: str | None, reason: str | None, *,
     identity_reason = vectors.get("identity_reason")
     marker_stale = vectors.get("vectors_state") == STATE_STALE
     inert = _inert_vector_facts(vectors)
-    if state == "needs-reindex":
+    branch = meaning_branch(state, vectors=vectors)
+    if branch == ROW_KEYS_DIFFER:
         sentence = (f"the recorded fingerprint disagrees with this build "
                     f"({reason}); the index was built by other extraction or "
                     f"chunking code, so the row reads refuse until a reindex "
@@ -371,64 +412,65 @@ def meaning(state: str | None, reason: str | None, *,
             sentence += ("; the manifest also records the vector collection as "
                          "stale, and this reindex rebuilds it")
         return sentence + " -- run: code-indexer reindex-project"
-    if state == "unverified":
-        if vectors_off:
-            if identity_reason:
-                sentence = (f"the row keys matched (chunker and extraction "
-                            f"version), but the recorded embedding identity "
-                            f"differs from this build's ({identity_reason}); "
-                            f"this project keeps vectors off, so no vectors "
-                            f"are stored and no vector query runs — there is "
-                            f"no vector side to be stale, and the difference "
-                            f"is inert until a vectors-on pass, which writes "
-                            f"a new collection under its own identity rather "
-                            f"than reusing the old one")
-                if marker_stale:
-                    sentence += ("; the manifest still records the collection "
-                                 "as stale from an earlier build, which is "
-                                 "inert while vectors are off")
-                return sentence
-            head = ("every fingerprint key a read can compare matched "
-                    "(embedding model, embedded-text format, chunker and "
-                    "extraction version), and the recorded embedding model "
-                    "and embedded-text format are the ones this build would "
-                    "write; this project keeps vectors off, so no vectors are "
-                    "stored and no vector query runs — there is no vector "
-                    "side here")
-            if marker_stale:
-                head += "; " + _inert_vector_facts(vectors)
-            return head + ("; the embedding dimension is the one key a read "
-                           "cannot compare, because learning the configured "
-                           "dimension needs the service")
-        matched_head = (
-            "every fingerprint key a read can compare matched (embedding model, "
-            "embedded-text format, chunker and extraction version), and the "
-            "recorded embedding model and embedded-text format are the ones "
-            "this build would write")
-        dimension = (
-            "; the embedding dimension is the one key left uncompared, "
-            "because learning the configured dimension needs the service, "
-            "so vectors of another dimension recorded under the same model "
-            "name would not be flagged here")
-        if identity_reason:
-            return (f"a fingerprint key a read can compare did not match "
-                    f"({identity_reason}), so the vector side is stale and its "
-                    f"vectors are not comparable with this build; the row "
-                    f"keys matched, so a vector rebuild is what clears this "
-                    f"-- run: code-indexer reindex-project")
+    if branch == OFF_IDENTITY_DIFFERS:
+        sentence = (f"the row keys matched (chunker and extraction "
+                    f"version), but the recorded embedding identity "
+                    f"differs from this build's ({identity_reason}); "
+                    f"this project keeps vectors off, so no vectors "
+                    f"are stored and no vector query runs — there is "
+                    f"no vector side to be stale, and the difference "
+                    f"is inert until a vectors-on pass, which writes "
+                    f"a new collection under its own identity rather "
+                    f"than reusing the old one")
         if marker_stale:
-            return (matched_head + "; separately, the manifest records the "
-                    "vector collection itself as stale, and a vector rebuild "
-                    "is what clears that -- run: code-indexer reindex-project")
-        return matched_head + dimension
-    sentence = ("the fingerprint comparison did not run: this index records no "
-                "fingerprint, or an incomplete one, so this build has no "
-                "verdict on whether the recorded configuration matches; the "
-                "next index pass records one")
-    if vectors_off:
-        sentence += ("; this project keeps vectors off, so there is no vector "
-                     "side here either")
-    return sentence
+            sentence += ("; the manifest still records the collection "
+                         "as stale from an earlier build, which is "
+                         "inert while vectors are off")
+        return sentence
+    if branch == OFF_IDENTITY_MATCHED:
+        head = ("every fingerprint key a read can compare matched "
+                "(embedding model, embedded-text format, chunker and "
+                "extraction version), and the recorded embedding model "
+                "and embedded-text format are the ones this build would "
+                "write; this project keeps vectors off, so no vectors are "
+                "stored and no vector query runs — there is no vector "
+                "side here")
+        if marker_stale:
+            head += "; " + _inert_vector_facts(vectors)
+        return head + ("; the embedding dimension is the one key a read "
+                       "cannot compare, because learning the configured "
+                       "dimension needs the service")
+    if branch == NO_VERDICT_RECORDED:
+        sentence = ("the fingerprint comparison did not run: this index records no "
+                    "fingerprint, or an incomplete one, so this build has no "
+                    "verdict on whether the recorded configuration matches; the "
+                    "next index pass records one")
+        if vectors_off:
+            sentence += ("; this project keeps vectors off, so there is no vector "
+                         "side here either")
+        return sentence
+    matched_head = (
+        "every fingerprint key a read can compare matched (embedding model, "
+        "embedded-text format, chunker and extraction version), and the "
+        "recorded embedding model and embedded-text format are the ones "
+        "this build would write")
+    dimension = (
+        "; the embedding dimension is the one key left uncompared, "
+        "because learning the configured dimension needs the service, "
+        "so vectors of another dimension recorded under the same model "
+        "name would not be flagged here")
+    if branch == ON_IDENTITY_DIFFERS:
+        return (f"a fingerprint key a read can compare did not match "
+                f"({identity_reason}), so the vector side is stale and its "
+                f"vectors are not comparable with this build; the row "
+                f"keys matched, so a vector rebuild is what clears this "
+                f"-- run: code-indexer reindex-project")
+    if branch == ON_MARKER_STALE:
+        return (matched_head + "; separately, the manifest records the "
+                "vector collection itself as stale, and a vector rebuild "
+                "is what clears that -- run: code-indexer reindex-project")
+    # ON_IDENTITY_MATCHED is the last branch in MEANING_BRANCHES.
+    return matched_head + dimension
 
 
 def mismatch_error(project_path: str, recorded: Fingerprint,
