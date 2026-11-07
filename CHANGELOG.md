@@ -1,5 +1,44 @@
 # Changelog
 
+## [Unreleased] -- an empty answer names its cause, and coverage travels with it
+
+**An empty read answer says why it is empty.** `find-symbol` returning
+`no symbols matching 'X'` at exit 0 used to be indistinguishable from the
+files never having been parsed, the language having no AST reader, or the
+project not being indexed at all. Both forms now state the cause, in one
+vocabulary shared by `find-symbol`, `find-definition`, `find-references`,
+`find-callers`, `find-callees` and `semantic-search`: `empty_reason` is
+`name-absent` (the index parsed the files that could hold the name),
+`files-not-parsed` (the sentence names the count and the languages),
+`language-without-ast` (the sentence names the language) or `index-empty`,
+in that fixed precedence, with `empty_reason_sentence` carrying the sentence
+the text form prints after its lead. Exit codes do not change: an empty
+answer is not an error.
+
+**Coverage travels with every read answer.** Every read command's JSON now
+carries one `coverage` object: files in scope, files parsed, files not parsed,
+files withheld for privacy, the languages in scope with no AST symbol reader,
+the freshness verdict and whether that coverage is complete. It is scoped to
+the files the answer actually read where that is knowable (`outline`,
+`get-code-context`, `find-symbol --file` say `scope: "answer"`), project-wide
+otherwise, and `scope: "none"` for a command that reads no index (`doctor`,
+`list-projects`, the eval reports, the two plan reads). The text form prints
+one short line ONLY when coverage is incomplete, so a clean answer still says
+nothing.
+
+**The fingerprint verdict says what it means.** `fingerprint=unverified
+reason=embedding-dimension-not-compared` used to be a bare pair of flags.
+`index-status` now also prints the meaning, in one stderr line beside its
+one-line answer and as `fingerprint_meaning` in JSON: the embedding
+fingerprint was not compared against the configured model (a read cannot
+learn its dimension without dialling the service), so vectors may have been
+built with another model. `needs-reindex` explains its own reason the same
+way. The field names are unchanged.
+
+Purely additive for JSON consumers: a caller that ignores `coverage`,
+`empty_reason` and `fingerprint_meaning` sees the bytes it saw before. No
+manifest schema change, no `EXTRACTION_VERSION` change, no reindex.
+
 ## [Unreleased] — one flag, one argument shape across the reads
 
 **The read commands answer to one format flag, and the three symbol reads take

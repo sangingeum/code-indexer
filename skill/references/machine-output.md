@@ -118,6 +118,39 @@ A fresh answer prints nothing extra; an `unknown` answer prints one line
 saying the check did not run. Either way the answer describes the index as of
 `last_indexed`, never the tree.
 
+## The coverage block (every read answer)
+
+Every read command's JSON carries one `coverage` object beside the staleness
+block: what the answer could actually see. A caller reads it instead of
+running `index-status` to decide whether to trust the answer.
+
+| field | meaning |
+|---|---|
+| `coverage` | `{scope, files, files_parsed, files_not_parsed, files_withheld, languages_without_ast, freshness, complete}` -- `scope` is `project` (the whole index), `answer` (the files this answer read: `outline`, `get-code-context`, `find-symbol --file`) or `none` (the command reads no index: `doctor`, `list-projects`, the eval reports, the plan readers, an unregistered `lookup-project`). A `none` block has null counts, never zeros; `complete` is null there too. |
+| `empty_reason` | one value for a name read that found nothing -- `name-absent`, `files-not-parsed` (count and languages in the sentence), `language-without-ast` (language named) or `index-empty` -- in that fixed precedence, with `empty_reason_sentence` carrying the same sentence the text form prints. |
+
+`files_not_parsed` counts `parse_error` + `parse_unavailable` + rows with no
+verdict. `files_withheld` intersects the staleness block's withheld list with
+the answer's scope. `languages_without_ast` lists the languages in scope whose
+files yield no AST symbol rows -- a shell-only project whose files parsed
+still says `["shell"]` -- and `freshness` repeats the staleness verdict, never
+a second estimate.
+
+The text form prints ONE short line, only when coverage is incomplete:
+
+```
+coverage: 124 of 184 files parsed, 60 not parsed; 1 file withheld for privacy
+```
+
+A clean answer prints nothing, so the line is a signal rather than wallpaper.
+An empty answer prints its cause instead, after the legacy lead:
+
+```
+no symbols matching 'X': the name is absent from an index that parsed 124 of 184 files
+```
+
+Exit codes do not move: an empty answer is still not an error.
+
 ## Which commands answer as data
 
 <!-- generated:json-commands:begin -->

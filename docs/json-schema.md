@@ -219,6 +219,62 @@ Branch on `withheld_count`, not on `stale`.
 `get-code-context --json` keeps `stale` as its FILE-level field and adds the
 rest of this block; the file-level warning line is unchanged.
 
+## The coverage block (every read answer)
+
+Every read command's JSON carries one `coverage` object beside the staleness
+block. It is what the answer could see, so a caller never has to run
+`index-status` to decide whether to trust it:
+
+```json
+{"scope": "project|answer|none",
+ "files": int|null, "files_parsed": int|null,
+ "files_not_parsed": int|null, "files_withheld": int|null,
+ "languages_without_ast": [str],
+ "freshness": "fresh|stale|unknown"|null,
+ "complete": bool|null}
+```
+
+`scope` says which files the answer covered: `project` (the whole index),
+`answer` (the files this answer actually read -- `outline`,
+`get-code-context`, `find-symbol --file`, and the `file-outline`/`map`
+aliases), or `none` (the command reads no index: `doctor`, `list-projects`,
+the eval reports, `plan-show`, `plan-validate`, and an unregistered
+`lookup-project`). A `none` block carries null counts rather than zeros:
+zero would claim "nothing to parse" about an answer that never looked.
+
+`files_not_parsed` is `parse_error` + `parse_unavailable` + rows with no
+recorded verdict. `files_withheld` comes from the staleness block's withheld
+list, intersected with the answer's scope when the scope names paths.
+`languages_without_ast` lists the languages IN SCOPE whose files yield no AST
+symbol rows -- the language-capability matrix's own runtime probe -- so a
+project whose only shell files parsed still says `["shell"]`.
+`freshness` repeats the staleness verdict (`fresh` | `stale` | `unknown`),
+never a second estimate. `complete` is true only when every file in scope
+parsed and none was withheld; it is null when `scope` is `none`.
+
+## empty_reason (a name read that found nothing)
+
+The name reads -- `find-symbol`, `find-definition`, `find-references`,
+`find-callers`, `find-callees` and `semantic-search` -- add two fields to an
+empty answer, and nothing to a non-empty one:
+
+```json
+{"empty_reason": "name-absent|files-not-parsed|language-without-ast|index-empty",
+ "empty_reason_sentence": str}
+```
+
+`name-absent` means the index parsed files whose language yields symbols and
+none of them holds the name. `files-not-parsed` means no such file parsed and
+at least one did not; the sentence names the count and the languages.
+`language-without-ast` means the files parsed but their language has no AST
+reader, so no symbol is extracted; the sentence names the language.
+`index-empty` means the project is registered and the index holds no files.
+The precedence is fixed in that order, so one condition never reports two
+values. `empty_reason_sentence` is the same sentence the text form prints,
+with the command's own lead (`no symbols matching 'X'`, `no references to
+'X'`, `no results`) in front. Exit codes do not change: an empty answer is
+not an error.
+
 ## list-projects --json
 
 ```json
@@ -255,11 +311,19 @@ An unregistered selector answers `registered: false` with its `path` and an
  "last_pass"|missing, "progress"|missing, "sensitive_skipped"|missing,
  "scope"|missing, "not_indexed"|missing, "last_errors"|missing,
  "parsed": int, "parse_error": int, "parse_unavailable": int,
- "note"|missing, <staleness block>}
+ "fingerprint_meaning"|missing, "note"|missing, "coverage": {...},
+ <staleness block>}
 ```
 
+`fingerprint_meaning` is the human half of the `fingerprint`/`reason` pair:
+the sentence saying what was NOT compared and what a reader should conclude
+(for `unverified`: the embedding fingerprint was not compared against the
+configured model, so vectors may have been built with another model). The
+text form prints it as one stderr line beside the one-line answer, which
+keeps its single-line shape. The field names of the pair are unchanged.
+
 The fields the text line prints, under the same names, plus the staleness
-block. `sensitive_skipped` is the exception: it is JSON-only, counts what the
+block and the coverage object. `sensitive_skipped` is the exception: it is JSON-only, counts what the
 LAST pass withheld, and never rides the line -- the line carries this tree's
 count, from the staleness block. A missing `fingerprint` field still means the index matched. The three
 `parse_*` counts are the per-file parse verdicts (text:
@@ -319,7 +383,10 @@ the text renderer prints the same fields as prose lines.
                   "signature", "language", "decl_hash",
                   "qualified_name", "evidence"}]},
  "evidence_note"|"missing": str,
- <staleness block>}
+ "empty_reason"|"missing": "name-absent|files-not-parsed|
+                  language-without-ast|index-empty",
+ "empty_reason_sentence"|"missing": str,
+ "coverage": {...}, <staleness block>}
 ```
 
 `schema` stays 1: every field here is additive. `container` is `null` at
@@ -366,10 +433,12 @@ not "this exact symbol does".
                   "confidence": "exact"|"heuristic",
                   "qualified_name", "container", "language",
                   "decl_hash", "symbol_id"}],
- <staleness block>}
-```
+                  "empty_reason"|"missing": str, "empty_reason_sentence"|"missing": str,
+                  "coverage": {...}, <staleness block>}
+                  ```
 
-No definitions is `definitions: []` with exit 0 (an answer, not a failure).
+                  No definitions is `definitions: []` with exit 0 (an answer, not a failure);
+                  the empty object then also names the cause, exactly as `find-symbol` does.
 
 With `--exactly-one`, a name with more than one definition is refused: exit 2,
 one `ArgumentError:` line, and — in `--json` — `{"schema": 1,

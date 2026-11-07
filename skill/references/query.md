@@ -218,6 +218,19 @@ signature, language, `decl_hash`) instead of picking a row;
 `find-definition --exactly-one` refuses such a name with `ArgumentError`,
 exit 2, listing every candidate.
 
+**An empty answer names its cause.** `no symbols matching 'X'` is not a
+negative on its own: the answer carries `empty_reason` -- `name-absent` (the
+index parsed the files that could hold the name), `files-not-parsed` (the
+sentence names the count and the languages), `language-without-ast` (the
+sentence names the language -- a shell-only layer has files, and no symbol is
+extracted from them) or `index-empty` -- and text mode prints the same
+sentence after the lead. `find-definition`, `find-references`, `find-callers`
+and `find-callees` use the same four values. Every read answer's JSON also
+carries a `coverage` block (scope, parsed and unparsed counts, withheld files,
+languages without an AST reader, freshness); in text the one coverage line
+appears ONLY when files were unparsed or withheld, never on a clean answer.
+See [machine-output.md](machine-output.md).
+
 ## Graphs and references
 
 ```bash

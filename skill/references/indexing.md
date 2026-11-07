@@ -200,6 +200,22 @@ embedding identity is not the one this build would write -- plus
 `rows=current|absent` and the parse-verdict counts
 (`parse=parsed:N,parse_error:N,parse_unavailable:N`).
 
+Both verdict pairs are flags a caller branches on, and the text form adds one
+stderr line saying what the pair MEANS. `fingerprint=unverified
+reason=embedding-dimension-not-compared` means the embedding fingerprint was
+not compared against the configured model -- a read cannot learn its
+dimension without dialling the service -- so the vectors may have been built
+with another model. `fingerprint=needs-reindex reason=<differences>` means the
+index was built by other extraction or chunking code than this build runs, so
+the row reads refuse until a rebuild. JSON carries the same sentence as
+`fingerprint_meaning`; the pair's field names are unchanged, and the one-line
+answer keeps its shape because the sentence rides stderr.
+
+Every read answer's JSON, `index-status` included, carries the `coverage`
+block -- files in scope, parsed and unparsed counts, withheld files, the
+languages with no AST reader, and freshness (see
+[machine-output.md](machine-output.md)).
+
 `index-status` takes `--format text|json` (`--json` is the exact alias) and
 `--format compact`, which is the SAME one line the text form prints: this
 answer is already one line of `key=value` fields. `doctor` and `list-projects`

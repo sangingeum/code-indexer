@@ -140,6 +140,11 @@ refused here exactly as at validate and apply (`PlanHashMismatch` /
 A stale file refuses before anything else: `files[].expected_hash` mismatch
 is `PlanStale`, exit 5, naming the file and both hashes.
 
+Both plan reads answer `coverage` with `scope: "none"`: they read a plan and
+the live sources, not an index, so there is no parsed/unparsed count to
+report and a null count says that rather than a zero. See
+[machine-output.md](machine-output.md).
+
 ## Applying
 
 ```bash
