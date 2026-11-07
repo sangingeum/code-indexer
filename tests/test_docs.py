@@ -1,6 +1,6 @@
 """Documentation-drift tests (offline; part of `pytest -m "not live"`).
 
-The agent surface is one entry document (``SKILL-CLI.md``) and five reference
+The agent surface is one entry document (``SKILL-CLI.md``) and six reference
 files under ``skill/references/``, split and budgeted by ADR-0009. The command
 blocks and the entry document's roster are generated from the CLI registry by
 ``scripts/generate_skill_docs.py``; prose is written by hand.
@@ -156,15 +156,10 @@ def _generated_body(text: str, key: str) -> str:
 def _roster() -> dict[str, tuple[str, str]]:
     """command -> (class, reference file), read from the entry document."""
     out: dict[str, tuple[str, str]] = {}
-    reference = ""
     for line in _generated_body(_entry_text(), "roster").splitlines():
-        group = re.match(r"^\*\*([a-z-]+\.md)\*\*", line)
-        if group:
-            reference = group.group(1)
-            continue
-        row = re.match(r"^\| `([^`]+)` \| ([^|]+?) \|", line)
-        if row and reference:
-            out[row.group(1)] = (row.group(2).strip(), reference)
+        row = re.match(r"^\| `([^`]+)` \| ([^|]+?) \| `([a-z-]+\.md)` \|", line)
+        if row:
+            out[row.group(1)] = (row.group(2).strip(), row.group(3))
     return out
 
 

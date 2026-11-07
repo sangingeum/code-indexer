@@ -64,6 +64,8 @@ REFERENCES: dict[str, tuple[str, ...]] = {
         "get-code-context",
         "deps",
         "changed-symbols",
+    ),
+    "semantic.md": (
         "semantic-search",
         "eval",
         "eval-compare",
@@ -240,28 +242,25 @@ def _cell(text: str) -> str:
 
 
 def roster_block() -> str:
-    """The entry document's roster: name, class, one line, the reference.
+    """The entry document's roster: name, class, reference, one line.
 
-    Grouped per reference, so the pointer is one heading per group instead of
-    a link repeated on thirty-three rows: the roster has to fit ADR-0009's
-    8 KiB entry-document budget along with everything else.
+    One table rather than one heading per reference: the pointer is a column,
+    so a command and the reference that carries its flags stay on the same
+    row and the roster fits ADR-0009's 8 KiB entry-document budget along with
+    everything else. The reference cell is the bare file name; the entry
+    document's reference index carries the links and the triggers.
     """
     cmds = registry()
     lines: list[str] = []
+    lines.append("| Command | Class | Reference | Reach for it when |")
+    lines.append("|---|---|---|---|")
     for reference, commands in REFERENCES.items():
-        if not commands:
-            continue
-        lines.append(
-            f"**{reference}** -- "
-            f"[flags and examples](skill/references/{reference})"
-        )
-        lines.append("")
-        lines.append("| Command | Class | Reach for it when |")
-        lines.append("|---|---|---|")
         for name in commands:
             usage = _one_line(cmds[name].help, limit=52) or "--"
-            lines.append(f"| `{name}` | {command_class(name)} | {_cell(usage)} |")
-        lines.append("")
+            lines.append(
+                f"| `{name}` | {command_class(name)} | `{reference}` | "
+                f"{_cell(usage)} |"
+            )
     return "\n".join(lines).rstrip()
 
 

@@ -28,53 +28,41 @@ remedies live in the references, one read away.
 ## The command roster
 
 <!-- generated:roster:begin -->
-**indexing.md** -- [flags and examples](skill/references/indexing.md)
-
-| Command | Class | Reach for it when |
-|---|---|---|
-| `add-project` | write | Register a project directory for semantic indexing ... |
-| `index-more` | write | Extend a project's indexed scope with another ... |
-| `reindex-project` | write | Force a full rebuild of a project's index ... |
-| `remove-project` | write | Deregister a project and DELETE its collection + ... |
-| `sweep-orphans` | write (with --apply) | Remove residue rows for files that are gone from ... |
-| `watch` | write | Optional long-lived watcher: inotify-based re-index ... |
-| `unwatch` | write | Stop the watcher started by `watch` — the reverse ... |
-| `index-status` | read | Report indexing state ... |
-| `list-projects` | read | List registered projects with per-project index ... |
-| `lookup-project` | read | Check whether a project is registered ... |
-| `doctor` | read | Health-check the installation: runtime versions, ... |
-
-**query.md** -- [flags and examples](skill/references/query.md)
-
-| Command | Class | Reach for it when |
-|---|---|---|
-| `overview` | read | Project-level map from manifest data: languages, ... |
-| `skeleton` | read | Whole-project or per-subtree structural map from ... |
-| `map` | read | Whole-project or per-subtree structural map from ... |
-| `outline` | read | One file: declarations, signatures, one-line ... |
-| `file-outline` | read | One file: declarations, signatures, one-line ... |
-| `find-symbol` | read | Look up symbols by name in the manifest symbol ... |
-| `find-definition` | read | Find where a symbol is declared ... |
-| `find-references` | read | Find references TO a symbol in the single reference ... |
-| `find-callers` | read | Who references this symbol: fan-in BFS over the ... |
-| `find-callees` | read | What this symbol references: fan-out BFS over the ... |
-| `get-code-context` | read | Retrieve ONLY the relevant source lines instead of ... |
-| `deps` | read | Import graph around one file (resolved edges only) |
-| `changed-symbols` | read | What changed in symbols: parse NEW/OLD contents ... |
-| `semantic-search` | read | Semantic code search over the index as of ... |
-| `eval` | read | Run a labeled query set against a project's index ... |
-| `eval-compare` | read | Compare two eval reports: metric delta table + ... |
-
-**plans.md** -- [flags and examples](skill/references/plans.md)
-
-| Command | Class | Reach for it when |
-|---|---|---|
-| `plan-replace-body` | write | Prepare a plan that replaces one declaration's body |
-| `plan-insert-symbol` | write | Prepare a plan that inserts a block at a ... |
-| `plan-delete-declaration` | write | Prepare a plan that deletes one declaration's whole ... |
-| `plan-validate` | read | Report each structural check of a plan |
-| `plan-show` | read | Print a plan, and with --diff the change it would ... |
-| `plan-apply` | write | Apply a plan through filekeeper and report what ... |
+| Command | Class | Reference | Reach for it when |
+|---|---|---|---|
+| `add-project` | write | `indexing.md` | Register a project directory for semantic indexing ... |
+| `index-more` | write | `indexing.md` | Extend a project's indexed scope with another ... |
+| `reindex-project` | write | `indexing.md` | Force a full rebuild of a project's index ... |
+| `remove-project` | write | `indexing.md` | Deregister a project and DELETE its collection + ... |
+| `sweep-orphans` | write (with --apply) | `indexing.md` | Remove residue rows for files that are gone from ... |
+| `watch` | write | `indexing.md` | Optional long-lived watcher: inotify-based re-index ... |
+| `unwatch` | write | `indexing.md` | Stop the watcher started by `watch` — the reverse ... |
+| `index-status` | read | `indexing.md` | Report indexing state ... |
+| `list-projects` | read | `indexing.md` | List registered projects with per-project index ... |
+| `lookup-project` | read | `indexing.md` | Check whether a project is registered ... |
+| `doctor` | read | `indexing.md` | Health-check the installation: runtime versions, ... |
+| `overview` | read | `query.md` | Project-level map from manifest data: languages, ... |
+| `skeleton` | read | `query.md` | Whole-project or per-subtree structural map from ... |
+| `map` | read | `query.md` | Whole-project or per-subtree structural map from ... |
+| `outline` | read | `query.md` | One file: declarations, signatures, one-line ... |
+| `file-outline` | read | `query.md` | One file: declarations, signatures, one-line ... |
+| `find-symbol` | read | `query.md` | Look up symbols by name in the manifest symbol ... |
+| `find-definition` | read | `query.md` | Find where a symbol is declared ... |
+| `find-references` | read | `query.md` | Find references TO a symbol in the single reference ... |
+| `find-callers` | read | `query.md` | Who references this symbol: fan-in BFS over the ... |
+| `find-callees` | read | `query.md` | What this symbol references: fan-out BFS over the ... |
+| `get-code-context` | read | `query.md` | Retrieve ONLY the relevant source lines instead of ... |
+| `deps` | read | `query.md` | Import graph around one file (resolved edges only) |
+| `changed-symbols` | read | `query.md` | What changed in symbols: parse NEW/OLD contents ... |
+| `semantic-search` | read | `semantic.md` | Semantic code search over the index as of ... |
+| `eval` | read | `semantic.md` | Run a labeled query set against a project's index ... |
+| `eval-compare` | read | `semantic.md` | Compare two eval reports: metric delta table + ... |
+| `plan-replace-body` | write | `plans.md` | Prepare a plan that replaces one declaration's body |
+| `plan-insert-symbol` | write | `plans.md` | Prepare a plan that inserts a block at a ... |
+| `plan-delete-declaration` | write | `plans.md` | Prepare a plan that deletes one declaration's whole ... |
+| `plan-validate` | read | `plans.md` | Report each structural check of a plan |
+| `plan-show` | read | `plans.md` | Print a plan, and with --diff the change it would ... |
+| `plan-apply` | write | `plans.md` | Apply a plan through filekeeper and report what ... |
 <!-- generated:roster:end -->
 
 ## Exit codes
@@ -115,6 +103,7 @@ reach a staleness verdict.
 |---|---|
 | [indexing.md](skill/references/indexing.md) | the task is to build or repair an index, or to ask what state one is in |
 | [query.md](skill/references/query.md) | a query answered the wrong shape and its flags need reading |
+| [semantic.md](skill/references/semantic.md) | a question is asked in words rather than as a name, or a ranked answer's order needs reading |
 | [plans.md](skill/references/plans.md) | the task is to change code through a plan |
 | [machine-output.md](skill/references/machine-output.md) | an agent parses output instead of reading prose |
 | [failures.md](skill/references/failures.md) | a command failed and the remedy is not obvious from its line |
