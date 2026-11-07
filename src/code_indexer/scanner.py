@@ -102,8 +102,14 @@ def _load_ignore_spec(dirpath: str) -> pathspec.PathSpec:
     return spec
 
 
-def _ordered_specs(root: str, dirpath: str) -> list[pathspec.PathSpec]:
-    """The ignore specs governing ``dirpath``, root first -- git's order."""
+def _ordered_specs(root: str, dirpath: str
+                   ) -> list[tuple[str, pathspec.PathSpec]]:
+    """The ignore specs governing ``dirpath``, with their directories, root first.
+
+    A spec travels with the directory that carries it, because that directory
+    is the anchor for its anchored patterns (``/x`` means "here, beside the
+    file that says it"), exactly as in git.
+    """
     chain = []
     cur = dirpath
     while True:
@@ -111,20 +117,31 @@ def _ordered_specs(root: str, dirpath: str) -> list[pathspec.PathSpec]:
         if cur == root:
             break
         cur = os.path.dirname(cur)
-    return [_load_ignore_spec(path) for path in reversed(chain)]
+    return [(path, _load_ignore_spec(path)) for path in reversed(chain)]
 
 
-def _ignored(rel_path: str, specs: list[pathspec.PathSpec]) -> bool:
+def _spec_path(directory: str, root: str, rel_path: str) -> str:
+    """``rel_path`` (root-relative) as seen from the directory carrying a spec."""
+    if directory == root:
+        return rel_path
+    prefix = os.path.relpath(directory, root).replace(os.sep, "/") + "/"
+    return rel_path[len(prefix):] if rel_path.startswith(prefix) else rel_path
+
+
+def _ignored(rel_path: str, specs: list[tuple[str, pathspec.PathSpec]],
+             root: str) -> bool:
     """Git's composition: the last matching rule wins, deepest spec last.
 
-    ``check_file`` reports the verdict AND the index of the pattern that
-    decided it inside that spec, so a rule in a deeper file overrides one in
-    a shallower file -- a negation included. This is what keeps the scan and
-    ``git check-ignore`` agreeing on the repository's own exclusions.
+    Each spec is asked about the path relative to ITS OWN directory, so an
+    anchored pattern in a nested ignore file resolves against that directory
+    instead of the project root. ``check_file`` reports the verdict AND the
+    index of the pattern that decided it inside that spec, so a rule in a
+    deeper file overrides one in a shallower file -- a negation included.
+    This is what keeps the scan and ``git check-ignore`` agreeing.
     """
     ignored = False
-    for spec in specs:
-        checked = spec.check_file(rel_path)
+    for directory, spec in specs:
+        checked = spec.check_file(_spec_path(directory, root, rel_path))
         if checked.index is not None:
             ignored = bool(checked.include)
     return ignored
@@ -175,11 +192,14 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
     rest of the pass).
 
     Nested ``.gitignore``/``.codeindexignore`` compose the way git composes
-    them: the specs are consulted from the root outwards, and the LAST
-    matching rule decides, so a deeper ``!pattern`` re-includes what a
-    shallower spec excluded. A directory the composed verdict ignores is
-    pruned, which also carries git's rule that nothing inside an excluded
-    directory can be re-included: there is no walk left to re-include in.
+    them: the specs are consulted from the root outwards, each about the path
+    relative to its own directory, and the LAST matching rule decides, so a
+    deeper ``!pattern`` re-includes what a shallower spec excluded. An
+    anchored pattern therefore anchors to the directory of the file carrying
+    it, as in git, and works below the root. A directory the composed verdict
+    ignores is pruned, which also carries git's rule that nothing inside an
+    excluded directory can be re-included: there is no walk left to
+    re-include in.
     """
     previous = previous if previous is not None and \
         os.environ.get("PARANOID_HASH") not in ("1", "true") else {}
@@ -213,7 +233,7 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
         if rel_dir != ".":
             dir_rel = rel_dir.replace(os.sep, "/") + "/"
             parent_specs = _ordered_specs(root, os.path.dirname(dirpath))
-            if _ignored(dir_rel, parent_specs):
+            if _ignored(dir_rel, parent_specs, root):
                 dirnames[:] = []
                 continue
 
@@ -226,7 +246,7 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
             rel_path = os.path.relpath(abs_path, root).replace(os.sep, "/")
             # Every ignore spec from root down to this directory, root
             # first: the last matching rule decides (design Risk 5).
-            if _ignored(rel_path, specs):
+            if _ignored(rel_path, specs, root):
                 logger.debug("skip (ignored): %s", rel_path)
                 continue
             try:

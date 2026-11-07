@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased] — an anchored nested pattern anchors where it lives
+
+**A leading `/` in a nested ignore file now anchors to the directory carrying
+that file, as in git.** The scanner handed every ignore spec the same
+root-relative path, so `src/.gitignore`'s `/secret.txt` matched nothing:
+`src/secret.txt` stayed in the scan set while `git check-ignore` called it
+ignored. Measured on a probe tree (`/top.txt` at the root, `/secret.txt` in
+`src/`): the scan before the change listed 5 paths including `src/secret.txt`;
+after it lists 4, equal to git's unignored set, and `src/nested/secret.txt` is
+still kept because the anchored pattern does not reach beyond `src/`. This is
+the only behaviour change in this batch, and it can only SHRINK a scan set. On
+an index built by the old scanner the read reports the dropped file as
+`deleted` staleness (`freshness: stale`, 5 files, one `deleted` reason for
+`src/secret.txt`); the next pass drops the row (`files_indexed: 4`,
+`files_deleted: 1`), after which the read is `fresh` with no stale reasons.
+The change is scan-time, so no reindex is required to correct the scanner and
+no manifest schema or extraction version moved: one ordinary pass settles the
+diff.
+
+**`index-status` names the error total.** When chunk embed errors are recorded,
+the line carries `error_count=N` beside the three-example `last_errors=`, and
+`--json` carries the same number; neither field appears with no error rows.
+
 ## [Unreleased] — a deep-limit answer is the same answer twice
 
 **`semantic-search` returns byte-identical output for the same read against the

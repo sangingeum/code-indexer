@@ -369,10 +369,10 @@ output and command logs, kept in the working checkout, no longer tracked) and
 users type, so indexing them ranks near-duplicate queries above the code they
 point at; this one stays tracked). Anchored to the repository root (`/runs/`,
 `/eval/`), they leave a same-named directory under `src/` indexed. Nested
-ignore files compose as git composes them: the last matching rule, read from
-the root outwards, decides, so a deeper `!pattern` re-includes what a shallower
-file excluded. The exclusion governs scans: rows already in a manifest are
-dropped by a reindex of the project, not by the file.
+ignore files compose as git does: each spec is read root-outwards against the
+path relative to its own directory, and the last matching rule decides -- a
+deeper `!pattern` re-includes what a shallower file excluded, and an anchored
+pattern (`/secret.txt`) anchors to the directory of the file carrying it; rows already in a manifest leave on a reindex, not on the edit.
 
 A file the sensitive scan withholds sits in the gap between the scan set and
 the manifest: it is scanned, it deliberately has no row, and it is **not** a

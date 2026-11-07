@@ -108,10 +108,14 @@ def test_the_scan_agrees_with_git_check_ignore(tmp_path):
     """
     root = tmp_path / "repo"
     (root / "src").mkdir(parents=True)
-    paths = ["secret.txt", "src/secret.txt", "src/trace.log", "src/keep.py"]
+    (root / "src" / "nested").mkdir()
+    paths = ["secret.txt", "src/secret.txt", "src/trace.log", "src/keep.py",
+             "src/nested/secret.txt"]
     for rel in paths:
         (root / rel).write_text("x = 1\n", encoding="utf-8")
-    rules = {".": "secret.txt\n*.log\n", "src": "!secret.txt\n!trace.log\n"}
+    # The nested rule is anchored (`/secret.txt`), so it decides only
+    # `src/secret.txt`; `src/nested/secret.txt` is not beside it.
+    rules = {".": "/secret.txt\n*.log\n", "src": "!trace.log\n/secret.txt\n"}
     for sub, text in rules.items():
         (root / sub / ".gitignore").write_text(text, encoding="utf-8")
         (root / sub / ".codeindexignore").write_text(text, encoding="utf-8")
@@ -125,6 +129,25 @@ def test_the_scan_agrees_with_git_check_ignore(tmp_path):
 
     scanned = {f.path for f in scan_project(str(root))} & set(paths)
     assert scanned == {p for p in paths if p not in git_ignored}
+    # The anchored nested rule and the kept neighbour, named directly.
+    assert "src/secret.txt" not in scanned
+    assert "src/nested/secret.txt" in scanned
+
+
+def test_an_anchored_nested_pattern_drops_only_its_own_directory(tmp_path):
+    """`/secret.txt` in `src/` anchors there, as in git -- no git needed."""
+    root = tmp_path / "repo"
+    (root / "src" / "nested").mkdir(parents=True)
+    for rel in ("src/secret.txt", "src/nested/secret.txt", "src/keep.py"):
+        (root / rel).write_text("x = 1\n", encoding="utf-8")
+    (root / ".codeindexignore").write_text("", encoding="utf-8")
+    (root / "src" / ".codeindexignore").write_text(
+        "/secret.txt\n", encoding="utf-8")
+
+    scanned = {f.path for f in scan_project(str(root))}
+    assert "src/secret.txt" not in scanned
+    assert "src/nested/secret.txt" in scanned
+    assert "src/keep.py" in scanned
 
 
 def test_a_nested_negation_cannot_resurrect_a_pruned_directory(tmp_path):
