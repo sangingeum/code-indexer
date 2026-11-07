@@ -109,9 +109,11 @@ pass first and therefore writes.
 
 Every read command here takes `--format text|json`, and `--json` is the EXACT
 alias of `--format json`: both spellings render the same bytes. Passing both
-is `ArgumentError`, exit 2, rather than a silent precedence -- one invocation,
-one answer format. `--format compact` is a one-line-per-record rendering built
-only from fields the text form already prints; it exists on `overview`,
+is accepted when they agree (`--json --format json` asks the same question
+twice) and is `ArgumentError`, exit 2, when they name different formats --
+never a silent precedence, one invocation, one answer format.
+`--format compact` is a one-line-per-record rendering built only from
+fields the text form already prints; it exists on `overview`,
 `index-status`, `skeleton`, `outline`, `find-symbol`, `find-definition` and
 `semantic-search`, and on any other read it is refused with `ArgumentError`,
 exit 2, naming `text|json` (documented refusal, never a silent fallback).

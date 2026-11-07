@@ -58,6 +58,10 @@ header above it:
 | `find-definition --format compact` | `file:start-end name (kind)`, one per definition |
 | `semantic-search --format compact` | `path:start-end  symbol  score` |
 
+A compact symbol record carries the file, the range, the name and the kind;
+the text form's `confidence`, `evidence` and signature are not part of it --
+read `--format json` when those are the question.
+
 Every other read command REFUSES `compact` with `ArgumentError`, exit 2, and
 a message naming `text|json`: the refusal is part of the contract, not a
 missing feature. `deps --format` is a separate flag (`tree|edges|json`) and

@@ -2,8 +2,9 @@
 
 `--json` is an exact alias for `--format json`; `--format compact` exists
 only where a one-line-per-record rendering is honest and is refused with the
-formats that command does take everywhere else; giving both flags is a usage
-error. The three symbol reads accept the symbol positionally AND through
+formats that command does take everywhere else; giving both flags is accepted
+when they agree and refused when they do not. The three symbol reads accept
+the symbol positionally AND through
 `--symbol`, and `get-code-context --symbol NAME` with no file resolves the
 symbol project-wide or refuses an ambiguous name with every candidate.
 
@@ -17,6 +18,7 @@ from __future__ import annotations
 import importlib.metadata
 import json
 import os
+import pathlib
 import re
 import sys
 
@@ -417,8 +419,81 @@ def test_the_four_flag_combinations_agree_exactly_once(rig, argv):
         assert clash.stdout == ""
 
 
-def test_the_compact_set_is_a_subset_of_the_read_commands():
-    assert COMPACT_FORMAT_COMMANDS <= READ_COMMANDS
+# The minimal argv that reaches each read's compact decision. The flag
+# roster's own argv answers for eighteen of the nineteen; both plan reads
+# resolve the format before the ref, so a missing plan path never masks the
+# format verdict.
+COMPACT_ARGV: dict[str, tuple[str, ...]] = {
+    **PARITY_ARGV,
+    "plan-show": ("no-such-plan.json",),
+    "plan-validate": ("no-such-plan.json",),
+}
+
+# The two hidden aliases render under their canonical read's name (`map` →
+# outline, `file-outline` → skeleton), so they answer `compact` without being
+# members of the frozenset and without needing to be.
+COMPACT_RENDERED_AS: dict[str, str] = {"file-outline": "skeleton",
+                                     "map": "outline"}
+
+
+def _invoke_compact(project, command_name: str):
+    argv = [command_name, *COMPACT_ARGV[command_name], "--format", "compact"]
+    if command_name not in NO_PROJECT:
+        argv += ["--project", str(project)]
+    return runner.invoke(app, argv)
+
+
+def test_the_compact_roster_is_a_subset_of_the_reads_that_take_the_flag():
+    # Compact rides on the shared flag, so it can only exist where the flag
+    # does; the three reads that never took it are named, not assumed.
+    assert COMPACT_FORMAT_COMMANDS <= FORMAT_ROSTER
+    assert READ_COMMANDS - FORMAT_ROSTER == {"deps", "eval", "eval-compare"}
+
+
+@pytest.mark.parametrize("command_name", sorted(FORMAT_ROSTER))
+def test_compact_is_offered_exactly_where_the_roster_says(rig, command_name):
+    """Every read that takes the flag must answer or refuse `compact`.
+
+    The roster is recomputed from the typer registration, so a read that
+    gains or loses the flag pair without a compact decision lands here: a
+    member with no renderer renders text and exits 0, which is the failure a
+    subset assertion cannot see.
+    """
+    _, _, _, project = rig
+    result = _invoke_compact(project, command_name)
+    offers = (command_name in COMPACT_FORMAT_COMMANDS
+              or COMPACT_RENDERED_AS.get(command_name)
+              in COMPACT_FORMAT_COMMANDS)
+    if offers:
+        assert result.exit_code == 0, result.output
+        assert result.stdout, f"{command_name} compact printed nothing"
+        assert "no compact form" not in result.stderr
+    else:
+        assert result.exit_code == 2, result.output
+        assert (f"{command_name} has no compact form; "
+                "supported formats: text|json") in result.stderr
+        assert result.stdout == ""
+
+
+def test_the_only_reads_that_answer_compact_unlisted_are_the_two_aliases(rig):
+    """Measured, not assumed: no third command may answer an unlisted compact."""
+    _, _, _, project = rig
+    accepted = sorted(name for name in FORMAT_ROSTER
+                      if name not in COMPACT_FORMAT_COMMANDS
+                      and _invoke_compact(project, name).exit_code == 0)
+    assert accepted == sorted(COMPACT_RENDERED_AS), accepted
+
+
+def test_the_documented_compact_roster_matches_the_frozenset():
+    """The entry document's seven names are the frozenset's seven names."""
+    entry = (pathlib.Path(__file__).parent.parent / "SKILL-CLI.md").read_text(
+        encoding="utf-8")
+    rows = [line for line in entry.splitlines()
+            if line.startswith("| `--format compact` |")]
+    assert len(rows) == 1, rows
+    named = set(re.findall(r"`([a-z][a-z-]+)`", rows[0].split("|")[2]))
+    assert named == set(COMPACT_FORMAT_COMMANDS), (
+        named ^ set(COMPACT_FORMAT_COMMANDS))
 
 
 # ---------------------------------------------------------------------------

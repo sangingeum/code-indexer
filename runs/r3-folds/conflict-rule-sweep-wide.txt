@@ -1,0 +1,5 @@
+SKILL-CLI.md:73:| `--format text\|json` | every read command that takes `--json` | `--json` is the exact alias of `--format json`; the pair is accepted when it agrees (`--json --format json`) and is exit 2 when the two name different formats |
+CHANGELOG.md:9:and `--json` remains an EXACT alias of `--format json`: both spellings render
+skill/references/semantic.md:57:  `--json` is its exact alias; passing both is accepted when they agree and
+skill/references/indexing.md:203:`index-status` takes `--format text|json` (`--json` is the exact alias) and
+skill/references/machine-output.md:37:`--json` is its exact alias: both spellings print the same bytes. Giving both

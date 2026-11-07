@@ -26,7 +26,8 @@ project-wide through the manifest and refuses an ambiguous name with every
 candidate listed (`ArgumentError`, exit 2), while the FILE positional keeps
 its meaning, and `find-symbol`/`find-definition` keep the positional NAME as
 the alias of `--symbol`. No manifest schema change, no `EXTRACTION_VERSION`
-change, no reindex, and every invocation that worked keeps its answer.
+change, no reindex, and every invocation that worked keeps its answer except the
+one combination named above.
 
 ## [Unreleased] — the banner states its count
 

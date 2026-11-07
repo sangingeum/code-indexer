@@ -1,0 +1,49 @@
+.................................F.............................F........ [ 85%]
+............                                                             [100%]
+=================================== FAILURES ===================================
+___ test_compact_is_refused_where_there_is_no_compact_form[find-references] ____
+
+rig = (<code_indexer.core.Core object at 0x7fcfb2835dc0>, <code_indexer.registry.Registry object at 0x7fcfb2837320>, Project...ath('<home>/.hermes/profiles/<profile>/cache/scratch/pytest-of-keum/pytest-333/test_compact_is_refused_where_0/proj'))
+argv = ['find-references', 'helper']
+
+    @pytest.mark.parametrize("argv", [
+        ["find-references", "helper"],
+        ["get-code-context", "mod.py"],
+        ["changed-symbols"],
+    ], ids=["find-references", "get-code-context", "changed-symbols"])
+    def test_compact_is_refused_where_there_is_no_compact_form(rig, argv):
+        _, _, _, project = rig
+        result = _run(project, *argv, "--format", "compact")
+>       assert result.exit_code == 2, result.output
+E       AssertionError: references to 'helper' (confidence=how the row was extracted, receiver=the receiver expression as written, target_confidence=whether the name has a definition row):
+E         - <home>/.hermes/profiles/<profile>/cache/scratch/pytest-of-keum/pytest-333/test_compact_is_refused_where_0/proj::mod.py:7 in caller call helper (confidence=ast, target_confidence=exact)
+E         - <home>/.hermes/profiles/<profile>/cache/scratch/pytest-of-keum/pytest-333/test_compact_is_refused_where_0/proj::mod.py:12 in render call helper (confidence=ast, target_confidence=exact)
+E         
+E       assert 0 == 2
+E        +  where 0 = <Result okay>.exit_code
+
+tests/test_output_format.py:361: AssertionError
+___________ test_the_documented_compact_roster_matches_the_frozenset ___________
+
+    def test_the_documented_compact_roster_matches_the_frozenset():
+        """The entry document's seven names are the frozenset's seven names."""
+        entry = (pathlib.Path(__file__).parent.parent / "SKILL-CLI.md").read_text(
+            encoding="utf-8")
+        rows = [line for line in entry.splitlines()
+                if line.startswith("| `--format compact` |")]
+        assert len(rows) == 1, rows
+        named = set(re.findall(r"`([a-z][a-z-]+)`", rows[0].split("|")[2]))
+>       assert named == set(COMPACT_FORMAT_COMMANDS), (
+            named ^ set(COMPACT_FORMAT_COMMANDS))
+E       AssertionError: {'find-references'}
+E       assert {'find-defini...-search', ...} == {'find-defini...verview', ...}
+E         
+E         Extra items in the right set:
+E         'find-references'
+E         Use -v to get more diff
+
+tests/test_output_format.py:495: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_output_format.py::test_compact_is_refused_where_there_is_no_compact_form[find-references]
+FAILED tests/test_output_format.py::test_the_documented_compact_roster_matches_the_frozenset
+2 failed, 82 passed in 11.10s
