@@ -181,13 +181,18 @@ def test_a_path_reference_resolves_and_a_hash_reference_resolves(tmp_path):
     assert resolved == path
 
 
-def test_rename_symbol_is_reserved_and_refused(tmp_path):
+def test_rename_symbol_is_reserved_and_refused_as_unsupported(tmp_path):
     tf = sample(str(tmp_path))
     document = document_for(tf)
     document["operation"] = "rename_symbol"
     report = checked(plans.seal(document), str(tmp_path))
-    assert report["ErrorType"] == "PlanFormatError"
+    assert report["ErrorType"] == "UnsupportedOperation"
+    assert report["exit_code"] == EXIT_USAGE
     assert "reserved" in report["error"]
+    # No text edit: the refusal happens before any bytes are considered, and
+    # validation writes nothing at all.
+    with open(os.path.join(str(tmp_path), "mod.py"), "rb") as handle:
+        assert handle.read() == TWO_FUNCTIONS.encode("utf-8")
 
 
 def test_an_unknown_schema_version_is_refused(tmp_path):

@@ -46,6 +46,7 @@ from .errors import (
     PlanStaleError,
     SemanticProviderUnavailableError,
     SubLineEditUnsupportedError,
+    UnsupportedOperationError,
 )
 
 SCHEMA_VERSION = 1
@@ -780,7 +781,11 @@ def _check_schema(document: dict[str, Any]) -> str:
             f"this reader understands ({SCHEMA_VERSION})")
     operation = document["operation"]
     if operation in RESERVED_OPERATIONS:
-        raise PlanFormatError(
+        # A usage-class unsupported answer, not a format defect: a working
+        # provider must answer that it cannot do this before the plan format
+        # enables it, so the refusal carries the provider taxonomy's type and
+        # the caller learns "the tool does not offer it" (exit 2).
+        raise UnsupportedOperationError(
             f"operation {operation!r} is reserved in the plan format and "
             "refused in phase 1: no structural relabelling of a symbol is "
             "offered, because references are textual and nothing would verify "

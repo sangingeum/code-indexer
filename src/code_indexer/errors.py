@@ -250,6 +250,76 @@ class SemanticProviderUnavailableError(IndexerError):
     exit_code = EXIT_BACKEND
 
 
+# -- the refactoring provider (ADR-0006 section 3) --------------------------
+# Two situations that look alike get different numbers: a working provider
+# answering "not offered" is a usage-class refusal (2), while nothing
+# installed, nothing ready or nothing answering in time is 3.
+
+class UnsupportedOperationError(IndexerError):
+    """A working provider answered that (provider, operation) is not offered.
+
+    Never answered by a weaker local approximation: the refusal is the
+    answer, so a wrong rename and a refused rename stay distinguishable.
+    """
+
+    error_type = "UnsupportedOperation"
+    exit_code = EXIT_USAGE
+
+
+class ProviderUnavailableError(IndexerError):
+    """No provider is installed or selected for the requested language.
+
+    The message carries one line naming the install route; that line is the
+    whole remedy, so it is not optional.
+    """
+
+    error_type = "ProviderUnavailable"
+    exit_code = EXIT_BACKEND
+
+
+class ProviderTimeoutError(ProviderUnavailableError):
+    """The provider did not answer within its deadline; the request is cancelled.
+
+    Subclasses ``ProviderUnavailableError`` because nothing answered, which
+    ADR-0003 gives code 3 -- but it is never reported as an empty semantic
+    answer, and the message says the request was cancelled.
+    """
+
+    error_type = "ProviderTimeout"
+
+
+class ProviderRefusalError(IndexerError):
+    """The provider refused for its own reason; no fallback is attempted."""
+
+    error_type = "ProviderRefusal"
+    exit_code = EXIT_FAIL
+
+
+class ProviderFailureError(IndexerError):
+    """The provider returned no answer or an answer outside the contract."""
+
+    error_type = "ProviderFailure"
+    exit_code = EXIT_FAIL
+
+
+class PositionConversionFailedError(IndexerError):
+    """A provider position cannot be placed exactly in the file's bytes.
+
+    A silently rounded offset is a coordinate nothing verifies; the answer is
+    a refusal, never a guess.
+    """
+
+    error_type = "PositionConversionFailed"
+    exit_code = EXIT_FAIL
+
+
+class NonLineAlignedProviderEditError(IndexerError):
+    """A provider edit touches more than one line and cannot be normalized."""
+
+    error_type = "NonLineAlignedProviderEdit"
+    exit_code = EXIT_FAIL
+
+
 # -- applying a plan (ADR-0005) --------------------------------------------
 # The same five numbers, and one new discriminator: a run that stopped with
 # files already written is exit 1 with ``PartialApply``, which is what ADR-0003
