@@ -1,0 +1,26 @@
+# Bar 4: --json together with --format, base tree vs tip tree
+# Method: the same CLI seam the suite uses (typer's CliRunner) with the suite's
+# stub embedder and store. A CLI-level probe against the shared index cannot
+# answer the question: that index is vectors=off, so semantic-search refuses
+# with a ConfigError (exit 4) at base for a reason unrelated to the flags.
+
+## base (probe src=<scratch>/base/src)
+argv=['--json'] exit=0 stdout_first='{'
+argv=['--json', '--format', 'json'] exit=0 stdout_first='{'
+argv=['--json', '--format', 'text'] exit=0 stdout_first='{'     <- --json won
+argv=['--format', 'json'] exit=0 stdout_first='{'
+argv=['--format', 'text'] exit=0 stdout_first='search results (file class, then score desc):'
+argv=[] exit=0 stdout_first='search results (file class, then score desc):'
+
+## tip (probe src=<checkout>/src)
+argv=['--json'] exit=0 stdout_first='{'
+argv=['--json', '--format', 'json'] exit=2 stdout_first='' stderr_first='ArgumentError: --json and --format both given: --json is an alias of --format json, so pas'
+argv=['--json', '--format', 'text'] exit=2 stdout_first='' stderr_first='ArgumentError: --json and --format both given: --json is an alias of --format json, so pas'
+argv=['--format', 'json'] exit=0 stdout_first='{'
+argv=['--format', 'text'] exit=0 stdout_first='search results (file class, then score desc):'
+argv=[] exit=0 stdout_first='search results (file class, then score desc):'
+
+# CLI level, same project (vectors=off), for the record:
+base semantic-search --json --format text   exit=4  ConfigError: index ... built with vectors=off
+tip  semantic-search --json --format text   exit=2  ArgumentError: --json and --format both given
+tip  semantic-search --json only            exit=4  ConfigError (unchanged)

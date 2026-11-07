@@ -1,0 +1,17 @@
+# Bar 6: the ten invocations, base tree vs tip tree, reproduced here
+# (the round's own table was not accepted as evidence)
+
+[ten 1] argv=overview | base_exit=0 tip_exit=0 stdout_identical=yes stderr_identical=yes
+[ten 2] argv=overview --json | base_exit=0 tip_exit=0 stdout_identical=yes stderr_identical=yes
+[ten 3] argv=index-status | base_exit=0 tip_exit=0 stdout_identical=yes stderr_identical=yes
+[ten 4] argv=index-status --json | base_exit=0 tip_exit=0 stdout_identical=yes stderr_identical=yes
+[ten 5] argv=skeleton | base_exit=0 tip_exit=0 stdout_identical=yes stderr_identical=yes
+[ten 6] argv=outline mod.py | base_exit=0 tip_exit=0 stdout_identical=yes stderr_identical=yes
+[ten 7] argv=find-symbol helper | base_exit=0 tip_exit=0 stdout_identical=yes stderr_identical=yes
+[ten 8] argv=find-definition helper --json | base_exit=0 tip_exit=0 stdout_identical=yes stderr_identical=yes
+[ten 9] argv=get-code-context mod.py --symbol helper | base_exit=0 tip_exit=0 stdout_identical=yes stderr_identical=yes
+[ten 10] argv=find-references helper --json | base_exit=0 tip_exit=0 stdout_identical=yes stderr_identical=yes
+
+# each row: same project, same index, base tree src then tip tree src, one
+# interpreter, one moment. stdout and stderr compared byte for byte (cmp), the
+# exit codes read from the run. 10 of 10 rows reproduce: 0 B differ.

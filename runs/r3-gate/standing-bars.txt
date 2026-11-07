@@ -1,0 +1,40 @@
+# Bar 9: the standing bars, each run once at the tip
+
+uv run pytest tests/ -q -W error
+  1049 passed, 2 deselected in 155.36s (0:02:35)   exit 0
+  (this record does not claim warn-clean: the five watcher fork warnings under
+  CI's own command are thread-timing dependent and unchanged by this round)
+
+uvx ruff check src tests scripts
+  All checks passed!
+
+uv run python scripts/publishing_hygiene_lint.py
+  publishing hygiene: scanned=1229 skipped=0 violations=0
+
+uv run pytest tests/test_docs.py -q -k installed_copy_digest
+  1 passed, 39 deselected   (0 skipped: the installed copy is present)
+
+uv run python scripts/generate_skill_docs.py --check
+  exit 0
+
+wc -l -c SKILL-CLI.md
+  120 lines, 7645 bytes   (budget 120 lines / 8 KiB)
+
+git log --format='%h %G? %s' 105484f..9c29da3
+  9c29da3 G docs(runs): record the hygiene run at the evidence tip
+  c316468 G docs(runs): record the format and argument-shape round
+  c5e5570 G docs(skill): one flag table and one symbol argument shape in the surface
+  feed305 G feat(cli): one --format flag, one symbol argument shape across the reads
+  ddf5521 G feat(cli): print the installed version from a top-level --version
+
+git status --porcelain --untracked-files=no
+  (empty: 0 tracked changes)
+
+git ls-remote origin refs/heads/main
+  9c29da351c1e554b5bb635e7db00eab05646b83c	refs/heads/main
+git rev-parse HEAD
+  9c29da351c1e554b5bb635e7db00eab05646b83c
+
+gh run list --limit 6
+  ci  9c29da3  event=push  status=completed  conclusion=success  id=42369499551
+  (the push produced a run; it is green)
