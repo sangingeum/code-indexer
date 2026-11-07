@@ -56,9 +56,6 @@ class _FakeManifest:
     def get_meta(self, key: str) -> str:
         return ""
 
-    def set_meta(self, key: str, value: str) -> None:
-        pass
-
     def stat_map(self) -> dict:
         return {}
 

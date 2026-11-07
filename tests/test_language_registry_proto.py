@@ -14,7 +14,6 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import pytest  # noqa: E402
 from typer.testing import CliRunner  # noqa: E402
 
 import code_indexer.cli as cli  # noqa: E402

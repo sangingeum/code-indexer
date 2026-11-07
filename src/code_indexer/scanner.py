@@ -249,10 +249,10 @@ class ScanAccounting:
             "walked": self.walked,
             "indexed": self.indexed,
             "uncommitted": self.uncommitted,
-            "skipped": dict(sorted(self.skipped.items())),
+            "skipped": {k: v for k, v in sorted(self.skipped.items()) if v},
             "skipped_total": self.skipped_total,
             "skipped_directories": self.skipped_directories,
-            "examples": {k: v for k, v in sorted(self.examples.items())},
+            "examples": {k: v for k, v in sorted(self.examples.items()) if v},
             "counted_exactly": self.exact,
         }
 

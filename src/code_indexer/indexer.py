@@ -195,9 +195,10 @@ class Indexer:
         # A file withheld for privacy is still a file the walk saw: it lands
         # in a named bucket instead of vanishing from the reconciliation.
         withheld = len(scanned) - len(scanned_map)
-        accounting.skipped[SKIP_SENSITIVE] += withheld
-        accounting.examples.setdefault(SKIP_SENSITIVE, []).extend(
-            list(sensitive_report.skipped_names)[:50])
+        if withheld:
+            accounting.skipped[SKIP_SENSITIVE] += withheld
+            accounting.examples.setdefault(SKIP_SENSITIVE, []).extend(
+                list(sensitive_report.skipped_names)[:50])
 
         # Embedding-text format guard: a stored vector is only reusable when it
         # was built by the same embed_text() construction. A manifest with no
