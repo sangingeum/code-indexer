@@ -2,3 +2,5 @@
 publishing hygiene: scanned=1122 skipped=0 violations=0 (untracked files are out of scope)
 # run after the evidence commit, at tip 629a8f8
 publishing hygiene: scanned=1132 skipped=0 violations=0 (untracked files are out of scope)
+# run at the tip that carries the payload capture, all files tracked
+publishing hygiene: scanned=1134 skipped=0 violations=0 (untracked files are out of scope)
