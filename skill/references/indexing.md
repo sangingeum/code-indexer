@@ -94,8 +94,8 @@ otherwise. The same is true of every pass command below.
 
 These commands are not read answers, so they do not follow the read contract
 in `docs/json-schema.md` (a read writes stderr only for the staleness
-warning, the coverage line, the fingerprint sentence and the scoped-index
-note). The lines each one writes on success:
+warning, the coverage line, the fingerprint sentence, the scoped-index note and
+a graph answer's `note:` lines). The lines each one writes on success:
 
 | command | **stdout** | **stderr** |
 |---|---|---|

@@ -674,7 +674,7 @@ RebuildRequiredError, LockedError, InternalError. Exit codes: 0 success
 3 backend or extension unavailable, 4 the index requires a rebuild, 5 lock
 or concurrency conflict.
 
-On success, a READ command writes stderr only in these four cases, each
+On success, a READ command writes stderr only in these five cases, each
 with its own condition and stream:
 
 * the one-line `Warning: index is stale: ...` -- one per project whose
@@ -691,11 +691,17 @@ with its own condition and stream:
   project indexed with a scope, on **stderr** in text mode, beside a
   successful answer at exit 0 (the note says out-of-scope paths are not
   indexed and how to extend the scope).
+* the `note: ...` lines of a graph answer -- `find-callers` and
+  `find-callees`, text mode, whenever the walk carries notes (a node or depth
+  cap, a subject with no reference rows); on **stderr** beside a complete tree
+  and on **stdout** when the answer is `truncated`, where the notes are part of
+  what the reader is reading.
 
 That is an enumeration, not a promise: every stderr write in the CLI is a
-literal `typer.echo(..., err=True)` -- plus the coverage writer's one dynamic
-stream -- so the four above are the only ones a read command reaches.
-Everything else a read answer has to say goes to stdout.
+literal `typer.echo(..., err=True)` except two writers with a computed stream
+(the coverage line's and the graph notes'), so the five above are the only
+cases a read command reaches. Everything else a read answer has to say goes to
+stdout.
 
 Lifecycle and maintenance commands are not reads and do not follow that
 shape. `add-project`, `index-more`, `reindex-project` and `remove-project`

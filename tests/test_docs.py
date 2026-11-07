@@ -861,17 +861,19 @@ def test_the_success_stderr_contract_is_an_enumeration_not_an_exclusivity_claim(
     flat = " ".join(section.split())
     assert "nowhere else" not in flat
     assert "exactly three documented cases" not in flat
-    assert "a READ command writes stderr only in these four cases" in flat
+    assert "a READ command writes stderr only in these five cases" in flat
     # every read-side writer, named with the condition it needs
     assert "Warning: index is stale" in section
     assert "`coverage:` line" in section and "NON-empty" in section
     assert "`fingerprint meaning:` line" in section and "index-status" in section
     assert "`note: this index is scoped to" in section
+    assert "`note: ...` lines of a graph answer" in section
+    assert "`find-callers`" in section and "`find-callees`" in section
     assert "`semantic-search` on a project indexed with a scope" in flat
     # each case says which stream it lands on, in its own bullet
     parts = section.split("* the ")[1:]
-    assert len(parts) >= 4, parts
-    for part in parts[:4]:
+    assert len(parts) >= 5, parts
+    for part in parts[:5]:
         assert "**stderr**" in part or "**stdout**" in part, part
 
 
