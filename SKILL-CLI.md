@@ -101,7 +101,7 @@ takes the project's flock and runs one incremental pass before answering.
 Otherwise repair is explicit -- a pass command or the watcher.
 
 A file the sensitive layer withholds is not a staleness reason: it is reported
-as `1 file skipped (sensitive content)` (JSON: `skipped_count`) on a fresh verdict.
+as `1 file skipped (sensitive content)` (JSON: `withheld_count`) on a fresh verdict.
 
 ## The read-only guarantee
 

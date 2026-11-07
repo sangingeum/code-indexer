@@ -1176,9 +1176,8 @@ def index_status(
             f"{p['docs_per_s']} chunks/s eta={p['eta_s']}s")
         fields["progress"] = p
     if st.get("last_result") and st["last_result"].get("sensitive_skipped"):
-        parts.append(
-            f"sensitive={st['last_result']['sensitive_skipped']} files skipped "
-            "(privacy; override with --allow-sensitive on add-project)")
+        # JSON only: the text line below states the same fact for THIS tree in
+        # one vocabulary, so the last pass's count never rides the line too.
         fields["sensitive_skipped"] = st["last_result"]["sensitive_skipped"]
     if st.get("error"):
         parts.append(f"error={st['error']}")
@@ -1246,10 +1245,12 @@ def index_status(
                           "run reindex-project to build the index")
     block, _ = _read_staleness(core, entry, refresh=False,
                                json_output=json_output)
-    # A sensitive skip is its own state, not a stale reason and not a silent
-    # zero: the count and the layer that fired ride on the same line.
-    if block.get("skipped_summary"):
-        parts.append(str(block["skipped_summary"]))
+    # One count on the line, and it is the tree's (not the last pass's): a
+    # withheld file is its own fact, not a stale reason and not a silent zero.
+    # The hint that lifts the exclusion rides in the same phrase.
+    if block.get("withheld_summary"):
+        parts.append(f"{block['withheld_summary']} — privacy; override with "
+                     "--allow-sensitive on add-project")
     if json_output:
         fields.update(block)
         fields["schema"] = 1

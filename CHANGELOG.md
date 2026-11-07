@@ -6,19 +6,26 @@
 sensitive file on purpose and writes no row for it, so the tree-vs-manifest
 diff saw a scanned path with no row and reported it as `added` on every read
 -- `index is stale (1 file changed ... 1 added)`, exit 0, forever. The diff
-now re-applies the same detector to the paths it cannot explain, and a
-withheld file is its own state: `index-status` prints
-`1 file skipped (sensitive content)` and `--json` carries `skipped_count`,
-`skipped_files` (path + the layer that fired) and `skipped_summary`, on a
+now calls the same decision function the pass calls on the paths it cannot
+explain, and a withheld file is its own state: `index-status` prints
+`1 file skipped (sensitive content)` and `--json` carries `withheld_count`,
+`withheld_files` (path + the layer that fired) and `withheld_summary`, on a
 `fresh` verdict, so the banner is quiet and the skip is still visible and
-counted. A genuinely new non-sensitive file still reports `added`; a withheld
-file whose content changes is still skipped, because the detector is re-run
-rather than remembered; and no path, row, snippet or field names the material.
+counted. The names are `withheld_*`, not `skipped_*`: `semantic-search --json`
+already used `skipped`/`skipped_count` for the projects that could not answer,
+and one key never means two things. The summary carries a per-reason numeral
+only when both layers fired. A genuinely new non-sensitive file still reports
+`added`; a withheld file whose content changes is still withheld, because the
+decision is re-run rather than remembered; and no path, row, snippet or field
+names the material. On a project registered with `--allow-sensitive` the diff
+classifies nothing, so a rowless secret is `added` -- the row the next pass
+writes -- instead of a false `fresh` beside a skip. The re-check reads only
+scanned paths with no row, at the same 256 KiB prefix, inside an 8 MiB
+per-check budget charged in bytes actually read: one huge new file can no
+longer spend the whole allowance, and a path the budget did not reach is
+counted in `withheld_unexamined_count` beside the `added` reason it keeps.
 Nothing was migrated: no manifest schema change, no `EXTRACTION_VERSION` bump,
-an existing manifest answers correctly without a reindex. The re-check reads
-only scanned paths with no row, at the same 256 KiB prefix and inside an
-8 MiB per-check budget, so it costs tens of microseconds on a real checkout
-and degrades to honest `added` reasons rather than a silent skip.
+an existing manifest answers correctly without a reindex.
 
 **`semantic-search` ranks by source kind too.** The last relevance surface
 without the ladder now uses it: source before examples before tests before

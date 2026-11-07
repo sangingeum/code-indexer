@@ -16,7 +16,10 @@ existing names never change meaning.
 wall did not reach — `reason: "budget"`), so a JSON consumer can tell a
 partial result from a complete one; `skipped_count` is its length and
 `partial` is true when it is non-empty. All are always present (empty list /
-0 / false when nothing was skipped). The staleness block is the one described
+0 / false when nothing was skipped). `skipped_count` here counts PROJECTS
+only; the files the sensitive layer withholds are counted in the staleness
+block as `withheld_count`, so the two facts never share a key. The staleness
+block is the one described
 below; with `--all-projects` it is the aggregate plus a `staleness` array of
 per-project blocks.
 
@@ -179,10 +182,11 @@ block (`schema` stays `1`):
 {"stale": bool, "stale_known": bool,
  "stale_reasons": [{"kind": "modified|added|deleted", "file": str}],
  "stale_reason_count": int,
- "skipped_count": int,
- "skipped_files": [{"file": str,
-                    "reason": "sensitive filename|sensitive content"}],
- "skipped_summary": str|null,
+ "withheld_count": int,
+ "withheld_files": [{"file": str,
+                     "reason": "sensitive filename|sensitive content"}],
+ "withheld_summary": str|null,
+ "withheld_unexamined_count": int,
  "index_revision": str|null, "last_indexed": str|null}
 ```
 
@@ -193,16 +197,27 @@ never means "checked and fresh". `stale_reasons` is capped at five while
 pass the answer was read from and `last_indexed` is that pass's timestamp in
 ISO-8601 UTC.
 
-`skipped_count`, `skipped_files` and `skipped_summary` describe files the
+`withheld_count`, `withheld_files` and `withheld_summary` describe files the
 sensitive layer withholds: they are scanned and deliberately rowless, so they
-are neither stale reasons nor silently absent. `skipped_files` is capped at
-five while `skipped_count` is the total; each entry names the path and the
+are neither stale reasons nor silently absent. `withheld_files` is capped at
+five while `withheld_count` is the total; each entry names the path and the
 layer (`sensitive filename` | `sensitive content`), never the material. The
 fields are present on a `fresh` verdict, so "nothing changed" and "one file
 withheld on purpose" never read alike.
 
+`withheld_unexamined_count` is the part of the re-check's budget that ran
+out: those rowless paths are reported as `added` and nothing is known about
+their content, so a non-zero value means the re-check was truncated. On a
+project registered with `--allow-sensitive` the pass withholds nothing, so
+nothing is classified and every rowless path is an `added` reason -- the row
+the next pass will write.
+
+Consumer rule: `stale: false` with a non-zero `withheld_count` is not
+"nothing was withheld", and `stale` alone says nothing about withheld files.
+Branch on `withheld_count`, not on `stale`.
+
 `get-code-context --json` keeps `stale` as its FILE-level field and adds the
-other five fields; the file-level warning line is unchanged.
+rest of this block; the file-level warning line is unchanged.
 
 ## list-projects --json
 
@@ -244,7 +259,9 @@ An unregistered selector answers `registered: false` with its `path` and an
 ```
 
 The fields the text line prints, under the same names, plus the staleness
-block. A missing `fingerprint` field still means the index matched. The three
+block. `sensitive_skipped` is the exception: it is JSON-only, counts what the
+LAST pass withheld, and never rides the line -- the line carries this tree's
+count, from the staleness block. A missing `fingerprint` field still means the index matched. The three
 `parse_*` counts are the per-file parse verdicts (text:
 `parse=parsed:N,parse_error:N,parse_unavailable:N`) and are always all three,
 zero included — a verdict is the parser's own result, never the chunker's

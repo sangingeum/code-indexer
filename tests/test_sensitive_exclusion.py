@@ -23,8 +23,7 @@ from code_indexer.config import Config  # noqa: E402
 from code_indexer.core import Core  # noqa: E402
 from code_indexer.registry import Registry  # noqa: E402
 from code_indexer.sensitive import (content_is_sensitive,  # noqa: E402
-                                    file_is_sensitive,
-                                    filename_is_sensitive)
+                                    filename_is_sensitive, skip_verdict)
 
 runner = CliRunner()
 
@@ -152,10 +151,13 @@ def test_content_patterns():
     assert not content_is_sensitive("jwt decoding discussion, no token")
 
 
-def test_file_is_sensitive_precedence():
-    assert file_is_sensitive(".env", SECRET_CONTENT) == "filename"
-    assert file_is_sensitive("src/plain.py", JWT) == "content"
-    assert file_is_sensitive("src/plain.py", "clean") is None
+def test_skip_verdict_precedence():
+    assert skip_verdict(".env", SECRET_CONTENT) == "filename"
+    assert skip_verdict("src/plain.py", JWT) == "content"
+    assert skip_verdict("src/plain.py", "clean") is None
+    # No text means the content was not examined, never that it is clean.
+    assert skip_verdict("src/plain.py") is None
+    assert skip_verdict(".env") == "filename"
 
 
 # ---------------------------------------------------------------------------
@@ -273,7 +275,11 @@ def test_index_status_reports_sensitive_count(rig, monkeypatch):
     monkeypatch.setattr(cli, "_get_core", lambda skip: core)
     result = runner.invoke(app, ["index-status", entry.path])
     assert result.exit_code == 0
-    assert "sensitive=" in result.output and "files skipped" in result.output
+    # One count, one vocabulary: this tree's withheld files, with the hint.
+    assert "sensitive=" not in result.output
+    assert "7 files skipped (2 sensitive content, 5 sensitive filename)" \
+        in result.output
+    assert "--allow-sensitive" in result.output
     cli._core = None
 
 

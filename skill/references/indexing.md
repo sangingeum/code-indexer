@@ -201,10 +201,17 @@ embedding identity is not the one this build would write -- plus
 (`parse=parsed:N,parse_error:N,parse_unavailable:N`).
 
 It also names what the sensitive layer withheld: a suffixed
-`1 file skipped (sensitive content)` (or `sensitive filename`), and in
-`--json` the `skipped_count` / `skipped_files` / `skipped_summary` fields.
+`1 file skipped (sensitive content)` (or `sensitive filename`), followed by
+the `--allow-sensitive` hint, and in `--json` the `withheld_count` /
+`withheld_files` / `withheld_summary` / `withheld_unexamined_count` fields.
 Those files have no rows and are not stale reasons -- see the note under
-"Indexing scope and environment" below.
+"Indexing scope and environment" below. The count on the line is this tree's;
+the last pass's own number rides only in the JSON field `sensitive_skipped`.
+
+**Consumer rule:** `stale: false` with a non-zero withheld count is not
+"nothing was withheld". A consumer that branches on `stale` alone learns
+nothing about withheld files: they are not stale, and they are not in the
+index. Branch on the withheld count.
 
 `list-projects` gives the same summary for every registered project.
 `lookup-project` answers only whether a path, slug or name is registered, and
@@ -306,13 +313,25 @@ by a reindex of the project, not by the file.
 
 A file the sensitive scan withholds sits in the gap between the scan set and
 the manifest: it is scanned, it deliberately has no row, and it is **not** a
-staleness reason. The diff re-applies the same detector to the scanned paths
-it cannot find, so such a file is reported as `skipped` with the layer that
-fired -- `index-status` prints `1 file skipped (sensitive content)`, and
-`--json` carries `skipped_count`, `skipped_files` and `skipped_summary` --
-while the verdict stays `fresh`. A genuinely new non-sensitive file still
-reports `added`, and a withheld file that changes content is still skipped,
-because the detector is re-applied rather than remembered. The check reads no
-more than the pass does: only scanned paths with no row are opened, up to the
-same 256 KiB prefix, inside a total 8 MiB budget per check -- a path past
-that budget stays an honest `added` reason rather than a silent skip.
+staleness reason. The diff calls the same decision function the pass calls
+(`sensitive.skip_verdict`, over the same 256 KiB prefix), so such a file is
+reported as withheld with the layer that fired -- `index-status` prints
+`1 file skipped (sensitive content)`, and `--json` carries `withheld_count`,
+`withheld_files` and `withheld_summary` -- while the verdict stays `fresh`.
+When more than one layer fired the summary carries a per-reason numeral
+(`2 files skipped (1 sensitive content, 1 sensitive filename)`); with a single
+category it does not, because the numeral would only repeat the total. A
+genuinely new non-sensitive file still reports `added`, and a withheld file
+that changes content is still withheld, because the decision is re-applied
+rather than remembered. On a project registered with `--allow-sensitive` the
+pass withholds nothing, so the diff classifies nothing either: every rowless
+path is an `added` reason, exactly the row the next pass writes.
+
+The check reads no more than the pass does: only scanned paths with no row
+are opened, up to the same 256 KiB prefix, inside a total 8 MiB budget per
+check, charged in bytes actually read -- one huge new file costs its prefix,
+not its size. A path the budget did not reach stays an `added` reason and is
+counted in `withheld_unexamined_count`: an `added` reason says the path is not
+in the index, and nothing about its content. The 8 MiB figure is an
+approximation chosen so a read cannot cost like a pass, not a measured
+threshold.

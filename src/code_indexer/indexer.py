@@ -27,7 +27,7 @@ from . import ts_chunker
 from .manifest import ChunkRow, Manifest, ManifestFile, SymbolRow
 from .scanner import ScannedFile, scan_project
 from . import graph_extract
-from .sensitive import SensitiveReport, file_is_sensitive
+from .sensitive import (SENSITIVE_READ_CHARS, SensitiveReport, skip_verdict)
 
 if TYPE_CHECKING:  # annotations only: importing this module costs no client
     from .embedder import Embedder
@@ -171,11 +171,11 @@ class Indexer:
                 try:
                     with open(f.abs_path, encoding="utf-8",
                               errors="replace") as fh:
-                        text = fh.read(65536 * 4)
+                        text = fh.read(SENSITIVE_READ_CHARS)
                 except OSError:
                     kept[path] = f
                     continue
-                verdict = file_is_sensitive(path, text)
+                verdict = skip_verdict(path, text)
                 if verdict == "filename":
                     sensitive_report.files_by_name += 1
                     sensitive_report.skipped_names.append(path)

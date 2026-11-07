@@ -43,6 +43,12 @@ SENSITIVE_CONTENT_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"),            # Slack token
 )
 
+# The prefix both the index pass and the read-side re-check examine. It lives
+# beside the patterns so the two cannot read different amounts of a file: a
+# secret past this prefix is invisible to both, which is a limit of the
+# detector and never a disagreement between the pass and the diff.
+SENSITIVE_READ_CHARS = 65536 * 4
+
 
 @dataclass
 class SensitiveReport:
@@ -81,11 +87,18 @@ def content_is_sensitive(text: str) -> bool:
     return any(pattern.search(text) for pattern in SENSITIVE_CONTENT_PATTERNS)
 
 
-def file_is_sensitive(rel_path: str, text: str) -> str | None:
-    """Exclusion verdict for one file: 'filename', 'content', or None."""
+def skip_verdict(rel_path: str, text: str | None = None) -> str | None:
+    """The one composition of both layers: 'filename', 'content', or None.
+
+    The pass and the read-side re-check both call this, so the two cannot
+    disagree about a file. The filename layer is decided from the path alone;
+    the content layer only when ``text`` is given, and ``text`` is the first
+    ``SENSITIVE_READ_CHARS`` characters of the file. ``text=None`` means the
+    content was not examined -- never that the file is clean.
+    """
     if filename_is_sensitive(rel_path):
         return "filename"
-    if content_is_sensitive(text):
+    if text is not None and content_is_sensitive(text):
         return "content"
     return None
 
@@ -97,6 +110,16 @@ SKIP_REASON_FILENAME = "sensitive filename"
 SKIP_REASON_CONTENT = "sensitive content"
 
 
+SKIP_REASON_BY_LAYER: dict[str, str] = {
+    "filename": SKIP_REASON_FILENAME,
+    "content": SKIP_REASON_CONTENT,
+}
+
+
 def skip_reason_text(verdict: str) -> str:
-    """The reported phrase for one verdict ('filename' or 'content')."""
-    return SKIP_REASON_FILENAME if verdict == "filename" else SKIP_REASON_CONTENT
+    """The reported phrase for one layer verdict (a keyed lookup).
+
+    Keyed, not a fallback: a layer this module does not know raises instead
+    of being reported under another layer's phrase.
+    """
+    return SKIP_REASON_BY_LAYER[verdict]

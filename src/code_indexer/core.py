@@ -508,9 +508,13 @@ class Core:
 
         Pure read: the manifest is opened only to read rows and meta, the
         tree is walked with the scanner's own include/exclude rules and stat
-        fast-path, and only files whose stat identity changed are hashed. No
-        service is contacted. The walk carries its own budget so a very large
-        tree degrades to ``unknown`` rather than a long silence.
+        fast-path, and only files whose stat identity changed are hashed. A
+        scanned path with no manifest row is opened for the same bounded
+        prefix the pass reads, so a deliberately withheld file is reported as
+        withheld rather than as an added reason; the project's
+        ``allow_sensitive`` override decides whether anything is withheld at
+        all. No service is contacted. The walk carries its own budget so a
+        very large tree degrades to ``unknown`` rather than a long silence.
         """
         mdir = os.path.join(self.cfg.index_root, entry.slug, "manifest.db")
         # The manifest's own fields belong to an ``unknown`` verdict too: an
@@ -538,6 +542,9 @@ class Core:
             indexed = m.all_files()
             scope = [ln for ln in (m.get_meta("scope_include") or "")
                      .splitlines() if ln.strip()]
+            # Read with the scope, from the same open: the override changes
+            # what the next pass withholds, so the diff must honour it too.
+            allow_sensitive = m.get_meta("allow_sensitive") == "1"
         finally:
             m.close()
         if not indexed or last_indexed is None:
@@ -563,7 +570,8 @@ class Core:
                                      last_indexed=last_indexed,
                                      index_revision=index_revision)
         return staleness.detect(indexed, scanned, last_indexed=last_indexed,
-                                index_revision=index_revision)
+                                index_revision=index_revision,
+                                allow_sensitive=allow_sensitive)
 
     # ------------------------------------------------------------------
     # project resolution / summaries
