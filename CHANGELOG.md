@@ -1,5 +1,37 @@
 # Changelog
 
+## [Unreleased] -- the agent surface
+
+**The documentation an agent loads before it acts is now 118 lines, and the
+detail is read on demand.** `SKILL-CLI.md` was one 1090-line page (39,797
+bytes) carrying every flag, example and remedy; it is now the entry document
+of ADR-0009 -- decision tree, command roster, exit table, staleness rule, the
+read-only guarantee, the reference index -- and the detail moved into five
+references under `skill/references/`, each with its own budget.
+
+- **The entry document carries the choice, not the detail.** One row per
+  question shape, one roster line per command with its read-or-write class,
+  the six-code exit table with the `ErrorType` rule, the staleness rule in
+  three sentences, and one trigger per reference. Per-command flags,
+  examples, the plan workflow, provider behaviour and the MCP parity table
+  left it; the parity table lives in `README.md` alone (ADR-0007 section 5).
+- **The roster and the command sections are generated from the CLI registry.**
+  `scripts/generate_skill_docs.py` renders them from the same typer registry
+  the CLI builds its commands from, so a command cannot exist undocumented
+  and a flag cannot be documented that does not exist; the prose around a
+  generated block is written by hand.
+- **`tests/test_docs.py` guards the split.** It replaces the fenced
+  command-block parser with six checks: roster equality with the registry
+  including classes, index closure (every reference named, every reference
+  file named, every command covered by exactly one reference), both budgets
+  with the measured size printed, taxonomy coverage of every exit code, the
+  generated blocks against the generator, and the installed copy's digest --
+  which skips with its reason when the installed copy is not in the new
+  shape.
+- **Nothing about the CLI changed**: no command added or removed, no flag
+  moved, no exit code changed. The entry document's roster is the same 33
+  commands, each still in the class ADR-0003 section 1 gives it.
+
 ## [Unreleased] — the refactoring provider contract
 
 **A refactoring provider interface exists, and it was proved before any
