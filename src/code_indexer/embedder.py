@@ -18,7 +18,7 @@ import random
 import time
 
 from .embed_text import EMBED_FORMAT
-from .embed_cache import cache_key
+from .embed_cache import cache_key, stored_representation
 from .errors import ExtensionUnavailableError
 from .extensions import SEMANTIC_EXTENSION_MESSAGE
 from .fingerprint import ConfigError
@@ -121,13 +121,31 @@ class Embedder:
         The retry chain belongs to the write path, where a retry can
         actually succeed. A query makes one attempt and reports the failure;
         an unreachable service is the caller's answer, not a 30-second
-        backoff. The content-addressed cache is still consulted first.
+        backoff.
+
+        The cache is CANONICAL for the read path. The dimension is resolved
+        first (a cached row is keyed on it), and a miss stores the vector and
+        returns the stored representation rather than the raw one, so the
+        first read of a query and every later read search identical bytes.
+        This matters because the embedding service is not reproducible across
+        a model reload: a cold-loaded run returned components up to 6e-3 away
+        from the warm ones for the same text, which re-ordered scores at depth
+        and made a warm-up call change the answer. Without a usable cache the
+        answer is only as stable as the service's current load state, which is
+        why the cache is consulted even when the dimension is not yet known.
         """
-        if self.cache is not None and self._dim is not None:
-            cached = self.cache.get(cache_key(
-                text, self.model, self._dim, EMBED_FORMAT))
-            if cached is not None:
-                return cached
+        key: str | None = None
+        if self.cache is not None:
+            if self._dim is None:
+                try:
+                    self.dimension_once()
+                except Exception:  # noqa: BLE001 — cache is an optimisation
+                    self._dim = None
+            if self._dim is not None:
+                key = cache_key(text, self.model, self._dim, EMBED_FORMAT)
+                cached = self.cache.get(key)
+                if cached is not None:
+                    return cached
         client = self._ollama.Client(host=self._host, timeout=QUERY_ATTEMPT_TIMEOUT)
         try:
             res = client.embed(model=self.model, input=[text],
@@ -141,9 +159,10 @@ class Embedder:
             if close is not None:
                 close()
         vector = embs[0]
-        if self.cache is not None and self._dim is not None:
-            self.cache.put(cache_key(text, self.model, self._dim, EMBED_FORMAT),
-                           vector)
+        if key is not None:
+            canonical = stored_representation(vector)
+            self.cache.put(key, canonical)
+            return canonical
         return vector
 
     def close(self) -> None:

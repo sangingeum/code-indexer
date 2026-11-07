@@ -86,6 +86,33 @@ DATA_FILE_TOP_K_SHARE = 0.4
 DATA_QUERY_MARKERS = frozenset({"json", "yaml", "yml", "toml"})
 
 
+def hit_identity(hit: dict[str, Any]) -> tuple[str, str, int, int, str]:
+    """The hit's place in the index: a complete, order-independent key.
+
+    Two chunks are the same member when this tuple matches. It is the final
+    tie-break of every score sort in this module, so an ordering never falls
+    back to the order the candidates happened to arrive in — that order is the
+    store's (or the fusion's) business, not the answer's.
+    """
+    return (
+        str(hit.get("project") or ""),
+        str(hit.get("file") or ""),
+        int(hit.get("start_line") or 0),
+        int(hit.get("end_line") or 0),
+        str(hit.get("symbol") or ""),
+    )
+
+
+def score_order(hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Sort by score descending, ties broken by `hit_identity`.
+
+    The key is TOTAL: equal scores always fall in index order, never in
+    arrival order, so the same set of hits yields byte-identical output no
+    matter how the candidate list was ordered upstream.
+    """
+    return sorted(hits, key=lambda h: (-h["score"], *hit_identity(h)))
+
+
 def tokenize(text: str | None) -> list[str]:
     """Lowercase identifier-ish tokens (camelCase/snake_case preserved whole;
     callers that want sub-token splitting can layer it, but whole-token
@@ -160,8 +187,7 @@ def hybrid_fuse(vector_hits: list[dict[str, Any]], qtokens: list[str],
         out["lexical_score"] = round(ls, 4)
         out["score"] = round(hit["score"] + lexical_weight * round(ls, 4), 4)
         fused.append(out)
-    fused.sort(key=lambda h: h["score"], reverse=True)
-    return fused
+    return score_order(fused)
 
 
 def metadata_rerank(vector_hits: list[dict[str, Any]],
@@ -176,8 +202,7 @@ def metadata_rerank(vector_hits: list[dict[str, Any]],
         h["metadata_delta"] = round(delta, 4)
         h["score"] = round(hit["score"] + delta, 4)
         out.append(h)
-    out.sort(key=lambda h: h["score"], reverse=True)
-    return out
+    return score_order(out)
 
 
 # -- class order (every retrieval and ranking mode) -------------------------
@@ -291,8 +316,7 @@ def downweight_data_files(hits: list[dict[str, Any]],
         else:
             h["data_penalty"] = 0.0
         out.append(h)
-    out.sort(key=lambda h: h["score"], reverse=True)
-    return out
+    return score_order(out)
 
 
 def cap_data_file_share(hits: list[dict[str, Any]], limit: int,
@@ -338,8 +362,15 @@ def merge_overlapping(hits: list[dict[str, Any]],
 
     Ranges that overlap or sit within ``adjacency_gap`` lines of each other
     collapse into their union; the best score wins, and the merged hit lists
-    all contributing symbols. Deterministic: same-file groups are merged in
-    score order, output re-sorted by score.
+    all contributing symbols in line order. Output is re-sorted by score with
+    `hit_identity` as the tie-break.
+
+    The walk runs in LINE order, not score order. A score-order walk
+    chain-merges differently depending on which neighbour it meets first —
+    the same candidate set then yields one union or two — so a deep-limit
+    answer gained or lost a member between runs whose only difference was the
+    order the store handed back equal scores. Walking the ranges makes the
+    membership a function of the hit SET alone.
     """
     by_file: dict[tuple[str, str], list[dict[str, Any]]] = {}
     others: list[dict[str, Any]] = []
@@ -352,30 +383,45 @@ def merge_overlapping(hits: list[dict[str, Any]],
     merged: list[dict[str, Any]] = []
     for key in by_file:
         group = sorted(by_file[key],
-                       key=lambda h: (-h["score"], h["start_line"]))
-        current: dict[str, Any] | None = None
+                       key=lambda h: (h["start_line"], h["end_line"],
+                                      hit_identity(h)))
+        run: list[dict[str, Any]] = []
+        run_end = 0
         for hit in group:
-            if current is None:
-                current = dict(hit)
-                continue
-            if hit["start_line"] <= current["end_line"] + adjacency_gap + 1:
-                current["end_line"] = max(current["end_line"],
-                                          hit["end_line"])
-                current["start_line"] = min(current["start_line"],
-                                            hit["start_line"])
-                for field in ("symbol", "symbol_type"):
-                    extra = hit.get(field)
-                    if extra and extra != current.get(field):
-                        symbols = [current.get(field), extra]
-                        current[field] = ", ".join(s for s in symbols if s)
-                current["merged_count"] = current.get("merged_count", 1) + 1
-            else:
-                merged.append(current)
-                current = dict(hit)
-        if current is not None:
-            merged.append(current)
-    out = merged + others
-    out.sort(key=lambda h: h["score"], reverse=True)
+            if run and hit["start_line"] > run_end + adjacency_gap + 1:
+                merged.append(_merge_run(run))
+                run = []
+            run.append(hit)
+            run_end = max(hit["end_line"], run_end)
+        if run:
+            merged.append(_merge_run(run))
+    return score_order(merged + others)
+
+
+def _merge_run(run: list[dict[str, Any]]) -> dict[str, Any]:
+    """One line-ordered run of same-file hits collapsed into its union.
+
+    The best-scoring member supplies the payload fields (snippet, provenance,
+    score); the range is the union and the symbol fields list every member's
+    in line order. Pure: the run is already in canonical order.
+    """
+    best = run[0]
+    for hit in run[1:]:
+        if (-hit["score"], hit_identity(hit)) < (-best["score"],
+                                                 hit_identity(best)):
+            best = hit
+    out = dict(best)
+    out["start_line"] = min(h["start_line"] for h in run)
+    out["end_line"] = max(h["end_line"] for h in run)
+    if len(run) > 1:
+        for field in ("symbol", "symbol_type"):
+            parts: list[str] = []
+            for hit in run:
+                value = hit.get(field)
+                if value and value not in parts:
+                    parts.append(value)
+            out[field] = ", ".join(parts) or None
+        out["merged_count"] = len(run)
     return out
 
 
@@ -453,7 +499,8 @@ def rrf_fuse(per_project: dict[str, list[dict[str, Any]]], limit: int,
     Cross-collection cosine scores are NOT comparable (different model runs,
     different content pools); RRF compares ranks instead. A hit's fused score
     is sum(1 / (k + rank)) over the lists it appears in; the original score is
-    kept as vector_score for display. Ties break by (file, start_line).
+    kept as vector_score for display. Ties break by `hit_identity` — a total
+    key, so the answer does not depend on the order the lists were handed in.
     """
     fused: dict[tuple, dict[str, Any]] = {}
     for project, hits in per_project.items():
@@ -469,6 +516,5 @@ def rrf_fuse(per_project: dict[str, list[dict[str, Any]]], limit: int,
             entry["rrf_score"] += 1.0 / (k + rank)
             entry["rank_positions"].append(rank)
     out = list(fused.values())
-    out.sort(key=lambda h: (-h["rrf_score"], h.get("file") or "",
-                            h.get("start_line") or 0))
+    out.sort(key=lambda h: (-h["rrf_score"], *hit_identity(h)))
     return out[:max(1, limit)]

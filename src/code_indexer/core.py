@@ -1189,7 +1189,7 @@ class Core:
 
         if len(per_project) == 1:
             all_hits = next(iter(per_project.values()))
-            all_hits.sort(key=lambda h: h["score"], reverse=True)
+            all_hits = ranking.score_order(all_hits)
             # Single project: scores are comparable; keep the share cap.
             all_hits = ranking.cap_data_file_share(
                 all_hits, max(1, limit), ranking.query_tokens(query))

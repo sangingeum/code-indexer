@@ -44,6 +44,17 @@ def _unpack(blob: bytes) -> list[float]:
     return list(struct.unpack(f"<{len(blob) // 2}e", blob))
 
 
+def stored_representation(vector: list[float]) -> list[float]:
+    """The value the cache serves for ``vector``: float16 round-tripped.
+
+    A read path uses this on a MISS as well as on a hit, so the first read of
+    a query and every later read search the same bytes. Using the raw
+    computed vector on the miss and the stored one afterwards made a warm-up
+    call change the answer.
+    """
+    return _unpack(_pack(vector))
+
+
 class EmbedCache:
     def __init__(self, index_root: str,
                  max_bytes: int | None = None):
