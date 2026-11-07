@@ -313,6 +313,28 @@ def test_coverage_rides_the_json_answer_and_is_scoped(index_project):
     assert scoped["coverage"]["complete"] is True
 
 
+def test_a_prefix_narrows_the_answer_not_the_coverage_scope(index_project):
+    """The counts stay project-wide under a prefix, and that is the contract.
+
+    The block says whether an absence in THIS answer can be trusted; a file
+    outside the prefix can only make a prefix answer look less complete, never
+    more, so the scope does not narrow with the question and the counts stay
+    comparable with `index-status`.
+    """
+    core, entry, project = index_project({"src/mod.py": PY, "notes.md": MD})
+    overview = _json(runner.invoke(
+        app, ["overview", "--path-prefix", "src", "--project", str(project),
+              "--json"]))
+    assert overview["files"] == 1
+    assert overview["coverage"]["scope"] == "project"
+    assert overview["coverage"]["files"] == 2
+
+    skeletal = _json(runner.invoke(
+        app, ["skeleton", "src", "--project", str(project), "--json"]))
+    assert skeletal["coverage"]["scope"] == "project"
+    assert skeletal["coverage"]["files"] == 2
+
+
 def test_the_text_line_is_suppressed_on_a_clean_answer(index_project):
     core, entry, project = index_project({"mod.py": PY})
     result = runner.invoke(app, ["find-symbol", "helper", "--project",

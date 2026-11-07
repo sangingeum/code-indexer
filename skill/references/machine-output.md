@@ -136,6 +136,15 @@ files yield no AST symbol rows -- a shell-only project whose files parsed
 still says `["shell"]` -- and `freshness` repeats the staleness verdict, never
 a second estimate.
 
+The block does not narrow with a prefix. `overview --path-prefix` and a
+`skeleton` subtree argument narrow the FILES an answer reports; `scope` stays
+`project` and the counts stay the whole index's, because the question the block
+answers is whether an absence in THIS answer can be trusted, and a file
+outside the prefix can only make a prefix answer look less complete, never
+more. The counts therefore stay comparable with `index-status`; a subtree's
+own totals are not what this block reports, and a caller that wants them
+narrows its own reading of the answer instead.
+
 The text form adds ONE short line when coverage is incomplete. On a normal
 answer it goes to **stderr** (stdout stays the answer, so a cap such as
 `overview --max-lines` counts stdout alone); on an empty answer there is no
