@@ -4,11 +4,13 @@
 
 # Captured round records, gate output and command logs. Indexing them made
 # captures tie with or outrank source in semantic search, find-callers and
-# hotspot rank.
-runs/
+# hotspot rank. Anchored to the repository root: a directory of the same
+# name below it (src/runs/ in a real project) is source, not a capture tree.
+/runs/
 
 # The retrieval evaluation corpus: one query per line with its labelled
 # answers. Those lines are questions shaped like the ones users type, so
 # indexing them ranks near-duplicate queries above the code they point at.
-# The harness reads the file from disk, not from the index.
-eval/
+# The harness reads the file from disk, not from the index. Anchored to the
+# repository root for the same reason as /runs/ above.
+/eval/

@@ -27,7 +27,14 @@ committed record.
 - **`tests/test_repo_exclusions.py` pins the set.** It copies the
   repository's own `.codeindexignore` into a throwaway tree shaped like this
   one and asserts the captures and the corpus stay out while `src/` is
-  scanned; without the file the test fails.
+  scanned; without the file the test fails. The same tree also carries
+  `src/runs/`, `src/eval/` and `pkg/runs/`, which the anchored patterns keep.
+- **The patterns are anchored to the root.** `runs/` and `eval/` matched a
+  directory of either name at any depth, so a module under `src/` would have
+  vanished from the index while the prose said root trees. They are now
+  `/runs/` and `/eval/`. A second case records the composition rule: the
+  per-directory specs are `any()`-unioned, so a root `!keep.txt` cannot
+  re-include a `keep.txt` that `src/.codeindexignore` excluded.
 
 ## [Unreleased] — the retired read-path TTL
 
