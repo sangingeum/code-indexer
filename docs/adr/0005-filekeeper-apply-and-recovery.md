@@ -4,6 +4,7 @@
 - Date: 2026-11-07
 - Deciders: owner (ratification), architecture review
 - Supersedes / Superseded by: --
+- Amended: 2026-11-07 -- section 1 said every partial apply is exit 1 with `PartialApply`; the shipped apply path exits 5 with `PlanStale` when keeper's own hash guard refuses after operations have already run, so the record gains that exception.
 
 ## Decision in one paragraph
 
@@ -48,6 +49,8 @@ What a caller may assume when file 3 of 5 fails, and what it may not:
 | 4, 5 | untouched; their preconditions were checked in the pre-pass but no mutation was attempted |
 
 The exit code is 1 with `ErrorType: PartialApply` on stderr and the machine-readable report on stdout. ADR-0003's taxonomy gains no number: a partial apply is "any other runtime failure" there, and the `ErrorType` line is the discriminator it says it is. A refusal in the pre-pass is exit 5 and is not a partial apply -- that case has no applied file to report.
+
+One exception, and it is the cause rather than the bytes that decides the code: a refusal raised by keeper's own hash guard is exit 5 with `ErrorType: PlanStale` even when operations have already run, because the exit code tracks the cause -- someone changed the file after the pre-pass -- rather than whether bytes were written. The machine-readable report then carries `partial: true` and the ordered `operation_id` values, which are what tell a caller how far it got. `PartialApply` and exit 1 still govern a genuine runtime failure mid-loop.
 
 ### 2. Which primitive: line-range edits, not patches
 
