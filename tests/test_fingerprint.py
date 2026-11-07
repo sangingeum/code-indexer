@@ -462,8 +462,14 @@ def test_a_vectors_on_pass_records_current_or_error_never_stale(rig):
     assert _state(core, entry) == "error"
 
 
-def test_a_recorded_stale_marker_is_reported_as_it_stands(rig):
-    """The read repeats a recorded `stale`; it does not re-infer `current`."""
+def test_a_recorded_stale_marker_is_reported_as_it_stands(rig, monkeypatch):
+    """The read repeats a recorded `stale` AND prints the sentence beside it.
+
+    The marker alone tells a reader that something is stale, not what; the
+    acceptance is the `fingerprint meaning:` line a reader sees saying the
+    manifest records the collection itself as stale and a vector rebuild is
+    what clears it, so both are pinned here.
+    """
     core, reg, entry, project, store = rig
     core.run_index(entry.slug, project, vectors="on")
     m = core.manifest_for(entry.slug)
@@ -474,3 +480,17 @@ def test_a_recorded_stale_marker_is_reported_as_it_stands(rig):
 
     summary = core.status_summary(entry)
     assert "vectors_state=stale" in summary, summary
+
+    monkeypatch.setattr(cli, "_core", core)
+    monkeypatch.setattr(cli, "_core_skip", False)
+    result = runner.invoke(app, ["index-status", entry.path])
+    assert result.exit_code == 0, result.output
+    shown = result.output + (result.stderr or "")
+    assert "vectors_state=stale" in shown, shown
+    assert ("fingerprint meaning: every fingerprint key a read can compare "
+            "matched (embedding model, embedded-text format, chunker and "
+            "extraction version), and the recorded embedding model and "
+            "embedded-text format are the ones this build would write; "
+            "separately, the manifest records the vector collection itself "
+            "as stale, and a vector rebuild is what clears that -- run: "
+            "code-indexer reindex-project") in shown, shown
