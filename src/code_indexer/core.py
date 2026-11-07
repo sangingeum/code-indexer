@@ -40,6 +40,25 @@ if TYPE_CHECKING:  # annotations only: no client library is imported here
     from .indexer import Indexer
     from .store import Store
 
+def _hit_identity(hit: dict[str, Any], width: int = 80) -> str:
+    """What a hit matched, for every output format.
+
+    The enclosing symbol when the chunk has one; otherwise the first non-blank
+    line of the chunk's snippet; ``file`` when the chunk has neither (an empty
+    or whitespace-only snippet). Never an empty string and never a bare dash:
+    text, compact and JSON name the same thing, so a scripted caller reads the
+    answer an agent reads.
+    """
+    symbol = (hit.get("symbol") or "").strip()
+    if symbol:
+        return symbol
+    for raw in (hit.get("snippet") or "").splitlines():
+        line = raw.strip()
+        if line:
+            return line[:width]
+    return "file"
+
+
 logger = logging.getLogger("code-indexer.core")
 
 # Wall budget for one unscoped query invocation (ADR-0003 section 6): the
@@ -1164,10 +1183,15 @@ class Core:
             all_hits = ranking.cap_data_file_share(
                 all_hits, max(1, limit), ranking.query_tokens(query))
 
-        # Result shaping: merge overlapping/adjacent same-file hits, generic
-        # per-file cap, budget trim (lowest-ranked dropped first).
+        # Result shaping: merge overlapping/adjacent same-file hits, one class
+        # order for every retrieval and ranking mode, generic per-file cap,
+        # budget trim (lowest-ranked dropped first). The class order runs
+        # before the caps so the policy decides which hits fill them; it is an
+        # order, never a filter (ranking.class_order).
         if merge:
             all_hits = ranking.merge_overlapping(all_hits)
+        all_hits = ranking.class_order(
+            all_hits, ranking.query_tokens(query))
         all_hits = ranking.cap_per_file(all_hits, per_file)
         all_hits = ranking.truncate_snippets(all_hits, max_chars, max_tokens)
         all_hits, dropped = ranking.trim_to_budget(
@@ -1278,15 +1302,22 @@ class Core:
         the token-budget agent loop (search compact -> get-code-context).
         ``json`` — the JSON contract, which carries ``skipped`` /
         ``skipped_count`` / ``partial`` and the additive staleness block, so
-        a consumer can tell the result is partial.
+        a consumer can tell the result is partial. Each JSON hit also carries
+        ``identity``: exactly the name the text modes print (the symbol, else
+        the first non-blank snippet line, else ``file``).
         ``dropped`` > 0 appends one trailing truncation line in text/compact
         mode, and a non-empty ``skipped`` appends one trailing partial-result
         line (the documented exceptions to single-line stderr reporting).
+
+        Every format names what the hit matched -- the symbol, else the first
+        non-blank code line, else ``file`` -- so no hit renders as a bare dash
+        or an empty field (``_hit_identity``).
         """
         if fmt == "json":
             payload: dict[str, Any] = {
                 "schema": 1,
-                "hits": hits, "truncated": dropped > 0, "dropped": dropped,
+                "hits": [dict(h, identity=_hit_identity(h)) for h in hits],
+                "truncated": dropped > 0, "dropped": dropped,
                 "skipped": skipped or [],
                 "skipped_count": len(skipped or []),
                 "partial": partial or bool(skipped),
@@ -1298,16 +1329,21 @@ class Core:
         lines: list[str] = []
         if fmt == "compact":
             for h in hits:
-                sym = h.get("symbol") or "-"
+                sym = _hit_identity(h)
                 lines.append(
                     f"{h['project']}::{h['file']}:{h['start_line']}-"
                     f"{h['end_line']}  {sym}  {h['score']:.4f}")
         else:
             lines.append("search results (score desc):")
             for h in hits:
-                sym = f" ({h['symbol']}" if h["symbol"] else ""
-                if sym:
-                    sym += f", {h['symbol_type']})" if h.get("symbol_type") else ")"
+                if h.get("symbol"):
+                    sym = f" ({h['symbol']}"
+                    if h.get("symbol_type"):
+                        sym += f", {h['symbol_type']}"
+                    sym += ")"
+                else:
+                    # No enclosing symbol: name the code line that matched.
+                    sym = f" ({_hit_identity(h)})"
                 lines.append(
                     f"- [{h['score']:.4f}] {h['project']}::{h['file']}"
                     f":{h['start_line']}-{h['end_line']}{sym}"

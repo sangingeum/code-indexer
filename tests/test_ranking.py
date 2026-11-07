@@ -10,8 +10,8 @@ from code_indexer.ranking import (
     DATA_FILE_PENALTY,
     DEFINITION_BOOST,
     LEXICAL_WEIGHT,
-    TEST_PATH_PENALTY,
     cap_data_file_share,
+    class_order,
     downweight_data_files,
     hybrid_fuse,
     is_data_payload,
@@ -19,6 +19,7 @@ from code_indexer.ranking import (
     metadata_adjustment,
     metadata_rerank,
     query_tokens,
+    targets_tests,
     tokenize,
 )
 
@@ -51,7 +52,7 @@ def test_lexical_score_zero_without_query_tokens():
     assert lexical_score(hit(0.5, symbol="foo"), []) == 0.0
 
 
-def test_metadata_adjustment_definition_boost_and_test_penalty():
+def test_metadata_adjustment_definition_boost_only():
     q = query_tokens("pathfinding movement of pawns on the map")
     boosted = metadata_adjustment(hit(0.5, symbol="TravelerPolicy_Neighbor"), q)
     plain = metadata_adjustment(hit(0.5, file="src/grid/mover.cs"), q)
@@ -59,26 +60,25 @@ def test_metadata_adjustment_definition_boost_and_test_penalty():
     assert plain == 0.0
 
 
-def test_metadata_adjustment_test_path_penalized():
+def test_metadata_adjustment_does_not_judge_paths():
+    """File class is the one classifier: a test path earns no metadata penalty
+    of its own (the class order demotes it), and the query has nothing to
+    silence here."""
     q = query_tokens("grid neighbor offsets")
     testy = metadata_adjustment(
-        hit(0.5, file="tests/helpers/NeighborsTests.cs",
-            symbol="Neighbors"), q)
-    assert testy == pytest.approx(DEFINITION_BOOST - TEST_PATH_PENALTY)
-    # Query explicitly about tests -> no penalty.
-    qtest = query_tokens("neighbors test helper")
-    assert metadata_adjustment(
-        hit(0.5, file="tests/helpers/NeighborsTests.cs", symbol="Neighbors"),
-        qtest) == pytest.approx(DEFINITION_BOOST)
+        hit(0.5, file="tests/helpers/NeighborsTests.cs", symbol="Neighbors"), q)
+    source = metadata_adjustment(
+        hit(0.5, file="src/world/neighbors.cs", symbol="Neighbors"), q)
+    assert testy == source == pytest.approx(DEFINITION_BOOST)
 
 
-def test_metadata_rerank_reorders_and_keeps_vector_score():
+def test_metadata_rerank_keeps_vector_score_and_class_order_demotes_tests():
     q = query_tokens("occupancy map update")
     pool = [
         hit(0.50, file="tests/fixtures/occupancy_fixture.py"),
         hit(0.48, file="src/world/occupancy.py", symbol="update_occupancy"),
     ]
-    out = metadata_rerank(pool, q)
+    out = class_order(metadata_rerank(pool, q), q)
     assert out[0]["symbol"] == "update_occupancy"
     assert out[0]["vector_score"] == 0.48
     assert out[0]["score"] > out[0]["vector_score"]
@@ -176,3 +176,74 @@ def test_cap_waived_when_query_targets_a_data_format():
     out = cap_data_file_share(pool, limit=5,
                               qtokens=query_tokens("find the yaml config"))
     assert [h["file"] for h in out] == [h["file"] for h in pool]
+
+
+# -- class order: one ladder for every ranking and retrieval mode -----------
+
+
+def test_class_order_promotes_source_over_a_higher_cosine_test_hit():
+    """The ladder is a KEY, not a score nudge: a test hit that wins on cosine
+    comes out below the source hit, and nothing leaves the answer."""
+    pool = [
+        hit(0.92, file="tests/test_staleness.py",
+            symbol="test_stale_rejected"),
+        hit(0.71, file="src/code_indexer/core.py", symbol="reject_stale"),
+    ]
+    out = class_order(pool, query_tokens("where do we reject a stale index"))
+    assert [h["file"] for h in out] == [
+        "src/code_indexer/core.py", "tests/test_staleness.py"]
+    assert sorted(h["file"] for h in out) == sorted(h["file"] for h in pool)
+
+
+def test_class_order_runs_the_whole_ladder():
+    pool = [
+        hit(0.90, file="docs/schema.md"),
+        hit(0.88, file="build/generated_api.py"),
+        hit(0.86, file="tests/test_api.py"),
+        hit(0.84, file="examples/api_demo.py"),
+        hit(0.82, file="src/api.py", symbol="api"),
+    ]
+    out = class_order(pool, query_tokens("run the api"))
+    assert [h["file"] for h in out] == [
+        "src/api.py", "examples/api_demo.py", "tests/test_api.py",
+        "docs/schema.md", "build/generated_api.py"]
+
+
+def test_class_order_keeps_the_modes_order_inside_a_rung():
+    pool = [hit(0.9, file="src/a.py"), hit(0.8, file="src/b.py"),
+            hit(0.85, file="tests/test_a.py")]
+    out = class_order(pool, query_tokens("anything at all"))
+    assert [h["file"] for h in out] == ["src/a.py", "src/b.py",
+                                        "tests/test_a.py"]
+
+
+def test_class_order_waiver_for_a_test_targeting_query():
+    assert targets_tests(query_tokens("which tests cover the stale path"))
+    pool = [hit(0.9, file="tests/test_stale.py", symbol="test_stale"),
+            hit(0.5, file="src/stale.py", symbol="stale")]
+    out = class_order(pool, query_tokens("which tests cover the stale path"))
+    # The tests rung's demotion is waived: the mode's order survives across
+    # source and tests.
+    assert [h["file"] for h in out] == ["tests/test_stale.py",
+                                        "src/stale.py"]
+
+
+def test_class_order_waiver_does_not_reach_docs():
+    pool = [hit(0.9, file="tests/test_x.py"), hit(0.8, file="docs/x.md")]
+    out = class_order(pool, query_tokens("fixture test helpers"))
+    assert [h["file"] for h in out] == ["tests/test_x.py", "docs/x.md"]
+
+
+def test_data_format_waiver_keeps_the_data_hit_on_top():
+    """A data-format query waives the pure-data down-weight, and the class
+    order then leaves the two source-rung hits in relevance order."""
+    pool = [hit(0.52, file="telemetry/run.json", lang="json"),
+            hit(0.50, file="src/metrics.py", symbol="record_metrics")]
+    qplain = query_tokens("summarize the run metrics")
+    ordered = class_order(downweight_data_files(pool, qplain), qplain)
+    assert ordered[0]["file"] == "src/metrics.py"
+
+    qdata = query_tokens("the json run manifest")
+    waived = class_order(downweight_data_files(pool, qdata), qdata)
+    assert waived[0]["file"] == "telemetry/run.json"
+    assert waived[0]["score"] == pytest.approx(0.52)

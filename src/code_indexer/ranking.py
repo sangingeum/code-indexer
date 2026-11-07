@@ -1,22 +1,51 @@
-"""Query-time ranking for semantic_search: metadata adjustments + hybrid fusion.
+"""Query-time ranking for semantic_search: one class order, then metadata
+adjustments and hybrid fusion.
 
-The store returns candidates ranked purely by vector cosine similarity. This
-module layers optional, opt-in re-ranking on top of that candidate pool:
+The store returns candidates ranked purely by vector cosine similarity (or by
+FTS bm25 in lexical mode). On top of that candidate pool, ONE ordering runs in
+every ranking mode (`--ranking vector`, `metadata`, `hybrid`) and every
+retrieval mode (`--mode dense`, `hybrid`, `lexical`):
 
-- **metadata adjustments** — small additive deltas from payload facts already
-  stored at index time (symbol presence, test/vendor path heuristics).
-- **hybrid fusion** — weighted-sum fusion of the vector ranking with a
-  lightweight lexical token-overlap score over symbol name, file path, and
-  snippet text (`fused = vector_score + 0.25 * lexical`). Helps queries
-  that mix natural language with exact identifiers, where embeddings
-  alone under-rank the right chunk.
+- **file class first** (`class_order`) — `ordering.file_class` is the only
+  classifier: source, then examples, then tests, then docs, then
+  generated/artifact, with `ordering.class_weight` as the sort position. Within
+  one rung the order the mode produced is kept: cosine order in vector mode,
+  adjusted-score order in metadata mode, fused-score order in `--ranking
+  hybrid`, RRF order across projects. This is an ORDER, never a filter: every
+  hit the store returned in the window is still returned, the demoted ones at
+  the tail, and the shaping caps below decide only which hits fill a capped
+  answer.
+- **two waivers**, stated here because a waiver nobody wrote down is folklore:
+  1. a query that targets tests — a token in `TEST_QUERY_MARKERS` (`test`,
+     `tests`, `testing`, `spec`, `specs`, `fixture`, `fixtures`, `unittest`,
+     `unittests`) — waives the tests rung's demotion: test hits rank with
+     source, and the mode's own order breaks ties among them.
+  2. a query that names a data format — a token in `DATA_QUERY_MARKERS`
+     (`json`, `yaml`, `yml`, `toml`) — waives the pure-data down-weight and
+     the pure-data share cap. A data format is a chunk shape, not a path
+     class, so the class order still breaks ties among what remains.
+  Neither waiver touches docs or generated/artifact: those stay demoted.
+- **metadata adjustments** (opt-in `--ranking metadata`) — small additive
+  deltas from payload facts already stored at index time (symbol presence).
+- **hybrid fusion** (opt-in `--ranking hybrid`) — weighted-sum fusion of the
+  vector ranking with a lightweight lexical token-overlap score over symbol
+  name, file path, and snippet text (`fused = vector_score + 0.25 * lexical`).
+  Helps queries that mix natural language with exact identifiers, where
+  embeddings alone under-rank the right chunk.
 - **data-file mitigation** — always applied (all modes, including the
   default vector mode): pure-data payload chunks (json/yaml/toml) get a
   small down-weight and their share of the top-k window is capped, because
   their self-descriptive keys can crowd out the code that produces the data
   for analysis-shaped queries. Waived when the query names a data format.
 
-All functions are pure and unit-testable without Qdrant or Ollama.
+The path marker this module used to carry is gone. It called `fixtures/`,
+`vendor/` and `testdata/` non-source while `ordering.file_class` calls a
+`fixtures/` file source and a vendored tree source too, so one hit could be
+"tests" to semantic-search and "source" to find-definition. One classifier
+serves every surface now.
+
+`skill/references/query.md` (Ordering) states the same order for the reader of
+the output. All functions are pure and unit-testable without Qdrant or Ollama.
 """
 
 from __future__ import annotations
@@ -24,21 +53,19 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from . import ordering
+
 TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
-# Path segments that mark non-primary source locations. Chunks under these
-# get a mild penalty unless the query itself targets tests.
-TEST_PATH_MARKERS = frozenset({
-    "test", "tests", "spec", "specs", "fixtures", "fixture",
-    "mocks", "mock", "vendor", "testdata",
+# Query tokens that mean the caller is deliberately looking at tests: the
+# tests rung's demotion is waived (see class_order).
+TEST_QUERY_MARKERS = frozenset({
+    "fixture", "fixtures", "spec", "specs", "test", "tests", "testing",
+    "unittest", "unittests",
 })
-
-# Query tokens that signal the caller is deliberately looking at tests.
-TEST_QUERY_MARKERS = frozenset({"test", "tests", "testing", "spec", "fixture"})
 
 # Metadata adjustment magnitudes (additive on the cosine score).
 DEFINITION_BOOST = 0.02
-TEST_PATH_PENALTY = 0.05
 
 # Weighted-sum fusion default weight (hybrid mode).
 LEXICAL_WEIGHT = 0.25
@@ -97,18 +124,14 @@ def lexical_score(hit: dict[str, Any], qtokens: list[str]) -> float:
 def metadata_adjustment(hit: dict[str, Any], qtokens: list[str]) -> float:
     """Additive delta on the vector score from payload metadata.
 
-    - Chunks carrying a symbol (definition-shaped) get a small boost over
-      bare reference/comment chunks.
-    - Chunks under test/fixture/vendor paths get a mild penalty unless the
-      query itself targets tests.
+    Chunks carrying a symbol (definition-shaped) get a small boost over bare
+    reference/comment chunks. Paths are NOT judged here: file class is the one
+    classifier, and `class_order` applies it after the mode has scored the
+    pool, so a test file is demoted by its class and never by a second rule.
     """
     delta = 0.0
     if hit.get("symbol"):
         delta += DEFINITION_BOOST
-    file_lower = (hit.get("file") or "").lower()
-    segments = set(re.split(r"[\\/._-]+", file_lower))
-    if segments & TEST_PATH_MARKERS and not (set(qtokens) & TEST_QUERY_MARKERS):
-        delta -= TEST_PATH_PENALTY
     return delta
 
 
@@ -154,6 +177,54 @@ def metadata_rerank(vector_hits: list[dict[str, Any]],
         out.append(h)
     out.sort(key=lambda h: h["score"], reverse=True)
     return out
+
+
+# -- class order (every retrieval and ranking mode) -------------------------
+
+def targets_tests(qtokens: list[str] | None) -> bool:
+    """The caller named tests or fixtures -- the tests rung is waived."""
+    if not qtokens:
+        return False
+    return bool({t.lower() for t in qtokens} & TEST_QUERY_MARKERS)
+
+
+def class_order(hits: list[dict[str, Any]],
+                qtokens: list[str] | None = None,
+                names: ordering.ClassNames = ordering.DEFAULT_CLASS_NAMES
+                ) -> list[dict[str, Any]]:
+    """Reorder a scored pool by file class: source, examples, tests, docs,
+    then generated/artifact.
+
+    The class key is `ordering.class_weight` -- the SAME classifier the
+    structural surfaces use, so a path cannot be "tests" here and "source"
+    to `find-definition`. Python's sort is stable, so hits sharing a rung keep
+    the order the mode produced (cosine, adjusted score, fused score, RRF):
+    the class decides position and only position -- every input is still in
+    the output, and the same input twice gives the same order.
+
+    Waivers (both stated in the module docstring):
+
+    * a test-targeting query (`targets_tests`) sorts the tests rung WITH
+      source, so a deliberately test-scoped search keeps its relevance order;
+    * a data-format query changes nothing in the class ladder, because a data
+      format is a chunk shape and not a path class: it waives the pure-data
+      down-weight and share cap (`downweight_data_files`,
+      `cap_data_file_share`), and the class order breaks the ties among what
+      remains.
+    """
+    if not hits:
+        return []
+    waived_tests = targets_tests(qtokens)
+    source_weight = ordering.CLASS_WEIGHT[ordering.SOURCE]
+    tests_weight = ordering.CLASS_WEIGHT[ordering.TESTS]
+
+    def weight(hit: dict[str, Any]) -> int:
+        position = ordering.class_weight(hit.get("file") or "", names)
+        if waived_tests and position == tests_weight:
+            return source_weight
+        return position
+
+    return sorted(hits, key=weight)
 
 
 # -- data-file dominance mitigation (all ranking modes) ---------------------
