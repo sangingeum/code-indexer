@@ -141,7 +141,7 @@ scoped-indexing suites were re-run unchanged and pass.
   120 lines, inside its budget.)
 - `uvx ruff check src tests scripts`: **All checks passed!**
 - `uv run python scripts/publishing_hygiene_lint.py`: **PASS** --
-  `publishing hygiene: scanned=831 skipped=0 violations=0`, run at the tip
+  `publishing hygiene: scanned=834 skipped=0 violations=0`, run at the tip
   after this record and both captures were committed.
 
 ## Open, deliberately outside this leg
