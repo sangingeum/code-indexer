@@ -27,7 +27,9 @@ Sections (each capped):
   in its pyproject may add directory names to a rung. Fan-in credits each
   reference to the definition it resolves to (never to the first file that
   defines the name); a reference no rule may attribute is credited to no
-  file and reported as `unattributed` beside the list."""
+  file and reported beside the list: `unattributed` is the total, split into
+  `unresolved` (the name is defined nowhere) and `ambiguous` (the name has
+  several definitions and no same-file match)."""
 
 from __future__ import annotations
 
@@ -189,13 +191,16 @@ def build_overview(m: Manifest, project_path: str,
     # it is per definition: a test module that sorts before the source owning
     # the same name no longer takes the source's count, and a name whose
     # definitions tie is credited to no file at all. That remainder is
-    # reported beside the list (`unattributed`) instead of being folded into
-    # an arbitrary definer -- the old representative-owner rule.
+    # reported beside the list instead of being folded into an arbitrary
+    # definer -- the old representative-owner rule. The remainder is split by
+    # reason: a name defined nowhere is `unresolved`, a name whose definitions
+    # tie is `ambiguous`, and `unattributed` stays their sum so an existing
+    # reader keeps a total while gaining its shape.
     # Under --path-prefix the aggregate is scoped to the files being
     # reported: only targets (and resolved imports) inside the prefix count.
     fan_in = {f: n for f, n in m.file_fan_in(path_prefix or None)
               if f in files}
-    unattributed = m.unattributed_ref_count(path_prefix or None)
+    unattributed = m.unattributed_ref_counts(path_prefix or None)
     # Ordered by the policy, not by the raw count: source first, then tests,
     # docs and artifacts. A test fixture and an audit document accumulate
     # identifier mentions because they exercise or quote the code beneath
@@ -218,7 +223,9 @@ def build_overview(m: Manifest, project_path: str,
                   "framework_hint": frameworks},
         "config_files": config_files,
         "hotspots": {"fan_in": hotspots_fan,
-                     "unattributed": unattributed,
+                     "unattributed": unattributed["unattributed"],
+                     "unresolved": unattributed["unresolved"],
+                     "ambiguous": unattributed["ambiguous"],
                      "size": hotspots_size},
     }
 
@@ -274,7 +281,8 @@ def format_overview(data: dict[str, Any], max_lines: int = 60) -> str:
             add(f"  {h['file']}: {h['fan_in']}")
     if hs["unattributed"]:
         add(f"  unattributed: {hs['unattributed']} references credited to no "
-            "file")
+            f"file ({hs['unresolved']} names defined nowhere, "
+            f"{hs['ambiguous']} tied between definitions)")
     if hs["size"]:
         add("hotspots (size):")
         for h in hs["size"][:5]:

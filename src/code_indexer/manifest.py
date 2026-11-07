@@ -1127,22 +1127,53 @@ class Manifest:
             self._conn.commit()
         return len(updates)
 
+    def unattributed_ref_counts(self, scope_prefix: str | None = None
+                                ) -> dict[str, int]:
+        """Reference rows no rule attributed, split by WHY they were not.
+
+        Every row here has ``resolution = 'none'`` and is credited to NO
+        file's fan-in. Two different facts produce that state, and one
+        number cannot report both:
+
+        * ``unresolved`` -- the store defines the NAME nowhere. There is no
+          definition to point at: a builtin, an external or deleted symbol,
+          or a word the heuristic extractor read as an identifier.
+        * ``ambiguous`` -- the store defines the name more than once and no
+          same-file definition settles it, so the project-wide choice is a
+          tie; picking one would be the old first-definer guess.
+
+        ``unattributed`` is their sum, and is what the field of that name
+        has always reported, so the total keeps meaning what it meant.
+        ``scope_prefix`` counts the rows that SIT in the prefix -- the file
+        carrying the reference -- because the scope names the files being
+        reported on.
+        """
+        sql = ("SELECT COUNT(*),"
+               " SUM(CASE WHEN EXISTS (SELECT 1 FROM symbols s"
+               " WHERE s.name = r.to_name) THEN 0 ELSE 1 END)"
+               " FROM refs r WHERE r.resolution = 'none'")
+        args: list = []
+        if scope_prefix:
+            sql += " AND substr(r.file, 1, ?) = ?"
+            args += [len(scope_prefix), scope_prefix]
+        row = self._conn.execute(sql, args).fetchone()
+        total = int(row[0])
+        unresolved = int(row[1] or 0)
+        return {"unattributed": total, "unresolved": unresolved,
+                "ambiguous": total - unresolved}
+
     def unattributed_ref_count(self, scope_prefix: str | None = None) -> int:
         """Reference rows the resolver could not attribute, counted in place.
 
         A row is unattributed when ``resolution`` is ``none``: the name is
         defined nowhere in the store, or its definitions tie. It is credited
         to NO file's fan-in, and this count is what keeps the omission
-        visible instead of silent. ``scope_prefix`` counts the rows that SIT
-        in the prefix -- the file carrying the reference -- because the scope
-        names the files being reported on.
+        visible instead of silent. ``unattributed_ref_counts`` reports the
+        same total split into the two reasons. ``scope_prefix`` counts the
+        rows that SIT in the prefix -- the file carrying the reference --
+        because the scope names the files being reported on.
         """
-        sql = "SELECT COUNT(*) FROM refs WHERE resolution = 'none'"
-        args: list = []
-        if scope_prefix:
-            sql += " AND substr(file, 1, ?) = ?"
-            args += [len(scope_prefix), scope_prefix]
-        return int(self._conn.execute(sql, args).fetchone()[0])
+        return self.unattributed_ref_counts(scope_prefix)["unattributed"]
 
     def callers_of(self, name: str, limit: int | None = None) -> list[dict]:
         """Fan-in edges: every stored row that references ``name``.

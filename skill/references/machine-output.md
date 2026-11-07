@@ -70,8 +70,8 @@ keeps its meaning.
 Compact labels are normalized field names, not the text form's own spellings:
 `loc` prints as `LOC`, `directory` as `directories:`, `share` as `(100.0%)`,
 `hotspot-fan-in`/`hotspot-size` as `hotspots (fan-in):`/`hotspots (size):`,
-`hotspots.unattributed` as `hotspot-unattributed references=N` (emitted only
-when non-zero), and `fan_in` has no separate text label. Same field, one
+`hotspots.unattributed` as `hotspot-unattributed references=N unresolved=U
+ambiguous=A` (emitted only when non-zero), and `fan_in` has no separate text label. Same field, one
 spelling per form;
 no emitted label changes.
 

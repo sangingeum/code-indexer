@@ -354,7 +354,9 @@ def _format_overview_compact(data: dict[str, Any],
         add(f"hotspot-fan-in {h['file']} fan_in={h['fan_in']}")
     if data["hotspots"]["unattributed"]:
         add(f"hotspot-unattributed "
-            f"references={data['hotspots']['unattributed']}")
+            f"references={data['hotspots']['unattributed']} "
+            f"unresolved={data['hotspots']['unresolved']} "
+            f"ambiguous={data['hotspots']['ambiguous']}")
     for h in data["hotspots"]["size"][:5]:
         add(f"hotspot-size {h['file']} loc={h['loc']}")
     if len(lines) >= max_lines and lines[-1] != "(truncated)":

@@ -201,15 +201,17 @@ def test_hotspot_fan_in_counts_the_whole_store_not_a_sample(rig):
         m.close()
 
 
-def test_path_prefix_scopes_the_target_files_and_never_reattributes(rig):
-    """The name is resolved once, per definition; `--path-prefix` then only
-    scopes which TARGET files are reported.
+def test_path_prefix_scopes_by_resolved_target_and_never_reattributes(rig):
+    """A prefix filters by the RESOLVED target; it never re-decides ownership.
 
-    The old per-name aggregate had to re-decide ownership inside the prefix,
-    because a name defined outside it took the in-prefix references. An
-    attributed reference is now a property of the reference itself, so the
-    in-prefix definition keeps its count and the out-of-prefix one is only
-    filtered out of the answer.
+    The shipped rule: a path prefix scopes the answer to references whose
+    resolved target lies inside the prefix. It never re-attributes a
+    reference to a definition outside it, and it never revives the old
+    per-name owner. So a reference from outside the prefix still counts
+    toward an in-prefix target, while a name defined on both sides of the
+    prefix -- whose references all resolve to the source definition outside
+    it -- reports nothing inside the prefix. The empty answer for `docs/`
+    below is that second rule, measured and correct, not a dropped count.
     """
     core, reg, entry, project = rig
     m = core.manifest_for(entry.slug)
@@ -222,8 +224,9 @@ def test_path_prefix_scopes_the_target_files_and_never_reattributes(rig):
                                          size=1, chunk_count=1,
                                          status="indexed", loc=5)])
 
-        for path, name in (("beta.py", "beta_topic"),
-                           ("docs/alpha.py", "alpha_topic")):
+        for path, name in (("beta.py", "shared_topic"),
+                           ("docs/alpha.py", "shared_topic"),
+                           ("app/topic.py", "alpha_topic")):
             add_file(path)
             m.replace_file_symbols(path, [SymbolRow(
                 file=path, name=name, symbol_type="function",
@@ -233,20 +236,95 @@ def test_path_prefix_scopes_the_target_files_and_never_reattributes(rig):
             add_file(path)
             m.replace_file_refs(
                 path, [(1, f"caller_{i}", "alpha_topic", "call", None),
-                       (2, f"caller_{i}", "beta_topic", "call", None)],
+                       (2, f"caller_{i}", "shared_topic", "call", None)],
                 "ast")
         m.resolve_ref_targets()
 
-        scoped = {h["file"]: h["fan_in"] for h in
-                  build_overview(m, str(project),
-                                 path_prefix="docs/")["hotspots"]["fan_in"]}
-        assert scoped.get("docs/alpha.py") == 5, scoped
-        assert "beta.py" not in scoped, scoped
-        # Unscoped, both definitions keep their own count -- the scope
-        # filters, it does not re-attribute.
+        def scoped_fan(prefix: str) -> dict[str, int]:
+            return {h["file"]: h["fan_in"] for h in
+                    build_overview(m, str(project), path_prefix=prefix)
+                    ["hotspots"]["fan_in"]}
+
+        # A reference from OUTSIDE the prefix to an in-prefix definition is
+        # counted: the prefix scopes targets, not the reference files.
+        assert scoped_fan("app/") == {"app/topic.py": 5}, scoped_fan("app/")
+
+        # The shared name's references all resolve to `beta.py`, outside the
+        # prefix, so the in-prefix definition of the same name reports none:
+        # the prefix filters that target out and does not re-attribute.
+        assert scoped_fan("docs/") == {}, scoped_fan("docs/")
+
+        # Unscoped, each definition keeps only what resolved to it.
         full = dict(m.file_fan_in())
-        assert full.get("docs/alpha.py") == 5, full
         assert full.get("beta.py") == 5, full
+        assert full.get("app/topic.py") == 5, full
+        assert full.get("docs/alpha.py", 0) == 0, full
+    finally:
+        m.close()
+
+
+def test_unattributed_splits_names_defined_nowhere_from_ties(rig):
+    """One number for "defined nowhere" and "tied" cannot be read as either.
+
+    Three references shapes, all in one store: a name defined nowhere, a name
+    defined twice with no same-file match (a tie), and a name resolved to its
+    single definition. The first two are the split counts and sum to the
+    total; the resolved one is credited to its definition and moves neither.
+    """
+    core, reg, entry, project = rig
+    m = core.manifest_for(entry.slug)
+    try:
+        from code_indexer.manifest import ManifestFile, SymbolRow
+        from code_indexer.overview import build_overview, format_overview
+
+        before = m.unattributed_ref_counts()
+        before_in_users = m.unattributed_ref_counts("users/")
+
+        def add_file(path: str) -> None:
+            m.upsert_files([ManifestFile(path=path, content_hash=path,
+                                         size=1, chunk_count=1,
+                                         status="indexed", loc=5)])
+
+        for path, name in (("core/settled.py", "settled_name"),
+                           ("core/left.py", "tied_name"),
+                           ("core/right.py", "tied_name")):
+            add_file(path)
+            m.replace_file_symbols(path, [SymbolRow(
+                file=path, name=name, symbol_type="function",
+                start_line=1, end_line=2, source="ast")])
+        add_file("users/a.py")
+        rows = [(line, "caller", name, "call", None)
+                for line, name in (
+                    [(i + 1, "settled_name") for i in range(4)]
+                    + [(i + 10, "tied_name") for i in range(3)]
+                    + [(i + 20, "nowhere_name") for i in range(2)])]
+        m.replace_file_refs("users/a.py", rows, "ast")
+        m.resolve_ref_targets()
+
+        after = m.unattributed_ref_counts()
+        delta = {k: after[k] - before[k] for k in after}
+        assert delta == {"unattributed": 5, "unresolved": 2,
+                         "ambiguous": 3}, delta
+        # The three counts differ and the two reasons sum to the total.
+        assert len({delta["unresolved"], delta["ambiguous"],
+                    delta["unattributed"]}) == 3
+        assert (delta["unresolved"] + delta["ambiguous"]) == \
+            delta["unattributed"]
+        # The resolved name's four references are credited, not counted here.
+        assert m.unattributed_ref_count() == after["unattributed"]
+        assert m.unattributed_ref_count("users/") == \
+            (before_in_users["unattributed"] + 5)
+
+        data = build_overview(m, str(project))
+        hotspots = data["hotspots"]
+        assert hotspots["unresolved"] == after["unresolved"], hotspots
+        assert hotspots["ambiguous"] == after["ambiguous"], hotspots
+        assert hotspots["unattributed"] == (hotspots["unresolved"]
+                                           + hotspots["ambiguous"])
+        text = format_overview(data, max_lines=200)
+        assert (f"{hotspots['unattributed']} references credited to no file "
+                f"({hotspots['unresolved']} names defined nowhere, "
+                f"{hotspots['ambiguous']} tied between definitions)") in text
     finally:
         m.close()
 

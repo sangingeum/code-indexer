@@ -93,10 +93,14 @@ a count, never a sample of the reference table, so two runs over one index
 agree exactly.
 
 `hotspots.unattributed` is `int`: how many reference rows no rule attributed
-to a definition (a name defined nowhere, or a tie). They are credited to no
-file and never folded into an arbitrary definer; the text form prints
-`unattributed: N references credited to no file` when the count is non-zero,
-and the compact form carries `hotspot-unattributed references=N`.
+to a definition. They are credited to no file and never folded into an
+arbitrary definer. The count is split by WHY, additively: `unresolved` is the
+rows whose name the store defines nowhere, and `ambiguous` the rows whose
+name has several definitions and no same-file match, so the two sum to
+`unattributed`. The text form prints `unattributed: N references credited to
+no file (U names defined nowhere, A tied between definitions)` when the total
+is non-zero, and the compact form carries
+`hotspot-unattributed references=N unresolved=U ambiguous=A`.
 
 Under `--path-prefix` the count is scoped to the files being reported on:
 only target files inside the prefix are counted, and `unattributed` counts

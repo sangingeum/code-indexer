@@ -217,7 +217,9 @@ among several -- so a test module that mirrors a source name keeps none of
 that name's references. A name defined nowhere, or whose definitions tie, is
 UNATTRIBUTED: that reference is credited to no file and counted in the
 overview's `unattributed` line instead of being folded into a representative
-owner. An index built before per-definition attribution answers from the old
+owner. That total is split by reason -- `unresolved` for a name defined
+nowhere, `ambiguous` for a name with several definitions and no same-file
+match -- because the two are different facts about the corpus. An index built before per-definition attribution answers from the old
 per-name aggregate; its row reads report `needs-reindex` until
 `reindex-project` reruns the pass that resolves the references.
 
