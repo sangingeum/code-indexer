@@ -33,6 +33,34 @@ indexing in progress`, exit 5, no answer on stdout. It is also accepted by
 `plan-show`) accept `--skip-stale-check` and **not** `--refresh`: they answer
 from a plan file and the live sources.
 
+`--format text|json` is on every read command that took `--json`, and
+`--json` is its exact alias: both spellings print the same bytes. Giving both
+is a usage error (`ArgumentError`, exit 2), never a silent precedence.
+`--version` on the top level prints the installed package version on one line
+and exits 0; it needs no command and no project, and no subcommand's own
+options change. `--format compact` is described below.
+
+## Compact output
+
+`--format compact` answers one line per record, built only from fields the
+text form already prints, so a caller parses a record without tracking a
+header above it:
+
+| Command | One compact line is |
+|---|---|
+| `overview --format compact` | `<tag> <fields>` -- `project`, `language`, `directory`, `entry-point`, `tests`, `test-file`, `config`, `hotspot-fan-in`, `hotspot-size` |
+| `index-status --format compact` | the same single `key=value` line the text form prints |
+| `skeleton --format compact` | `file:start-end name (kind)`; in `--tree` mode `dir/ symbols=N dominant=LANG` |
+| `outline --format compact` | `file:start-end name (kind)`, one per declaration |
+| `find-symbol --format compact` | `file:start-end name (kind)`, one per row; a capping or ambiguity note keeps its own line |
+| `find-definition --format compact` | `file:start-end name (kind)`, one per definition |
+| `semantic-search --format compact` | `path:start-end  symbol  score` |
+
+Every other read command REFUSES `compact` with `ArgumentError`, exit 2, and
+a message naming `text|json`: the refusal is part of the contract, not a
+missing feature. `deps --format` is a separate flag (`tree|edges|json`) and
+keeps its meaning.
+
 ## The staleness block
 
 Every read answer that comes from the index carries these fields in JSON:

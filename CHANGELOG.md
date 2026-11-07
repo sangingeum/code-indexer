@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] — one flag, one argument shape across the reads
+
+**The read commands answer to one format flag, and the three symbol reads take
+the symbol one way.** `--version` at the top level prints the installed
+package version on one line and exits 0, with no command and no project.
+`--format text|json` is accepted by every read command that took `--json`,
+and `--json` remains an EXACT alias of `--format json`: both spellings render
+the same bytes. Passing both is a usage error (`ArgumentError`, exit 2) rather
+than a silent precedence, so one invocation has one answer format; the one
+pre-existing combination this changes is `semantic-search --json --format X`,
+which used to let `--json` win and now refuses. `--format compact` is a
+one-line-per-record rendering built only from fields the text form already
+prints, on `overview`, `index-status`, `skeleton`, `outline`, `find-symbol`,
+`find-definition` and `semantic-search`; on every other read it is refused
+with exit 2 and a message naming `text|json`. `index-status` prints one line
+already, so its compact form is that line. `get-code-context`, `find-symbol`
+and `find-definition` all take `--symbol <name>` beside `--project`;
+`get-code-context --symbol <name>` with no FILE positional resolves the name
+project-wide through the manifest and refuses an ambiguous name with every
+candidate listed (`ArgumentError`, exit 2), while the FILE positional keeps
+its meaning, and `find-symbol`/`find-definition` keep the positional NAME as
+the alias of `--symbol`. No manifest schema change, no `EXTRACTION_VERSION`
+change, no reindex, and every invocation that worked keeps its answer.
+
 ## [Unreleased] — the banner states its count
 
 **The staleness banner is a stateless one-line count.** Every read of a stale

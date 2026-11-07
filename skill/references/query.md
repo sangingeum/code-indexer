@@ -105,6 +105,29 @@ pass first and therefore writes.
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 <!-- generated:commands-query:end -->
 
+## One flag for every format, one shape for every symbol read
+
+Every read command here takes `--format text|json`, and `--json` is the EXACT
+alias of `--format json`: both spellings render the same bytes. Passing both
+is `ArgumentError`, exit 2, rather than a silent precedence -- one invocation,
+one answer format. `--format compact` is a one-line-per-record rendering built
+only from fields the text form already prints; it exists on `overview`,
+`index-status`, `skeleton`, `outline`, `find-symbol`, `find-definition` and
+`semantic-search`, and on any other read it is refused with `ArgumentError`,
+exit 2, naming `text|json` (documented refusal, never a silent fallback).
+`index-status` prints one line already, so its compact form is that line.
+`deps --format` is a different flag with its own vocabulary (`tree|edges|json`)
+and keeps its meaning.
+
+The three symbol reads take the symbol the same way: `--symbol <name>` beside
+`--project <p>`. `find-symbol <name>` and `find-definition <name>` keep their
+positional spelling as the alias of the same argument; `get-code-context`
+keeps its FILE positional. With no FILE, `get-code-context --symbol <name>`
+resolves the name project-wide through the manifest: one definition answers
+that file's span, several are refused with `AmbiguousSymbolError` (an
+`ArgumentError`, exit 2) listing every candidate, none is `NotFoundError`
+(exit 1). Two spellings of one symbol that disagree are refused too.
+
 ## Orientation, then lookup, then reading
 
 ```bash
@@ -231,9 +254,17 @@ announces what it refused in `omitted`.
 ```bash
 code-indexer get-code-context src/code_indexer/core.py --start-line 40 --end-line 80
 
+# the symbol alone: the FILE is resolved across the project
+code-indexer get-code-context --symbol search --project /path/to/repo
+
 # a symbol's whole span, padded by three lines each side
 code-indexer get-code-context src/code_indexer/core.py --symbol search --context-lines 3
 ```
+
+With no FILE positional the name is resolved project-wide through the
+manifest's definitions, and the answer is that definition's own file and span
+(the same code path as the file+symbol form, so an ambiguous name lists every
+candidate instead of answering one).
 
 `--symbol` matches the name the file's rows carry, which is the bare
 declaration name (`search`, `__init__`) even when the symbol's

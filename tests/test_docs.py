@@ -451,6 +451,9 @@ def test_every_mentioned_flag_exists_on_a_command():
     real: set[str] = set()
     for cmd in _commands().values():
         real |= _command_flags(cmd)
+    # The app's own options are real flags too: `--version` and `--verbose`
+    # belong to the group, not to any one command.
+    real |= _command_flags(_click_group())
     mentioned = set(re.findall(r"(--[a-z][a-z0-9-]+)", _surface_text()))
     bogus = sorted(mentioned - real - EXTERNAL_FLAGS)
     assert not bogus, f"documented flags no command accepts: {bogus}"

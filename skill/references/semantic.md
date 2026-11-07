@@ -53,6 +53,9 @@ code-indexer semantic-search "where does the token refresh happen" --project /pa
   30 s wall stops the walk (`skipped` with `reason=budget`, `partial: true`).
 - On a `vectors=off` project, `semantic-search` refuses with `ConfigError`,
   exit 4, before the query is embedded -- never a silent lexical answer.
+- `--format text|compact|json` is the shared read flag of this command too;
+  `--json` is its exact alias and passing both is `ArgumentError`, exit 2
+  (see [machine-output.md](machine-output.md)).
 - The hit's own line names what it matched: the enclosing symbol, else the
   chunk's first non-blank code line, else `file` -- in parentheses in text
   output, in the symbol column in compact, as `hit.identity` in `--json`.

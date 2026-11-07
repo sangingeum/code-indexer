@@ -44,7 +44,7 @@ stderr.
 
 | `ErrorType` | Cause | Remedy |
 |---|---|---|
-| `ArgumentError` | a bad flag value, an ambiguous name, `--exactly-one` against several definitions, `plan-apply --skip-stale-check`, or `add-project` on an already registered path | fix the invocation; for an ambiguous name the candidates are listed |
+| `ArgumentError` | a bad flag value, an ambiguous name, `--exactly-one` against several definitions, `plan-apply --skip-stale-check`, `add-project` on an already registered path, `--json` together with `--format`, `--format compact` on a command with no compact form, or two disagreeing spellings of one symbol | fix the invocation; for an ambiguous name the candidates are listed, and a refused format names the formats that command accepts |
 | `UnsupportedOperation` | a working provider or the plan format does not implement the requested operation (`rename_symbol`) | do the work another way; nothing was edited |
 | `AmbiguousNode` | two nodes in one file share name, kind and declaration hash | disambiguate by file and kind, or edit by hand |
 | `PlanFormatError` | a malformed plan, a duplicated path, or an unknown member that changes meaning | regenerate the plan; reading never rewrites one |

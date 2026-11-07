@@ -200,6 +200,13 @@ embedding identity is not the one this build would write -- plus
 `rows=current|absent` and the parse-verdict counts
 (`parse=parsed:N,parse_error:N,parse_unavailable:N`).
 
+`index-status` takes `--format text|json` (`--json` is the exact alias) and
+`--format compact`, which is the SAME one line the text form prints: this
+answer is already one line of `key=value` fields. `doctor` and `list-projects`
+take the same two formats and refuse `compact` with exit 2, like every other
+read without a one-line-per-record form (see
+[machine-output.md](machine-output.md)).
+
 It also names what the sensitive layer withheld: a suffixed
 `1 file skipped (sensitive content)` (or `sensitive filename`), followed by
 the `--allow-sensitive` hint, and in `--json` the `withheld_count` /

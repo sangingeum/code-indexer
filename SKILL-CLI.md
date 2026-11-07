@@ -65,6 +65,20 @@ remedies live in the references, one read away.
 | `plan-apply` | write | `plans.md` | Apply a plan through filekeeper and report what ... |
 <!-- generated:roster:end -->
 
+## Flags, and one argument shape for the symbol reads
+
+| Flag | Where | Meaning |
+|---|---|---|
+| `--version` | top level, no command | the installed package version, one line, exit 0 |
+| `--format text\|json` | every read command that takes `--json` | `--json` is the exact alias of `--format json`; passing both is exit 2 |
+| `--format compact` | `overview`, `index-status`, `skeleton`, `outline`, `find-symbol`, `find-definition`, `semantic-search` | one line per record, fields the text form already prints; refused elsewhere (exit 2) naming text\|json |
+
+`get-code-context`, `find-symbol` and `find-definition` take the symbol as
+`--symbol <name>` beside `--project`; the positional NAME is its alias.
+`get-code-context --symbol <name>` with no FILE resolves the name project-wide
+and refuses an ambiguous one with every candidate (exit 2); a FILE keeps its
+meaning, scoping `--symbol` to a range inside it. `deps --format` is unchanged.
+
 ## Exit codes
 
 | Code | Meaning |
@@ -76,32 +90,23 @@ remedies live in the references, one read away.
 | 4 | the index requires a rebuild: fingerprint mismatch, vectors absent, needs-reindex |
 | 5 | lock or concurrency conflict -- the meaning filekeeper gives 5 too |
 
-`ErrorType: message` on a stderr line is the semantic discriminator; the
-number is the coarse branch. `0` with an empty answer is not a failure, and
-a failed command prints no answer on stdout.
+`ErrorType: message` on stderr is the semantic discriminator; the number is
+the coarse branch, and a failed command prints no answer on stdout.
 
 ## Staleness, in three sentences
 
 Every read answer describes the index as of `meta.last_indexed`, never the
-working tree, and reports `fresh`, `stale` (with reasons) or `unknown` -- and
-`unknown` is not `fresh`. `--refresh` is the only repair a read offers: it
-takes the project's flock and runs one incremental pass before answering.
-Otherwise repair is explicit -- a pass command or the watcher.
-
-A stale read prints one line on stderr, the same on every call:
+working tree, and reports `fresh`, `stale` or `unknown` -- `unknown` is not
+`fresh`. `--refresh` is the only repair a read offers, one pass then the
+answer; otherwise repair is a pass command or the watcher. Stale prints this:
 
 ```
 Warning: index is stale: 2 modified files -- <path>; answers describe the index, not the tree; refresh with code-indexer reindex-project <path>
 ```
 
-A file the sensitive layer withholds is not a staleness reason: it is reported
-as `1 file skipped (sensitive content)` (JSON: `withheld_count`) on a fresh verdict.
-
 ## The read-only guarantee
 
-A read command never writes the manifest, the vector store or the sources: it
-opens no write transaction, runs no index pass, and contacts no service to
-reach a staleness verdict.
+A read command never writes the manifest, the vector store or the sources.
 
 ## The references
 
