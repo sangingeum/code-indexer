@@ -4,12 +4,12 @@
 
 **A structural answer is ordered, not merely counted.** `find-definition`,
 `find-symbol`, `find-references`, `find-callers` and the two `overview`
-hotspot lists now share one ordering policy: source before tests before docs
-before generated/artifact files, then identity quality (a hit that can name
-what it matched before one that merely shares a name), then a deterministic
-tie-break over the row's identity fields. It is an ordering, not a filter:
-every hit is still returned, the demoted ones after the promoted ones, and
-each surface keeps its existing cap.
+hotspot lists now share one ordering policy: source before samples before
+tests before docs before generated/artifact files, then identity quality (a
+hit that can name what it matched before one that merely shares a name), then
+a deterministic tie-break over the row's identity fields. It is an ordering,
+not a filter: every hit is still returned, the demoted ones after the
+promoted ones, and each surface keeps its existing cap.
 
 - **Why.** A test fixture and an audit document accumulate identifier
   mentions because they exercise or quote the code beneath them, so a list
@@ -21,7 +21,37 @@ each surface keeps its existing cap.
 - **One classifier, both layers.** `src/code_indexer/ordering.py` owns the
   path classes; a capped SQL read calls it as the `file_class_weight`
   function, so the store and the graph layer cannot disagree about what a
-  test file is.
+  test file is. That function is registered closed over the project's own
+  ladder, so the two layers also agree about a name the project adds.
+- **The document every repository has.** Extensionless documents
+  (`LICENSE`, `LICENCE`, `COPYING`, `NOTICE`, `AUTHORS`, `README`,
+  `CHANGELOG`, `CONTRIBUTING`) are documents, not source. Before this, a
+  licence file's prose held identifier mentions that the classifier read as
+  source, so the orientation answer was true about fixtures and quiet about
+  the one document every repository ships: a fixture or an audit document
+  does not win orientation, and neither does the licence.
+- **Shipped samples have a rung.** `examples/`, `example/`, `sample/`,
+  `samples/`, `demo/` and `demos/` sort after source and before tests: code
+  written to be read demonstrates the API, but it is not evidence about this
+  tree, and on the path tie-break it used to rank above the shipped entry
+  point. A project extends any rung with a `[tool.code-indexer.ordering]`
+  table in its `pyproject.toml`; the additions are additive, so a rung member
+  cannot be declared away.
+- **Each surface states its own keys.** The symbol read orders class, recorded
+  kind, attribution, then name and the identity fields; the reference read
+  class, whether the reference sits in a named enclosing symbol, attribution,
+  then its identity fields; `overview` class, then the count. Two clauses
+  that could not vary were removed rather than documented as if they ranked
+  rows: the reference read's "target has a definition" check was a constant
+  under `to_name = ?`, and the symbol read's exact-name clause duplicated a
+  distinction the query split already enforces.
+- **The two graph walks say what they do.** `deps` orders each level by class
+  before its node cap fills, so a test or sample importer cannot take a
+  budget slot from a production one; `find-callees` keeps call-site order,
+  which the reference now names as an exemption with its reason.
+- **Case, in one place.** Names are compared case-insensitively (ASCII, SQLite
+  `NOCASE`) by the symbol read only; no other surface compares names, so a
+  non-ASCII identifier compares exactly everywhere.
 - **Nothing was reindexed.** Ordering is decided at query time from stored
   rows: no schema change, no `EXTRACTION_VERSION` bump, no change to what is
   stored.

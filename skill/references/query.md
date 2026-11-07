@@ -143,43 +143,82 @@ code-indexer find-definition Tracker
 code-indexer get-code-context src/code_indexer/core.py --symbol Core.search
 ```
 
-## Ordering: source, then tests, then docs, then artifacts
+## Ordering: source, then samples, tests, docs, artifacts
 
-Every structural list -- `find-definition`, `find-symbol`, `find-references`,
-`find-callers`, and both `overview` hotspot lists -- is ordered by one policy,
-in this order:
+Every RANKED structural answer -- `find-definition`, `find-symbol`,
+`find-references`, `find-callers`, and both `overview` hotspot lists -- is
+ordered by one policy, in this order:
 
-1. **File class** -- `source`, then `tests`, then `docs`, then
+1. **File class** -- `source`, then `examples`, then `tests`, then `docs`, then
    `generated`/artifact. Build output, lock files, minified assets and
-   dependency caches are artifacts; a `docs` directory or a Markdown,
-   reStructuredText, AsciiDoc or plain-text file is a document; `tests`,
-   `test`, `spec` and `__tests__` directories, a `Foo.Tests` project,
-   `conftest.py`, `test_*`, `*_test.py`, `*.spec.ts` and `*Tests.cs` names are
-   tests; everything else -- unknown shapes included -- is source.
+   dependency caches are artifacts; a `docs` directory, a Markdown,
+   reStructuredText, AsciiDoc or plain-text file, or an extensionless document
+   named `LICENSE`, `LICENCE`, `COPYING`, `NOTICE`, `AUTHORS`, `README`,
+   `CHANGELOG` or `CONTRIBUTING` is a document; `tests`, `test`, `spec` and
+   `__tests__` directories, a `Foo.Tests` project, `conftest.py`, `test_*`,
+   `*_test.py`, `*.spec.ts` and `*Tests.cs` names are tests; `examples`,
+   `example`, `sample`, `samples`, `demo` and `demos` directories are shipped
+   samples; everything else -- unknown shapes and vendored trees included -- is
+   source.
 2. **Identity quality** -- a hit that can name what it matched sorts above one
-   that merely shares a name: an exact name above a substring hit, a symbol
-   row with a recorded kind above one without, a reference whose target has a
-   definition row above one that only matches text, a caller site inside a
-   named symbol above a module-level one. A hit that cannot name its match
-   sorts last within its class.
-3. **A deterministic tie-break** over the row's own identity fields (file,
-   line, qualified name, declaration hash) -- never insertion order, so the
-   same index answers the same way twice.
+   that merely shares a name (a recorded kind, a named enclosing symbol,
+   attributed `ast` syntax), and a deterministic tie-break over the row's own
+   identity fields -- never insertion order -- closes the order.
 
 **This is an ordering, not a filter.** Every hit is still returned, the
-demoted ones after the promoted ones. Each surface keeps its existing cap and
-default (`--limit`, `--max-nodes`, the ten-row hotspot lists); the policy
-decides which hits fill a capped answer, and an uncapped answer never drops
-one.
+demoted ones after the promoted ones. Each surface keeps its cap and default
+(`--limit`, `--max-nodes`, the ten-row hotspot lists); the policy decides
+which hits fill a capped answer, and an uncapped answer never drops one.
 
-Why class outranks count: a test fixture or an audit document accumulates
-identifier mentions because it exercises or quotes the code beneath it, so a
-list ordered by fan-in alone reports the fixture as the centre of the
-codebase. The class is a property of the path, so the order does not move with
-the index's incidental hit distribution.
+### Which keys fire on which surface
+
+A key that cannot VARY across the rows of one answer is not a key, so none is
+listed below.
+
+| surface | keys that can fire, in order | what cannot fire, and why |
+|---|---|---|
+| `find-definition`, exact-name `find-symbol` | file class, recorded kind, attribution, then `name`, `file`, `start_line`, `qualified_name`, `decl_hash` | no "exact name before substring" key: the two tiers are two queries, and the substring tier runs only when the exact tier is empty, so one answer never holds both. The name is compared with SQLite `COLLATE NOCASE` (ASCII). |
+| browse-mode `find-symbol` (no name) | the same list; with no queried name the identity clause is constant, so class leads and `name` is the first tie-break | no name-match key at all: there is no name to match |
+| `find-references` | file class, then whether the reference sits in a NAMED enclosing symbol, then attribution, then `file`, `line`, `relationship`, `from_symbol`, `receiver` | no name key: `to_name = ?` already pins the target, so every row compares equal on it and no case policy exists here |
+| `find-callers` | the same keys as `find-references`, expressed in Python (`ordering.edge_key`): class, named caller, attribution, then `file`, `line`, `symbol`, `relationship`, `receiver` | no count key: the walk's node is a call site, not an aggregate |
+| `overview` hotspots (fan-in and size) | file class, then the count descending, then `file` | no identity key: a file is not a hit, so there is nothing to attribute |
+
+### The two walks that keep their own order
+
+`find-callees` does not use the policy, and says so: it returns call sites in
+store order (by line), because "what does this symbol reach, and where" reads
+one body rather than ranking the tree; `--max-nodes` counts that walk's nodes.
+
+`deps` DOES order each level by class before the node cap fills, so a test,
+sample or docs importer cannot take a budget slot ahead of a production one;
+it keeps the levels apart, because "what imports this, and how distantly" is a
+walk, not one ranked list.
+
+### One classifier, one case policy
 
 The classifier lives in `src/code_indexer/ordering.py`; a capped SQL read
 calls it as the `file_class_weight` function rather than restating the rules.
+Case is compared in exactly one place -- the symbol read's `COLLATE NOCASE`,
+which is ASCII case-insensitivity -- and no other surface compares names, so a
+non-ASCII identifier compares exactly everywhere.
+
+### The ladder is the default; a project may extend it
+
+`[tool.code-indexer.ordering]` in the project root's `pyproject.toml` adds
+DIRECTORY names to a rung -- `docs`, `examples` and `tests`, each a list. The
+additions are additive: a project classifies a rung member it names, but
+cannot declare `tests/` or `docs/` away. Both layers honour the same table,
+because the SQL function is registered closed over it.
+
+Why class outranks count: a test fixture, a shipped sample or an audit
+document accumulates identifier mentions because it exercises or quotes the
+code beneath it, so a list ordered by fan-in alone reports the fixture as the
+centre of the codebase. The class is a property of the path, so the order does
+not move with the index's incidental hit distribution. One caveat the
+ordering cannot repair: fan-in counts references to names AS OWNED BY the
+first defining file, so for a name defined in several files the count is an
+attribution artefact -- the class decides which files fill the ten slots, not
+what the numbers mean.
 
 The workflow that keeps context small: `semantic-search` to locate,
 `find-symbol`/`find-definition` to confirm identity, `get-code-context
@@ -225,6 +264,13 @@ files with no grammar, so an empty answer from those two filters carries an
 `evidence_note` (JSON) or one explanatory line (text). Do not read such a
 zero as a negative.
 
+**Browse-mode order.** With no NAME there is no queried name to match, so
+browse mode's answer is class first, then `name`, `file`, `start_line`,
+`qualified_name`, `decl_hash`. That is a decision, not an accident: one key
+list serves both tiers, and the exact-name clause drops out because the
+answer has no name clause. A `--limit` smaller than the population therefore
+keeps the alphabetically first names OF THE PROMOTED CLASS, not of the tree.
+
 **Limits and ambiguity.** Exact-name `find-symbol` and `find-definition`
 return every definition; `--limit` bounds only when given. Browse mode (no
 name) and the `--substring` fallback default to 25. A capped answer says so:
@@ -258,7 +304,14 @@ code-indexer deps src/code_indexer/cli.py --direction both --format edges
 - Both accept a dotted `Type.Member`, union over an ambiguous name, label
   each direct hit with `targets`, and report `truncated`/`omitted` when
   `--max-nodes` cut the walk.
-- `deps` resolves imports to files; unresolved edges are not drawn.
+- `deps` resolves imports to files; unresolved edges are not drawn. Each
+  level is ordered by file class before the node cap fills, so a test,
+  sample or docs importer cannot take a budget slot ahead of a production
+  one; the levels themselves stay levels, because the answer is a walk.
+- `find-callees` is the one graph arm outside the ordering policy: its
+  children arrive in call-site order (by line), because "what does this
+  symbol reach" is a reading of one body rather than a relevance list over
+  the tree. `find-callers` is inside the policy, class first.
 
 Under these walks the store hands over everything it holds: the graph reads
 take `limit=None` by default, and a cap belongs to the layer above, which
