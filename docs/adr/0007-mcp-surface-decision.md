@@ -4,7 +4,7 @@
 - Date: 2026-11-07
 - Deciders: owner (ratification), architecture review
 - Supersedes / Superseded by: --
-- Amended: 2026-11-07 -- section 1's removal list named ten tools; `find_definition` was missing from it, while the shipped registry (`code-indexer-mcp --help`), `README.md` and the release note all name eleven.
+- Amended: 2026-11-07 -- section 1's removal list named ten tools; `find_definition` was missing from it, while the shipped registry (`code-indexer-mcp --help`), `README.md` and the release note all name eleven. The same count appeared in two prose sentences (section 4's deleted tests, section 5's consequence bullet); both now read eleven, so the record carries one count.
 
 ## Decision in one paragraph
 
@@ -72,7 +72,7 @@ The next decision is taken once the semantic extra has shipped and one release c
 - The removed tools do not disappear silently: `README.md`'s MCP section, the parity table and the client configuration block are rewritten in the same commit; `code-indexer-mcp --help` lists the registered tools and says what was removed; `CHANGELOG.md` carries the removal under a named release with the migration line ("use the CLI subcommand of the same name").
 - A client call to a removed tool gets the protocol's own unknown-tool error, which is the honest answer; the README is where the caller learns why.
 - The published client configuration keeps working if the entry point keeps its name; only the install line changes to include the extra: `uvx --from "code-indexer[mcp]" code-indexer-mcp`.
-- The 42 tests do not survive as 42: the 10 removed tools' tests are deleted with them, `test_server_is_thread_free_and_core_free` and the stdio handshake test stay, and a new test asserts that the registered tool set equals the documented list -- the defect class that produced "all 14 tools" is closed by a test, not by proofreading.
+- The 42 tests do not survive as 42: the eleven removed tools' tests are deleted with them, `test_server_is_thread_free_and_core_free` and the stdio handshake test stay, and a new test asserts that the registered tool set equals the documented list -- the defect class that produced "all 14 tools" is closed by a test, not by proofreading.
 
 ### 6. What is being accepted, stated plainly
 
@@ -96,7 +96,7 @@ This record does not claim the MCP surface has earned its cost. It claims that t
 ## Consequences
 
 - A core install loses 284 ms of startup and 22,491 bytes of schema; an MCP user gains an install flag and eight tools instead of eighteen.
-- Ten tool schemas and their tests disappear. The parity table in `README.md` becomes a short list, and the "no MCP tool" notes in the skill can be deleted rather than maintained.
+- Eleven tool schemas and their tests disappear. The parity table in `README.md` becomes a short list, and the "no MCP tool" notes in the skill can be deleted rather than maintained.
 - A client that used `deps`, `outline`, `changed_symbols` or a lifecycle tool breaks on upgrade. That is stated in the release note; the CLI has had every one of them all along.
 - MCP becomes observable for the first time, which is also the first time it can be judged.
 - The server's own help and docstrings become generated from the registry, so the "all 14 tools" drift cannot recur.
