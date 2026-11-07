@@ -1473,10 +1473,15 @@ def index_status(
         fields["fingerprint"] = "unverified"
         fields["reason"] = fp["reason"]
     # The flag pair says WHICH check failed; it does not say what a reader
-    # should conclude. The sentence below carries that half, and the field
-    # names stay exactly as they were for a machine caller.
+    # should conclude. The sentence below carries that half, and it takes the
+    # VECTOR verdict as well: the run that prints `vectors_state=stale` is the
+    # run in which the embedding model did not match, so a sentence claiming
+    # every comparable key matched would be false in the state it is printed
+    # in. The field names stay exactly as they were for a machine caller.
     fp_meaning = fingerprint_mod.meaning(fields.get("fingerprint"),
-                                         fp["reason"])
+                                         fp["reason"],
+                                         vectors_state=fp["vectors"],
+                                         vectors_reason=fp["vectors_reason"])
     if st.get("last_result"):
         parts.append(f"last_pass={st['last_result']}")
         fields["last_pass"] = st["last_result"]

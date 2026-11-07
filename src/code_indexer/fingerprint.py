@@ -118,27 +118,29 @@ def row_side_mismatches(recorded: Fingerprint | None,
 def vector_side_mismatches(recorded: Fingerprint | None,
                            embed_model: str,
                            embed_text_version: str) -> list[str]:
-    """Differences on the VECTOR axis, as the model/format of the identity.
+    """Differences on the VECTOR axis, one line per key that did not match.
 
     The recorded identity carries its own dimension, and a read path cannot
     know the configured dimension without dialling the service; the comparison
     therefore states model and embedded-text format and takes the recorded
     dimension as given. A write path compares the whole string instead (it
     knows the dimension it would build with).
+
+    Each line names the key it is about, in the same spelling the row-side
+    differences use, because a reader has to know WHICH key did not match: a
+    model change and an embedded-text change need the same rebuild, but the
+    sentence reporting them says which one it was.
     """
     if recorded is None:
         return []
-    identity = recorded.embedding_version()
-    parts = identity.split("/")
+    parts = recorded.embedding_version().split("/")
     model = parts[0] if parts else ""
     fmt = parts[2] if len(parts) > 2 else ""
     diffs: list[str] = []
     if model != embed_model:
-        diffs.append(f"embedding_version: {identity} -> "
-                     f"{compose_embedding_version(embed_model, recorded.embed_dim, fmt)}")
+        diffs.append(f"embed_model: {model} -> {embed_model}")
     if fmt != embed_text_version:
-        diffs.append(f"embedding_version: {identity} -> "
-                     f"{compose_embedding_version(model, recorded.embed_dim, embed_text_version)}")
+        diffs.append(f"embed_text_version: {fmt} -> {embed_text_version}")
     return diffs
 
 
@@ -294,27 +296,59 @@ def current_version_stamp() -> Fingerprint:
                        chunker_version=CHUNKER_VERSION)
 
 
-def meaning(state: str | None, reason: str | None) -> str | None:
+def meaning(state: str | None, reason: str | None, *,
+            vectors_state: str | None = None,
+            vectors_reason: str | None = None) -> str:
     """What a fingerprint verdict means, in words, for the reader of a read.
 
     ``fingerprint=unverified reason=embedding-dimension-not-compared`` is a
     pair of flags; a reader cannot tell from the pair what was NOT compared or
     what to conclude. The states keep their names (a caller branches on
-    ``fingerprint``/``reason``); this sentence is the human half, and None
-    when there is no verdict to explain (an ``ok`` project prints no pair).
+    ``fingerprint``/``reason``); this sentence is the human half.
+
+    The sentence follows the verdict printed beside it. One run compares two
+    things -- the row keys and the vector identity -- so a clause that is true
+    of the ordinary case is false in the run where the other side differs:
+    ``vectors_state=stale`` is printed in the same breath as the meaning, and
+    the run that says stale is the run in which the embedding model did NOT
+    match.
+
+    * row keys matched and the vector identity matches: say so, and keep the
+      dimension gap (the one key a read cannot compare without a probe);
+    * the vector identity differs: ``vectors_reason`` names the key, and the
+      reader is told a rebuild clears it;
+    * a row key differs (needs-reindex): ``reason`` names it, and the row
+      reads refuse until a reindex;
+    * no verdict was reached (no recorded fingerprint): the comparison did
+      not run, which is not the same as a pass.
     """
-    if state == "unverified":
-        return ("every fingerprint key a read can compare matched (embedding "
-                "model, embedded-text format, chunker and extraction "
-                "version); the embedding dimension was not compared, because "
-                "learning the configured dimension needs the service, so "
-                "vectors of another dimension recorded under the same model "
-                "name would not be flagged here")
     if state == "needs-reindex":
-        return (f"the recorded fingerprint disagrees with this build "
-                f"({reason}); the index was built by other extraction or "
-                f"chunking code, so the row reads refuse until a reindex runs")
-    return None
+        sentence = (f"the recorded fingerprint disagrees with this build "
+                    f"({reason}); the index was built by other extraction or "
+                    f"chunking code, so the row reads refuse until a reindex "
+                    f"runs")
+        if vectors_state == "stale":
+            sentence += f"; its vectors are stale too ({vectors_reason})"
+        return sentence + " -- run: code-indexer reindex-project"
+    if state == "unverified":
+        if vectors_state == "stale":
+            return (f"a fingerprint key a read can compare did not match "
+                    f"({vectors_reason}), so the vector side is stale and its "
+                    f"vectors are not comparable with this build; the row "
+                    f"keys matched, so a vector rebuild is what clears this "
+                    f"-- run: code-indexer reindex-project")
+        return ("every fingerprint key a read can compare matched (embedding "
+                "model, embedded-text format, chunker and extraction version), "
+                "and the recorded embedding model and embedded-text format "
+                "are the ones this build would write; the embedding dimension "
+                "is the one key left uncompared, because learning the "
+                "configured dimension needs the service, so vectors of "
+                "another dimension recorded under the same model name would "
+                "not be flagged here")
+    return ("the fingerprint comparison did not run: this index records no "
+            "fingerprint, or an incomplete one, so this build has no verdict "
+            "on whether the recorded configuration matches; the next index "
+            "pass records one")
 
 
 def mismatch_error(project_path: str, recorded: Fingerprint,

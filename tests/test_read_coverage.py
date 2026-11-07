@@ -321,28 +321,125 @@ def test_withheld_files_are_counted_in_the_coverage(index_project):
 # the fingerprint sentence
 # ---------------------------------------------------------------------------
 
-def test_the_fingerprint_verdict_states_its_meaning(index_project):
-    core, entry, project = index_project({"mod.py": PY})
-    payload = _json(runner.invoke(
+def _set_meta(core, entry, **values: str) -> None:
+    """Record meta values on a built index (a test constructs the state)."""
+    m = core.manifest_for(entry.slug)
+    try:
+        for key, value in values.items():
+            m.set_meta(key, value)
+    finally:
+        m.close()
+
+
+def _status_json(project) -> dict:
+    return _json(runner.invoke(
         app, ["index-status", "--project", str(project), "--json"]))
+
+
+def test_the_fingerprint_sentence_matches_the_verdict_it_prints_beside(
+        index_project):
+    """Comparable keys matched and the vector side matches: say both."""
+    core, entry, project = index_project({"mod.py": PY})
+    payload = _status_json(project)
+    # The state this sentence is printed in: the row keys matched, and the
+    # vector side is the one this build would write.
     assert payload["fingerprint"] == "unverified"
-    assert payload["reason"] == "embedding-dimension-not-compared"
+    assert payload["vectors_state"] == "current"
     meaning = payload["fingerprint_meaning"]
-    # The sentence must name the gap that IS open and must not name the doubt
-    # the read path already rules out: the model and its embedded-text format
-    # ARE compared, and a mismatch is refused.
-    assert "dimension was not compared" in meaning
-    assert "another dimension" in meaning
-    assert "not compared against the configured model" not in meaning
-    assert "another model" not in meaning
     for compared in ("embedding model", "embedded-text format", "chunker",
                      "extraction version"):
         assert compared in meaning, compared
+    # The dimension gap stays: it is the one key a read cannot compare, and
+    # the recorded model/format WERE compared and matched.
+    assert "dimension" in meaning and "uncompared" in meaning
+    assert "not compared against the configured model" not in meaning
+    assert "another model" not in meaning
+    # Nothing here says a key did not match, because none did.
+    assert "did not match" not in meaning
+    assert "stale" not in meaning
 
     text = runner.invoke(app, ["index-status", "--project", str(project)])
     assert len(text.stdout.splitlines()) == 1
     assert "fingerprint=unverified" in text.stdout
     assert "fingerprint meaning:" in text.stderr
+
+
+def test_the_fingerprint_sentence_names_the_vector_key_that_did_not_match(
+        index_project):
+    """A changed embedding model is the state the sentence must not call a match.
+
+    This is the run the previous wording was false in: `vectors_state=stale`
+    is printed in the same line, and the embedding model is exactly the key
+    that did NOT match.
+    """
+    core, entry, project = index_project({"mod.py": PY})
+    _set_meta(core, entry, embed_model="a-different-model")
+    payload = _status_json(project)
+    assert payload["vectors_state"] == "stale"
+    meaning = payload["fingerprint_meaning"]
+    assert "embed_model:" in meaning, meaning
+    assert "a-different-model" in meaning, meaning
+    assert "did not match" in meaning
+    assert "stale" in meaning
+    assert "reindex-project" in meaning
+    assert "every fingerprint key a read can compare matched" not in meaning
+
+    text = runner.invoke(app, ["index-status", "--project", str(project)])
+    assert len(text.stdout.splitlines()) == 1
+    assert "vectors_state=stale" in text.stdout
+    line = [ln for ln in text.stderr.splitlines()
+            if ln.startswith("fingerprint meaning:")]
+    assert len(line) == 1, text.stderr
+    assert "embed_model:" in line[0]
+
+
+def test_the_fingerprint_sentence_names_the_row_key_that_did_not_match(
+        index_project):
+    core, entry, project = index_project({"mod.py": PY})
+    _set_meta(core, entry, chunker_version="999")
+    payload = _status_json(project)
+    assert payload["fingerprint"] == "needs-reindex"
+    meaning = payload["fingerprint_meaning"]
+    assert "chunker_version: 999 ->" in meaning, meaning
+    assert "reindex-project" in meaning
+    assert "every fingerprint key a read can compare matched" not in meaning
+
+
+def test_the_fingerprint_sentence_says_when_the_comparison_did_not_run(
+        index_project):
+    """No recorded fingerprint is no comparison -- never a pass."""
+    core, entry, project = index_project({"mod.py": PY})
+    _set_meta(core, entry, embed_model="", embed_dim="",
+              embed_text_version="", chunker_version="",
+              extraction_version="")
+    payload = _status_json(project)
+    assert "fingerprint" not in payload
+    meaning = payload["fingerprint_meaning"]
+    assert "did not run" in meaning, meaning
+    assert "matched" not in meaning
+
+    text = runner.invoke(app, ["index-status", "--project", str(project)])
+    assert len(text.stdout.splitlines()) == 1
+    assert "did not run" in text.stderr
+
+
+@pytest.mark.parametrize("meta", [{"embed_model": "a-different-model"},
+                                  {"embed_text_version": "an-older-format"}])
+def test_the_sentence_never_claims_agreement_on_a_stale_verdict(
+        index_project, meta):
+    """The pin that failed before: agreement claimed while stale is printed.
+
+    Both vector-side keys are constructed, because either one alone makes the
+    vector verdict `stale`, and one sentence covered both.
+    """
+    core, entry, project = index_project({"mod.py": PY})
+    _set_meta(core, entry, **meta)
+    payload = _status_json(project)
+    assert payload["vectors_state"] == "stale"
+    meaning = payload["fingerprint_meaning"]
+    assert "every fingerprint key a read can compare matched" not in meaning
+    assert "did not match" in meaning
+    assert "reindex-project" in meaning
 
 
 def test_the_fingerprint_sentence_names_the_keys_the_read_path_compares():
