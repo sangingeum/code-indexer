@@ -389,6 +389,11 @@ def meaning(state: str | None, reason: str | None, *,
       reads refuse until a reindex;
     * no verdict was reached (no recorded fingerprint): the comparison did
       not run, which is not the same as a pass.
+
+    An ``error`` marker (the last vector pass lost chunks to embed failures) is
+    not a branch here: this sentence speaks only to the key comparison, so the
+    error verdict rides the ``vectors_state`` field alone and the sentence is
+    silent about it by design.
     """
     vectors_off = vectors.get("vectors") == MODE_OFF
     identity_reason = vectors.get("identity_reason")
