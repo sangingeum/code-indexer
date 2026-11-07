@@ -175,10 +175,10 @@ def test_the_keys_are_total_so_two_runs_cannot_disagree():
 # count, by path or by insertion order therefore disagrees with every answer
 # asserted below -- only the class weight can produce it.
 
-SOURCE_FILE = "pkg/sim.py"
+SOURCE_FILE = "src/sim.py"
 SOURCE_TEXT = "def Tick():\n    return 1\n\n\ndef reset():\n    return 0\n"
 
-TEST_FILE = "tests/test_sim.py"
+TEST_FILE = "spec/test_sim.py"
 TEST_TEXT = (
     "def Tick(first=1):\n"
     "    return first\n"
@@ -199,11 +199,15 @@ TEST_TEXT = (
     + "".join("    shared_fixture()\n" for _ in range(20))
 )
 
-CONFTEST_FILE = "tests/conftest.py"
+CONFTEST_FILE = "spec/conftest.py"
 CONFTEST_TEXT = "def shared_fixture():\n    return 1\n"
 
-APP_FILE = "app.py"
-APP_TEXT = "def drive():\n    Tick()\n"
+APP_FILE = "web/app.py"
+APP_TEXT = ("def drive():\n"
+            "    Tick()\n"
+            "    reset()\n"
+            "    reset()\n"
+            "    reset()\n")
 
 DOC_FILE = "docs/design.md"
 DOC_TEXT = ("# Design\n\n"
