@@ -250,6 +250,47 @@ class SemanticProviderUnavailableError(IndexerError):
     exit_code = EXIT_BACKEND
 
 
+# -- applying a plan (ADR-0005) --------------------------------------------
+# The same five numbers, and one new discriminator: a run that stopped with
+# files already written is exit 1 with ``PartialApply``, which is what ADR-0003
+# calls "any other runtime failure" with the ErrorType line doing the naming.
+
+class KeeperUnavailableError(IndexerError):
+    """No usable filekeeper: absent, not executable, or short a guard flag.
+
+    There is no fallback: a plan is applied through filekeeper or not at all,
+    so the remedy is the install line the message carries.
+    """
+
+    error_type = "KeeperUnavailable"
+    exit_code = EXIT_BACKEND
+
+
+class KeeperCapabilityMissingError(KeeperUnavailableError):
+    """keeper is present but its parser does not accept a flag the plan needs.
+
+    A subclass of ``KeeperUnavailableError`` because the caller's next move is
+    the same -- install a keeper that has the guard -- while the message names
+    the flag, which is the fact the caller needs to report upstream.
+    """
+
+    error_type = "KeeperCapabilityMissing"
+
+
+class KeeperFailureError(IndexerError):
+    """keeper refused a mutation before any file was written by this run."""
+
+    error_type = "KeeperFailure"
+    exit_code = EXIT_FAIL
+
+
+class PartialApplyError(IndexerError):
+    """A run stopped partway with files already written; the report says which."""
+
+    error_type = "PartialApply"
+    exit_code = EXIT_FAIL
+
+
 def classify(exc: BaseException) -> IndexerError:
     """Map any exception onto the taxonomy (mechanical, no content change).
 

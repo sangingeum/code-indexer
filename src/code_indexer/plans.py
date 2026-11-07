@@ -735,28 +735,32 @@ VALIDATE_CAVEAT = (
     "structural checks only -- file bytes, the parser's verdict and region "
     "arithmetic; nothing here claims the result compiles or type-checks")
 
+# The basis every phase-1 identity verdict names, in the order it was used.
+# ``validate`` and ``apply`` both report it from here, so a reader comparing
+# the two surfaces is comparing one constant.
+IDENTITY_VERIFIED = "structural"
+IDENTITY_BASIS = ("file_hash", "decl_hash", "region_hash")
 
-class _Failed(Exception):
-    def __init__(self, error: IndexerError) -> None:
-        super().__init__(str(error))
-        self.error = error
+
+def identity_block() -> dict[str, Any]:
+    """ADR-0004 section 2's identity verdict: structural, with its basis."""
+    return {"verified": IDENTITY_VERIFIED, "basis": list(IDENTITY_BASIS)}
 
 
 @dataclass
 class _Checks:
+    """The per-check verdicts ``plan-validate`` prints, in the order it ran."""
+
     entries: list[dict[str, str]] = field(default_factory=list)
 
-    def run(self, name: str, step, describe=None) -> Any:
-        try:
-            value = step()
-        except IndexerError as exc:
-            self.entries.append({"check": name, "status": "failed",
-                                 "detail": f"{exc.error_type}: {exc}"})
-            raise _Failed(exc) from exc
+    def record(self, name: str, value: Any, describe=None) -> None:
         detail = describe(value) if describe is not None else value
         self.entries.append({"check": name, "status": "ok",
                              "detail": "" if detail is None else str(detail)})
-        return value
+
+    def refuse(self, name: str, exc: IndexerError) -> None:
+        self.entries.append({"check": name, "status": "failed",
+                             "detail": f"{exc.error_type}: {exc}"})
 
 
 def _check_schema(document: dict[str, Any]) -> str:
@@ -1057,6 +1061,50 @@ def _check_requests(document: dict[str, Any]) -> str:
             "semantic_required false")
 
 
+def run_preconditions(document: dict[str, Any], root: str,
+                     requested: str | None = None,
+                     checks: _Checks | None = None) -> dict[str, TextFile]:
+    """Every read-only precondition, in one order, for validate and apply.
+
+    ``plan-validate`` and ``plan-apply`` both call this and nothing else
+    decides what "stale" means, so the two commands cannot disagree about it
+    (ADR-0005 section 3): one reads the files, re-derives the node, reproduces
+    the regions and checks the ordering, and the first refusal is raised as
+    the taxonomy's own error with its own exit code. Nothing here mutates.
+
+    ``checks`` records each verdict when a reporter is given; the caller gets
+    the loaded files back because it needs them to order the edits.
+    """
+    def run(name: str, step, describe=None) -> Any:
+        try:
+            value = step()
+        except IndexerError as exc:
+            if checks is not None:
+                checks.refuse(name, exc)
+            raise
+        if checks is not None:
+            checks.record(name, value, describe)
+        return value
+
+    run("plan hash", lambda: _check_plan_hash(document, requested))
+    run("schema", lambda: _check_schema(document))
+    run("requests", lambda: _check_requests(document))
+    run("paths", lambda: _check_paths(document, root))
+    files = run("file bytes", lambda: _load_files(document, root),
+                describe=lambda loaded: (
+                    f"{len(loaded)} file(s) decoded as UTF-8 and read as "
+                    "stored bytes"))
+    run("file hash and newline declaration",
+        lambda: _check_file_preconditions(document, files))
+    run("replacement text", lambda: _check_replacement_text(document))
+    run("node re-derivation", lambda: _check_declaration(document, files))
+    run("line and byte cross-check", lambda: _check_coordinates(document, files))
+    run("region hashes", lambda: _check_region_hashes(document, files))
+    run("overlap and ordering",
+        lambda: check_edit_order(document["edits"], files))
+    return files
+
+
 def validate_plan(document: dict[str, Any], root: str,
                   requested: str | None = None) -> dict[str, Any]:
     """Run the ladder and report each rung; never claim more than it ran.
@@ -1071,42 +1119,22 @@ def validate_plan(document: dict[str, Any], root: str,
         "plan_id": document.get("plan_id"),
         "operation": document.get("operation"),
         "ref": requested,
-        "identity": {"verified": "structural",
-                     "basis": ["file_hash", "decl_hash", "region_hash"]},
+        "identity": identity_block(),
         "syntax": [],
         "caveat": VALIDATE_CAVEAT,
         "checks": [],
     }
     error: IndexerError | None = None
     try:
-        checks.run("plan hash", lambda: _check_plan_hash(document, requested))
-        checks.run("schema", lambda: _check_schema(document))
-        checks.run("requests", lambda: _check_requests(document))
-        checks.run("paths", lambda: _check_paths(document, root))
-        files = checks.run("file bytes", lambda: _load_files(document, root),
-                           describe=lambda loaded: (
-                               f"{len(loaded)} file(s) decoded as UTF-8 and "
-                               "read as stored bytes"))
-        checks.run("file hash and newline declaration",
-                   lambda: _check_file_preconditions(document, files))
-        checks.run("replacement text",
-                   lambda: _check_replacement_text(document))
-        checks.run("node re-derivation",
-                   lambda: _check_declaration(document, files))
-        checks.run("line and byte cross-check",
-                   lambda: _check_coordinates(document, files))
-        checks.run("region hashes",
-                   lambda: _check_region_hashes(document, files))
-        checks.run("overlap and ordering",
-                   lambda: check_edit_order(document["edits"], files))
+        files = run_preconditions(document, root, requested, checks)
         syntax = _syntax_verdicts(document, files)
         report["syntax"] = syntax
         checks.entries.append({
             "check": "syntax verdicts", "status": "reported",
             "detail": "; ".join(f"{item['path']} {item['verdict']}"
                                  for item in syntax)})
-    except _Failed as failed:
-        error = failed.error
+    except IndexerError as exc:
+        error = exc
     report["checks"] = checks.entries
     report["passed"] = error is None
     if error is not None:
