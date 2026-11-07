@@ -5,9 +5,10 @@
 **A change can now be prepared as a content-addressed plan, validated and
 previewed without writing.** Six plan commands appear: three writers
 (`plan-replace-body`, `plan-insert-symbol`, `plan-delete-declaration`),
-`plan-validate`, `plan-show`, and `plan-rename-symbol` as a reserved, refused
-verb — and `plan-apply` applies one through filekeeper, reporting every file
-and handing back the ordered operations to undo.
+`plan-validate`, `plan-show`, and `plan-apply`, which applies a plan through
+filekeeper, reporting every file and handing back the ordered operations to
+undo. A rename is not a command: the format names the operation and refuses
+it, because references are textual and nothing would verify the rename.
 
 - **A plan is its file.** The document's canonical bytes (UTF-8, sorted keys,
   no insignificant whitespace, no trailing newline) are hashed to

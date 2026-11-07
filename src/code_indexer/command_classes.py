@@ -60,7 +60,6 @@ READ_COMMANDS: frozenset[str] = frozenset({
     "overview",
     # Plan reads write nothing: validate and show open no transaction and
     # touch no file, and the reserved rename verb only refuses.
-    "plan-rename-symbol",
     "plan-show",
     "plan-validate",
     "semantic-search",

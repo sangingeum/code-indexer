@@ -695,14 +695,6 @@ def test_an_ambiguous_name_with_one_file_is_refused_with_both(plan_rig):
     assert not os.path.exists(plan_rig.plan_dir)
 
 
-def test_rename_symbol_is_refused_by_the_command(plan_rig):
-    result = runner.invoke(app, [
-        "plan-rename-symbol", "one", "--project", "plansample"])
-    assert result.exit_code == EXIT_USAGE
-    assert "reserved" in result.stderr
-    assert not os.path.exists(plan_rig.plan_dir)
-
-
 def test_prepare_needs_exactly_one_replacement_source(plan_rig):
     result = runner.invoke(app, [
         "plan-replace-body", "one", "--project", "plansample",

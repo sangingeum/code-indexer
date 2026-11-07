@@ -257,14 +257,13 @@ def test_roster_is_closed_and_every_command_classified():
     assert roster - names == set(), f"roster names that do not exist: {roster - names}"
     # The roster count is part of the contract: a new command must be added
     # here deliberately, not slip in with the next feature.
-    assert len(roster) == 34, sorted(roster)
+    assert len(roster) == 33, sorted(roster)
 
 
 # The plan reads answer from a plan file and the live sources, not from an
 # index answer, so there is nothing for --refresh to refresh. They accept the
 # inert --skip-stale-check like every command and no --refresh.
-NO_REFRESH_READS = frozenset({"plan-rename-symbol", "plan-show",
-                             "plan-validate"})
+NO_REFRESH_READS = frozenset({"plan-show", "plan-validate"})
 
 
 def test_every_read_command_accepts_refresh_and_the_inert_skip_flag():

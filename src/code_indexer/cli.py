@@ -2530,24 +2530,6 @@ def plan_delete_declaration(
                   json_output=json_output)
 
 
-@app.command(name="plan-rename-symbol")
-def plan_rename_symbol(
-    symbol: str = typer.Argument(None, help="Reserved operation."),
-    project: str = PROJECT_OPT,
-    json_output: bool = typer.Option(False, "--json", help="JSON output."),
-    skip_stale_check: bool = SkipOpt,
-) -> None:
-    """Reserved: renaming a symbol is refused in phase 1.
-
-    References are textual and nothing in this tool would verify a rename, so
-    the operation is named in the format and refused rather than half-built.
-    """
-    _json_failure(ArgumentError(
-        "rename_symbol is reserved in the plan format and refused in phase 1: "
-        "references are textual, so nothing here could verify a rename; no "
-        "plan is written"), json_output)
-
-
 @app.command(name="plan-validate")
 def plan_validate(
     ref: str = typer.Argument(..., help="A plan path or sha256:<hex>."),

@@ -152,8 +152,8 @@ incremental pass, and answers from the result. A held lock is
 project's index before the checks run), `eval` (refreshes the evaluated
 project), and accepted-and-inert on `eval-compare`, which reads report files
 rather than an index. No separate `refresh` command exists. The plan reads
-(`plan-validate`, `plan-show`) and the reserved `plan-rename-symbol` accept
-`--skip-stale-check` and **not** `--refresh`: they answer from a plan file and
+(`plan-validate`, `plan-show`) accept `--skip-stale-check` and **not**
+`--refresh`: they answer from a plan file and
 the live sources, so there is no index answer behind them to refresh.
 
 ```bash
@@ -195,7 +195,6 @@ code-indexer changed-symbols [--project P] [--base HEAD] [--head REF] [--staged]
 code-indexer plan-replace-body SYMBOL [--project P] [--file F] [--kind K] [--container C] --text '...' | --body-file F [--plan-dir D] [--print] [--json]   # replaces the body node's whole line range
 code-indexer plan-insert-symbol SYMBOL [--project P] [--file F] [--kind K] [--container C] [--position before|after|end] --text '...' | --body-file F [--note N] [--plan-dir D] [--print] [--json]   # before|after a declaration boundary, or at end of file
 code-indexer plan-delete-declaration SYMBOL [--project P] [--file F] [--kind K] [--container C] [--plan-dir D] [--print] [--json]   # whole declaration range, never a body-only delete
-code-indexer plan-rename-symbol SYMBOL   # RESERVED: refused (exit 2), nothing written
 code-indexer plan-validate REF [--project P] [--plan-dir D] [--json]   # per-check verdicts; writes nothing; a stale file exits 5
 code-indexer plan-show REF [--project P] [--diff] [--plan-dir D] [--json]   # the document as read; --diff adds the unified diff; writes nothing
 code-indexer plan-apply REF [--project P] [--plan-dir D] [--dry-run] [--refresh] [--json]   # WRITE: one keeper mutation per edit after a read-only pre-pass; per-file report, ordered operation ids, receipt
@@ -426,8 +425,6 @@ code-indexer plan-show sha256:<hex> --project P --diff
   `position: end` with no line number.
 - **A stale file refuses.** The plan's `files[].expected_hash` is checked
   first: a mismatch is `PlanStale`, exit 5, naming the file and both hashes.
-  `plan-rename-symbol` is reserved and refused, because references are textual
-  and nothing would verify a rename.
 
 ## Applying a plan (the only command that writes a source file)
 
@@ -880,8 +877,6 @@ the command then answers normally.
   unified diff computed from the plan plus the current bytes. Writes nothing;
   a stale file refuses rather than drawing a diff against bytes the plan
   never saw.
-- **plan-rename-symbol** — reserved and refused (exit 2). References are
-  textual, so nothing in this tool would verify a rename.
 - **plan-apply** — apply the plan's edits through filekeeper and report every
   file. `--dry-run` runs the same pre-pass and the same report and writes
   nothing at all; the keeper `--dry-run` goes to every call. It is a write
