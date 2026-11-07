@@ -1,5 +1,48 @@
 # Changelog
 
+## [Unreleased] — the refactoring provider contract
+
+**A refactoring provider interface exists, and it was proved before any
+language server was installed.** Five operations — `capabilities`,
+`resolve_symbol`, `find_references`, `prepare_rename` and `materialize` —
+sit behind one module; a stub in the test tree answers from fixture files and
+`tests/test_provider_contract.py` is the registration test, so the
+abstraction is shaped by the contract instead of by one server's quirks. No
+language server is installed, spawned or probed.
+
+- **Availability is a property of `(provider, operation)`, and it is
+  measured.** `supported`, `unsupported` and `unknown` are three values:
+  `unknown` is never reported as a denial, so a provider that did not answer
+  a capability question is asked anyway. An operation the provider reports
+  `unsupported` is `UnsupportedOperation` (exit 2) with no edit produced,
+  never answered by a weaker local approximation. No provider installed is
+  `ProviderUnavailable` (exit 3) with one line naming the install route; a
+  provider that never becomes ready or times out is also exit 3, and a
+  timeout is a cancelled request, never an empty semantic answer.
+- **Lifecycle.** Lazy start: constructing a session spawns nothing, so every
+  syntax-only command is unaffected by a provider being absent, slow or
+  broken. One provider per project per invocation, reused, terminated at
+  close — no daemon. Every semantic answer carries
+  `provider: {name, version, transport}`, and the index stores no provider
+  identifier.
+- **Positions convert once.** `provider_positions` holds the only two
+  conversion functions between the provider's 0-based lines and UTF-16 code
+  units and the plan's 1-based lines and bytes, and applies the one boundary
+  test in both directions. A position inside a surrogate pair is
+  `PositionConversionFailed`, never rounded. Proved against an
+  astral-plane line, a CRLF file, a byte-order mark, an empty last line and a
+  surrogate-pair offset.
+- **Provider edits become plan edits.** Each edit expands to the whole lines
+  it touches, bytes outside the range preserved exactly; two edits on one
+  line merge in descending byte order; the region hash covers the whole old
+  line; a cross-line edit is `NonLineAlignedProviderEdit` rather than an
+  approximation. The plan format still reserves `rename_symbol` and now
+  refuses it as `UnsupportedOperation` (exit 2) with no text edit.
+- **The four pass commands answer as data.** `add-project`, `index-more`,
+  `remove-project` and `reindex-project` gain `--json`: schema 1, the fields
+  the text renderer prints and `ErrorType` on failure, with no staleness
+  block. Documented in `docs/json-schema.md`.
+
 ## [Unreleased] — structural query on a stable identity
 
 **A change can now be prepared as a content-addressed plan, validated and
