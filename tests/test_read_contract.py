@@ -255,7 +255,9 @@ def test_roster_is_closed_and_every_command_classified():
     roster = command_classes.all_commands()
     assert names - roster == set(), f"commands outside the roster: {names - roster}"
     assert roster - names == set(), f"roster names that do not exist: {roster - names}"
-    assert len(roster) == 33, sorted(roster)
+    # The roster count is part of the contract: a new command must be added
+    # here deliberately, not slip in with the next feature.
+    assert len(roster) == 34, sorted(roster)
 
 
 # The plan reads answer from a plan file and the live sources, not from an

@@ -26,6 +26,8 @@ from .errors import ArgumentError, classify, IndexerError, RebuildRequiredError
 from .errors import (AmbiguousSymbolError, ExtensionUnavailableError,
                      LocatorMismatchError, NotFoundError, NotUtf8Error)
 from . import plans
+from . import apply as apply_mod
+from . import keeper as keeper_mod
 from . import ts_chunker
 from .extensions import SEMANTIC_EXTENSION_MESSAGE, semantic_available
 from .core import NEEDS_REINDEX, NEVER_INDEXED, UNVERIFIED, Core
@@ -2636,6 +2638,89 @@ def plan_show(
     for hunk in hunks:
         typer.echo(f"--- {hunk['path']}")
         sys.stdout.write(hunk["diff"])
+
+
+# ---------------------------------------------------------------------------
+# applying a plan (ADR-0005): one keeper mutation per edit, then the report
+# ---------------------------------------------------------------------------
+
+@app.command(name="plan-apply")
+def plan_apply(
+    ref: str = typer.Argument(..., help="A plan path or sha256:<hex>."),
+    project: str = PROJECT_OPT,
+    plan_dir: str = typer.Option(None, "--plan-dir",
+                                 help="Directory holding plan files."),
+    dry_run: bool = typer.Option(
+        False, "--dry-run",
+        help="Pass keeper's own --dry-run to every call: the pre-pass still "
+             "runs and every file reports would_apply, but no file is "
+             "written and no receipt is kept."),
+    json_output: bool = typer.Option(False, "--json", help="JSON output."),
+    skip_stale_check: bool = SkipOpt,
+    refresh: bool = RefreshOpt,
+) -> None:
+    """Apply a plan through filekeeper and report what each file did.
+
+    A read-only pre-pass runs first -- the same code `plan-validate` runs, so
+    the two commands cannot disagree about what stale means -- and one
+    failure there refuses the whole plan with exit 5 and no mutation.
+    Otherwise each edit is one filekeeper line-range mutation carrying the
+    hash observed immediately before it, files in ascending path order and,
+    within a file, start lines descending. A failure stops the run: no further
+    file is attempted and no compensating write is issued, because an undo is
+    most likely to be refused just after a failure.
+
+    What a caller may assume is exactly this: nothing is written before every
+    precondition passes, each file's bytes move from old to new through
+    keeper's hash guard, the operations that ran can be undone in reverse
+    order, and there is no cross-file guarantee. The report lists every file
+    as applied, would_apply, failed or not_attempted, and hands back the
+    ordered operation ids -- undo them in reverse with `keeper history undo`.    Every keeper call carries `--task-id <plan_id>`, so keeper's own journal
+    reconstructs the application.
+
+    Post-apply verdicts are the parser's, per file: parsed, parse_error with
+    the offending lines, or parse_unavailable. They are not a compile check,
+    and the reparse writes nothing unless --refresh is passed.
+    """
+    refresh_error: IndexerError | None = None
+    application: apply_mod.Application | None = None
+    try:
+        core, entry = _plan_entry(project)
+        requested, path = plans.resolve_ref(ref, _plan_dir(entry, plan_dir),
+                                            entry.path)
+        document = plans.load_plan(path)
+        keeper = keeper_mod.Keeper(entry.path,
+                                   plan_id=document.get("plan_id") or "")
+        keeper.probe()
+        application = apply_mod.apply_plan(document, entry.path, keeper,
+                                           requested=requested,
+                                           dry_run=dry_run)
+        if refresh:
+            if dry_run:
+                application.refresh = "skipped (a dry run writes nothing)"
+            elif application.error is not None:
+                application.refresh = "skipped (the apply stopped)"
+            else:
+                try:
+                    core.refresh(entry)
+                    application.refresh = "ran"
+                except IndexerError as exc:
+                    application.refresh = f"failed ({exc.error_type})"
+                    refresh_error = exc
+    except IndexerError as exc:
+        _json_failure(exc, json_output)
+        return
+    payload = application.payload()
+    if json_output:
+        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        typer.echo(application.render())
+    if refresh_error is not None:
+        fail(refresh_error)
+    if application.error is not None:
+        typer.echo(f"{application.error.error_type}: {application.error}",
+                   err=True)
+        raise typer.Exit(application.error.exit_code)
 
 
 # ---------------------------------------------------------------------------

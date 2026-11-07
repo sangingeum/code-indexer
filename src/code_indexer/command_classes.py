@@ -25,6 +25,10 @@ WRITE_ONLY_COMMANDS: frozenset[str] = frozenset({
     "plan-delete-declaration",
     "plan-insert-symbol",
     "plan-replace-body",
+    # The apply command: it writes the sources through filekeeper, and its
+    # --dry-run shape writes nothing at all. Plan-apply and its receipt are
+    # the only commands in this roster that touch a source file.
+    "plan-apply",
     "remove-project",
     "reindex-project",
     "watch",
