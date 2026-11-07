@@ -135,7 +135,9 @@ def test_overview_max_lines_cap(rig):
     result = runner.invoke(app, ["overview", "--project", str(project),
                                  "--max-lines", "5"])
     assert result.exit_code == 0
-    lines = [ln for ln in result.output.splitlines() if ln.strip()]
+    # The cap applies to the rendered overview on stdout; the coverage line
+    # an incomplete index adds rides stderr beside the staleness line.
+    lines = [ln for ln in result.stdout.splitlines() if ln.strip()]
     assert len(lines) <= 5
 
 

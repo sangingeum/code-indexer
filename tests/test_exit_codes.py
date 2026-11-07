@@ -153,7 +153,10 @@ def test_empty_result_is_code_0_on_stdout(rig):
     result = runner.invoke(app, ["semantic-search", "anything", "--project",
                                  str(project)])
     assert result.exit_code == 0, result.output
-    assert result.stdout.strip() == "no results", result.stdout
+    # The empty answer still exits 0 and still answers on stdout; it now names
+    # the cause, so the bare "no results" is the lead of the sentence.
+    assert result.stdout.splitlines()[0].startswith("no results:"), \
+        result.stdout
     assert "BackendError" not in result.stderr
 
 

@@ -34,7 +34,9 @@ from . import keeper as keeper_mod
 from . import ts_chunker
 from .extensions import SEMANTIC_EXTENSION_MESSAGE, semantic_available
 from .core import NEEDS_REINDEX, NEVER_INDEXED, UNVERIFIED, Core
+from . import fingerprint as fingerprint_mod
 from . import staleness
+from . import coverage as coverage_mod
 from . import vectors
 from . import identity
 from .doctor import run_doctor
@@ -417,6 +419,7 @@ def doctor(
     if json_output:
         typer.echo(json.dumps(
             {"checks": [c.to_dict() for c in checks],
+             "coverage": coverage_mod.none_block(),
              "healthy": not any(c.status == "fail" for c in checks)},
             ensure_ascii=False, indent=2))
     else:
@@ -464,11 +467,13 @@ def overview(
         m.close()
     if json_output:
         data.update(verdict_block)
+        data["coverage"] = _coverage(core, entry, verdict_block)
         typer.echo(json.dumps(data))
     elif compact:
         typer.echo(_format_overview_compact(data, max_lines=max_lines))
     else:
         typer.echo(overview_mod.format_overview(data, max_lines=max_lines))
+        _announce_coverage(_coverage(core, entry, verdict_block))
 
 
 @app.command()
@@ -517,9 +522,12 @@ def changed_symbols(
         if impact_data is not None:
             payload["impact"] = impact_data
         payload.update(verdict_block)
+        payload["coverage"] = _coverage(core, entry, verdict_block)
         typer.echo(json.dumps(payload))
         return
     typer.echo(changed_mod.render(changed, impact_data))
+    cov = _coverage(core, entry, verdict_block)
+    _announce_coverage(cov)
 
 
 def _core_entry(project: str | None, skip_stale_check: bool = False):
@@ -615,6 +623,49 @@ def _read_staleness_many(core: Core, entries: list[ProjectEntry], *,
     return staleness.aggregate(verdicts), blocks, lines
 
 
+def _coverage(core: Core, entry: ProjectEntry,
+              verdict_block: dict[str, Any] | None, *,
+              paths: list[str] | None = None,
+              scope: str = coverage_mod.SCOPE_PROJECT) -> dict[str, Any]:
+    """The coverage object for one answer, read from ITS manifest.
+
+    ``paths`` narrows it to the files the answer actually read (one file for
+    ``outline``/``get-code-context``, a ``--file`` filter for
+    ``find-symbol``); the default is the whole project, which is what an
+    answer that ranged over the index actually covered.
+    """
+    m = core.read_manifest(entry.slug)
+    try:
+        return coverage_mod.from_manifest(m, verdict_block, paths=paths,
+                                         scope=scope)
+    finally:
+        m.close()
+
+
+def _announce_coverage(coverage_block: dict[str, Any], *,
+                       with_answer: bool = False) -> None:
+    """One line, only when coverage is incomplete, never on a clean answer.
+
+    It rides stderr beside the staleness line for a normal answer (stdout
+    stays the answer), and stdout when the answer is empty -- the reason the
+    answer is empty is part of what the reader is reading.
+    """
+    line = coverage_mod.text_line(coverage_block)
+    if line:
+        typer.echo(line, err=not with_answer)
+
+
+def _references_empty(core: Core, entry: ProjectEntry, name: str
+                      ) -> tuple[str, str]:
+    """``(empty_reason, sentence)`` for a bare ``no references`` answer."""
+    m = core.read_manifest(entry.slug)
+    try:
+        files = coverage_mod.files_in_scope(m)
+    finally:
+        m.close()
+    return coverage_mod.empty_answer(f"no references to {name!r}", files)
+
+
 def _json_failure(exc: BaseException, json_output: bool) -> NoReturn:
     """Failure reporting for a command that has a JSON mode.
 
@@ -683,7 +734,9 @@ def find_callers(
                                        json_output=json_output)
     result = graph.find_callers(core, entry.slug, name, depth=depth,
                                 max_nodes=max_nodes)
-    _emit_graph(result, json_output, verdict_block, subject=name)
+    _emit_graph(result, json_output, verdict_block, subject=name,
+                core=core, entry=entry,
+                empty_lead=f"no callers of {name!r}")
 
 
 @app.command()
@@ -718,12 +771,17 @@ def find_callees(
                                        json_output=json_output)
     result = graph.find_callees(core, entry.slug, name, depth=depth,
                                 max_nodes=max_nodes)
-    _emit_graph(result, json_output, verdict_block, subject=name)
+    _emit_graph(result, json_output, verdict_block, subject=name,
+                core=core, entry=entry,
+                empty_lead=f"no callees of {name!r}")
 
 
 def _emit_graph(result: graph.GraphResult, json_output: bool,
                 staleness_block: dict[str, Any] | None = None,
-                subject: str | None = None) -> None:
+                subject: str | None = None,
+                core: Core | None = None,
+                entry: ProjectEntry | None = None,
+                empty_lead: str | None = None) -> None:
     """Render a graph result; `notes` explain an empty or near-empty answer so
     it is never a bare `no results` (an empty caller list must not read as
     "nothing calls this"). A result the caps left incomplete also carries a
@@ -734,17 +792,42 @@ def _emit_graph(result: graph.GraphResult, json_output: bool,
     an answer is incomplete every note follows the answer on stdout, including
     an explanatory note that is not itself about the cap.
     """
+    files = None
+    if core is not None and entry is not None:
+        m = core.read_manifest(entry.slug)
+        try:
+            files = coverage_mod.files_in_scope(m)
+        finally:
+            m.close()
     if json_output:
         payload = graph.result_to_json(result)
         payload.update(staleness_block or {})
+        if files is not None:
+            payload["coverage"] = coverage_mod.block(
+                files, scope=coverage_mod.SCOPE_PROJECT,
+                freshness=coverage_mod.freshness(staleness_block))
+            if not result.nodes:
+                reason, sentence = coverage_mod.empty_answer(
+                    empty_lead or "no results", files)
+                payload["empty_reason"] = reason
+                payload["empty_reason_sentence"] = sentence
         typer.echo(json.dumps(payload))
         return
     typer.echo(graph.render_tree(result.nodes))
+    cov = (coverage_mod.block(files, scope=coverage_mod.SCOPE_PROJECT,
+                              freshness=coverage_mod.freshness(
+                                  staleness_block))
+           if files is not None else None)
     if not result.nodes:
         # Nothing at all: keep the legacy shape but never bare — the notes
-        # carry the explanation on stdout.
+        # carry the explanation on stdout, and the cause names why the index
+        # could not answer.
         for note in result.notes:
             typer.echo(f"note: {note}")
+        if cov is not None:
+            typer.echo(coverage_mod.empty_answer(
+                empty_lead or "no results", files)[1])
+            _announce_coverage(cov, with_answer=True)
         return
     if result.match_count > 1:
         # `find-symbol` text mode already says this about its own answer; the
@@ -755,6 +838,8 @@ def _emit_graph(result: graph.GraphResult, json_output: bool,
                    "each direct hit names the definition(s) it can belong to")
     for note in result.notes:
         typer.echo(f"note: {note}", err=not result.truncated)
+    if cov is not None:
+        _announce_coverage(cov)
 
 
 @app.command()
@@ -781,8 +866,10 @@ def deps(
     result = graph.deps_for_file(core, entry.slug, path,
                                  direction=direction, depth=depth,
                                  max_nodes=max_nodes)
+    cov = _coverage(core, entry, verdict_block)
     if graph_format == "json":
         result.update(verdict_block)
+        result["coverage"] = cov
         typer.echo(json.dumps(result))
         return
     lines: list[str] = []
@@ -798,6 +885,7 @@ def deps(
     # An incomplete answer says so, on the same stream as the answer.
     for note in result.get("notes") or []:
         typer.echo(f"note: {note}")
+    _announce_coverage(cov, with_answer=not lines)
 
 
 @app.command()
@@ -1062,9 +1150,12 @@ def list_projects(json_output: bool = typer.Option(False, "--json",
     entries = core.registry.list_projects()
     if not entries:
         if json_output:
+            no_projects = staleness.block(staleness.unknown(
+                "no projects registered"))
             typer.echo(json.dumps({"schema": 1, "projects": [],
-                                   **staleness.block(staleness.unknown(
-                                       "no projects registered"))}))
+                                   "coverage": coverage_mod.none_block(
+                                       coverage_mod.freshness(no_projects)),
+                                   **no_projects}))
         else:
             typer.echo("no projects registered")
         return
@@ -1073,7 +1164,10 @@ def list_projects(json_output: bool = typer.Option(False, "--json",
     if json_output:
         projects = [dict(core.status_fields(e), **b)
                     for e, b in zip(entries, blocks)]
-        typer.echo(json.dumps({"schema": 1, "projects": projects, **aggregate},
+        typer.echo(json.dumps({"schema": 1, "projects": projects,
+                               "coverage": coverage_mod.none_block(
+                                   coverage_mod.freshness(aggregate)),
+                               **aggregate},
                               ensure_ascii=False))
         return
     for e in entries:
@@ -1110,9 +1204,12 @@ def lookup_project(
     if entry is None:
         raw = os.path.abspath(os.path.expanduser(selector or os.getcwd()))
         if json_output:
+            unregistered = staleness.block(staleness.unknown(
+                "project not registered"))
             typer.echo(json.dumps({
                 "schema": 1, "registered": False, "path": raw,
-                **staleness.block(staleness.unknown("project not registered")),
+                "coverage": coverage_mod.none_block(None),
+                **unregistered,
             }, ensure_ascii=False))
             return
         typer.echo(f"not registered: {raw}")
@@ -1121,7 +1218,8 @@ def lookup_project(
                                json_output=json_output)
     if json_output:
         payload = dict(core.status_fields(entry), schema=1, registered=True,
-                       collection=f"idx_{entry.slug}", **block)
+                       collection=f"idx_{entry.slug}",
+                       coverage=_coverage(core, entry, block), **block)
         typer.echo(json.dumps(payload, ensure_ascii=False))
         return
     typer.echo(f"registered {core.status_summary(entry)} collection=idx_{entry.slug}")
@@ -1226,6 +1324,20 @@ def semantic_search(
         verdict_block, stale_line = _read_staleness(core, entry, refresh=refresh,
                                                     json_output=True)
         stale_lines = [stale_line] if stale_line else []
+    # Coverage travels with the answer: the search ranged over the index, so a
+    # fan-out says "none" (no single index) and a one-project search says
+    # "project". --all-projects has no single manifest to read.
+    cov = (coverage_mod.none_block(coverage_mod.freshness(verdict_block))
+           if entry is None else _coverage(core, entry, verdict_block))
+    verdict_block = dict(verdict_block, coverage=cov)
+    empty: tuple[str, str] | None = None
+    if entry is not None:
+        m = core.read_manifest(entry.slug)
+        try:
+            empty = coverage_mod.empty_answer(
+                "no results", coverage_mod.files_in_scope(m))
+        finally:
+            m.close()
     rerank_mode = "none" if no_rerank else rerank
     try:
         output = core.search_for_display(
@@ -1235,7 +1347,8 @@ def semantic_search(
             skip_refresh=True, per_file=per_file, max_chars=max_chars,
             max_tokens=max_tokens, context_lines=context_lines,
             rerank=rerank_mode, mode=search_mode,
-            all_projects=all_projects, staleness_block=verdict_block)
+            all_projects=all_projects, staleness_block=verdict_block,
+            empty_answer=empty)
     except Exception as exc:  # noqa: BLE001 — the shared failure seam
         # Search is the one surface that REFUSES a fingerprint-mismatched
         # index (the graph surfaces warn and answer) — that refusal must
@@ -1251,6 +1364,10 @@ def semantic_search(
         for line in stale_lines:
             if line:
                 typer.echo(line, err=True)
+        # An empty search already printed its cause; the coverage line belongs
+        # beside it then, and on stderr beside a real answer.
+        _announce_coverage(cov, with_answer=(empty is not None
+                                             and output.strip() == empty[1]))
     # Scoped indexing note: when the index covers only part of the
     # project, say so instead of letting out-of-scope paths look empty.
     if entry is not None:
@@ -1354,6 +1471,11 @@ def index_status(
         parts.append(f"fingerprint=unverified reason={fp['reason']}")
         fields["fingerprint"] = "unverified"
         fields["reason"] = fp["reason"]
+    # The flag pair says WHICH check failed; it does not say what a reader
+    # should conclude. The sentence below carries that half, and the field
+    # names stay exactly as they were for a machine caller.
+    fp_meaning = fingerprint_mod.meaning(fields.get("fingerprint"),
+                                         fp["reason"])
     if st.get("last_result"):
         parts.append(f"last_pass={st['last_result']}")
         fields["last_pass"] = st["last_result"]
@@ -1443,10 +1565,17 @@ def index_status(
                      "--allow-sensitive on add-project")
     if json_output:
         fields.update(block)
+        fields["coverage"] = _coverage(core, entry, block)
+        if fp_meaning:
+            fields["fingerprint_meaning"] = fp_meaning
         fields["schema"] = 1
         typer.echo(json.dumps(fields, ensure_ascii=False))
         return
     typer.echo(" ".join(parts))
+    if fp_meaning:
+        # The one-line answer keeps its shape: the meaning is an explanation
+        # of the flag pair, so it rides stderr beside the staleness line.
+        typer.echo(f"fingerprint meaning: {fp_meaning}", err=True)
 
 
 @app.command(name="sweep-orphans")
@@ -2051,13 +2180,17 @@ def skeleton(
     data = core.skeleton(entry, prefix=path_prefix, tree_mode=tree_mode,
                          limit=limit,
                          include_signatures=not no_signatures)
+    cov = _coverage(core, entry, block)
     if json_output:
         data.update(block)
+        data["coverage"] = cov
     if compact:
         typer.echo(_format_skeleton_compact(data))
         return
     text = core.format_skeleton(data, "json" if json_output else "text")
     typer.echo(text)
+    if not json_output:
+        _announce_coverage(cov)
 
 
 @app.command(name="outline")
@@ -2091,13 +2224,18 @@ def outline(
         data = core.outline(entry, file, include_docstrings=docstrings)
     except ValueError as exc:
         _json_failure(exc, json_output)
+    cov = _coverage(core, entry, block, paths=[file],
+                    scope=coverage_mod.SCOPE_ANSWER)
     if json_output:
         data.update(block)
+        data["coverage"] = cov
     if compact:
         typer.echo(_format_outline_compact(data))
         return
     text = core.format_outline(data, "json" if json_output else "text")
     typer.echo(text)
+    if not json_output:
+        _announce_coverage(cov)
 
 
 @app.command(name="find-symbol")
@@ -2246,6 +2384,19 @@ def find_symbol(
             ambiguous = (rows if len(rows) == total else
                          m.find_symbols(name, substring=False, limit=None,
                                         **filters))
+        # What this answer looked at: a --file filter narrows the coverage to
+        # that one file; every other answer ranged over the whole index.
+        scope_paths = [file_filter] if file_filter else None
+        scoped = coverage_mod.files_in_scope(m, scope_paths)
+        cov = coverage_mod.block(
+            scoped,
+            scope=(coverage_mod.SCOPE_ANSWER if file_filter
+                   else coverage_mod.SCOPE_PROJECT),
+            freshness=coverage_mod.freshness(block),
+            withheld_count=coverage_mod.withheld_in_scope(block, scope_paths))
+        empty = None if rows else coverage_mod.empty_answer(
+            (f"no symbols matching {name!r}" if name
+             else "no symbols matching the given filters"), scoped)
         if json_output:
             payload: dict[str, Any] = {
                 "schema": 1, "symbols": payload_rows,
@@ -2253,17 +2404,18 @@ def find_symbol(
                           "exact" if not match_label else "substring"),
                 "match_count": total, "truncated": truncated,
                 **({"evidence_note": evidence_note} if evidence_note else {}),
-                **block}
+                "coverage": cov, **block}
+            if empty is not None:
+                payload["empty_reason"], payload["empty_reason_sentence"] = empty
             if ambiguous:
                 payload["ambiguity"] = identity.ambiguity_block(ambiguous)
             typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
             return
-        if not rows:
-            msg = (f"no symbols matching {name!r}" if name
-                   else "no symbols matching the given filters")
-            typer.echo(msg)
+        if empty is not None:
+            typer.echo(empty[1])
             if evidence_note:
                 typer.echo(evidence_note)
+            _announce_coverage(cov, with_answer=True)
             return
         if compact:
             for r in rows:
@@ -2290,6 +2442,7 @@ def find_symbol(
             cap = limit if limit is not None else _BROWSE_CAP
             typer.echo(f"... {len(rows)} of {total} matches shown "
                        f"(--limit {cap} reached; raise it to see the rest)")
+        _announce_coverage(cov)
     finally:
         m.close()
 
@@ -2359,15 +2512,23 @@ def find_definition(
              "decl_hash": r.decl_hash,
              "symbol_id": r.symbol_id}
             for r in rows]
+        files = coverage_mod.files_in_scope(m)
+        cov = coverage_mod.block(files, scope=coverage_mod.SCOPE_PROJECT,
+                                 freshness=coverage_mod.freshness(block))
+        empty = None if rows else coverage_mod.empty_answer(
+            f"no exact-match symbols named {name!r}", files)
         if json_output:
-            typer.echo(json.dumps({"schema": 1, "name": name,
-                                   "project": entry.path,
-                                   "definitions": definitions, **block},
-                                  ensure_ascii=False, indent=2))
+            payload: dict[str, Any] = {"schema": 1, "name": name,
+                                       "project": entry.path,
+                                       "definitions": definitions,
+                                       "coverage": cov, **block}
+            if empty is not None:
+                payload["empty_reason"], payload["empty_reason_sentence"] = empty
+            typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
             return
-        if not rows:
-            msg = f"no exact-match symbols named {name!r}"
-            typer.echo(msg)
+        if empty is not None:
+            typer.echo(empty[1])
+            _announce_coverage(cov, with_answer=True)
             return
         for r in rows:
             conf = "exact" if r.source == "ast" else "heuristic"
@@ -2377,6 +2538,7 @@ def find_definition(
                 continue
             typer.echo(f"- {entry.path}::{r.file}:{r.start_line}-{r.end_line} "
                        f"{r.name} ({r.symbol_type}, confidence={conf})")
+        _announce_coverage(cov)
     finally:
         m.close()
 
@@ -2435,8 +2597,10 @@ def get_code_context(
         _json_failure(exc, json_output)
     except ValueError as exc:
         _json_failure(exc, json_output)
+    cov = _coverage(core, entry, block, paths=[data.get("file") or file],
+                    scope=coverage_mod.SCOPE_ANSWER)
     if json_output:
-        payload = {**block, **data, "schema": 1}
+        payload = {**block, **data, "schema": 1, "coverage": cov}
         typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
         return
     if not data.get("stale") and stale_line:
@@ -2448,6 +2612,7 @@ def get_code_context(
             continue
         for line in seg["lines"]:
             typer.echo(line)
+    _announce_coverage(cov)
 
 
 @app.command(name="find-references")
@@ -2507,16 +2672,25 @@ def find_references(
              target_confidence=("exact" if r["target"] in known
                                 else "heuristic"))
         for r in rows]
+    cov = _coverage(core, entry, block)
     if json_output:
         payload: dict[str, Any] = {
             "schema": 1, "name": name, "project": entry.path,
             "relationship": relationship, "references": references,
-            "total": len(references), **block}
+            "total": len(references), "coverage": cov, **block}
         if not rows and relationship is not None:
             counts = core.reference_relationship_counts(entry, name)
             if counts:
                 payload["unfiltered_count"] = sum(n for _rel, n in counts)
                 payload["unfiltered_relationships"] = [rel for rel, _n in counts]
+            else:
+                reason, sentence = _references_empty(core, entry, name)
+                payload["empty_reason"] = reason
+                payload["empty_reason_sentence"] = sentence
+        elif not rows:
+            reason, sentence = _references_empty(core, entry, name)
+            payload["empty_reason"] = reason
+            payload["empty_reason_sentence"] = sentence
         typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
         return
     if not rows:
@@ -2532,8 +2706,10 @@ def find_references(
                 typer.echo(
                     f"no {relationship} references to {name!r}; {total} "
                     f"{plural} {verb} unfiltered ({kinds})")
+                _announce_coverage(cov, with_answer=True)
                 return
-        typer.echo(f"no references to {name!r}")
+        typer.echo(_references_empty(core, entry, name)[1])
+        _announce_coverage(cov, with_answer=True)
         return
     typer.echo(f"references to {name!r} (confidence=how the row was "
                "extracted, receiver=the receiver expression as written, "
@@ -2546,6 +2722,7 @@ def find_references(
                    f"{r['relationship']} {r['target']} "
                    f"(confidence={r['confidence']}{recv}, "
                    f"target_confidence={exact})")
+    _announce_coverage(cov)
 
 
 @app.callback()
@@ -2925,7 +3102,9 @@ def plan_validate(
         return
     report = plans.validate_plan(document, entry.path, requested=requested)
     if json_output:
-        typer.echo(json.dumps(report, ensure_ascii=False, indent=2))
+        typer.echo(json.dumps(dict(report,
+                                   coverage=coverage_mod.none_block()),
+                              ensure_ascii=False, indent=2))
     else:
         typer.echo(f"plan {report['plan_id']}")
         typer.echo(f"identity {report['identity']['verified']} "
@@ -2980,7 +3159,8 @@ def plan_show(
     if json_output:
         payload: dict[str, Any] = {
             "schema": 1, "plan_id": document.get("plan_id"),
-            "ref": requested, "plan": document}
+            "ref": requested, "plan": document,
+            "coverage": coverage_mod.none_block()}
         if diff:
             payload["diff"] = hunks
         typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))

@@ -294,6 +294,27 @@ def current_version_stamp() -> Fingerprint:
                        chunker_version=CHUNKER_VERSION)
 
 
+def meaning(state: str | None, reason: str | None) -> str | None:
+    """What a fingerprint verdict means, in words, for the reader of a read.
+
+    ``fingerprint=unverified reason=embedding-dimension-not-compared`` is a
+    pair of flags; a reader cannot tell from the pair what was NOT compared or
+    what to conclude. The states keep their names (a caller branches on
+    ``fingerprint``/``reason``); this sentence is the human half, and None
+    when there is no verdict to explain (an ``ok`` project prints no pair).
+    """
+    if state == "unverified":
+        return ("the embedding fingerprint was not compared against the "
+                "configured model (a read cannot learn its dimension without "
+                "dialling the service); vectors may have been built with "
+                "another model")
+    if state == "needs-reindex":
+        return (f"the recorded fingerprint disagrees with this build "
+                f"({reason}); the index was built by other extraction or "
+                f"chunking code, so the row reads refuse until a reindex runs")
+    return None
+
+
 def mismatch_error(project_path: str, recorded: Fingerprint,
                    current: Fingerprint) -> ConfigError:
     return ConfigError(

@@ -1317,7 +1317,8 @@ class Core:
                 dropped: int = 0, context_lines: int = 0,
                 skipped: list[dict[str, Any]] | None = None,
                 partial: bool = False,
-                staleness_block: dict[str, Any] | None = None) -> str:
+                staleness_block: dict[str, Any] | None = None,
+                empty_answer: tuple[str, str] | None = None) -> str:
         """Format search hits (stable field contract).
 
         ``text`` — the original verbose two-line-per-hit render (default;
@@ -1333,9 +1334,11 @@ class Core:
         mode, and a non-empty ``skipped`` appends one trailing partial-result
         line (the documented exceptions to single-line stderr reporting).
 
-        Every format names what the hit matched -- the symbol, else the first
-        non-blank code line, else ``file`` -- so no hit renders as a bare dash
-        or an empty field (``_hit_identity``).
+        ``empty_answer`` is the ``(empty_reason, sentence)`` the CLI derived
+        from the index's own coverage; with no hits it replaces the bare
+        ``no results`` (text) and rides the JSON payload beside the staleness
+        block, so an empty search says WHY it is empty exactly as the name
+        reads do. It is never attached to an answer that has hits.
         """
         if fmt == "json":
             payload: dict[str, Any] = {
@@ -1346,10 +1349,13 @@ class Core:
                 "skipped_count": len(skipped or []),
                 "partial": partial or bool(skipped),
             }
+            if not hits and empty_answer is not None:
+                payload["empty_reason"] = empty_answer[0]
+                payload["empty_reason_sentence"] = empty_answer[1]
             payload.update(staleness_block or {})
             return json.dumps(payload, ensure_ascii=False, indent=2)
         if not hits:
-            return "no results"
+            return empty_answer[1] if empty_answer is not None else "no results"
         lines: list[str] = []
         if fmt == "compact":
             for h in hits:
@@ -1408,7 +1414,8 @@ class Core:
                            mode: str = "dense",
                            all_projects: bool = False,
                            budget_s: float | None = None,
-                           staleness_block: dict[str, Any] | None = None) -> str:
+                           staleness_block: dict[str, Any] | None = None,
+                           empty_answer: tuple[str, str] | None = None) -> str:
         """Answer text for one search. Failures PROPAGATE.
 
         The old shape caught every ValueError and printed the message as the
@@ -1429,7 +1436,7 @@ class Core:
             result["hits"], fmt, dropped=result["dropped"],
             context_lines=context_lines, skipped=result.get("skipped", []),
             partial=result.get("partial", False),
-            staleness_block=staleness_block)
+            staleness_block=staleness_block, empty_answer=empty_answer)
 
     # ------------------------------------------------------------------
     # reference surfaces (find-references): the single reference store
