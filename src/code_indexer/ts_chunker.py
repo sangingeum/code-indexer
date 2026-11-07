@@ -15,7 +15,8 @@ import hashlib
 import logging
 
 from .chunker import (Chunk, chunk as fallback_chunk, declaration_hash,
-                      _guess_symbol, regex_signature, regex_visibility)
+                      _guess_symbol, regex_signature, regex_visibility,
+                      split_lines)
 
 logger = logging.getLogger("code-indexer.tschunker")
 
@@ -224,10 +225,10 @@ def _declaration_signature(node, data: bytes) -> str:
     end = body.start_byte if body is not None else None
     if end is None or end <= node.start_byte:
         text = data[node.start_byte:node.end_byte].decode("utf-8", "replace")
-        first_line = text.splitlines()[0] if text else ""
+        first_line = split_lines(text)[0] if text else ""
     else:
         text = data[node.start_byte:end].decode("utf-8", "replace")
-        first_line = text.splitlines()[0] if text else ""
+        first_line = split_lines(text)[0] if text else ""
     return " ".join(first_line.split())[:SIG_CAP]
 
 
@@ -386,8 +387,9 @@ def _symbol_from_node(node, data: bytes) -> str | None:
         if ch.type in ("namespace_identifier",):
             return data[ch.start_byte:ch.end_byte].decode("utf-8", "replace")
     # Fallback: regex on the first line.
-    first_line = data[node.start_byte:node.end_byte].decode("utf-8", "replace") \
-        .splitlines()[0] if node.end_byte > node.start_byte else ""
+    first_line = split_lines(
+        data[node.start_byte:node.end_byte].decode("utf-8", "replace"))[0] \
+        if node.end_byte > node.start_byte else ""
     return _guess_symbol(first_line)
 
 
@@ -441,7 +443,7 @@ def extract_symbols(path: str, text: str, chunks: list[Chunk]) -> list[dict]:
             # chunk; Python underscore rule only.
             signature = regex_signature(c.text)
             visibility = regex_visibility(c.symbol)
-        first_line = c.text.splitlines()[0] if c.text else ""
+        first_line = split_lines(c.text)[0] if c.text else ""
         decl = declaration_hash(signature, first_line)
         # The identity key is line-free, so ONE declaration observed twice (a
         # decorated definition's outer and inner node, a chunk split) is ONE

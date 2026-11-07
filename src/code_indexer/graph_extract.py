@@ -77,6 +77,8 @@ from __future__ import annotations
 import os
 import re
 
+from .chunker import split_lines
+
 # Languages with AST queries (confidence='ast'). Keys are
 # tree-sitter-language-pack names. Everything else is textual fallback.
 LANGUAGES_WITH_AST = frozenset(
@@ -277,7 +279,7 @@ def extract_graph_textual(path: str, text: str
     """
     imports: list[tuple[str, str | None, str, int]] = []
     refs: list[tuple[int, str | None, str, str, str | None]] = []
-    for i, line in enumerate(text.splitlines(), 1):
+    for i, line in enumerate(split_lines(text), 1):
         if _COMMENT_LINE_RE.match(line):
             continue
         m = re.match(r"\s*(?:import|require|use)\s+(.+)", line)

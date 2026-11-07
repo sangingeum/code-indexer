@@ -16,6 +16,27 @@ CHUNK_CHAR_CAP = 1000
 WINDOW_LINES = 80
 OVERLAP_LINES = 10
 
+# Real line terminators, and only these. ``str.splitlines`` also breaks on
+# form feed, vertical tab, \x1c-\x1e, U+2028 and U+2029, which are characters
+# INSIDE a line for every editor and every other tool that counts lines: a
+# split there invents a line, so a reported range overshoots the file and
+# ``get-code-context --start-line`` reads the wrong text.
+_LINE_BREAK = re.compile(r"\r\n|\n|\r")
+
+
+def split_lines(text: str) -> list[str]:
+    """Split on real line terminators only (CRLF, LF, a lone CR).
+
+    A trailing terminator does not produce an empty final line, so the count
+    matches what an editor and ``wc -l`` say about the same file.
+    """
+    if not text:
+        return []
+    parts = _LINE_BREAK.split(text)
+    if parts and parts[-1] == "":
+        parts.pop()
+    return parts
+
 
 def chunk_max_chars() -> int:
     """CHUNK_MAX_CHARS override (default stays 1000; 1500/2000 are eval
@@ -79,23 +100,14 @@ def _guess_symbol(line: str) -> str | None:
 
 
 def _make_chunk(lines: list[str], start: int, index: int) -> Chunk:
-    text = "\n".join(lines)
-    if len(text) > CHUNK_CHAR_CAP:
-        # Split oversized blocks on a line boundary near the cap.
-        parts: list[str] = []
-        cur: list[str] = []
-        cur_len = 0
-        for ln in lines:
-            if cur_len + len(ln) + 1 > CHUNK_CHAR_CAP and cur:
-                parts.append("\n".join(cur))
-                cur, cur_len = [], 0
-            cur.append(ln)
-            cur_len += len(ln) + 1
-        if cur:
-            parts.append("\n".join(cur))
-        # Only the first part is returned here; callers use _split_block.
-        return _chunks_from_parts(parts, start, index)[0]
+    """One chunk for these lines.
 
+    Never truncates: an oversized window is the caller's business, and the
+    caller's split branch is the only place a window is divided. While this
+    function truncated, ``chunk``'s own split branch could never run and most
+    of a long-line document silently never reached a chunk.
+    """
+    text = "\n".join(lines)
     symbol = None
     for ln in lines:
         symbol = _guess_symbol(ln)
@@ -115,7 +127,7 @@ def _chunks_from_parts(parts: list[str], start: int, index: int) -> list[Chunk]:
     for part in parts:
         n = part.count("\n") + 1
         symbol = None
-        for ln in part.splitlines():
+        for ln in split_lines(part):
             symbol = _guess_symbol(ln)
             if symbol:
                 break
@@ -128,9 +140,12 @@ def _chunks_from_parts(parts: list[str], start: int, index: int) -> list[Chunk]:
 def chunk(text: str) -> list[Chunk]:
     """Fallback chunker: blank-line/definition-boundary windows with overlap.
 
-    ~80-line windows, 10-line overlap; oversized blocks split at ~1000 chars.
+    ~80-line windows, 10-line overlap; an oversized window is split at a line
+    boundary near the character cap, so no line of the file is left out of
+    every chunk. A single line longer than the cap is emitted whole: a chunk
+    boundary is never cut through a line.
     """
-    lines = text.splitlines()
+    lines = split_lines(text)
     if not lines:
         return []
     if len(text) <= CHUNK_CHAR_CAP:
@@ -141,13 +156,15 @@ def chunk(text: str) -> list[Chunk]:
     pos = 0
     while pos < len(lines):
         window = lines[pos:pos + WINDOW_LINES]
-        made = _make_chunk(window, pos + 1, idx)
-        if len(made.text) > CHUNK_CHAR_CAP:
-            for c in _chunks_from_parts(_split_text(made.text), pos + 1, idx):
+        window_text = "\n".join(window)
+        if len(window_text) > CHUNK_CHAR_CAP:
+            # THIS is where an oversized window is divided; _make_chunk does
+            # not truncate, so the branch is reachable by construction.
+            for c in _chunks_from_parts(_split_text(window_text), pos + 1, idx):
                 chunks.append(c)
                 idx += 1
         else:
-            chunks.append(made)
+            chunks.append(_make_chunk(window, pos + 1, idx))
             idx += 1
         if pos + WINDOW_LINES >= len(lines):
             break
@@ -159,7 +176,7 @@ def _split_text(text: str) -> list[str]:
     parts: list[str] = []
     cur: list[str] = []
     cur_len = 0
-    for ln in text.splitlines():
+    for ln in text.split("\n"):
         if cur_len + len(ln) + 1 > CHUNK_CHAR_CAP and cur:
             parts.append("\n".join(cur))
             cur, cur_len = [], 0
@@ -181,7 +198,7 @@ REGEX_SIG_CAP = 120
 
 def regex_signature(text: str) -> str:
     """First physical line of the chunk, whitespace-collapsed, capped."""
-    first = text.splitlines()[0] if text else ""
+    first = split_lines(text)[0] if text else ""
     return " ".join(first.split())[:REGEX_SIG_CAP]
 
 
