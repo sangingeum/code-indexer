@@ -1334,7 +1334,9 @@ class Core:
                     f"{h['project']}::{h['file']}:{h['start_line']}-"
                     f"{h['end_line']}  {sym}  {h['score']:.4f}")
         else:
-            lines.append("search results (score desc):")
+            # The list is class-ordered (ranking.class_order), score
+            # descending only inside a rung: the header names that order.
+            lines.append("search results (file class, then score desc):")
             for h in hits:
                 if h.get("symbol"):
                     sym = f" ({h['symbol']}"

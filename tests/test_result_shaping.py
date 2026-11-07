@@ -234,7 +234,7 @@ def rig(tmp_path, monkeypatch):
 def test_default_text_format_unchanged(rig):
     core, reg, entry = rig
     out = core.search_for_display("query", project=entry.path, fmt="text")
-    assert out.startswith("search results (score desc):")
+    assert out.startswith("search results (file class, then score desc):")
     assert "- [0.9000]" in out  # the historical render
 
 
