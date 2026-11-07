@@ -290,8 +290,14 @@ binaries are skipped. The skip counts are reported by `index-status`.
 appear in one and not the other. Git decides what is committed; the index
 decides what is searchable. This repository excludes two non-source trees from
 the index in the root `.codeindexignore`, and keeps both in git: `runs/`
-(captured round records, gate output and command logs — 629 files are tracked
-on purpose) and `eval/` (the retrieval corpus, whose lines are questions
+(captured round records, gate output and command logs, committed on
+purpose) and `eval/` (the retrieval corpus, whose lines are questions
 shaped like the ones users type, so indexing them ranks near-duplicate queries
-above the code they point at). The exclusion governs scans: rows already in a
-manifest are dropped by a reindex of the project, not by the file.
+above the code they point at). The patterns are anchored to the repository
+root (`/runs/`, `/eval/`), so a same-named directory under `src/` stays
+indexed. The exclusion governs scans: rows already in a manifest are dropped
+by a reindex of the project, not by the file. One file stays in the gap
+between the scan set and the manifest: a file skipped by the sensitive scan is
+not excluded by this file and keeps reporting as an added file after a
+reindex, so a single persistent "added" reason is that known accounting gap,
+not churn.
