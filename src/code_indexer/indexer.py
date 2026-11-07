@@ -27,6 +27,7 @@ from . import ts_chunker
 from .manifest import ChunkRow, Manifest, ManifestFile, SymbolRow
 from .scanner import ScannedFile, scan_project
 from . import graph_extract
+from . import langmatrix
 from .sensitive import (SENSITIVE_READ_CHARS, SensitiveReport, skip_verdict)
 
 if TYPE_CHECKING:  # annotations only: importing this module costs no client
@@ -353,6 +354,15 @@ class Indexer:
             except OSError as exc:
                 logger.warning("cannot read %s: %s", path, exc)
                 return None
+            if langmatrix.is_prose_or_config(_lang_from_ext(path)):
+                # Prose and configuration are indexed for SEARCH: their chunks
+                # embed and rank, and nothing in them is a declaration or a
+                # reference. The chunk-level symbol metadata is cleared too --
+                # left set, a markdown heading rides every payload that echoes
+                # a chunk symbol and the phantom is back.
+                for c in chunks:
+                    c.symbol = None
+                    c.symbol_type = None
             syms = ts_chunker.extract_symbols(path, file_text, chunks)
             return path, file_text, chunks, syms, verdict
 
@@ -365,7 +375,12 @@ class Indexer:
             # 'heuristic'. Rows are held until the commit phase so a crash
             # never claims references for a file whose vectors are absent.
             lang = _lang_from_ext(path)
-            if lang in graph_extract.LANGUAGES_WITH_AST:
+            if langmatrix.is_prose_or_config(lang):
+                # No reference reader for prose or configuration: a sentence
+                # mentioning a name is not a reference to it, and the file
+                # keeps its chunks for search regardless.
+                imports, refs, confidence = [], [], "none"
+            elif lang in graph_extract.LANGUAGES_WITH_AST:
                 imports, refs = graph_extract.extract_graph(
                     path, file_text, lang)
                 confidence = "ast"

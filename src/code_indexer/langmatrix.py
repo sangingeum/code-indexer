@@ -22,6 +22,27 @@ from __future__ import annotations
 from . import ts_chunker
 from .graph_extract import LANGUAGES_WITH_AST
 
+# Formats the index takes for SEARCH ONLY. Their content is prose or
+# configuration: there is no declaration in them to parse and no name
+# reference to resolve, so they contribute chunks (semantic search) and a
+# file row, and nothing to the symbol or reference tables. This is the
+# accuracy ruling of 2026-11-08: the symbol table is an authority other
+# agents act on, and a markdown heading lifted into it is a phantom
+# definition that find-definition answers for as though it were code.
+PROSE_OR_CONFIG_LANGUAGES = frozenset(
+    {"markdown", "text", "log", "json", "yaml", "toml", "html", "css"})
+
+
+def is_prose_or_config(language: str | None) -> bool:
+    """True when ``language`` is prose or configuration, not source.
+
+    Such a file is indexed for search and answers no symbol or reference
+    question. An unknown or absent language is NOT prose: nothing is claimed
+    about it either way, and the AST-only symbol rule already keeps it out of
+    the symbol table.
+    """
+    return bool(language) and language.lower() in PROSE_OR_CONFIG_LANGUAGES
+
 # Fixture snippets per EXT_LANG language name (tree-sitter pack names).
 _FIXTURES: dict[str, str] = {
     "python": "def greet(name):\n    return name\n",
@@ -41,6 +62,13 @@ _FIXTURES: dict[str, str] = {
     "bash": "greet() {\n    echo \"$1\"\n}\n",
     "lua": "function greet(name)\n    return name\nend\n",
     "swift": "func greet(name: String) -> String {\n    return name\n}\n",
+    # Formats the index takes for search only. There is no symbol reader to
+    # probe, so the probe's answer (no symbols, no AST chunks) is the honest
+    # one: the fixtures exist so the matrix states it rather than omitting
+    # the row.
+    "proto": 'syntax = "proto3";\nmessage Greeting {\n  string name = 1;\n}\n',
+    "text": "a plain text note (about a function)\n",
+    "log": "2026-11-08 registry: started\n",
 }
 
 # tree-sitter pack name -> representative extension.
@@ -48,7 +76,7 @@ _LANG_EXT: dict[str, str] = {
     "python": "py", "javascript": "js", "typescript": "ts", "rust": "rs",
     "go": "go", "java": "java", "c": "c", "cpp": "cpp", "csharp": "cs",
     "ruby": "rb", "php": "php", "kotlin": "kt", "bash": "sh", "lua": "lua",
-    "swift": "swift",
+    "swift": "swift", "proto": "proto", "text": "txt", "log": "log",
 }
 
 
@@ -117,11 +145,30 @@ def matrix() -> list[dict]:
 
 
 def languages_without_ast() -> list[str]:
-    """EXT_LANG languages WITHOUT AST references (reported in index-status)."""
-    return sorted(set(EXT_LANG_NAMES) - LANGUAGES_WITH_AST)
+    """Languages the registry knows that yield no AST references.
+
+    Read from the same table ``matrix()`` renders, so the answer and the
+    documented matrix cannot drift: every language the matrix probes or maps,
+    minus the ones with AST reference queries. ``proto`` is here because a
+    .proto file has a grammar in the pack yet no symbol or reference reader,
+    so ``find-definition`` cannot answer inside one.
+    """
+    known = ({row["language"] for row in matrix()}
+             | set(EXT_LANG_NAMES)
+             | set(DECLARED_WITHOUT_READER))
+    return sorted(known - LANGUAGES_WITH_AST)
 
 
 EXT_LANG_NAMES = sorted(set(ts_chunker.EXT_LANG.values()))
+
+# Languages the index takes with no AST reader of any kind. Declared rather
+# than probed, because there is nothing to probe: no symbol reader exists, so
+# the honest statement is the declaration itself. Kept beside the matrix so a
+# reader of the registry learns why a .proto file answers no definition.
+DECLARED_WITHOUT_READER: dict[str, str] = {
+    "proto": "indexed for search; no symbol or reference reader, so "
+             "find-definition cannot answer inside a .proto file",
+}
 
 
 def render_markdown() -> str:
@@ -155,6 +202,18 @@ def render_markdown() -> str:
         "- references `ast`: tree-sitter queries (queries/<lang>/references.scm),",
         "  comments/strings excluded. Anything else that extracts references",
         "  does it textually (heuristic; comments/strings count).",
+        "- symbols: ONLY a declaration parsed from source with an AST enters",
+        "  the symbol table. A text window's first line is not a declaration,",
+        "  so a language whose chunker is the regex fallback (ruby) yields no",
+        "  symbol rows, and neither does an unparsed language such as proto.",
+        "- prose and configuration (markdown, text, log, json, yaml, toml, html,",
+        "  css) are indexed for SEARCH ONLY: chunks for semantic search and a",
+        "  file row, with no symbols and no references. `find-definition`",
+        "  cannot answer for anything in them, and says so through the empty-",
+        "  answer reason rather than returning prose as a definition.",
+        "- an unparsed language is one with no symbol reader, NOT one the index",
+        "  refuses: proto files are indexed and searchable, and answer nothing",
+        "  for `find-definition`. `index-status` lists every such language.",
         "- visibility is real only where rules exist (python underscore,",
         "  rust pub, csharp modifiers); C/C++/Java default public.",
         "- Unsupported languages fall back cleanly to the window chunker and",

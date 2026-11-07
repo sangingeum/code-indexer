@@ -14,12 +14,15 @@ supported language gets from the pipeline:
 | java | java | yes | yes | yes | yes | none | unresolved (no resolver) | — |
 | javascript | js | yes | yes | yes | yes | ast | relative + index augmentation; packages unresolved | — |
 | kotlin | kt | yes | yes | yes | yes | none | unresolved (no resolver) | — |
+| log | log | no | no | no | no | none | unresolved (no resolver) | regex chunker fallback |
 | lua | lua | yes | yes | yes | yes | none | unresolved (no resolver) | — |
 | php | php | yes | yes | yes | yes | none | unresolved (no resolver) | — |
+| proto | proto | no | no | no | no | none | unresolved (no resolver) | regex chunker fallback |
 | python | py | yes | yes | yes | yes | ast | relative + absolute (root/src, dir or __init__.py) | — |
-| ruby | rb | no | yes | yes | yes | none | unresolved (no resolver) | regex chunker fallback despite grammar mapping |
+| ruby | rb | no | no | no | no | none | unresolved (no resolver) | regex chunker fallback despite grammar mapping |
 | rust | rs | yes | yes | yes | yes | none | unresolved (no resolver) | — |
 | swift | swift | yes | yes | yes | yes | none | unresolved (no resolver) | — |
+| text | txt | no | no | no | no | none | unresolved (no resolver) | regex chunker fallback |
 | typescript | ts | yes | yes | yes | yes | ast | relative + index augmentation; packages unresolved | — |
 
 Legend:
@@ -30,6 +33,18 @@ Legend:
 - references `ast`: tree-sitter queries (queries/<lang>/references.scm),
   comments/strings excluded. Anything else that extracts references
   does it textually (heuristic; comments/strings count).
+- symbols: ONLY a declaration parsed from source with an AST enters
+  the symbol table. A text window's first line is not a declaration,
+  so a language whose chunker is the regex fallback (ruby) yields no
+  symbol rows, and neither does an unparsed language such as proto.
+- prose and configuration (markdown, text, log, json, yaml, toml, html,
+  css) are indexed for SEARCH ONLY: chunks for semantic search and a
+  file row, with no symbols and no references. `find-definition`
+  cannot answer for anything in them, and says so through the empty-
+  answer reason rather than returning prose as a definition.
+- an unparsed language is one with no symbol reader, NOT one the index
+  refuses: proto files are indexed and searchable, and answer nothing
+  for `find-definition`. `index-status` lists every such language.
 - visibility is real only where rules exist (python underscore,
   rust pub, csharp modifiers); C/C++/Java default public.
 - Unsupported languages fall back cleanly to the window chunker and

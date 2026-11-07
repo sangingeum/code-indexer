@@ -418,9 +418,9 @@ def extract_symbols(path: str, text: str, chunks: list[Chunk]) -> list[dict]:
 
     Returns [{'name', 'qualified_name', 'container', 'symbol_type',
     'start_line', 'end_line', 'source', 'signature', 'visibility',
-    'decl_hash'}]. Regex-chunked files get function/class guesses plus
-    best-effort signature/visibility (design §3: signature = first line of the
-    chunk, source stays 'regex').
+    'decl_hash'}]. ONLY chunks the AST walk produced ('source' == 'ast')
+    become rows: the regex fallback is a text window, and a window's first
+    line is not a declaration (see the loop's comment).
 
     ``qualified_name`` is the container chain the chunk carries joined to the
     name (``Core.search``); ``container`` is that chain alone, NULL at top
@@ -431,6 +431,14 @@ def extract_symbols(path: str, text: str, chunks: list[Chunk]) -> list[dict]:
     rows: dict[tuple, dict] = {}
     for c in chunks:
         if not c.symbol:
+            continue
+        if c.source != "ast":
+            # The symbol table is an authority other agents act on, so a row
+            # here means "a declaration parsed from source". A guess from a
+            # text window (the regex fallback, which runs for prose formats
+            # and for any language without a readable AST) is not that: a
+            # markdown heading and a sentence with a name in parentheses both
+            # matched the declaration patterns, and both became definitions.
             continue
         stype = c.symbol_type or _guess_type_regex(c.text) or "function"
         qualified = _join_qualified(c.container, c.symbol)

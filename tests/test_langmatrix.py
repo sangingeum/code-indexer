@@ -34,7 +34,10 @@ EXPECTED = {
     "csharp": (True, True), "kotlin": (True, True), "lua": (True, True),
     "php": (True, True), "swift": (True, True),
     "bash": (True, False),   # grammar parses but no symbol rows
-    "ruby": (False, True),   # regex fallback despite grammar mapping
+    # Regex chunker despite a grammar mapping, so nothing in the file is an
+    # AST declaration: the symbol table takes AST rows only (accuracy ruling
+    # 2026-11-08), so a text window's first line is not a definition.
+    "ruby": (False, False),
 }
 
 
@@ -80,11 +83,13 @@ def test_render_markdown_table():
 
 
 def test_languages_without_ast_snapshot():
-    # Every EXT_LANG language outside the AST-references set.
+    # Every registry language outside the AST-references set. proto, text and
+    # log are declared rows: they are indexed for search and answer no symbol
+    # question, so the list must name them rather than omit them.
     expected = sorted({"python", "javascript", "typescript", "tsx", "rust",
                        "go", "java", "c", "cpp", "csharp", "ruby", "php",
                        "bash", "lua", "swift", "kotlin", "markdown", "json",
-                       "yaml", "toml", "html", "css"}
+                       "yaml", "toml", "html", "css", "proto", "text", "log"}
                       - {"python", "typescript", "tsx", "javascript",
                          "c", "cpp", "go", "csharp"})
     assert languages_without_ast() == expected
@@ -185,8 +190,11 @@ def test_polyglot_fixture_symbol_snapshots(rig):
                            ("h.cpp", "greet"), ("i.cs", "Greet")):
             syms = m.symbols_for_file(fname)
             assert any(s.name == sym for s in syms), (fname, syms)
-        # Ruby: regex fallback still yields a symbol row.
-        assert any(s.name == "greet" for s in m.symbols_for_file("j.rb"))
+        # Ruby: regex fallback still CHUNKS the file, and yields no symbol
+        # row — a window's first line is not a declaration (accuracy ruling
+        # 2026-11-08).
+        assert m.get_file("j.rb") is not None
+        assert m.symbols_for_file("j.rb") == []
         # Bash: no symbol row (weak extraction, documented).
         assert not m.symbols_for_file("m.sh")
     finally:
