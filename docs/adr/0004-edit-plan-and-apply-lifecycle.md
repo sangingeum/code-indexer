@@ -4,6 +4,7 @@
 - Date: 2026-11-07
 - Deciders: owner (ratification), architecture review
 - Supersedes / Superseded by: --
+- Amended: 2026-11-07 -- section 1's `provider` member was `{name, version}`; it now carries `transport` as well, because ADR-0006 sections 4 and 5 make a plan built from a provider carry the same `{name, version, transport}` object a semantic answer does, and a member that dropped `transport` could not round-trip with the answer it came from.
 
 ## Decision in one paragraph
 
@@ -35,7 +36,7 @@ Required members, and nothing else is required:
 | `operation` | enum | `replace_body`, `insert_symbol`, `delete_declaration`; `rename_symbol` is reserved and refused in phase 1 |
 | `repository` | object | `{project, index_revision}`: the registered project name, and the revision the plan was prepared against as evidence, never as a precondition |
 | `created_at` | string | RFC 3339, UTC, second precision |
-| `provider` | object | `{name, version}`; phase 1 writes `tree-sitter-structural` and the extraction version |
+| `provider` | object | `{name, version, transport}`; phase 1 writes `tree-sitter-structural` and the extraction version |
 | `target` | object | the locator of section 2, including the declaration's observed range |
 | `files` | array | per touched file: `{path, expected_hash, newline, language}` |
 | `edits` | array | the edit records of sections 3 and 5 |
