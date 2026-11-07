@@ -2,8 +2,8 @@
 
 One CLI over one index. This page is the whole surface an agent loads before
 it acts: which command answers which question, which commands write, what an
-exit code means, and which reference to open next. Flags, examples and
-remedies live in the references, one read away.
+exit code means, and which reference to open next. A new agent starts in
+the `Core` panel of `code-indexer --help`; `Advanced` is everything else.
 
 ## Decision tree
 

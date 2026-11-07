@@ -1,6 +1,19 @@
 # Changelog
 
-## [Unreleased] — four surface questions answered, and one scan set corrected
+## [Unreleased] — four surface questions answered, one scan set corrected,
+and the help listing grouped
+
+**`code-indexer --help` groups the 33 registered commands into two panels; the
+command surface itself is unchanged.** `Core` holds the six an agent needs
+first — `overview`, `skeleton`, `find-symbol`, `get-code-context`,
+`semantic-search`, `index-status` — and `Advanced` holds every other
+registered command, in registration order, which already clusters them by
+task family: diagnostic and change reads, graph reads, registry, index
+maintenance, freshness, file structure, the plan family, then measurement.
+No command was added, removed, renamed or re-flagged, no default, output or
+exit code changed, and every command's own `--help` is byte-identical to the
+previous release's; only the top-level listing renders differently, and the
+entry document now says which panel to start in.
 
 **Nested ignore files compose the way git composes them.** A file was skipped
 if ANY per-directory ignore file matched it, which made a nested exclusion
