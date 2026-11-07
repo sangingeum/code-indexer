@@ -972,8 +972,8 @@ def semantic_search(
              "hit: path:start-end  symbol  score) | json."),
     rerank: str = typer.Option(
         None, "--rerank",
-        help="Rerank mode: heuristic (token-overlap boosts, path penalties, "
-             "repeat-file diversification) | none. Default none — the "
+        help="Rerank mode: heuristic (symbol-name and path-token overlap "
+             "boosts, repeat-file diversification) | none. Default none — the "
              "heuristic reranker is opt-in pending an eval win."),
     no_rerank: bool = typer.Option(
         False, "--no-rerank", help="Explicitly disable reranking."),
