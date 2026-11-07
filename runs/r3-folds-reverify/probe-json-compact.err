@@ -1,0 +1,1 @@
+ArgumentError: --json and --format compact disagree: --json is an alias of --format json; pass one of them

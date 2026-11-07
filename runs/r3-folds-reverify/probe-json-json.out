@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "symbols": [
+    {
+      "file": "src/code_indexer/overview.py",
+      "name": "build_overview",
+      "type": "function",
+      "start_line": 60,
+      "end_line": 83,
+      "signature": "def build_overview(m: Manifest, project_path: str,",
+      "qualified_name": "build_overview",
+      "container": null,
+      "language": "python",
+      "decl_hash": "sha256:edb238a22dd69de76967c89c47be0e8643bcee385b5919a9ded12956edd2d996",
+      "symbol_id": 11308,
+      "evidence": "ast"
+    }
+  ],
+  "match": "exact",
+  "match_count": 1,
+  "truncated": false,
+  "stale": false,
+  "stale_known": true,
+  "stale_reasons": [],
+  "stale_reason_count": 0,
+  "withheld_count": 1,
+  "withheld_files": [
+    {
+      "file": "tests/test_sensitive_exclusion.py",
+      "reason": "sensitive content"
+    }
+  ],
+  "withheld_summary": "1 file skipped (sensitive content)",
+  "withheld_unexamined_count": 0,
+  "index_revision": "1107",
+  "last_indexed": "2026-11-07T12:34:38Z"
+}

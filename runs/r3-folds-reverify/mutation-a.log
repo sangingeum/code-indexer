@@ -1,0 +1,5 @@
+# Mutation a — worktree at 8b6d639, command: uv run --extra semantic pytest tests/test_output_format.py -q -k compact
+# only the named failures and the summary line are kept; the traceback is not.
+FAILED tests/test_output_format.py::test_compact_is_refused_where_there_is_no_compact_form[find-references]
+FAILED tests/test_output_format.py::test_the_documented_compact_roster_matches_the_frozenset
+2 failed, 32 passed, 50 deselected in 4.11s

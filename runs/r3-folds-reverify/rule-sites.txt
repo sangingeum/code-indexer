@@ -1,0 +1,22 @@
+# rule-site sweep — every prose site that states the alias relation or a refusal rule for the pair
+# command: rg -n -i "exact alias" skill CHANGELOG.md SKILL-CLI.md
+SKILL-CLI.md:73:| `--format text\|json` | every read command that takes `--json` | `--json` is the exact alias of `--format json`; the pair is accepted when it agrees (`--json --format json`) and is exit 2 when the two name different formats |
+skill/references/semantic.md:57:  `--json` is its exact alias; passing both is accepted when they agree and
+CHANGELOG.md:9:and `--json` remains an EXACT alias of `--format json`: both spellings render
+skill/references/indexing.md:203:`index-status` takes `--format text|json` (`--json` is the exact alias) and
+skill/references/machine-output.md:37:`--json` is its exact alias: both spellings print the same bytes. Giving both
+
+# command: rg -n -i "together with|passing both|name different formats|disagree" skill CHANGELOG.md SKILL-CLI.md
+SKILL-CLI.md:73:| `--format text\|json` | every read command that takes `--json` | `--json` is the exact alias of `--format json`; the pair is accepted when it agrees (`--json --format json`) and is exit 2 when the two name different formats |
+CHANGELOG.md:10:the same bytes. Passing both is accepted when they agree -- `--json
+CHANGELOG.md:13:contradiction when they name different formats, rather than a silent
+CHANGELOG.md:162:  function, so the store and the graph layer cannot disagree about what a
+CHANGELOG.md:374:  `plan-validate` runs, so the two cannot disagree about what stale means —
+skill/references/semantic.md:57:  `--json` is its exact alias; passing both is accepted when they agree and
+skill/references/semantic.md:58:  is `ArgumentError`, exit 2, when they name different formats (see
+skill/references/machine-output.md:40:contradiction when they name different formats: never a silent precedence.
+skill/references/query.md:111:alias of `--format json`: both spellings render the same bytes. Passing both
+skill/references/query.md:113:twice) and is `ArgumentError`, exit 2, when they name different formats --
+skill/references/query.md:131:(exit 1). Two spellings of one symbol that disagree are refused too.
+skill/references/failures.md:47:| `ArgumentError` | a bad flag value, an ambiguous name, `--exactly-one` against several definitions, `plan-apply --skip-stale-check`, `add-project` on an already registered path, `--json` together with `--format`, `--format compact` on a command with no compact form, or two disagreeing spellings of one symbol | fix the invocation; for an ambiguous name the candidates are listed, and a refused format names the formats that command accepts |
+skill/references/plans.md:160:   pre-pass -- the same code `plan-validate` runs, so the two cannot disagree
