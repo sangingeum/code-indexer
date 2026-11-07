@@ -742,11 +742,13 @@ class Manifest:
         answers that from the SAME clause set, so the two cannot drift.
 
         The order is ``code_indexer.ordering``'s policy, applied in SQL so it
-        holds BEFORE ``limit`` cuts the answer: file class (source, tests,
-        docs, generated), then identity quality (the queried name exactly, a
-        recorded kind, attributed syntax), then the row's own identity fields
-        — a total key, so a capped read is a reproducible prefix and no tie
-        group can straddle the cut.
+        holds BEFORE ``limit`` cuts the answer: file class (source, examples,
+        tests, docs, generated), then a recorded kind, then attributed syntax,
+        then the row's own identity fields (``name``, ``file``,
+        ``start_line``, ``qualified_name``, ``decl_hash``) — a total key, so a
+        capped read is a reproducible prefix and no tie group can straddle the
+        cut. An exact-name read carries no name key of its own: the exact and
+        substring tiers are two queries, so one answer never holds both.
         """
         clauses, args = self._symbol_filters(
             name=name, symbol_type=symbol_type, substring=substring,
