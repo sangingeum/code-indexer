@@ -215,3 +215,51 @@ untouched. `query.md` is at 399 lines / 20941 bytes against its 400-line /
 
 A green local `-W error` run is not a claim that the suite is warning-free:
 five fork warnings fire under the CI command, which runs without `-W error`.
+
+## Folds from the review
+
+The review of this round approved it with notes and handed down seven fold-now
+items. All seven are folded, in three commits after the reviewed tip.
+
+| id | commit | what changed |
+|---|---|---|
+| F1 | `0852762` | The text header reads `search results (file class, then score desc):`; the assertion that pinned the old string now pins the new one. |
+| F2 | `db2ca7e` | `ranking.class_order` takes the ladder: one `ClassNames` for a single project, a per-hit resolver for `--all-projects`. Two tests: a declared name demotes a higher-cosine hit through `Core.search` (with a no-table control that leaves the cosine order alone), and a cross-project window resolves the key from each hit's own project. |
+| F3 | `da1bcb1` | `query.md` and the "What changed" bullet above state the real placement: after the scoring pass and the pure-data share cap, before the generic caps; it reorders and never removes, the caps remove. |
+| F4 | `da1bcb1` | The changelog says "after the scoring pass, before the generic output caps". |
+| F5 | `da1bcb1` | The motivation is narrowed here and in the changelog; see below. |
+| F6 | `da1bcb1` | The reranker docstring advertises symbol-name and path-token overlap only; the path penalties it named do not exist in the class. |
+| F7 | `da1bcb1` | `query.md` (Ordering) and the `_fuse_lexical_dense` docstring state the exact-symbol pin as ordering within its rung. |
+
+### The motivation, narrowed
+
+A test file or a docs page winning a question about the implementation is what
+the class key closes. Two cases it does not:
+
+- a captured transcript: `/runs/` and `/eval/` are excluded by
+  `.codeindexignore`, so the exclusion closed that case, not the order;
+- a fixture: only a fixture under a `tests/` or `spec/` tree is demoted. A file
+  in a top-level `fixtures/` tree and a captured `.err` classify as `source`,
+  so the order leaves both where they were.
+
+### Verification at the fold tip
+
+```
+uv run pytest tests/ -q -W error                 -> 987 passed, 1 failed, 2 deselected
+uvx ruff check src tests scripts                 -> All checks passed!
+uv run python scripts/publishing_hygiene_lint.py -> violations=0
+```
+
+The single failure is
+`tests/test_docs.py::test_installed_copy_digest_matches_the_tracked_copy`: the
+installed mirror of the skill still holds the previous `query.md` (every other
+file matches). The release step installs after that test passes and the mirror
+lives outside this checkout. `query.md` is at 399 lines / 20982 bytes against
+its 400-line / 24 KiB budget.
+
+F2 threads the project's own ladder, so it could change the class of some paths
+and with them the eval. It does not move this project's figures: the checkout
+declares no `[tool.code-indexer.ordering]` table, so the ladder resolves to the
+built-in names (`load_class_names(root) == DEFAULT_CLASS_NAMES` is `True`) and
+every path's class is what it was. The hybrid eval was therefore not re-run, and
+no figure above is restated.
