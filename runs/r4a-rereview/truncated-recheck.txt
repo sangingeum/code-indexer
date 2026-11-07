@@ -1,0 +1,4 @@
+state stale
+reason_count 34 added 34
+withheld_count 0 unexamined 2
+tail0 is added: True
