@@ -849,3 +849,44 @@ def _except_duration(result: dict) -> dict:
     """Every field of a pass result except the timing."""
     return {key: value for key, value in result.items() if key != "duration_s"}
 
+
+# ---------------------------------------------------------------------------
+# the error verdict names its own fact: a total beside the capped sample
+# ---------------------------------------------------------------------------
+
+def test_the_error_verdict_prints_the_total_beside_three_examples(
+        index_project):
+    """Five lost chunks print as a total of five and three examples.
+
+    The sample is capped; the count is not. Three examples with no total is
+    the shape that reads as "three chunks".
+    """
+    core, entry, project = index_project({"a.py": PY})
+    m = core.manifest_for(entry.slug)
+    try:
+        for i in range(5):
+            m.record_index_error("a.py", i, f"embed failed: timeout {i}")
+    finally:
+        m.close()
+
+    text = runner.invoke(app, ["index-status", "--project", str(project)])
+    assert text.exit_code == 0, text.output
+    line = text.stdout.splitlines()[0]
+    assert "error_count=5" in line, line
+    sample = line.split("last_errors=", 1)[1]
+    assert sample.count("a.py#") == 3, sample
+
+    payload = _status_json(project)
+    assert payload["error_count"] == 5
+    assert len(payload["last_errors"]) == 3
+
+
+def test_no_recorded_errors_prints_neither_field(index_project):
+    core, entry, project = index_project({"a.py": PY})
+    payload = _status_json(project)
+    assert "error_count" not in payload
+    assert "last_errors" not in payload
+    text = runner.invoke(app, ["index-status", "--project", str(project)])
+    assert "error_count=" not in text.stdout
+    assert "last_errors=" not in text.stdout
+

@@ -215,7 +215,11 @@ It also reports both halves of the vector story -- `vectors=on|off` and
 `vectors_state=current|absent|stale|error`, where `stale` means the recorded
 embedding identity is not the one this build would write -- plus
 `rows=current|absent` and the parse-verdict counts
-(`parse=parsed:N,parse_error:N,parse_unavailable:N`).
+(`parse=parsed:N,parse_error:N,parse_unavailable:N`). When recorded chunk
+embed errors exist, the line carries `error_count=N` (the total) beside
+`last_errors=`, which shows at most the three most recent examples; `--json`
+carries the same `error_count` and the `last_errors` list, and neither field
+appears when there are no error rows.
 
 Both verdict pairs are flags a caller branches on, and the text form adds one
 stderr line saying what the pair MEANS. It is handed the same verdict object

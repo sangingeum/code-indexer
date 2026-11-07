@@ -369,7 +369,8 @@ An unregistered selector answers `registered: false` with its `path` and an
  "vectors_state": "current"|"absent"|"stale"|"error",
  "fingerprint"|"needs-reindex"|"unverified", "reason"|missing,
  "last_pass"|missing, "progress"|missing, "sensitive_skipped"|missing,
- "scope"|missing, "not_indexed"|missing, "last_errors"|missing,
+ "scope"|missing, "not_indexed"|missing, "error_count"|missing,
+ "last_errors"|missing,
  "parsed": int, "parse_error": int, "parse_unavailable": int,
  "fingerprint_meaning"|missing, "note"|missing, "coverage": {...},
  <staleness block>}
@@ -406,7 +407,10 @@ that records it is reported as it stands. An
 `error` marker (the last vector pass lost chunks to embed failures) is not a
 fingerprint branch, and the sentence does not speak to it -- the sentence
 describes the key comparison, so the error verdict is the line's own field to
-read.
+read. When the manifest records chunk errors the line carries
+`error_count=N`, the total recorded, beside `last_errors=`, which shows only
+the three most recent; `--json` carries the same `error_count` and the
+`last_errors` list. A project with no error rows prints neither field.
 
 The text form prints the sentence as one stderr line beside the one-line
 answer, which keeps its single-line shape. The field names of the pair are

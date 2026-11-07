@@ -1629,9 +1629,14 @@ def index_status(
         try:
             errs = m.last_index_errors(3)
             if errs:
+                total = m.count_index_errors()
+                # The sample is capped; the count is not. Three examples with
+                # no total read as "three chunks", which is the false shape.
+                parts.append(f"error_count={total}")
                 parts.append("last_errors=" + " | ".join(
                     f"{e['file']}#{e['chunk_index']}: {e['error'][:60]}"
                     for e in errs))
+                fields["error_count"] = total
                 fields["last_errors"] = errs
             # Per-file parse verdicts (ADR-0004 section 7): the parser's own
             # result is counted here, never the chunker's fallback. All three
