@@ -1,0 +1,133 @@
+# Gate capture (redacted). Host paths were elided: <checkout> is the
+# repository under test, <scratch> the throwaway rig directory,
+# <index-root> the store, <home> any remaining path. Nothing else was
+# changed; the unmodified capture is kept in the local evidence store
+# outside the repository.
+{
+  "schema": 1,
+  "hits": [
+    {
+      "project": "<checkout>",
+      "file": "src/code_indexer/sensitive.py",
+      "score": 0.7911,
+      "symbol": "file_is_sensitive, SensitiveReport, filename_is_sensitive, content_is_sensitive",
+      "symbol_type": "function",
+      "lang": "python",
+      "start_line": 47,
+      "end_line": 90,
+      "snippet": "def file_is_sensitive(rel_path: str, text: str) -> str | None:\n    \"\"\"Exclusion verdict for one file: 'filename', 'content', or None.\"\"\"\n    if filename_is_sensitive(rel_path):\n        return \"filename\"\n    if content_is_sensitive(text):\n        return \"content\"\n    return None",
+      "file_hash": "sha256:4",
+      "indexed_at": "2026-11-06T22:04:16Z",
+      "vector_score": 0.7911,
+      "data_penalty": 0.0,
+      "rrf_score": 0.01639344262295082,
+      "rank_positions": [
+        1
+      ],
+      "match": "fused",
+      "merged_count": 4,
+      "identity": "file_is_sensitive, SensitiveReport, filename_is_sensitive, content_is_sensitive"
+    },
+    {
+      "project": "<checkout>",
+      "file": "src/code_indexer/staleness.py",
+      "score": 0.703,
+      "symbol": "SkippedFile",
+      "symbol_type": null,
+      "lang": "python",
+      "start_line": 66,
+      "end_line": 78,
+      "snippet": "@dataclass(frozen=True)\nclass SkippedFile:\n    \"\"\"A scanned path the sensitive layer withholds.\n\n    ``file`` is the path and ``reason`` names the layer that fired\n    ('sensitive filename' or 'sensitive content') — never the material.\n    \"\"\"\n\n    file: str\n    reason: str\n\n    def to_dict(self) -> dict[str, str]:\n        return {\"file\": self.file, \"reason\": self.reason}",
+      "file_hash": "sha256:9",
+      "indexed_at": "2026-11-07T08:46:51Z",
+      "vector_score": 0.703,
+      "data_penalty": 0.0,
+      "rrf_score": 0.015625,
+      "rank_positions": [
+        4
+      ],
+      "match": "fused",
+      "identity": "SkippedFile"
+    },
+    {
+      "project": "<checkout>",
+      "file": "src/code_indexer/staleness.py",
+      "score": 0.6692,
+      "symbol": "_classify_skipped",
+      "symbol_type": "function",
+      "lang": "python",
+      "start_line": 145,
+      "end_line": 163,
+      "snippet": "def _classify_skipped(candidates: list[Any]) -> tuple[list[SkippedFile],\n                                                       list[str]]:\n    \"\"\"Split scanned-but-unindexed paths into sensitive skips and real adds.\n\n    The pass drops a sensitive file without writing a row, so the diff\n    re-applies the SAME detector to the paths it cannot explain: the filename\n    layer is decided from the path alone (no read), the content layer reads\n    the same prefix the pass reads, so the two agree on t",
+      "file_hash": "sha256:1",
+      "indexed_at": "2026-11-07T08:46:34Z",
+      "vector_score": 0.6692,
+      "data_penalty": 0.0,
+      "rrf_score": 0.015384615384615385,
+      "rank_positions": [
+        5
+      ],
+      "match": "fused",
+      "identity": "_classify_skipped"
+    },
+    {
+      "project": "<checkout>",
+      "file": "src/code_indexer/watcher.py",
+      "score": 0.6353,
+      "symbol": "_filter",
+      "symbol_type": null,
+      "lang": "python",
+      "start_line": 429,
+      "end_line": 443,
+      "snippet": "@staticmethod\n            def _filter(path: str | None) -> str | None:\n                if not path:\n                    return None\n                path = os.path.abspath(path)\n                parts = path.replace(os.sep, \"/\").split(\"/\")\n                if \".git\" in parts:\n                    return None\n                name = os.path.basename(path)\n                if name.startswith(\".\") or name in _TEMP_NAMES \\\n                        or name.endswith(_TEMP_SUFFIXES):\n                    retur",
+      "file_hash": "sha256:e",
+      "indexed_at": "2026-11-06T22:04:16Z",
+      "vector_score": 0.6353,
+      "data_penalty": 0.0,
+      "rrf_score": 0.014084507042253521,
+      "rank_positions": [
+        11
+      ],
+      "match": "fused",
+      "identity": "_filter"
+    },
+    {
+      "project": "<checkout>",
+      "file": "tests/test_sensitive_skip_staleness.py",
+      "score": 0.668,
+      "symbol": "test_a_changed_sensitive_file_is_not_stale, test_a_skipped_file_is_fresh_after_an_index_pass, rig",
+      "symbol_type": "function",
+      "lang": "python",
+      "start_line": 47,
+      "end_line": 108,
+      "snippet": "def test_a_changed_sensitive_file_is_not_stale(rig):\n    core, entry, project = rig\n    with open(os.path.join(project, \"secretive.py\"), \"w\") as f:\n        f.write(\"TOKEN = \" + repr(PEM) + \"\\n\")\n    verdict = core.staleness(entry)\n    assert verdict.state == staleness.FRESH\n    assert verdict.reason_count == 0\n    assert [(s.file, s.reason) for s in verdict.skipped] == [\n        (\"secretive.py\", SKIP_REASON_CONTENT)]",
+      "file_hash": "sha256:9",
+      "indexed_at": "2026-11-07T08:47:12Z",
+      "vector_score": 0.668,
+      "data_penalty": 0.0,
+      "rrf_score": 0.015151515151515152,
+      "rank_positions": [
+        6
+      ],
+      "match": "fused",
+      "merged_count": 3,
+      "identity": "test_a_changed_sensitive_file_is_not_stale, test_a_skipped_file_is_fresh_after_an_index_pass, rig"
+    }
+  ],
+  "truncated": false,
+  "dropped": 0,
+  "skipped": [],
+  "skipped_count": 0,
+  "partial": false,
+  "stale": true,
+  "stale_known": true,
+  "stale_reasons": [
+    {
+      "kind": "added",
+      "file": "tests/test_sensitive_exclusion.py"
+    }
+  ],
+  "stale_reason_count": 1,
+  "index_revision": "739",
+  "last_indexed": "2026-11-07T08:58:55Z"
+}

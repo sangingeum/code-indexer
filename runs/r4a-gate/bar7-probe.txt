@@ -1,0 +1,10 @@
+# Gate capture (redacted). Host paths were elided: <checkout> is the
+# repository under test, <scratch> the throwaway rig directory,
+# <index-root> the store, <home> any remaining path. Nothing else was
+# changed; the unmodified capture is kept in the local evidence store
+# outside the repository.
+$ CI_SRC=<checkout>/src python probe_sensitive.py zz_sensitive_01.py zz_sensitive_08.py aa_sensitive.py
+zz_sensitive_01.py: content_is_sensitive=True
+zz_sensitive_08.py: content_is_sensitive=True
+aa_sensitive.py: content_is_sensitive=True
+exit=0

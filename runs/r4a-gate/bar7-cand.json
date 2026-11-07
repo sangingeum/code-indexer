@@ -1,0 +1,6 @@
+# Gate capture (redacted). Host paths were elided: <checkout> is the
+# repository under test, <scratch> the throwaway rig directory,
+# <index-root> the store, <home> any remaining path. Nothing else was
+# changed; the unmodified capture is kept in the local evidence store
+# outside the repository.
+{"project": "<scratch>/projects/budget", "state": "idle", "rows": "current", "vectors": "off", "vectors_state": "absent", "manifest_schema": 7, "languages_without_ast": ["bash", "css", "html", "java", "json", "kotlin", "lua", "markdown", "php", "ruby", "rust", "swift", "toml", "yaml"], "parsed": 2, "parse_error": 0, "parse_unavailable": 0, "stale": true, "stale_known": true, "stale_reasons": [{"kind": "added", "file": "bulk_01.py"}, {"kind": "added", "file": "bulk_02.py"}, {"kind": "added", "file": "bulk_03.py"}, {"kind": "added", "file": "bulk_04.py"}, {"kind": "added", "file": "bulk_05.py"}], "stale_reason_count": 48, "skipped_count": 1, "skipped_files": [{"file": "aa_sensitive.py", "reason": "sensitive content"}], "skipped_summary": "1 file skipped (sensitive content)", "index_revision": "1", "last_indexed": "2026-11-07T09:00:38Z", "schema": 1}

@@ -1,0 +1,14 @@
+# Gate capture (redacted). Host paths were elided: <checkout> is the
+# repository under test, <scratch> the throwaway rig directory,
+# <index-root> the store, <home> any remaining path. Nothing else was
+# changed; the unmodified capture is kept in the local evidence store
+# outside the repository.
+$ python inspect_db.py <index-root>/code-indexer/manifest.db (read-only queries)
+query: select count(*) from files where path='tests/test_sensitive_exclusion.py'
+   (0,)
+query: select count(*) from symbols where file='tests/test_sensitive_exclusion.py'
+   (0,)
+query: select count(*) from chunks where file='tests/test_sensitive_exclusion.py'
+   (0,)
+query: select count(*) from refs where file='tests/test_sensitive_exclusion.py'
+   (0,)

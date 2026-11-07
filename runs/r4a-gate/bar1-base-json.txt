@@ -1,0 +1,8 @@
+# Gate capture (redacted). Host paths were elided: <checkout> is the
+# repository under test, <scratch> the throwaway rig directory,
+# <index-root> the store, <home> any remaining path. Nothing else was
+# changed; the unmodified capture is kept in the local evidence store
+# outside the repository.
+$ CI_SRC=<scratch>/base/src python run_cli.py index-status --project <checkout> --json
+{"project": "<checkout>", "state": "idle", "rows": "current", "vectors": "on", "vectors_state": "current", "manifest_schema": 7, "fingerprint": "unverified", "reason": "embedding-dimension-not-compared", "languages_without_ast": ["bash", "css", "html", "java", "json", "kotlin", "lua", "markdown", "php", "ruby", "rust", "swift", "toml", "yaml"], "parsed": 122, "parse_error": 0, "parse_unavailable": 56, "stale": true, "stale_known": true, "stale_reasons": [{"kind": "added", "file": "tests/test_sensitive_exclusion.py"}], "stale_reason_count": 1, "index_revision": "739", "last_indexed": "2026-11-07T08:58:55Z", "schema": 1}
+exit=0

@@ -1,0 +1,18 @@
+# Gate capture (redacted). Host paths were elided: <checkout> is the
+# repository under test, <scratch> the throwaway rig directory,
+# <index-root> the store, <home> any remaining path. Nothing else was
+# changed; the unmodified capture is kept in the local evidence store
+# outside the repository.
+=== hashes BEFORE the read batch ===
+f9bf4e3f5459ffa4d413d95380b786c4888a262b2c03480bbcfee5c571098a1b  <index-root>/code-indexer/manifest.db
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  <index-root>/code-indexer/manifest.db-wal
+
+--- after step1 ---
+f9bf4e3f5459ffa4d413d95380b786c4888a262b2c03480bbcfee5c571098a1b  <index-root>/code-indexer/manifest.db
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  <index-root>/code-indexer/manifest.db-wal
+--- after step2 ---
+f9bf4e3f5459ffa4d413d95380b786c4888a262b2c03480bbcfee5c571098a1b  <index-root>/code-indexer/manifest.db
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  <index-root>/code-indexer/manifest.db-wal
+--- after step3 ---
+f9bf4e3f5459ffa4d413d95380b786c4888a262b2c03480bbcfee5c571098a1b  <index-root>/code-indexer/manifest.db
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  <index-root>/code-indexer/manifest.db-wal

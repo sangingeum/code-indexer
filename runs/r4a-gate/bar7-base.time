@@ -1,0 +1,6 @@
+# Gate capture (redacted). Host paths were elided: <checkout> is the
+# repository under test, <scratch> the throwaway rig directory,
+# <index-root> the store, <home> any remaining path. Nothing else was
+# changed; the unmodified capture is kept in the local evidence store
+# outside the repository.
+cmd=index-status --project budget src=<scratch>/base/src exit=0 elapsed_ms=134

@@ -1,0 +1,8 @@
+# Gate capture (redacted). Host paths were elided: <checkout> is the
+# repository under test, <scratch> the throwaway rig directory,
+# <index-root> the store, <home> any remaining path. Nothing else was
+# changed; the unmodified capture is kept in the local evidence store
+# outside the repository.
+$ CI_SRC=<checkout>/src python run_cli.py find-symbol zeta --project <scratch>/projects/schema --json
+RebuildRequiredError: index for <scratch>/projects/schema was written at manifest schema 1 and this build reads schema 7; its rows are in an older layout, so this answer would describe an index this build would not produce; run: code-indexer reindex-project <scratch>/projects/schema
+exit=4

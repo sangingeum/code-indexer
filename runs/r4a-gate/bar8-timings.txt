@@ -1,0 +1,11 @@
+# Gate capture (redacted). Host paths were elided: <checkout> is the
+# repository under test, <scratch> the throwaway rig directory,
+# <index-root> the store, <home> any remaining path. Nothing else was
+# changed; the unmodified capture is kept in the local evidence store
+# outside the repository.
+run=1 build=BASE exit=0 elapsed_ms=146
+run=1 build=CAND exit=0 elapsed_ms=150
+run=2 build=BASE exit=0 elapsed_ms=150
+run=2 build=CAND exit=0 elapsed_ms=148
+run=3 build=BASE exit=0 elapsed_ms=147
+run=3 build=CAND exit=0 elapsed_ms=147

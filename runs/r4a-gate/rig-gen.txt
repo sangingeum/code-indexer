@@ -1,0 +1,9 @@
+# Gate capture (redacted). Host paths were elided: <checkout> is the
+# repository under test, <scratch> the throwaway rig directory,
+# <index-root> the store, <home> any remaining path. Nothing else was
+# changed; the unmodified capture is kept in the local evidence store
+# outside the repository.
+$ python gen_rigs.py <scratch>
+controls: <scratch>/projects/controls
+budget: <scratch>/projects/budget
+exit=0

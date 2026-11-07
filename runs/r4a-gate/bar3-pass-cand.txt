@@ -1,0 +1,8 @@
+# Gate capture (redacted). Host paths were elided: <checkout> is the
+# repository under test, <scratch> the throwaway rig directory,
+# <index-root> the store, <home> any remaining path. Nothing else was
+# changed; the unmodified capture is kept in the local evidence store
+# outside the repository.
+$ CI_SRC=<checkout>/src python run_cli.py index-status --project <scratch>/projects/controls --refresh
+project=<scratch>/projects/controls state=idle rows=current vectors=off vectors_state=absent schema=7 last_pass={'files_indexed': 0, 'chunks_embedded': 0, 'chunks_reused': 0, 'files_deleted': 0, 'duration_s': 0.01, 'chunks_skipped': 0, 'files_committed': 0, 'sensitive_skipped': 2} sensitive=2 files skipped (privacy; override with --allow-sensitive on add-project) languages_without_ast=[bash, css, html, java, json, kotlin, lua, markdown, php, ruby, rust, swift, toml, yaml] parse=parsed:2,parse_error:0,parse_unavailable:0 2 files skipped (1 sensitive content, 1 sensitive filename)
+exit=0

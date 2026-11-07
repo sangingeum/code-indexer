@@ -1,0 +1,28 @@
+# Gate capture (redacted). Host paths were elided: <checkout> is the
+# repository under test, <scratch> the throwaway rig directory,
+# <index-root> the store, <home> any remaining path. Nothing else was
+# changed; the unmodified capture is kept in the local evidence store
+# outside the repository.
+=== JSON block keys on a FRESH candidate verdict (bar 5) ===
+$ jq -r 'keys_unsorted | join(" ")' bar2-answer-index-status.json
+project state rows vectors vectors_state manifest_schema fingerprint reason languages_without_ast parsed parse_error parse_unavailable stale stale_known stale_reasons stale_reason_count skipped_count skipped_files skipped_summary index_revision last_indexed schema
+
+$ jq '.skipped_count, .skipped_files, .skipped_summary, .stale, .stale_reasons'
+1
+[
+  {
+    "file": "tests/test_sensitive_exclusion.py",
+    "reason": "sensitive content"
+  }
+]
+"1 file skipped (sensitive content)"
+false
+[]
+
+=== skipped_files element keys ===
+file reason
+
+=== text mode line (candidate) ===
+$ CI_SRC=<checkout>/src python run_cli.py index-status --project <checkout>
+project=<checkout> state=idle rows=current vectors=on vectors_state=current schema=7 fingerprint=unverified reason=embedding-dimension-not-compared languages_without_ast=[bash, css, html, java, json, kotlin, lua, markdown, php, ruby, rust, swift, toml, yaml] parse=parsed:122,parse_error:0,parse_unavailable:56 1 file skipped (sensitive content)
+exit=0

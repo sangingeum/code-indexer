@@ -1,0 +1,26 @@
+# Gate capture (redacted). Host paths were elided: <checkout> is the
+# repository under test, <scratch> the throwaway rig directory,
+# <index-root> the store, <home> any remaining path. Nothing else was
+# changed; the unmodified capture is kept in the local evidence store
+# outside the repository.
+bar2-answer-find-symbol.json :: AKIAIOSFODNN7EXAMPLE => 0
+bar2-answer-find-symbol.json :: -----BEGIN RSA PRIVATE KEY----- => 0
+bar2-answer-find-symbol.json :: MIIEowIBAAKCAQEA => 0
+bar2-answer-find-symbol.json :: IOSFODNN7 => 0
+bar2-answer-find-symbol.json :: PRIVATE KEY => 0
+bar2-answer-find-symbol.json :: ghp_ => 0
+bar2-answer-find-symbol.json :: xoxb- => 0
+bar2-answer-semantic-search.json :: AKIAIOSFODNN7EXAMPLE => 0
+bar2-answer-semantic-search.json :: -----BEGIN RSA PRIVATE KEY----- => 0
+bar2-answer-semantic-search.json :: MIIEowIBAAKCAQEA => 0
+bar2-answer-semantic-search.json :: IOSFODNN7 => 0
+bar2-answer-semantic-search.json :: PRIVATE KEY => 0
+bar2-answer-semantic-search.json :: ghp_ => 0
+bar2-answer-semantic-search.json :: xoxb- => 0
+bar2-answer-index-status.json :: AKIAIOSFODNN7EXAMPLE => 0
+bar2-answer-index-status.json :: -----BEGIN RSA PRIVATE KEY----- => 0
+bar2-answer-index-status.json :: MIIEowIBAAKCAQEA => 0
+bar2-answer-index-status.json :: IOSFODNN7 => 0
+bar2-answer-index-status.json :: PRIVATE KEY => 0
+bar2-answer-index-status.json :: ghp_ => 0
+bar2-answer-index-status.json :: xoxb- => 0
