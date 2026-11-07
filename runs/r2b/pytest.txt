@@ -24,7 +24,7 @@ _____________ test_installed_copy_digest_matches_the_tracked_copy ______________
             f"the installed copy at {path} differs from the tracked copy; "
             "the release step installs after this test passes"
         )
-E       AssertionError: the installed copy at /home/keum/.hermes/skills/code-indexer differs from the tracked copy; the release step installs after this test passes
+E       AssertionError: the installed copy at <home>/.hermes/skills/code-indexer differs from the tracked copy; the release step installs after this test passes
 E       assert '0b0fd04b7b4e...b7acaee17b9f2' == '50a296473aa8...d2d33dd1c6252'
 E         
 E         - 50a296473aa8f5906c533d533d3f504c41fb7cd5228adaa0387d2d33dd1c6252
