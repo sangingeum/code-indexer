@@ -214,5 +214,6 @@ present and true. One non-blocking should-fix (F1) is carried for the two
 contract fields the suite never names; it is a regression guard, not a defect.
 
 Nothing in this record asks for another fold. The published chain is
-`974f0ed` (fold tip) plus this leg's two commits: the record repair and this
-re-review, both signed.
+`974f0ed` (fold tip) plus this leg's commits: the record repair, this
+re-review, and the one-line correction that followed this record becoming
+tracked (see the commit that names the release step). All are signed.
