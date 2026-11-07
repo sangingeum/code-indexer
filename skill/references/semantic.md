@@ -155,6 +155,14 @@ pass and the pure-data share cap, before the generic caps (`--per-file`,
 they remove. The exact-symbol pin of `--mode hybrid` orders within its rung, so
 a test-defined exact match can still sit below source.
 
+**Ties are broken by the hit's place in the index, never by arrival order.**
+Score ties inside a mode fall back to `project`, `file`, `start_line`,
+`end_line`, `symbol`, so the ordering is total: the same read against the same
+index returns byte-identical output at any `--limit`, including the first call
+after the embedding service reloads a model. The same-file merge is the
+line-ordered union of the chunk ranges, so which ranges an answer reports is a
+function of the chunks the store returned and not of their scores.
+
 Two waivers, and only two. A **test-targeting query** (`test`, `tests`,
 `testing`, `spec`, `specs`, `fixture`, `fixtures`, `unittest`, `unittests`)
 sorts the tests rung with source -- the mode's order breaks ties among them,

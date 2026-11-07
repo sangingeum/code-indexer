@@ -1,5 +1,30 @@
 # Changelog
 
+## [Unreleased] — a deep-limit answer is the same answer twice
+
+**`semantic-search` returns byte-identical output for the same read against the
+same index, at any `--limit`, including the first call after the embedding
+service reloads a model.** Two layers were unstable, and neither was the store:
+Qdrant returned the same ordered point list on every call and in every process
+measured, and the SQL reads underneath are ordered. First, the query embedding
+was recomputed whenever the dimension was unknown — which is every read — and
+the service's cold-loaded run returns a materially different vector than its
+warm one for the same text (components up to 6e-3 apart on the measured model),
+so a warm-up call moved scores by ~1e-3 and re-ordered near-ties at depth. The
+embedding cache is now canonical for the read path: the dimension is resolved
+first, and a miss stores the vector and searches the stored representation, so
+the first read and every later one use the same bytes. Second, every score sort
+fell back to the order the candidates arrived in, and the same-file merge walked
+a group in score order, so a low-scoring chunk seen after a high-scoring one
+produced a "union" spanning lines no chunk covers (5-110 from hits at 1-10,
+100-110 and 5-50). Ordering now ends in a total identity key — `project`,
+`file`, `start_line`, `end_line`, `symbol` — and the merge is the line-ordered
+union of the ranges, so the member set is a function of the chunks the store
+returned. A deep-limit answer therefore reports the true number of disjoint
+ranges instead of the over-merged set (on this repository at `--limit 3000`:
+915 ranges against 417 before), and the default depth answers the same hits.
+Query-time only: no stored key changed, so no reindex is involved.
+
 ## [Unreleased] — four surface questions answered, one scan set corrected,
 the help listing grouped, and three fixes recorded
 
