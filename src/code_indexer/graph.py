@@ -42,6 +42,7 @@ import os
 from dataclasses import dataclass, field
 
 from . import identity
+from . import ordering
 from .manifest import Manifest
 
 
@@ -222,6 +223,26 @@ def _file_defines(m: Manifest, file: str, name: str) -> bool:
     return any(s.name == name for s in m.symbols_for_file(file))
 
 
+def _ordered_edges(edges: list[tuple]) -> list[tuple]:
+    """`_expand_callers` edges in the ordering policy's order.
+
+    File class first (source, tests, docs, generated), then identity quality --
+    a hit that names its caller before a module-level one, attributed before
+    textual -- then the caller row's own fields, so the walk's tree is
+    reproducible and a test file's call sites never interleave with
+    production's.
+    """
+    return sorted(edges, key=lambda edge: ordering.edge_key(
+        edge[0], edge[2], edge[1], edge[3], edge[4], edge[5]))
+
+
+def _ordered_ref_rows(rows: list[dict]) -> list[dict]:
+    """Store reference rows in the same order (the definition-less seed)."""
+    return sorted(rows, key=lambda row: ordering.edge_key(
+        row["file"], row["from_symbol"], row["line"], row["relationship"],
+        row["confidence"], row.get("receiver")))
+
+
 def _expand_callees(core, m: Manifest, file: str, symbol: str | None
                     ) -> list[tuple[str, int | None, str | None, str, str,
                                    str | None]]:
@@ -249,6 +270,12 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
     same file are two nodes, each with its own line and its own receiver.
     (Enclosing-symbol identity silently collapsed the second — issue #21.)
     Definition roots keep ``(file, symbol)`` identity.
+
+    The tree is ordered by the same policy every structural answer uses:
+    file class first (source, tests, docs, generated), then a call site that
+    names its caller before a module-level one, then the row's own fields. So
+    a test harness's call sites never interleave with production's, and the
+    same index renders the same tree twice.
 
     The subject may be dotted (``Type.Member``): the qualifier is resolved
     against the symbol rows and the fan-in is matched on the trailing member
@@ -327,7 +354,7 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
                 "fields are not extracted); seeding from reference rows "
                 "instead of reporting none")
             seeds: list[GraphNode] = []
-            for r in ref_rows:
+            for r in _ordered_ref_rows(ref_rows):
                 if len(seeds) >= max_nodes:
                     omitted += 1
                     continue
@@ -357,7 +384,7 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
                 tgt = target if level == 0 else (
                     node.symbol or os.path.basename(node.file))
                 for (file, line, frm, rel, conf, recv, edge_target
-                     ) in _expand_callers(core, m, tgt):
+                     ) in _ordered_edges(_expand_callers(core, m, tgt)):
                     key = _site_key(file, line, frm, rel)
                     if key in seen:
                         continue

@@ -327,3 +327,35 @@ def test_find_definition_is_deterministic(rig):
     second = _json(project, "find-definition", "Tick")
     assert first == second
 
+
+def test_find_references_puts_source_rows_before_more_numerous_test_rows(rig):
+    """The source has ONE reference; the test file has several. It still leads."""
+    _core, _reg, _entry, project = rig
+    data = _json(project, "find-references", "Tick", "--limit", "100")
+    files = [row["file"] for row in data["references"]]
+    assert files.count(TEST_FILE) > files.count(APP_FILE), files
+    assert files[0] == APP_FILE, files
+    weights = [ordering.class_weight(name) for name in files]
+    assert weights == sorted(weights), files
+    # An ordering, not a filter: every row is returned.
+    assert data["total"] == len(data["references"])
+
+
+def test_find_references_is_deterministic(rig):
+    _core, _reg, _entry, project = rig
+    first = _json(project, "find-references", "Tick", "--limit", "100")
+    second = _json(project, "find-references", "Tick", "--limit", "100")
+    assert first == second
+
+
+def test_find_callers_puts_source_call_sites_ahead_of_the_test_harness(rig):
+    _core, _reg, _entry, project = rig
+    data = _json(project, "find-callers", "Tick")
+    roots = data["roots"]
+    assert roots and roots[0]["file"] == SOURCE_FILE, roots
+    files = [node["file"] for node in roots[0]["children"]]
+    assert files[0] == APP_FILE, files
+    assert TEST_FILE in files, files
+    weights = [ordering.class_weight(name) for name in files]
+    assert weights == sorted(weights), files
+

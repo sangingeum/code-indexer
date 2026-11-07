@@ -858,14 +858,27 @@ class Manifest:
                 relationships: tuple[str, ...] | None = None,
                 limit: int = 25) -> list[dict]:
         """Reference rows TARGETING ``name`` as dictionaries, optionally
-        filtered to a set of stored relationships."""
+        filtered to a set of stored relationships.
+
+        Ordered by the policy (``code_indexer.ordering``), applied in SQL so
+        it holds BEFORE ``limit`` cuts the answer: file class (source, tests,
+        docs, generated), then identity quality -- a target that has a
+        definition row before one that only matches text, attributed syntax
+        before a textual row -- then ``(file, line, relationship,
+        from_symbol, receiver)``, which is total, so a capped read is a
+        reproducible prefix and no tie group can straddle the cut.
+        """
         sql = self._REF_COLS + " WHERE to_name = ?"
         args: list = [name]
         if relationships:
             sql += (" AND relationship IN ("
                     + ",".join("?" * len(relationships)) + ")")
             args.extend(relationships)
-        sql += " ORDER BY file, line, relationship LIMIT ?"
+        sql += (" ORDER BY file_class_weight(file),"
+                " CASE WHEN EXISTS (SELECT 1 FROM symbols s"
+                " WHERE s.name = refs.to_name) THEN 0 ELSE 1 END,"
+                " CASE WHEN confidence = 'ast' THEN 0 ELSE 1 END,"
+                " file, line, relationship, from_symbol, receiver LIMIT ?")
         args.append(limit)
         keys = ("file", "line", "from_symbol", "to_name", "relationship",
                 "confidence", "receiver")
