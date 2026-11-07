@@ -157,8 +157,26 @@ def _one_line(text: str | None, limit: int = 70) -> str:
     para = " ".join(para.split())
     sentence = para.split(". ", 1)[0].rstrip(".")
     if len(sentence) > limit:
-        sentence = sentence[:limit].rsplit(" ", 1)[0] + " ..."
+        sentence = _bounded(sentence, limit)
     return sentence
+
+
+# An opening bracket and the character that closes it, for the cut below.
+_BRACKETS = (("(", ")"), ("[", "]"), ("`", "`"))
+
+
+def _bounded(sentence: str, limit: int) -> str:
+    """A word-bounded prefix whose brackets are all closed.
+
+    A cut inside a parenthetical reads as a defect rather than as brevity --
+    "(runs ..." at the end of the roster's central table -- so a partial
+    bracket is dropped along with the words inside it.
+    """
+    cut = sentence[:limit].rsplit(" ", 1)[0]
+    for opening, closing in _BRACKETS:
+        if cut.count(opening) > cut.count(closing):
+            cut = cut.rsplit(opening, 1)[0].rstrip(" ,;:")
+    return cut + " ..."
 
 
 def _argument(cmd) -> list[str]:

@@ -563,8 +563,6 @@ class ProviderSession:
         if query.qualified_name is not None:
             return ProviderSymbolQuery(path=query.path, position=None,
                                        qualified_name=query.qualified_name)
-        assert query.path is not None and query.line is not None
-        assert query.character is not None
         tf = self._file(query.path)
         if query.line > len(tf.lines):
             raise PositionConversionFailedError(

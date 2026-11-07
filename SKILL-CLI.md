@@ -34,14 +34,14 @@ remedies live in the references, one read away.
 |---|---|---|
 | `add-project` | write | Register a project directory for semantic indexing ... |
 | `index-more` | write | Extend a project's indexed scope with another ... |
-| `reindex-project` | write | Force a full rebuild of a project's index (runs ... |
+| `reindex-project` | write | Force a full rebuild of a project's index ... |
 | `remove-project` | write | Deregister a project and DELETE its collection + ... |
 | `sweep-orphans` | write (with --apply) | Remove residue rows for files that are gone from ... |
 | `watch` | write | Optional long-lived watcher: inotify-based re-index ... |
 | `unwatch` | write | Stop the watcher started by `watch` — the reverse ... |
-| `index-status` | read | Report indexing state (idle \| indexing \| ... |
+| `index-status` | read | Report indexing state ... |
 | `list-projects` | read | List registered projects with per-project index ... |
-| `lookup-project` | read | Check whether a project is registered (no indexing ... |
+| `lookup-project` | read | Check whether a project is registered ... |
 | `doctor` | read | Health-check the installation: runtime versions, ... |
 
 **query.md** -- [flags and examples](skill/references/query.md)
@@ -54,7 +54,7 @@ remedies live in the references, one read away.
 | `outline` | read | One file: declarations, signatures, one-line ... |
 | `file-outline` | read | One file: declarations, signatures, one-line ... |
 | `find-symbol` | read | Look up symbols by name in the manifest symbol ... |
-| `find-definition` | read | Find where a symbol is declared (exact name match ... |
+| `find-definition` | read | Find where a symbol is declared ... |
 | `find-references` | read | Find references TO a symbol in the single reference ... |
 | `find-callers` | read | Who references this symbol: fan-in BFS over the ... |
 | `find-callees` | read | What this symbol references: fan-out BFS over the ... |
@@ -75,7 +75,6 @@ remedies live in the references, one read away.
 | `plan-validate` | read | Report each structural check of a plan |
 | `plan-show` | read | Print a plan, and with --diff the change it would ... |
 | `plan-apply` | write | Apply a plan through filekeeper and report what ... |
-
 <!-- generated:roster:end -->
 
 ## Exit codes

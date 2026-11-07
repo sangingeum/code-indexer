@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] -- the agent surface
+## [Unreleased] — the agent surface
 
 **The documentation an agent loads before it acts is now 118 lines, and the
 detail is read on demand.** `SKILL-CLI.md` was one 1090-line page (39,797

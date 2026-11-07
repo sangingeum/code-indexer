@@ -91,6 +91,19 @@ def _click_group():
     return typer_get_command(cli_mod.app)
 
 
+def _under_checkout(path: Path) -> str:
+    """A path as a drift message names it -- asserted, never raised.
+
+    ``relative_to`` raises ``ValueError`` when the path is not under the
+    checkout, so a rig pointed at a copy elsewhere would report a crash
+    instead of the drift it was asked about.
+    """
+    assert path.is_relative_to(REPO), (
+        f"{path} is outside the checkout {REPO}: these checks read the "
+        "tracked tree, so a copy elsewhere is not a tree they can judge")
+    return str(path.relative_to(REPO))
+
+
 def _walk(group, prefix: str = "") -> dict[str, object]:
     out: dict[str, object] = {}
     for name, cmd in group.commands.items():
@@ -404,7 +417,7 @@ def test_generated_blocks_match_the_generator():
         path = generator.GENERATED[key]
         text = path.read_text(encoding="utf-8")
         if _generated_body(text, key) != body:
-            drifted.append(f"{key} in {path.relative_to(REPO)}")
+            drifted.append(f"{key} in {_under_checkout(path)}")
     assert not drifted, (
         "generated blocks differ from scripts/generate_skill_docs.py output "
         f"(run it): {drifted}"
@@ -418,6 +431,14 @@ def test_generated_markers_are_balanced():
         begins = re.findall(r"<!-- generated:([a-z-]+):begin -->", text)
         ends = re.findall(r"<!-- generated:([a-z-]+):end -->", text)
         assert begins == ends, f"{path.name}: marker pairs are unbalanced ({begins} vs {ends})"
+
+
+def test_a_drift_path_outside_the_checkout_is_an_assertion_not_a_crash():
+    """The failure message must be buildable, or the check reports a crash."""
+    outside = REPO.parent / "elsewhere" / "SKILL-CLI.md"
+    with pytest.raises(AssertionError) as caught:
+        _under_checkout(outside)
+    assert "outside the checkout" in str(caught.value)
 
 
 EXTERNAL_FLAGS = {
