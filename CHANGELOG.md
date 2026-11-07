@@ -7,12 +7,16 @@ the symbol one way.** `--version` at the top level prints the installed
 package version on one line and exits 0, with no command and no project.
 `--format text|json` is accepted by every read command that took `--json`,
 and `--json` remains an EXACT alias of `--format json`: both spellings render
-the same bytes. Passing both is a usage error (`ArgumentError`, exit 2) rather
-than a silent precedence, so one invocation has one answer format; the one
-pre-existing combination this changes is `semantic-search --json --format X`,
-which used to let `--json` win and now refuses. `--format compact` is a
-one-line-per-record rendering built only from fields the text form already
-prints, on `overview`, `index-status`, `skeleton`, `outline`, `find-symbol`,
+the same bytes. Passing both is accepted when they agree -- `--json
+--format json` is the same answer asked twice and prints the same bytes as
+either alone -- and is a usage error (`ArgumentError`, exit 2) naming the
+contradiction when they name different formats, rather than a silent
+precedence. The one pre-existing combination this changes is `semantic-search
+--json --format text`, which used to let `--json` win and now refuses;
+`semantic-search --json --format json` keeps its answer. `--format compact` is
+a one-line-per-record rendering built only from fields the text form already
+prints, with compact's own normalized field names (`loc`, `directory`,
+`share`, `hotspot-fan-in`), on `overview`, `index-status`, `skeleton`, `outline`, `find-symbol`,
 `find-definition` and `semantic-search`; on every other read it is refused
 with exit 2 and a message naming `text|json`. `index-status` prints one line
 already, so its compact form is that line. `get-code-context`, `find-symbol`

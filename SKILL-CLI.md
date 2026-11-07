@@ -70,8 +70,8 @@ remedies live in the references, one read away.
 | Flag | Where | Meaning |
 |---|---|---|
 | `--version` | top level, no command | the installed package version, one line, exit 0 |
-| `--format text\|json` | every read command that takes `--json` | `--json` is the exact alias of `--format json`; passing both is exit 2 |
-| `--format compact` | `overview`, `index-status`, `skeleton`, `outline`, `find-symbol`, `find-definition`, `semantic-search` | one line per record, fields the text form already prints; refused elsewhere (exit 2) naming text\|json |
+| `--format text\|json` | every read command that takes `--json` | `--json` is the exact alias of `--format json`; the pair is accepted when it agrees (`--json --format json`) and is exit 2 when the two name different formats |
+| `--format compact` | `overview`, `index-status`, `skeleton`, `outline`, `find-symbol`, `find-definition`, `semantic-search` | one line per record built from normalized field names (`loc`, `directory`, `share`, `hotspot-fan-in`), not the text form's own labels; refused elsewhere (exit 2) naming text\|json |
 
 `get-code-context`, `find-symbol` and `find-definition` take the symbol as
 `--symbol <name>` beside `--project`; the positional NAME is its alias.

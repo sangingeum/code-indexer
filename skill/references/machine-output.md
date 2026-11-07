@@ -35,7 +35,9 @@ from a plan file and the live sources.
 
 `--format text|json` is on every read command that took `--json`, and
 `--json` is its exact alias: both spellings print the same bytes. Giving both
-is a usage error (`ArgumentError`, exit 2), never a silent precedence.
+is accepted when the two spellings agree -- `--json --format json` is the same
+answer asked twice -- and is a usage error (`ArgumentError`, exit 2) naming the
+contradiction when they name different formats: never a silent precedence.
 `--version` on the top level prints the installed package version on one line
 and exits 0; it needs no command and no project, and no subcommand's own
 options change. `--format compact` is described below.
@@ -60,6 +62,12 @@ Every other read command REFUSES `compact` with `ArgumentError`, exit 2, and
 a message naming `text|json`: the refusal is part of the contract, not a
 missing feature. `deps --format` is a separate flag (`tree|edges|json`) and
 keeps its meaning.
+
+Compact labels are normalized field names, not the text form's own spellings:
+`loc` prints as `LOC`, `directory` as `directories:`, `share` as `(100.0%)`,
+`hotspot-fan-in`/`hotspot-size` as `hotspots (fan-in):`/`hotspots (size):`,
+and `fan_in` has no separate text label. Same field, one spelling per form;
+no emitted label changes.
 
 ## The staleness block
 
