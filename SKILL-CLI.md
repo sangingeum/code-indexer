@@ -417,7 +417,11 @@ code-indexer plan-show sha256:<hex> --project P --diff
 - **`plan-show --diff` writes nothing** and prints every affected file with a
   unified diff computed from the plan plus the current bytes. Without `--diff`
   it prints the document as read, unknown members included: reading never
-  rewrites a plan, because a rewrite changes its hash.
+  rewrites a plan, because a rewrite changes its hash. Either way the plan's
+  own `plan_id` is recomputed from the document's canonical bytes and its
+  schema is checked first, so a tampered or structurally invalid plan is
+  refused here exactly as it is at validate and apply (`PlanHashMismatch` /
+  `PlanFormatError`, exit 2), never drawn as a diff.
 - **Ordering is part of the format**: within a file descending start line,
   across files ascending path. Adjacent edits are legal; overlapping edits are
   refused (`OverlappingEdits`, exit 2), two insertions at one point are refused
@@ -875,8 +879,9 @@ the command then answers normally.
 - **plan-show** — print the plan as read (unknown members preserved; reading
   never rewrites it), and with `--diff` print every affected file with the
   unified diff computed from the plan plus the current bytes. Writes nothing;
-  a stale file refuses rather than drawing a diff against bytes the plan
-  never saw.
+  the document's own hash and schema are verified first, so a tampered plan is
+  refused rather than drawn, and a stale file refuses rather than drawing a
+  diff against bytes the plan never saw.
 - **plan-apply** — apply the plan's edits through filekeeper and report every
   file. `--dry-run` runs the same pre-pass and the same report and writes
   nothing at all; the keeper `--dry-run` goes to every call. It is a write

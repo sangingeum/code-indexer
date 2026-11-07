@@ -844,6 +844,20 @@ def _check_plan_hash(document: dict[str, Any], requested: str | None) -> str:
     return f"{declared} recomputed from the document's canonical bytes"
 
 
+def verify_document(document: dict[str, Any],
+                    requested: str | None = None) -> None:
+    """The two checks every plan reader owes before it reads anything else.
+
+    A plan's identity is its canonical bytes, so a reader that skips the hash
+    believes a file name: the preview path would draw a tampered document that
+    ``plan-validate`` and ``plan-apply`` both refuse. The schema runs first so
+    a document that is not a plan at all is refused in the format's own
+    vocabulary rather than raising somewhere further down.
+    """
+    _check_schema(document)
+    _check_plan_hash(document, requested)
+
+
 def _check_paths(document: dict[str, Any], root: str) -> str:
     seen = set()
     for record in document["files"]:
@@ -1167,13 +1181,17 @@ def apply_in_memory(tf: TextFile, edits: list[dict[str, Any]]) -> list[str]:
     return lines
 
 
-def preview(document: dict[str, Any], root: str) -> list[dict[str, str]]:
+def preview(document: dict[str, Any], root: str,
+            requested: str | None = None) -> list[dict[str, str]]:
     """Every affected file and its unified diff, computed and never written.
 
-    The file preconditions run first: a diff against bytes the plan did not
-    see would be a picture of a different tree, so a stale file is refused
-    rather than previewed.
+    The document's own identity and schema are verified first, then the file
+    preconditions: a diff against bytes the plan did not see would be a
+    picture of a different tree, so a stale file is refused rather than
+    previewed, and a plan that fails its own hash is refused rather than
+    drawn.
     """
+    verify_document(document, requested)
     files = _load_files(document, root)
     _check_file_preconditions(document, files)
     out: list[dict[str, str]] = []

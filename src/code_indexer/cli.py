@@ -2591,7 +2591,9 @@ def plan_show(
 
     Without --diff the document prints as it was read, optional and unknown
     members included -- reading never rewrites a plan, because rewriting it
-    would change its hash. With --diff every affected file prints with a
+    would change its hash. Either way the document's own hash and schema are
+    verified first, so a tampered plan is refused here exactly as it is at
+    validate and apply. With --diff every affected file prints with a
     unified diff computed from the plan plus the current bytes; the file
     preconditions run first, so a stale plan is refused rather than drawn
     against bytes it never saw.
@@ -2602,8 +2604,9 @@ def plan_show(
         requested, path = plans.resolve_ref(ref, _plan_dir(entry, plan_dir),
                                             entry.path)
         document = plans.load_plan(path)
+        plans.verify_document(document, requested)
         if diff:
-            hunks = plans.preview(document, entry.path)
+            hunks = plans.preview(document, entry.path, requested)
     except IndexerError as exc:
         _json_failure(exc, json_output)
         return

@@ -881,3 +881,65 @@ def test_show_json_carries_the_document_and_the_diff(plan_rig):
     assert "+    return 41" in payload["diff"][0]["diff"]
 
 
+def test_show_diff_refuses_a_document_that_fails_its_own_hash(plan_rig):
+    """A tampered document is refused by the preview, not drawn from it.
+
+    The member that changed sits inside the canonical bytes, so the document
+    no longer hashes to the plan_id it carries and the file name it sits under
+    is a claim the content does not meet. plan-validate already refuses this;
+    the preview path must answer the same way, because a diff from a document
+    the apply path would refuse is a picture of a different plan.
+    """
+    path = _prepare(plan_rig)
+    document = plans.load_plan(path)
+    tampered = dict(document)
+    tampered["created_at"] = "2000-01-01T00:00:00Z"
+    with open(path, "wb") as handle:
+        handle.write(plans.canonical_bytes(tampered))
+    result = runner.invoke(app, ["plan-show", document["plan_id"],
+                                 "--project", "plansample", "--diff"])
+    assert result.exit_code == EXIT_USAGE
+    assert "PlanHashMismatch" in result.stderr
+    assert "a plan rewritten after sealing is refused" in result.stderr
+    assert "+++ b/mod.py" not in result.stdout
+
+
+def test_show_refuses_a_reference_that_disagrees_with_the_file(plan_rig):
+    """A sha256 reference pointing at other content is a hash mismatch.
+
+    ADR-0004 section 1: a path whose content hash differs from the requested
+    hash is refused. The reference names a file that exists and holds a plan;
+    only its bytes disagree, which is exactly the hand-edited case.
+    """
+    path = _prepare(plan_rig)
+    other = "sha256:" + "3" * 64
+    os.rename(path, os.path.join(plan_rig.plan_dir, "3" * 64 + ".json"))
+    result = runner.invoke(app, ["plan-show", other,
+                                 "--project", "plansample"])
+    assert result.exit_code == EXIT_USAGE
+    assert "PlanHashMismatch" in result.stderr
+    assert "the reference names" in result.stderr
+
+
+def test_show_refuses_a_structurally_invalid_plan_in_the_format_taxonomy(
+        plan_rig):
+    """A broken document is a plan-format refusal, never an internal error.
+
+    A plan missing files[] reached the preview as a KeyError before the schema
+    was checked, so a user's bad plan file surfaced as an unclassified
+    failure. It must surface as PlanFormatError, with the member named.
+    """
+    path = _prepare(plan_rig)
+    document = plans.load_plan(path)
+    broken = {key: value for key, value in document.items() if key != "files"}
+    with open(path, "wb") as handle:
+        handle.write(plans.canonical_bytes(plans.seal(broken)))
+    result = runner.invoke(app, ["plan-show", path, "--project", "plansample",
+                                 "--diff", "--json"])
+    assert result.exit_code == EXIT_USAGE
+    payload = json.loads(result.stdout)
+    assert payload["ErrorType"] == "PlanFormatError"
+    assert "files" in payload["error"]
+    assert "InternalError" not in result.stdout
+
+
