@@ -348,8 +348,22 @@ $ git ls-remote origin main                    → 055e6359b9a25b37a6344cc636e54
 $ gh run list --limit 3                        → 42316453782 055e635 ci completed success
 ```
 
-The gate's own push and the CI run it starts are reported to the dispatcher;
-the commit that carries this record is signed and lands on `origin main`.
+The gate's own push and the run it started, watched to completion
+(`gh run watch <id> --exit-status`, capture
+`runs/round4-gate/ci-push.txt`):
+
+```
+$ git push origin main        → 055e635..30b0f2f  main -> main
+$ git log -1 --format='%h %G?' → 30b0f2f G
+$ git ls-remote origin main    → 30b0f2f1197466dbb92b4019fe95acc1937d5ef4
+$ gh run watch 42317649083 --exit-status → exit 0
+    42317649083 30b0f2f ci completed success
+    test in 1m15s: ruff clean, offline suite green
+$ publishing hygiene (whole tracked tree, this record included)
+    scanned=741 skipped=0 violations=0
+```
+
+A gate that leaves CI red is not a green gate; this one did not.
 
 ## Findings
 
