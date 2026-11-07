@@ -154,9 +154,11 @@ def _echo_index_result(slug: str, result: dict) -> None:
 
 SkipOpt = typer.Option(
     False, "--skip-stale-check",
-    help="Accepted on every command and INERT: reads never index, so there "
-         "is nothing to skip. Reporting staleness without repairing it is "
-         "the default; use --refresh to repair.")
+    help="Accepted on the read commands and INERT there: reads never index, "
+         "so there is nothing to skip. Reporting staleness without repairing "
+         "it is the default; use --refresh to repair. plan-apply refuses it "
+         "(ArgumentError, exit 2): a plan's staleness is not skippable when a "
+         "source file is about to be written.")
 VectorsOpt = typer.Option(
     "auto", "--vectors",
     help="Vector side: auto (the project's recorded mode) | on (embed and "

@@ -1022,9 +1022,11 @@ receiver for refs.
 
 ## Key rules
 
-- `--skip-stale-check` is accepted by every command and is **inert**:
-  reads never index, so the default is to REPORT staleness without repairing
-  it (see "Commands" and "Staleness, refresh and exit codes"). `--refresh`
+- `--skip-stale-check` is accepted by the read commands and is **inert**
+  there: reads never index, so the default is to REPORT staleness without
+  repairing it (see "Commands" and "Staleness, refresh and exit codes").
+  `plan-apply`, which writes, refuses the flag (`ArgumentError`, exit 2).
+  `--refresh`
   is the only flag that turns a read into a write: it takes the per-project
   flock, runs one incremental pass and answers from the result; a held lock
   is `LockedError` with exit 5. `--fresh` is accepted on the seven commands
