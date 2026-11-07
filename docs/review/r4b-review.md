@@ -248,3 +248,7 @@ passed, exit 0), `capture.sh` / `capture2.sh` / `capture3.sh` with
 `captures/mutation-*.log` for the three worktree runs. Host paths in those
 captures are redacted to `<checkout>` and `<scratch>`; the evidence directory
 is not committed.
+
+> Evidence note: `runs/` is kept in the working checkout and is not
+> published. A `runs/...` path cited here names a local artifact, not a
+> link a reader can open.

@@ -11,22 +11,25 @@ Semantic code index over Ollama embeddings + Qdrant, exposed as a one-shot CLI
   mechanical form of the publishing rules. It scans every tracked path
   (`git ls-files`; untracked local evidence is out of scope by design) and
   reports `path:line: class: detail` per violation, then
-  `scanned=/skipped=/violations=`. Three classes: `absolute-host-path` (a
+  `scanned=/skipped=/violations=`. Four classes: `absolute-host-path` (a
   machine path is never publishable, capture data included; a short allow-list
   of synthetic fixture accounts is exempt, and so is pattern text — a segment
   beginning with `[`, `{` or `<`, the last because angle brackets are this
-  house's published spelling for host-specific text), and — in authored
-  surfaces only, meaning every tracked file **except** capture data —
-  `internal-profile-name` (held as sha256 digests; `--hash-name NAME` prints one
-  to add) and `board-card-id`. Capture data is a file under `runs/` with a
-  `.json`, `.txt`, `.log`, `.err`, `.out` or `.jsonl` suffix: it keeps its
-  payload because it is quoted evidence about another repository. A record
-  `.md` under `runs/` is therefore authored and governed. **A capture about
-  this repository is not exempt in spirit:** the exemption exists because the
-  payload is somebody else's data, so a capture that quotes this repo's own
-  removed text must mask the token itself (`<role>`, `<card-id>`, `<repo>`)
-  before it is committed; the raw capture stays local. `--paths P…` scans
-  explicit paths. Offline test: `tests/test_publishing_hygiene.py`.
+  house's published spelling for host-specific text); `internal-profile-path`
+  (`.hermes/profiles/<name>` in **every** tracked file, because a quoted
+  traceback carries the directory it ran under and a name in a path discloses
+  what a name in prose does); and — in authored surfaces only, meaning every
+  tracked file **except** capture data — `internal-profile-name` (held as
+  sha256 digests; `--hash-name NAME` prints one to add) and `board-card-id`.
+  Capture data is a file under `runs/` with a `.json`, `.txt`, `.log`, `.err`,
+  `.out` or `.jsonl` suffix: it keeps its payload because it is quoted evidence
+  about another repository. A record `.md` under `runs/` is therefore authored
+  and governed. **`runs/` is not tracked and never published** (owner decision
+  2026-11-07): round captures, gate output and command logs live in the working
+  checkout only, and a document that cites a `runs/...` path names a local
+  artifact rather than a link a reader can open. The capture classes stay in
+  the lint as a guard for any tracked capture that reappears. `--paths P…`
+  scans explicit paths. Offline test: `tests/test_publishing_hygiene.py`.
 - Pre-commit hook: `.githooks/pre-commit` runs the same check over the staged
   files and blocks the commit on a violation. Activate it in a clone with
   `git config core.hooksPath .githooks`. It is the opt-in local early warning,

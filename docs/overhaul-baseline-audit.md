@@ -787,5 +787,6 @@ with the gate's finding label:
 
 No other number moved; the gate reproduced the rest to the digit.
 
-
-
+> Evidence note: `runs/` is kept in the working checkout and is not
+> published. A `runs/...` path cited here names a local artifact, not a
+> link a reader can open.

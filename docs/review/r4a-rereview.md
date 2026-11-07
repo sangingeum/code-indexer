@@ -217,3 +217,7 @@ Nothing in this record asks for another fold. The published chain is
 `974f0ed` (fold tip) plus this leg's commits: the record repair, this
 re-review, and the one-line correction that followed this record becoming
 tracked (see the commit that names the release step). All are signed.
+
+> Evidence note: `runs/` is kept in the working checkout and is not
+> published. A `runs/...` path cited here names a local artifact, not a
+> link a reader can open.

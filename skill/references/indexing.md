@@ -309,11 +309,11 @@ binaries are skipped. The skip counts are reported by `index-status`.
 `.gitignore` and `.codeindexignore` answer different questions, so a tree can
 appear in one and not the other. Git decides what is committed; the index
 decides what is searchable. This repository excludes two non-source trees from
-the index in the root `.codeindexignore`, and keeps both in git: `runs/`
-(captured round records, gate output and command logs, committed on
-purpose) and `eval/` (the retrieval corpus, whose lines are questions
+the index in the root `.codeindexignore`: `runs/` (round captures, gate output
+and command logs, kept in the working checkout and no longer tracked) and
+`eval/` (the retrieval corpus, whose lines are questions
 shaped like the ones users type, so indexing them ranks near-duplicate queries
-above the code they point at). The patterns are anchored to the repository
+above the code they point at; this one stays tracked). The patterns are anchored to the repository
 root (`/runs/`, `/eval/`), so a same-named directory under `src/` stays
 indexed. The exclusion governs scans: rows already in a manifest are dropped
 by a reindex of the project, not by the file.

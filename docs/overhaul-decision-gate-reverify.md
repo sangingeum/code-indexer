@@ -437,3 +437,7 @@ so they are not lost.
 Nothing about the records or the plan: it does not edit them, does not choose a fix, and
 does not ratify. Its verdicts concern only the eighteen items the fold was asked to
 close, at the tip named at the top.
+
+> Evidence note: `runs/` is kept in the working checkout and is not
+> published. A `runs/...` path cited here names a local artifact, not a
+> link a reader can open.

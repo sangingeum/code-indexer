@@ -29,6 +29,14 @@ the alias of `--symbol`. No manifest schema change, no `EXTRACTION_VERSION`
 change, no reindex, and every invocation that worked keeps its answer except the
 one combination named above.
 
+**Round captures leave the publishing surface.** `runs/` is no longer tracked:
+the captures, gate output and command logs stay in the working checkout, and
+`.gitignore` keeps them out of `git status`. Documents that cite a `runs/...`
+path now say in one line that the artifact is local rather than linkable. The
+capture sanitiser moved to `scripts/publish_sanitize_capture.py`, because a
+test depended on it and it is a tool, not evidence. `eval/queries.jsonl` stays
+tracked: it is the corpus the evaluation harness reads.
+
 **The publishing check now governs captures for the profile-path shape.** A
 quoted traceback carries the directory it ran under, so a capture under `runs/`
 can disclose the household profile path while every authored document is

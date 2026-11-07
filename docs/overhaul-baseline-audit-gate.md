@@ -394,3 +394,7 @@ MCP byte count) diverge in ways that do not change the architectural
 conclusion they support, and both are recorded above with their measurements.
 The one flatly wrong statement is the seam-module count (F3), and the one
 under-stated consequence is the unscoped failure cost (F5).
+
+> Evidence note: `runs/` is kept in the working checkout and is not
+> published. A `runs/...` path cited here names a local artifact, not a
+> link a reader can open.

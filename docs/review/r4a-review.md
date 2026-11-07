@@ -299,3 +299,7 @@ record and were not re-run. I did not review `runs/` documentation edits for
 style beyond the claims they make, and I did not audit the pre-existing
 sensitive detector's own coverage (secret patterns, prefix limit) — that is
 upstream of this round.
+
+> Evidence note: `runs/` is kept in the working checkout and is not
+> published. A `runs/...` path cited here names a local artifact, not a
+> link a reader can open.

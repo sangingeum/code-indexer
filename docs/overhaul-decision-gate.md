@@ -435,3 +435,7 @@ are not in the published tree.
 Nothing about the records or the plan. It does not edit them, does not choose between the two
 sides of any contradiction, does not ratify, and does not schedule a fix round. The findings
 above are for the fixer to route; a FAIL here is a finding with both sides quoted, not a rewrite.
+
+> Evidence note: `runs/` is kept in the working checkout and is not
+> published. A `runs/...` path cited here names a local artifact, not a
+> link a reader can open.
