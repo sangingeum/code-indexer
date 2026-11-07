@@ -1,0 +1,15 @@
+$ uv run python runs/round4-review/show_reference_hash.py
+ref offered      : sha256:3e4b32ded154edd90a0008bf68f24750f4ae7add27ab7ef67e0b1321de46ce54
+file name behind : 3e4b32ded154edd90a0008bf68f24750f4ae7add27ab7ef67e0b1321de46ce54.json
+content hashes to: sha256:c050943a983f3885d0a98ff9574f282f406d1b63437df75220509e343de6fd0c
+plan-validate   : passed=False
+plan-show --diff: ACCEPTED, diff bytes=108
+
+$ uv run python runs/round4-review/partial_file_report.py
+exit_code      : 1
+ErrorType      : PartialApply
+partial        : False
+operations     : ['op_00000000001001']
+file status    : failed
+file bytes now : 'def one():\n    return 1\n\n\ndef two():\n    return 22\n'
+stderr first   : PartialApply: mod.py: keeper refused the edit (INVALID_ARGUMENT): the stub keeper was told to fail this mutation; 1 operation(s) had already run and stay writte
