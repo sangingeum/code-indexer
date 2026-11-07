@@ -35,6 +35,7 @@ RECEIPTS_DIR = ".code-indexer/receipts"
 APPLIED = "applied"
 WOULD_APPLY = "would_apply"
 FAILED = "failed"
+PARTIALLY_APPLIED = "partially_applied"
 NOT_ATTEMPTED = "not_attempted"
 
 PARSE_CAVEAT = (
@@ -104,11 +105,16 @@ class Application:
 
     @property
     def partial(self) -> bool:
-        """True when a failure left some files written and some not."""
+        """True when a failure left bytes written and the plan incomplete.
+
+        Read from the operations, not from the file statuses: a file whose
+        first edit landed and whose second was refused WAS written, and a
+        count of per-file statuses cannot say so. A dry run writes nothing,
+        so it has no operations and is never partial.
+        """
         if self.error is None:
             return False
-        written = sum(1 for item in self.files if item.status == APPLIED)
-        return 0 < written < len(self.files)
+        return bool(self.operations)
 
     @property
     def exit_code(self) -> int:
@@ -156,6 +162,12 @@ class Application:
             APPLIED, WOULD_APPLY))
         lines.append(f"{written} of {len(self.files)} file(s) "
                      + ("would apply" if self.dry_run else "applied"))
+        for item in self.files:
+            if item.status != PARTIALLY_APPLIED:
+                continue
+            landed = [edit for edit in item.edits if edit.operation_id]
+            lines.append(f"{len(landed)} of {len(item.edits)} edit(s) in "
+                         f"{item.path} landed; the rest were refused")
         lines.append(f"partial: {str(self.partial).lower()}")
         if self.operations:
             lines.append("recovery (undo in reverse order):")
@@ -398,7 +410,9 @@ def apply_plan(document: dict[str, Any], root: str, keeper, *,
                     application.operations.append(envelope.operation_id)
                 current[path] = envelope.after_hash or current[path]
             continue
-        outcome.status = FAILED
+        outcome.status = (
+            PARTIALLY_APPLIED
+            if any(item.operation_id for item in outcome.edits) else FAILED)
         edit_record.error_code = envelope.error_code
         edit_record.error_message = envelope.error_message
         application.error = _refusal(envelope, path, applied_edits)

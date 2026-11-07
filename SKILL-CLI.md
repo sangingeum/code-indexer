@@ -461,8 +461,12 @@ What a caller may assume, and nothing more:
 4. **No promise across files.** A failure stops the run: no further file is
    attempted and no compensating write is issued, because an undo is most
    likely to be refused just after a failure. The report says which files were
-   `applied`, which `would_apply`, which `failed` and which are
-   `not_attempted`, and names the keeper code and message for the failure.
+   `applied`, which `would_apply`, which `partially_applied` (some of that
+   file's edits landed, then one was refused -- the landed edits are named by
+   their operation ids), which `failed` and which are `not_attempted`, and
+   names the keeper code and message for the failure. `partial` is true
+   whenever an operation ran, so a half-written file is never reported as an
+   unchanged one.
 
 Exit codes: a pre-pass refusal is 5 `PlanStale` and is not a partial apply; a
 mid-loop failure is 1 `PartialApply` with the report on stdout once anything

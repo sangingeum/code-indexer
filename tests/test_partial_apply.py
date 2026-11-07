@@ -215,3 +215,74 @@ def test_the_ordered_operation_ids_are_the_recovery_reference(rig,
         == receipt["operations"]
     for command in receipt["undo"]:
         assert command.startswith("keeper history undo op_")
+
+
+# ---------------------------------------------------------------------------
+# one file, two edits, the second refused: a half-written file is partial
+# ---------------------------------------------------------------------------
+
+PAIR = "def one():\n    return 1\n\n\ndef two():\n    return 2\n"
+
+
+@pytest.fixture()
+def pair_rig(tmp_path, monkeypatch):
+    """One file carrying two declarations, so a plan can hold two of its edits."""
+    built = apply_rig.build(tmp_path, monkeypatch, {"mod.py": PAIR})
+    yield built
+    built.registry.close()
+    import code_indexer.cli as cli
+
+    cli._core = None
+    cli._core_skip = False
+
+
+def two_edit_plan(rig) -> str:
+    """Two edits on one file; the format applies the later line first."""
+    return apply_rig.plan_replacing(
+        rig, [("mod.py", "two", "    return 22"),
+              ("mod.py", "one", "    return 11")])
+
+
+def test_two_edits_on_one_file_second_refused_is_partial_and_named(
+        pair_rig, monkeypatch):
+    """The report says partial, names the landed edit, and keeps one record.
+
+    The first edit's bytes are on disk and one keeper operation exists when
+    the second is refused. `partial` is the documented answer to "did anything
+    get written", so it must be true here; a status of `failed` alone cannot
+    express a file whose first edit landed, and a per-file record count must
+    stay at one for a file named once.
+    """
+    plan_path = two_edit_plan(pair_rig)
+    monkeypatch.setenv("STUB_KEEPER_FAIL_AT", "2")
+    result = run(pair_rig, plan_path, "--json")
+    assert result.exit_code == EXIT_FAIL
+    payload = json.loads(result.stdout)
+    assert payload["ErrorType"] == "PartialApply"
+    assert payload["partial"] is True
+    assert [item["path"] for item in payload["files"]] == ["mod.py"]
+    record = payload["files"][0]
+    assert record["status"] == "partially_applied"
+    landed = [edit for edit in record["edits"] if edit["operation_id"]]
+    refused = [edit for edit in record["edits"] if edit.get("error_code")]
+    assert len(landed) == 1 and landed[0]["start_line"] == 6
+    assert len(refused) == 1 and refused[0]["start_line"] == 2
+    assert payload["operations"] == [landed[0]["operation_id"]]
+    assert payload["undo"] == [
+        f"keeper history undo {landed[0]['operation_id']}"]
+    # The bytes: the landed edit is written, the refused one is untouched.
+    assert "return 22" in pair_rig.read("mod.py")
+    assert "    return 1\n" in pair_rig.read("mod.py")
+
+
+def test_the_text_report_states_how_many_edits_of_the_file_landed(
+        pair_rig, monkeypatch):
+    plan_path = two_edit_plan(pair_rig)
+    monkeypatch.setenv("STUB_KEEPER_FAIL_AT", "2")
+    result = run(pair_rig, plan_path)
+    assert result.exit_code == EXIT_FAIL
+    assert "mod.py: partially_applied" in result.stdout
+    assert "1 of 2 edit(s) in mod.py landed; the rest were refused" \
+        in result.stdout
+    assert "partial: true" in result.stdout
+    assert "keeper history undo op_" in result.stdout

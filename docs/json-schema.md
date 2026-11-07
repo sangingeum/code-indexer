@@ -455,7 +455,7 @@ headers.
               "basis": ["file_hash", "decl_hash", "region_hash"]},
  "dry_run": bool, "partial": bool,
  "files": [{"path": str,
-            "status": "applied|would_apply|failed|not_attempted",
+            "status": "applied|would_apply|partially_applied|failed|not_attempted",
             "edits": [{"kind": str, "start_line": int|null,
                        "end_line": int|null, "position": str,
                        "operation_id": str|null,
@@ -482,7 +482,11 @@ were actually modified (empty under `--dry-run`), and `lines` is non-empty
 only for `parse_error`. `refresh` is `skipped`, `ran`, or `failed (...)` — it
 says which happened rather than assuming one.
 
-`partial` is `true` only when a failure left some files written and some not.
+`partial` is `true` whenever an operation ran -- a failure that left bytes
+written, whether in earlier files or earlier edits of the same file. A file
+takes `status: partially_applied` when some of its edits landed and a later
+one was refused; its `edits` name the ones that landed by `operation_id`, so
+the report says which edit was written, not just that the file is `failed`.
 The last three members appear only when the run failed, and the exit code is
 the taxonomy's: 5 for a stale pre-pass or a keeper 5, 1 for `PartialApply`
 (something was written) or `KeeperFailure` (nothing was), 3 for
