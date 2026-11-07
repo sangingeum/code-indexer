@@ -31,7 +31,7 @@ The roster is closed and complete for the whole set: the twenty-seven commands t
 ### 2. What "stale" means
 
 - Every read answer describes the index as of `meta.last_indexed`, never the working tree. There is no implicit convergence.
-- Detection compares the indexed path set and each file's stat identity (`size`, `mtime_ns`, `inode`, all already on `files`) against the tree, using the scanner's existing include and exclude rules and stat calls only; content is hashed only for files whose stat changed. No service is contacted, and the walk has its own budget so that a very large tree degrades to `unknown` rather than to a long silence.
+- Detection compares the indexed path set and each file's stat identity (`size`, `mtime_ns`, `inode`, all already on `files`) against the tree, using the scanner's existing include and exclude rules. A scanned path with no indexed row is passed to the same sensitive detector the index pass applies, which reads a bounded content prefix (256 KiB per file, 8 MiB per verdict, debited by bytes actually read); no other content is read, content is hashed only for files whose stat changed, and no service is contacted. The walk has its own budget so that a very large tree degrades to `unknown` rather than to a long silence.
 - Three verdicts, never a boolean guess: `fresh` (nothing differs), `stale` (with reasons), `unknown` (the check could not run -- project path absent, or the scan exceeded its budget). `unknown` is not `fresh`.
 
 ### 3. How staleness is reported
@@ -46,6 +46,12 @@ JSON, on every read command's answer -- in the commands that have a JSON mode to
 | `stale_reason_count` | total count before the cap |
 | `index_revision` | the revision the answer was read from |
 | `last_indexed` | the timestamp of the pass that wrote it |
+| `withheld_count` | files the sensitive layer withholds from this index: reported beside the verdict, never a stale reason |
+| `withheld_files` | list of `{file, reason}` for those paths, capped at five; the path and the reason, never the material |
+| `withheld_summary` | one line naming the withheld count and its reason categories |
+| `withheld_unexamined_count` | paths the bounded re-check could not examine because its budget ran out; each stays an `added` reason that says nothing about its content |
+
+A withheld file is reported beside the verdict, not as one of its reasons: `stale: false` with a non-zero `withheld_count` means that nothing in the tree differs from the index, not that nothing was withheld from it. The override that admits sensitive material to the index (`--allow-sensitive`) is honoured by the check as well: with it set, a rowless path is an ordinary `added` reason, because that is what the next pass will do.
 
 Text mode prints exactly one stderr line and nothing on stdout: `Warning: index is stale (3 files changed since 2026-11-06T22:10:00Z: 2 modified, 1 deleted); answers describe the index, not the tree. Refresh: code-indexer reindex-project <path>`. A fresh answer prints nothing extra; an `unknown` answer prints one line saying the check did not run.
 

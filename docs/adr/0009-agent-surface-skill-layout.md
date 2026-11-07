@@ -42,12 +42,13 @@ One file per concern, under `skill/references/`, each addressed by a trigger nam
 | Reference | Contents | Trigger in the entry document |
 |---|---|---|
 | `indexing.md` | `add-project`, `index-more`, `remove-project`, `reindex-project`, `sweep-orphans`, `watch`, `unwatch`, and the project-state surfaces `index-status`, `list-projects`, `lookup-project`, `doctor`: flags, defaults, two examples each, what each writes | the task is to build or repair an index, or to ask what state one is in |
-| `query.md` | `overview`, `skeleton`, `outline`, `find-*`, `get-code-context`, `deps`, `changed-symbols`, `map`, `file-outline`, plus `semantic-search` and the retrieval-quality surfaces `eval` and `eval-compare`: flags, defaults, examples | a query answered the wrong shape and its flags need reading |
+| `query.md` | `overview`, `skeleton`, `outline`, `find-*`, `get-code-context`, `deps`, `changed-symbols`, `map`, `file-outline`: flags, defaults, examples | a query answered the wrong shape and its flags need reading |
+| `semantic.md` | `semantic-search` and the retrieval-quality surfaces `eval` and `eval-compare`: modes, flags, defaults, examples, and the ordering policy every ranked surface shares | a question is asked in words rather than as a name, or an answer's order needs reading |
 | `plans.md` | the six plan commands, the plan document's members, validation, preview, apply, the receipt and recovery | the task is to change code through a plan |
 | `machine-output.md` | `--json` shapes, schema versions, the staleness block, one `jq` recipe per shape | an agent parses output instead of reading prose |
 | `failures.md` | every exit code with its `ErrorType`s, the cause and the remedy for each | a command failed and the remedy is not obvious from its line |
 
-The two per-command references together cover every registered command: a command whose flags have no home is a defect in this table, not a command the split drops, and check 2 in section 5 fails on one.
+The per-command references together cover every registered command: a command whose flags have no home is a defect in this table, not a command the split drops, and check 2 in section 5 fails on one. The set is six files as of the owner's 2026-11-07 ruling that split the semantic surface out of `query.md` at its concern boundary: `query.md` reached its 400-line budget and this record's own rule (section 2, and the closing note on splitting) says a reference that outgrows it is split, not exempted.
 
 Budget per reference: 400 lines and 24 KiB. Each reference opens with the records that govern it (ADR numbers as provenance), because a reference that restates a decision without saying where it is decided cannot be corrected when the decision changes.
 
