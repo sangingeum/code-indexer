@@ -17,6 +17,14 @@ A file the sensitive layer withholds is NOT a fourth verdict and NOT a stale
 reason: the index pass drops it deliberately, so the diff re-applies the same
 detector to the scanned paths it cannot find and reports them beside the
 verdict as ``withheld`` (path + reason only, never the material).
+
+A rowless scanned path the check cannot OPEN (permissions, a broken symlink
+target, an I/O error) is the same kind of fact and gets the same treatment:
+it is reported beside the verdict as ``unreadable``, never as an ``added``
+reason. ``added`` says "this path is not in the index" and nothing more, but
+an unreadable path also says the check could not look at it -- a condition no
+reindex can clear, so folding it into the stale banner would never let the
+banner go quiet.
 """
 
 from __future__ import annotations
@@ -79,13 +87,30 @@ class WithheldFile:
 
 
 @dataclass(frozen=True)
+class UnreadableFile:
+    """A scanned path with no row whose prefix the check could not open.
+
+    ``file`` is the path. There is no reason field beyond the read failure
+    itself: the check knows only THAT it could not read the file, and says so
+    rather than guessing between permission, a broken link and an I/O error.
+    """
+
+    file: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {"file": self.file}
+
+
+@dataclass(frozen=True)
 class StalenessVerdict:
     """One project's verdict. ``detail`` explains an ``unknown``.
 
     ``withheld`` names the scanned paths the sensitive layer withholds (no
-    row, and not a stale reason); ``unexamined_count`` names the rowless paths
-    the re-check's budget never reached, which stay ordinary ``added``
-    reasons.
+    row, and not a stale reason); ``unreadable`` names the rowless scanned
+    paths the check could not open -- also not a stale reason, because the
+    condition is about the check, not about the tree. ``unexamined_count``
+    names the rowless paths the re-check's budget never reached, which stay
+    ordinary ``added`` reasons.
     """
 
     state: str
@@ -93,6 +118,8 @@ class StalenessVerdict:
     reason_count: int = 0
     withheld: tuple[WithheldFile, ...] = ()
     withheld_count: int = 0
+    unreadable: tuple[UnreadableFile, ...] = ()
+    unreadable_count: int = 0
     unexamined_count: int = 0
     last_indexed: str | None = None
     index_revision: str | None = None
@@ -130,9 +157,11 @@ def detect(indexed: Mapping[str, Any], scanned: Iterable[Any], *,
     NOT reported: nothing a reader can observe changed.
 
     A scanned path with no manifest row is a withheld file when the same
-    detector the pass applied still withholds it; only the rest become
-    ``added`` reasons. That keeps a deliberately withheld file out of the stale
-    banner without making a genuinely new file invisible.
+    detector the pass applied still withholds it, and an ``unreadable`` path
+    when the check cannot open it at all; only the rest become ``added``
+    reasons. That keeps a deliberately withheld file out of the stale banner
+    without making a genuinely new file invisible, and keeps a file no
+    reindex could read from leaving a banner nothing can clear.
 
     ``allow_sensitive`` mirrors the project's override: when the pass will
     index a sensitive file, the diff withholds nothing and every rowless
@@ -140,7 +169,7 @@ def detect(indexed: Mapping[str, Any], scanned: Iterable[Any], *,
     """
     tree = {f.path: f for f in scanned}
     reasons: list[Reason] = []
-    withheld, added, unexamined = _classify_withheld(
+    withheld, unreadable, added, unexamined = _classify_withheld(
         [tree[path] for path in sorted(set(tree) - set(indexed))],
         allow_sensitive=allow_sensitive)
     for path in added:
@@ -156,6 +185,8 @@ def detect(indexed: Mapping[str, Any], scanned: Iterable[Any], *,
                             reason_count=len(reasons),
                             withheld=tuple(withheld),
                             withheld_count=len(withheld),
+                            unreadable=tuple(unreadable),
+                            unreadable_count=len(unreadable),
                             unexamined_count=unexamined,
                             last_indexed=last_indexed,
                             index_revision=index_revision)
@@ -163,13 +194,19 @@ def detect(indexed: Mapping[str, Any], scanned: Iterable[Any], *,
 
 def _classify_withheld(candidates: list[Any], *,
                        allow_sensitive: bool = False,
-                       ) -> tuple[list[WithheldFile], list[str], int]:
-    """Split scanned-but-unindexed paths into withheld files and real adds.
+                       ) -> tuple[list[WithheldFile], list[UnreadableFile],
+                                  list[str], int]:
+    """Split scanned-but-unindexed paths into withheld, unreadable and real adds.
 
     The pass drops a sensitive file without writing a row, so the diff
     re-applies the SAME decision function to the paths it cannot explain --
     ``sensitive.skip_verdict``, composed once for both sides. The verdict
     carries the path and the layer that fired — never the material.
+
+    A candidate the check cannot OPEN (permission, a broken symlink target, an
+    I/O error) is returned as unreadable: the check could not look at it, which
+    is neither a privacy skip nor an ``added`` reason that a reindex could
+    clear.
 
     With ``allow_sensitive`` set the pass withholds nothing, so this classifies
     nothing: every candidate is an ``added`` reason, which is exactly what the
@@ -183,8 +220,9 @@ def _classify_withheld(candidates: list[Any], *,
     re-applied is conservative and honest; reporting it fresh would not be.
     """
     if allow_sensitive:
-        return [], [f.path for f in candidates], 0
+        return [], [], [f.path for f in candidates], 0
     withheld: list[WithheldFile] = []
+    unreadable: list[UnreadableFile] = []
     added: list[str] = []
     unexamined = 0
     budget = SENSITIVE_RECHECK_BYTES
@@ -201,7 +239,9 @@ def _classify_withheld(candidates: list[Any], *,
             with open(f.abs_path, encoding="utf-8", errors="replace") as fh:
                 text = fh.read(SENSITIVE_READ_CHARS)
         except OSError:
-            added.append(f.path)
+            # The path is in the scan and could not be opened now: the state
+            # is that the check could not read it, not that it is new.
+            unreadable.append(UnreadableFile(f.path))
             continue
         budget -= len(text.encode("utf-8", "replace"))
         verdict = skip_verdict(f.path, text)
@@ -209,7 +249,20 @@ def _classify_withheld(candidates: list[Any], *,
             withheld.append(WithheldFile(f.path, skip_reason_text(verdict)))
         else:
             added.append(f.path)
-    return withheld, added, unexamined
+    return withheld, unreadable, added, unexamined
+
+
+def _unreadable_summary(count: int) -> str | None:
+    """``1 file could not be read (permission or I/O error)``, or None.
+
+    The sentence states what the check KNOWS: it could not open the file. It
+    does not claim the file is new (nothing was compared) and does not claim
+    it was withheld (the sensitive layer never saw its content).
+    """
+    if not count:
+        return None
+    files = "file" if count == 1 else "files"
+    return f"{count} {files} could not be read (permission or I/O error)"
 
 
 def _withheld_summary(withheld: Iterable[WithheldFile],
@@ -247,6 +300,11 @@ def block(verdict: StalenessVerdict) -> dict[str, Any]:
     "one file withheld on purpose" never read alike. ``withheld_unexamined_count``
     is the part of the re-check's budget that ran out: those paths are ordinary
     ``added`` reasons and nothing is known about their content.
+
+    ``unreadable_*`` is the sibling fact: rowless scanned paths the check could
+    not OPEN. They are neither stale reasons nor withheld files -- the check
+    could not look at them -- so they are counted, listed (capped) and phrased
+    the same way, on a FRESH verdict too.
     """
     return {
         "stale": verdict.stale,
@@ -258,6 +316,10 @@ def block(verdict: StalenessVerdict) -> dict[str, Any]:
         "withheld_summary": _withheld_summary(verdict.withheld,
                                              verdict.withheld_count),
         "withheld_unexamined_count": verdict.unexamined_count,
+        "unreadable_count": verdict.unreadable_count,
+        "unreadable_files": [s.to_dict()
+                             for s in verdict.unreadable[:REASON_CAP]],
+        "unreadable_summary": _unreadable_summary(verdict.unreadable_count),
         "index_revision": verdict.index_revision,
         "last_indexed": verdict.last_indexed,
     }
@@ -274,7 +336,7 @@ def _count_phrase(reasons: tuple[Reason, ...]) -> str:
 
 
 def warning_line(verdict: StalenessVerdict, project_path: str, *,
-                 include_withheld: bool = True) -> str | None:
+                 include_reported: bool = True) -> str | None:
     """Exactly one stderr line, or None for a fresh answer.
 
     Stale shape -- a stateless count, the meaning it carries, and the repair,
@@ -296,19 +358,33 @@ def warning_line(verdict: StalenessVerdict, project_path: str, *,
     occurrence would make silence mean something the process cannot verify.
     There is no session token: every read states the verdict it just computed.
 
-    ``include_withheld`` appends the withheld-file state (a skip, never a
-    stale reason) for callers that do not print it themselves; ``index-status``
-    passes False because its own line already carries it.
+    ``include_reported`` appends the facts reported BESIDE the verdict --
+    withheld files (a deliberate skip) and unreadable paths (the check could
+    not open them), neither of which is a stale reason -- for callers that do
+    not print them themselves; ``index-status`` passes False because its own
+    line already carries both.
+
+    A ``fresh`` verdict is silent EXCEPT when paths were unreadable: then the
+    check could not compare them, so the answer says so instead of letting
+    silence read as "everything was checked".
     """
     if verdict.state == FRESH:
+        unreadable = _unreadable_summary(verdict.unreadable_count)
+        if unreadable and include_reported:
+            return (f"Warning: {unreadable}, so part of the tree was not "
+                    f"checked -- {project_path}; answers describe the index, "
+                    "not the tree.")
         return None
     if verdict.state == UNKNOWN:
         return ("Warning: index staleness check did not run "
                 f"({verdict.detail}); answers describe the index, not the tree.")
     facts = [_count_phrase(verdict.reasons)]
     withheld = _withheld_summary(verdict.withheld, verdict.withheld_count)
-    if include_withheld and withheld:
+    if include_reported and withheld:
         facts.append(withheld)
+    unreadable = _unreadable_summary(verdict.unreadable_count)
+    if include_reported and unreadable:
+        facts.append(unreadable)
     return (f"Warning: index is stale: {'; '.join(facts)} -- {project_path}; "
             "answers describe the index, not the tree; "
             f"refresh with code-indexer reindex-project {project_path}")
@@ -330,6 +406,8 @@ def aggregate(verdicts: Mapping[str, StalenessVerdict]) -> dict[str, Any]:
     total = sum(v.reason_count for v in verdicts.values())
     merged_withheld = [s for v in verdicts.values() for s in v.withheld]
     withheld_total = sum(v.withheld_count for v in verdicts.values())
+    merged_unreadable = [s for v in verdicts.values() for s in v.unreadable]
+    unreadable_total = sum(v.unreadable_count for v in verdicts.values())
     unexamined_total = sum(v.unexamined_count for v in verdicts.values())
     known = all(v.known for v in verdicts.values())
     any_stale = any(v.stale for v in verdicts.values())
@@ -342,6 +420,10 @@ def aggregate(verdicts: Mapping[str, StalenessVerdict]) -> dict[str, Any]:
         "withheld_files": [s.to_dict() for s in merged_withheld[:REASON_CAP]],
         "withheld_summary": _withheld_summary(merged_withheld, withheld_total),
         "withheld_unexamined_count": unexamined_total,
+        "unreadable_count": unreadable_total,
+        "unreadable_files": [s.to_dict()
+                             for s in merged_unreadable[:REASON_CAP]],
+        "unreadable_summary": _unreadable_summary(unreadable_total),
         "index_revision": None,
         "last_indexed": None,
     }

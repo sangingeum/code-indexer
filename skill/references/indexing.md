@@ -376,25 +376,25 @@ dropped by a reindex of the project, not by the file.
 
 A file the sensitive scan withholds sits in the gap between the scan set and
 the manifest: it is scanned, it deliberately has no row, and it is **not** a
-staleness reason. The diff calls the same decision function the pass calls
-(`sensitive.skip_verdict`, over the same 256 KiB prefix), so such a file is
-reported as withheld with the layer that fired -- `index-status` prints
-`1 file skipped (sensitive content)`, and `--json` carries `withheld_count`,
-`withheld_files` and `withheld_summary` -- while the verdict stays `fresh`.
-When more than one layer fired the summary carries a per-reason numeral
-(`2 files skipped (1 sensitive content, 1 sensitive filename)`); with a single
-category it does not, because the numeral would only repeat the total. A
-genuinely new non-sensitive file still reports `added`, and a withheld file
-that changes content is still withheld, because the decision is re-applied
-rather than remembered. On a project registered with `--allow-sensitive` the
-pass withholds nothing, so the diff classifies nothing either: every rowless
-path is an `added` reason, exactly the row the next pass writes.
+staleness reason. The diff re-applies the pass's own decision function
+(`sensitive.skip_verdict`, over the same 256 KiB prefix) and reports such a
+path with the layer that fired -- `1 file skipped (sensitive content)` on the
+`index-status` line, and `withheld_count` / `withheld_files` /
+`withheld_summary` in `--json` -- while the verdict stays `fresh`. Two layers
+firing carry a per-reason numeral; one does not. A genuinely new
+non-sensitive file still reports `added`, and a withheld file that changes
+stays withheld, because the decision is re-applied rather than remembered;
+under `--allow-sensitive` nothing is withheld, so every rowless path is
+`added` -- exactly the row the next pass writes.
 
-The check reads no more than the pass does: only scanned paths with no row
-are opened, up to the same 256 KiB prefix, inside a total 8 MiB budget per
-check, charged in bytes actually read -- one huge new file costs its prefix,
-not its size. A path the budget did not reach stays an `added` reason and is
-counted in `withheld_unexamined_count`: an `added` reason says the path is not
-in the index, and nothing about its content. The 8 MiB figure is an
-approximation chosen so a read cannot cost like a pass, not a measured
-threshold.
+The check reads no more than the pass does: only rowless scanned paths are
+opened, up to the same 256 KiB prefix, inside an 8 MiB budget per check
+charged in bytes actually read (an approximation, not a measured threshold).
+A path past the budget stays `added` and rides `withheld_unexamined_count`.
+
+A rowless path the check cannot OPEN is a third state. The scan and the diff
+are two moments (a permission change, a broken symlink target or an I/O error
+lands between them), so it is reported as `unreadable_count` /
+`unreadable_files` with the phrase `1 file could not be read (permission or
+I/O error)` -- never as `added`, whose banner no reindex could clear, and
+never as withheld, whose material nothing ever saw.

@@ -18,14 +18,17 @@ trust it:
 - ``files_not_parsed`` -- the rest (``parse_error`` + ``parse_unavailable``
   + rows with no verdict);
 - ``files_withheld`` -- files the sensitive layer withheld (no row at all);
+- ``files_unreadable`` -- rowless paths the staleness check could not open
+  (permission, a broken link, an I/O error): present in the scan, absent from
+  the index, and not checked -- which is neither a parse result nor a skip;
 - ``languages_without_ast`` -- the languages in scope that yield no AST
   symbol rows, so nothing in them is indexed as a symbol;
 - ``freshness``     -- ``fresh`` | ``stale`` | ``unknown`` (the staleness
   block's own verdict, never a second estimate);
 - ``complete``      -- true only when every file in scope parsed and none was
-  withheld. On an index that holds no files the counts are 0 and it is
-  vacuously true: read ``files: 0`` (or ``empty_reason: index-empty``), not
-  ``complete``.
+  withheld or unreadable. On an index that holds no files the counts are 0 and
+  it is vacuously true: read ``files: 0`` (or ``empty_reason: index-empty``),
+  not ``complete``.
 
 ``empty_reason`` (the name reads, when the answer is empty) is one value from
 ``EMPTY_REASONS`` plus the sentence that states it. The precedence is the one
@@ -121,7 +124,8 @@ def freshness(staleness_block: dict[str, Any] | None) -> str:
 
 
 def block(files: Iterable[ManifestFile], *, scope: str,
-          freshness: str, withheld_count: int = 0) -> dict[str, Any]:
+          freshness: str, withheld_count: int = 0,
+          unreadable_count: int = 0) -> dict[str, Any]:
     """The coverage object for one set of file rows."""
     rows = list(files)
     parsed = sum(1 for row in rows if row.parse_verdict == "parsed")
@@ -134,9 +138,11 @@ def block(files: Iterable[ManifestFile], *, scope: str,
         "files_parsed": parsed,
         "files_not_parsed": not_parsed,
         "files_withheld": withheld_count,
+        "files_unreadable": unreadable_count,
         "languages_without_ast": languages,
         "freshness": freshness,
-        "complete": not_parsed == 0 and withheld_count == 0,
+        "complete": (not_parsed == 0 and withheld_count == 0
+                     and unreadable_count == 0),
     }
 
 
@@ -152,6 +158,7 @@ def none_block(freshness_value: str | None = None) -> dict[str, Any]:
         "files_parsed": None,
         "files_not_parsed": None,
         "files_withheld": None,
+        "files_unreadable": None,
         "languages_without_ast": [],
         "freshness": freshness_value,
         "complete": None,
@@ -183,6 +190,21 @@ def withheld_in_scope(staleness_block: dict[str, Any] | None,
     return sum(1 for path in paths if path in held)
 
 
+def unreadable_in_scope(staleness_block: dict[str, Any] | None,
+                       paths: Sequence[str] | None = None) -> int:
+    """Rowless scanned paths the check could not open, in the answer's scope.
+
+    Same shape as ``withheld_in_scope``: such a path has no row, so it is
+    counted from the staleness block's own unreadable list -- the whole count
+    for a project-wide answer, the intersection for a scoped one.
+    """
+    block_ = staleness_block or {}
+    if paths is None:
+        return int(block_.get("unreadable_count") or 0)
+    unread = {entry["file"] for entry in (block_.get("unreadable_files") or [])}
+    return sum(1 for path in paths if path in unread)
+
+
 def from_manifest(manifest: Manifest,
                   staleness_block: dict[str, Any] | None, *,
                   paths: Sequence[str] | None = None,
@@ -191,16 +213,17 @@ def from_manifest(manifest: Manifest,
 
     ``paths`` narrows the scope to files the answer actually read (one file
     for ``outline``/``get-code-context``, a ``--file`` filter for
-    ``find-symbol``); ``None`` means the whole project. A withheld path has no
-    file row, so it is counted from the staleness block's own withheld list --
-    only for the scope that names it.
+    ``find-symbol``); ``None`` means the whole project. A withheld or
+    unreadable path has no file row, so it is counted from the staleness
+    block's own lists -- only for the scope that names it.
     """
     all_files = manifest.all_files()
     verdict = freshness(staleness_block)
     rows = (list(all_files.values()) if paths is None
             else [all_files[path] for path in paths if path in all_files])
     return block(rows, scope=scope, freshness=verdict,
-                 withheld_count=withheld_in_scope(staleness_block, paths))
+                 withheld_count=withheld_in_scope(staleness_block, paths),
+                 unreadable_count=unreadable_in_scope(staleness_block, paths))
 
 
 def text_line(coverage: dict[str, Any]) -> str | None:
@@ -215,8 +238,12 @@ def text_line(coverage: dict[str, Any]) -> str | None:
     if coverage.get("complete"):
         return None
     held = int(coverage.get("files_withheld") or 0)
+    unread = int(coverage.get("files_unreadable") or 0)
     tail = (f"; {held} file{'s' if held != 1 else ''} withheld for privacy"
             if held else "")
+    if unread:
+        tail += (f"; {unread} file{'s' if unread != 1 else ''} could not be "
+                 "read, so its staleness is unknown")
     return (f"coverage: {coverage['files_parsed']} of {coverage['files']} "
             f"files parsed, {coverage['files_not_parsed']} not parsed{tail}")
 

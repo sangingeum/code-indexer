@@ -35,8 +35,10 @@ hit (search and hybrid fusion share the contract):
 
 `identity` is what the hit matched, and it is never an empty string: the
 `symbol` when the chunk has one, else the first non-blank line of `snippet`,
-else `"file"`. Text and compact output print the same value in the symbol
-position, so a scripted caller reads the name an agent reads.
+else the hit's own `file` path -- the path is always known, so two such hits
+never carry the same constant. Only a hit that carries no path at all falls
+back to the literal `"file"`. Text and compact output print the same value in
+the symbol position, so a scripted caller reads the name an agent reads.
 
 Ordering: file class first (source, examples, tests, docs, generated/artifact),
 then the order the ranking mode produced (cosine, adjusted score, fused score,
@@ -190,6 +192,9 @@ block (`schema` stays `1`):
                      "reason": "sensitive filename|sensitive content"}],
  "withheld_summary": str|null,
  "withheld_unexamined_count": int,
+ "unreadable_count": int,
+ "unreadable_files": [{"file": str}],
+ "unreadable_summary": str|null,
  "index_revision": str|null, "last_indexed": str|null}
 ```
 
@@ -215,9 +220,20 @@ project registered with `--allow-sensitive` the pass withholds nothing, so
 nothing is classified and every rowless path is an `added` reason -- the row
 the next pass will write.
 
+`unreadable_count`, `unreadable_files` and `unreadable_summary` describe the
+rowless scanned paths the check could not OPEN (permissions, a broken symlink
+target, an I/O error). The check could not look at them, so they are neither
+stale reasons nor withheld files -- an `added` reason would say the path is new
+and a reindex would never clear it. They are counted, listed (capped at five)
+and phrased like the withheld fields, on a `fresh` verdict too, and the text
+line says so even when the verdict is fresh: `1 file could not be read
+(permission or I/O error), so part of the tree was not checked`.
+
 Consumer rule: `stale: false` with a non-zero `withheld_count` is not
 "nothing was withheld", and `stale` alone says nothing about withheld files.
-Branch on `withheld_count`, not on `stale`.
+Branch on `withheld_count`, not on `stale`. The same rule holds for
+`unreadable_count`: a fresh verdict with a non-zero count means part of the
+tree was never compared.
 
 `get-code-context --json` keeps `stale` as its FILE-level field and adds the
 rest of this block; the file-level warning line is unchanged.
@@ -232,6 +248,7 @@ block. It is what the answer could see, so a caller never has to run
 {"scope": "project|answer|none",
  "files": int|null, "files_parsed": int|null,
  "files_not_parsed": int|null, "files_withheld": int|null,
+ "files_unreadable": int|null,
  "languages_without_ast": [str],
  "freshness": "fresh|stale|unknown"|null,
  "complete": bool|null}
@@ -251,12 +268,15 @@ walk the whole index and report `project` scope.
 `files_not_parsed` is `parse_error` + `parse_unavailable` + rows with no
 recorded verdict. `files_withheld` comes from the staleness block's withheld
 list, intersected with the answer's scope when the scope names paths.
+`files_unreadable` comes from the staleness block's unreadable list the same
+way: rowless scanned paths the check could not open, which are neither parsed
+nor withheld.
 `languages_without_ast` lists the languages IN SCOPE whose files yield no AST
 symbol rows -- the language-capability matrix's own runtime probe -- so a
 project whose only shell files parsed still says `["shell"]`.
 `freshness` repeats the staleness verdict (`fresh` | `stale` | `unknown`),
 never a second estimate. `complete` is true only when every file in scope
-parsed and none was withheld; it is null when `scope` is `none`. `complete`
+parsed and none was withheld or unreadable; it is null when `scope` is `none`. `complete`
 is about parsed-versus-unparsed files, not about the index holding anything:
 on an index that holds no files the counts are 0 and `complete` is vacuously
 true, so read `files: 0` (or `empty_reason: index-empty`) and not

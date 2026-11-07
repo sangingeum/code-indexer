@@ -596,9 +596,9 @@ def _read_staleness(core: Core, entry: ProjectEntry, *, refresh: bool,
     without ``--refresh`` never writes.
 
     ``announce_withheld`` is False for a caller whose own output already
-    states the withheld files (``index-status`` does); every other read gets
-    the skip state in the same line as the verdict, never folded into the
-    reasons.
+    states the files the check reported beside the verdict (``index-status``
+    does); every other read gets the skip and unreadable state in the same
+    line as the verdict, never folded into the reasons.
 
     Returns ``(block, warning line or None)``. The line comes from the ONE
     verdict this call computed: a caller that answers in JSON and still wants
@@ -611,7 +611,7 @@ def _read_staleness(core: Core, entry: ProjectEntry, *, refresh: bool,
             fail(exc)
     verdict = core.staleness(entry)
     line = staleness.warning_line(verdict, entry.path,
-                                  include_withheld=announce_withheld)
+                                  include_reported=announce_withheld)
     if line and not json_output:
         typer.echo(line, err=True)
     return staleness.block(verdict), line
@@ -829,7 +829,10 @@ def _emit_graph(result: graph.GraphResult, json_output: bool,
         if files is not None:
             payload["coverage"] = coverage_mod.block(
                 files, scope=coverage_mod.SCOPE_PROJECT,
-                freshness=coverage_mod.freshness(staleness_block))
+                freshness=coverage_mod.freshness(staleness_block),
+                withheld_count=coverage_mod.withheld_in_scope(staleness_block),
+                unreadable_count=coverage_mod.unreadable_in_scope(
+                    staleness_block))
             if not result.nodes:
                 reason, sentence = coverage_mod.empty_answer(
                     empty_lead or "no results", files)
@@ -840,6 +843,10 @@ def _emit_graph(result: graph.GraphResult, json_output: bool,
     typer.echo(graph.render_tree(result.nodes))
     cov = (coverage_mod.block(files, scope=coverage_mod.SCOPE_PROJECT,
                               freshness=coverage_mod.freshness(
+                                  staleness_block),
+                              withheld_count=coverage_mod.withheld_in_scope(
+                                  staleness_block),
+                              unreadable_count=coverage_mod.unreadable_in_scope(
                                   staleness_block))
            if files is not None else None)
     if not result.nodes:
@@ -1594,6 +1601,11 @@ def index_status(
     if block.get("withheld_summary"):
         parts.append(f"{block['withheld_summary']} — privacy; override with "
                      "--allow-sensitive on add-project")
+    # A path the check could not open is the same kind of fact: named on the
+    # line, never folded into the stale count.
+    if block.get("unreadable_summary"):
+        parts.append(f"{block['unreadable_summary']} — not checked; "
+                     "fix the file's permissions or link and re-read")
     if json_output:
         fields.update(block)
         fields["coverage"] = _coverage(core, entry, block)

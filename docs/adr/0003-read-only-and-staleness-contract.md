@@ -51,10 +51,13 @@ JSON, on every read command's answer -- in the commands that have a JSON mode to
 | `withheld_files` | list of `{file, reason}` for those paths, capped at five; the path and the reason, never the material |
 | `withheld_summary` | one line naming the withheld count and its reason categories |
 | `withheld_unexamined_count` | paths the bounded re-check could not examine because its budget ran out; each stays an `added` reason that says nothing about its content |
+| `unreadable_count` | rowless scanned paths the check could NOT open (permission, a broken symlink target, an I/O error): reported beside the verdict, never a stale reason, because no reindex can clear a condition that stops the read |
+| `unreadable_files` | list of `{file}` for those paths, capped at five |
+| `unreadable_summary` | one line stating that the count could not be read, and why the check says so rather than calling them new or withheld |
 
-A withheld file is reported beside the verdict, not as one of its reasons: `stale: false` with a non-zero `withheld_count` means that nothing in the tree differs from the index, not that nothing was withheld from it. The override that admits sensitive material to the index (`--allow-sensitive`) is honoured by the check as well: with it set, a rowless path is an ordinary `added` reason, because that is what the next pass will do.
+A withheld file is reported beside the verdict, not as one of its reasons: `stale: false` with a non-zero `withheld_count` means that nothing in the tree differs from the index, not that nothing was withheld from it. A rowless path the check cannot open is the same kind of fact and gets the same treatment (`unreadable_*`): "the check could not read it" is neither "withheld" nor "added", and folding it into `added` would leave a stale banner that no reindex can clear. The override that admits sensitive material to the index (`--allow-sensitive`) is honoured by the check as well: with it set, a rowless path is an ordinary `added` reason, because that is what the next pass will do.
 
-Text mode prints exactly one stderr line and nothing on stdout: `Warning: index is stale: 3 modified files, 1 deleted file -- <path>; answers describe the index, not the tree; refresh with code-indexer reindex-project <path>`. A fresh answer prints nothing extra; an `unknown` answer prints one line saying the check did not run.
+Text mode prints exactly one stderr line and nothing on stdout: `Warning: index is stale: 3 modified files, 1 deleted file -- <path>; answers describe the index, not the tree; refresh with code-indexer reindex-project <path>`. A fresh answer prints nothing extra unless a path was unreadable, in which case the one line says so (`Warning: 1 file could not be read (permission or I/O error), so part of the tree was not checked -- <path>`), because silence there would read as "everything was compared"; an `unknown` answer prints one line saying the check did not run.
 
 ### 4. How refresh is triggered
 
