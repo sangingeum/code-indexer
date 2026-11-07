@@ -37,6 +37,7 @@ from code_indexer.errors import (  # noqa: E402
     NotUtf8Error,
     OverlappingEditsError,
     PathEscapesProjectError,
+    PlanFormatError,
     SubLineEditUnsupportedError,
 )
 
@@ -941,5 +942,23 @@ def test_show_refuses_a_structurally_invalid_plan_in_the_format_taxonomy(
     assert payload["ErrorType"] == "PlanFormatError"
     assert "files" in payload["error"]
     assert "InternalError" not in result.stdout
+
+
+def test_a_duplicated_files_path_is_refused_with_the_path_named(tmp_path):
+    """One path, one record: a files[] duplicate is a format refusal.
+
+    A duplicated entry applied the plan correctly and then reported
+    `not_attempted` for the second record of a file it had written, and the
+    paths check deduped into a set and printed "1 path(s)", so the only check
+    that would have mentioned the duplicate hid it. The duplicate is refused
+    here instead, in the format's own vocabulary, with the path named.
+    """
+    tf = sample(str(tmp_path))
+    document = document_for(tf)
+    document["files"] = document["files"] + [dict(document["files"][0])]
+    with pytest.raises(PlanFormatError) as refusal:
+        plans.run_preconditions(plans.seal(document), str(tmp_path))
+    assert "more than once" in str(refusal.value)
+    assert "mod.py" in str(refusal.value)
 
 

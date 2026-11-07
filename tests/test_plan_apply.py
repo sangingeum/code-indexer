@@ -27,6 +27,7 @@ from code_indexer.cli import app  # noqa: E402
 from code_indexer.errors import (  # noqa: E402
     EXIT_BACKEND,
     EXIT_LOCK,
+    EXIT_USAGE,
 )
 
 TWO_FUNCTIONS = "def one():\n    return 1\n\ndef two():\n    return 2\n"
@@ -376,3 +377,31 @@ def test_no_surface_claims_a_cross_file_guarantee(rig):
     for text in sources:
         for banned in ("atomic", "transaction", "all-or-nothing"):
             assert banned not in text.lower(), banned
+
+
+# ---------------------------------------------------------------------------
+# one path, one record: a duplicated files[] entry
+# ---------------------------------------------------------------------------
+
+def test_a_duplicated_files_path_is_refused_before_any_mutation(rig):
+    """The duplicate is refused, not collapsed silently into one report row.
+
+    The same document applied correctly at the base commit and then reported
+    `not_attempted` for the second record of a file it had written. Refusing
+    the document is the honest answer: a plan that names one path twice has
+    two edits' worth of intent and one file's worth of report, and the paths
+    check that would say so deduped the duplicate away.
+    """
+    plan_path = apply_rig.plan_replacing_one(rig, "mod.py", "one",
+                                             "    return 41")
+    document = plans.load_plan(plan_path)
+    document["files"] = document["files"] + [dict(document["files"][0])]
+    duplicated = plans.write_plan(plans.seal(document), rig.plan_dir)
+    result = run(rig, duplicated, "--json")
+    assert result.exit_code == EXIT_USAGE
+    payload = json.loads(result.stdout)
+    assert payload["ErrorType"] == "PlanFormatError"
+    assert "more than once" in payload["error"]
+    assert "mod.py" in payload["error"]
+    assert rig.mutations() == []
+    assert "    return 41" not in rig.read("mod.py")

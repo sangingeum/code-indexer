@@ -859,10 +859,15 @@ def verify_document(document: dict[str, Any],
 
 
 def _check_paths(document: dict[str, Any], root: str) -> str:
-    seen = set()
+    seen: list[str] = []
     for record in document["files"]:
         checked_relative_path(root, record["path"])
-        seen.add(record["path"])
+        if record["path"] in seen:
+            raise PlanFormatError(
+                f"files[] names {record['path']!r} more than once: one path, "
+                "one record -- a duplicated entry would be applied twice "
+                "and reported once, so it is refused rather than collapsed")
+        seen.append(record["path"])
     for edit in document["edits"]:
         checked_relative_path(root, edit["path"])
         if edit["path"] not in seen:

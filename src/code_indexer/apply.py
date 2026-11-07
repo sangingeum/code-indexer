@@ -388,9 +388,13 @@ def apply_plan(document: dict[str, Any], root: str, keeper, *,
     files = plans.run_preconditions(document, root, requested)
     ordered = plans.ordered_edits(document["edits"], files)
     application = Application(document=document, dry_run=dry_run)
-    application.files = [FileOutcome(record["path"])
-                         for record in sorted(document["files"],
-                                              key=lambda item: item["path"])]
+    # One record per distinct file: the pre-pass refuses a files[] path named
+    # twice, so this is the report's own shape rather than a second guard --
+    # a report that carried two records for one file would say not_attempted
+    # about a file it had just written.
+    application.files = [FileOutcome(path) for path in
+                         sorted({record["path"]
+                                 for record in document["files"]})]
     by_path = {item.path: item for item in application.files}
     current = {path: tf.content_hash() for path, tf in files.items()}
 

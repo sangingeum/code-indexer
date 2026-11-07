@@ -422,6 +422,10 @@ code-indexer plan-show sha256:<hex> --project P --diff
   schema is checked first, so a tampered or structurally invalid plan is
   refused here exactly as it is at validate and apply (`PlanHashMismatch` /
   `PlanFormatError`, exit 2), never drawn as a diff.
+- **One path, one record.** `files[]` names each touched file once. A
+  duplicated path is refused as `PlanFormatError` (exit 2) with the path
+  named: the duplicate would be applied twice and reported once, and the
+  paths check would hide it rather than mention it.
 - **Ordering is part of the format**: within a file descending start line,
   across files ascending path. Adjacent edits are legal; overlapping edits are
   refused (`OverlappingEdits`, exit 2), two insertions at one point are refused
