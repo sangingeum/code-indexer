@@ -5,7 +5,7 @@
 Code index for agents: a one-shot CLI (`code-indexer`, typer) and an MCP
 stdio server (`code-indexer-mcp`) that is a **thin wrapper over that same
 CLI**: every MCP tool builds the argv of the matching `code-indexer`
-subcommand and runs it, relaying its output — one code path, so the two
+subcommand and runs it, relaying its output -- one code path, so the two
 surfaces can never diverge. Structural, lexical and graph queries run off a
 SQLite manifest and need no service at all; the **optional semantic
 extension** adds Ollama embeddings (`qwen3-embedding:8b`, 4096-dim) and one
@@ -22,9 +22,33 @@ index: `semantic-search` reports whether the index is `fresh`, `stale` or
 `unknown`, and repairs it only when the call asks for `--refresh` (or when a
 pass command runs). Chunks, hashes, and collections are never exposed.
 
-**Full command reference:** [SKILL-CLI.md](SKILL-CLI.md) — the agent-facing
-document with the decision tree, per-command options, and index-state
-meanings. This README is the overview; each fact lives in exactly one place.
+## The agent surface
+
+The documentation an agent loads is split by what it needs *before* it can
+choose a command and what it needs *after*. The entry document is small on
+purpose -- 120 lines and 8 KiB, enforced by the test suite, because an
+agent's context is the resource being spent -- and each reference is read on
+demand, when its trigger fires.
+
+| Document | Open it when |
+|---|---|
+| [SKILL-CLI.md](SKILL-CLI.md) | always first: decision tree, the generated command roster with each command's read-or-write class, the exit table, the staleness rule, the reference index |
+| [indexing.md](skill/references/indexing.md) | the task is to build or repair an index, or to ask what state one is in |
+| [query.md](skill/references/query.md) | a query answered the wrong shape and its flags need reading |
+| [plans.md](skill/references/plans.md) | the task is to change code through a plan |
+| [machine-output.md](skill/references/machine-output.md) | an agent parses output instead of reading prose |
+| [failures.md](skill/references/failures.md) | a command failed and the remedy is not obvious from its line |
+
+The command roster and each reference's per-command sections are **generated
+from the CLI registry** by `scripts/generate_skill_docs.py`, so a command
+cannot exist undocumented and a flag cannot be documented that does not
+exist; the prose around them is written by hand. `tests/test_docs.py` fails
+when the roster and the registry disagree, when a reference grows past its
+budget, when a generated block was hand-edited, or when the installed copy of
+the skill differs from the tracked one.
+
+This README is the overview for the human who installs the tool; each fact
+lives in exactly one place.
 
 ## Installation (CLI)
 
@@ -37,7 +61,7 @@ uv tool install -e ".[semantic]"           # + Ollama and Qdrant clients
 uv tool install -e ".[mcp]"                # + the code-indexer-mcp server
 ```
 
-Core installs and runs with no service of any kind — including indexing.
+Core installs and runs with no service of any kind -- including indexing.
 The semantic extension (`OLLAMA_URL`, `QDRANT_URL`) is needed only for
 embedding and semantic search; the MCP server ships only with the `mcp` extra
 and is imported by that entry point alone. Verify with
@@ -63,12 +87,13 @@ and rejects the flag plus two positionals as ambiguous. The mutating commands
 never guess a project from the cwd.
 
 The agent workflow (overview → skeleton → search → get-code-context) is in
-[SKILL-CLI.md](SKILL-CLI.md).
+[SKILL-CLI.md](SKILL-CLI.md), and the flags behind each step are in
+[query.md](skill/references/query.md).
 
 ## Architecture
 
 - **Index**: tree-sitter AST chunks (function/class-level, symbol names,
-  schema v7 identity — qualified names and declaration hashes — with stored
+  schema v7 identity -- qualified names and declaration hashes -- with stored
   signatures/visibility) with contextual headers, embedded via
   Ollama into one Qdrant collection per project (`idx_<slug>` / `idx_<name>`).
 - **Manifest** (SQLite, WAL): files, chunks, content hashes, symbol index,
@@ -78,6 +103,8 @@ The agent workflow (overview → skeleton → search → get-code-context) is in
 - **MCP server** (`code-indexer-mcp`, `code-indexer[mcp]` only): a
   narrowed, read-only view over the same CLI subprocess; all foreground, no
   store or manifest access of its own.
+- **Agent surface**: one entry document plus five references under
+  `skill/references/`, with the command sections generated from the registry.
 
 ### CLI ↔ MCP parity
 
@@ -96,7 +123,7 @@ the server's own registry, so it cannot go stale.
 | `get-code-context` | `get_code_context` |
 | `semantic-search` (only with the semantic extra) | `semantic_search` |
 
-Removed from the surface — **use the CLI subcommand of the same name**:
+Removed from the surface -- **use the CLI subcommand of the same name**:
 `add-project`, `index-status`, `lookup-project`, `reindex-project`,
 `remove-project`, `changed-symbols`, `deps`, `find-callees`, `find-symbols`,
 `find-definition` and `outline`. Writes are exactly what an MCP client should
@@ -119,13 +146,13 @@ accepts. There is no MCP `watch`/`unwatch`: a watcher makes no sense inside
 an already long-lived server. The server resolves the CLI from
 `CODE_INDEXER_BIN`, else `code-indexer` on `PATH`, else
 `python -m code_indexer.cli`; `CODE_INDEXER_BIN` is the only env var the
-server process reads itself — all other configuration flows through the CLI
+server process reads itself -- all other configuration flows through the CLI
 subprocess's inherited environment.
 
 **Usage record.** Every tool call appends one line to
 `$INDEX_ROOT/mcp-usage.jsonl` (`~/.code-indexer/mcp-usage.jsonl` by
 default): tool name, outcome, exit code, response bytes, duration and a
-timestamp. Nothing else, and never the arguments — a query string may be
+timestamp. Nothing else, and never the arguments -- a query string may be
 source code. The line is written by the MCP process, never by a CLI read
 command, and a failed write does not fail the call.
 
@@ -141,12 +168,12 @@ Canonical states, the same everywhere (CLI and MCP):
 | `needs-reindex` | index built with a different embed model/dimension/text format/chunker/extraction version | do not run `reindex-project` yourself; report to the owner (the row-reading surfaces refuse with exit 4 until then) |
 | `error` | last pass failed | run `code-indexer doctor` |
 
-`index-status` reports the **pass state** as `state=`, and — when the index
-was built by a different configuration — adds `fingerprint=needs-reindex
+`index-status` reports the **pass state** as `state=`, and -- when the index
+was built by a different configuration -- adds `fingerprint=needs-reindex
 reason=...`, the same verdict `list-projects`/`doctor` give. A project that
 owes a rebuild therefore never reads as plainly `idle`, and the two surfaces
 never contradict each other. On such an index the surfaces that answer from
-stored rows refuse rather than answer — `find-symbol`, `find-definition`,
+stored rows refuse rather than answer -- `find-symbol`, `find-definition`,
 `outline`, `skeleton`, `overview`, `get-code-context`, `find-references`,
 `find-callers`, `find-callees`, `deps` and `changed-symbols` exit 4 with one
 `RebuildRequiredError` line and empty stdout, and `search` refuses the same
@@ -156,7 +183,7 @@ that verdict needs no service: the version keys are compared against
 configuration alone, so `index-status` prints
 `fingerprint=needs-reindex reason=...` without a probe. A project whose other
 keys all match reports `fingerprint=unverified
-reason=embedding-dimension-not-compared` instead — "cannot verify" is its
+reason=embedding-dimension-not-compared` instead -- "cannot verify" is its
 own value, never folded into a match.
 
 ## How indexing / staleness works
@@ -168,7 +195,7 @@ own value, never folded into a match.
   `reindex-project` builds it.
 - **Staleness is reported, never repaired by a read.** A read answers from
   the index as of `meta.last_indexed`, compares the indexed files with the
-  tree (stat identity — `size`, `mtime_ns`, `inode`; content is hashed only
+  tree (stat identity -- `size`, `mtime_ns`, `inode`; content is hashed only
   for files whose stat changed), and reports `fresh`, `stale` (with reasons,
   capped at five) or `unknown` (path absent, no completed pass, or the scan
   exceeded its 5 s / 200,000-entry budget). JSON answers carry `stale`,
@@ -186,19 +213,20 @@ own value, never folded into a match.
   `--fresh` still means "read the live file" on `get-code-context` and is
   inert elsewhere. The watcher and the three pass commands remain the other
   writers.
-- **Exit codes**: `0` success (including zero hits — "no results" is an
+- **Exit codes**: `0` success (including zero hits -- "no results" is an
   answer), `1` other runtime failure, `2` usage/argument error, `3` backend
   or extension unavailable, `4` the index requires a rebuild, `5` lock or
   concurrency conflict. A failed query prints `ErrorType: message` on stderr
   with stdout empty; an empty answer prints `no results` on stdout and exits
-  0, so the two are never confused.
+  0, so the two are never confused. The full taxonomy and the remedy per
+  type is [failures.md](skill/references/failures.md).
 - **Query cost is bounded**: a search resolves ONE project by default (the
   containing project inferred from the invocation path), fans out only with
   `--all-projects`, makes one embedding attempt with a short timeout, and
   stops a fan-out at a 30 s wall (`skipped` with `reason=budget`,
   `partial: true`).
 - **Incremental diff**: files are classified by **content hash** (sha256, not
-  mtime — branch switches re-index correctly). Only chunks whose hash changed
+  mtime -- branch switches re-index correctly). Only chunks whose hash changed
   are re-embedded; point IDs are deterministic uuid5, so upserts are
   idempotent; deleted files are purged.
 - **Chunking**: ~1000-char cap (`CHUNK_MAX_CHARS`); tree-sitter AST units,
@@ -225,17 +253,16 @@ own value, never folded into a match.
 | v5 | `files.loc`/`files.language` for `overview`; graph tables (refs/imports for `find-callers`/`find-callees`/`deps`) | automatic ALTER; overview/graph data populate on next reindex |
 | v6 | ONE reference store: `symbol_refs` folded into `refs` (+ a `receiver` column); `csharp` joins the AST-references languages (`EXTRACTION_VERSION` 2) | automatic: `symbol_refs` dropped, `receiver` ALTERed; the extraction-version bump marks every index `needs-reindex` until `reindex-project` |
 | v7 | line-free symbol identity: `qualified_name`, `container`, `language`, `decl_hash` and a revision-scoped `id`; `(file, qualified_name, symbol_type, decl_hash)` becomes the key; staged nullable `refs.target_symbol_id`/`resolution`; the `chunks` table; per-file `parse_verdict` (`EXTRACTION_VERSION` 5) | automatic: the old-key symbols table is re-created empty (its rows cannot be re-keyed), the other columns/tables are created; the extraction-version bump marks every index `needs-reindex` until `reindex-project` |
-| — | FTS5 lexical table (`chunks_fts`, hybrid retrieval) | automatic backfill on next pass |
+| -- | FTS5 lexical table (`chunks_fts`, hybrid retrieval) | automatic backfill on next pass |
 
 Current schema version: **7** (auto-migrates on open; `reindex-project`
-backfills derived columns eagerly). The `chunks` table and the two reference
-target columns ship with revision 7 and are populated by the following leg of
-the same round — the schema is paid for once so the migration runs once.
+backfills derived columns eagerly).
 
 ## Configuration
 
-Resolution order: CLI flags > environment variables > defaults. Full list
-with defaults and one-line descriptions: [indexing.md §Configuration](skill/references/indexing.md#configuration).
+Resolution order: CLI flags > environment variables > defaults. The full
+table -- every variable, its default and what it governs -- is in
+[indexing.md §Configuration](skill/references/indexing.md#configuration).
 Note: `OLLAMA_URL`/`QDRANT_URL` defaults are LAN placeholders and must be set.
 
 ## Platform support
@@ -247,7 +274,7 @@ platform-neutral; only `watch`/locking are POSIX-bound.
 
 ## Troubleshooting
 
-Run `code-indexer doctor` — one line per check (`ok|warn|fail <name>:
+Run `code-indexer doctor` -- one line per check (`ok|warn|fail <name>:
 <detail>`), exit 1 on any fail. Covers runtime versions, Ollama
 (reachable/model/dimension), Qdrant (reachable/version/collections/dims),
 INDEX_ROOT writability + disk, SQLite integrity, watcher pidfile/locks, and
@@ -258,6 +285,9 @@ per-project fingerprint status. Symptom → action:
   → `needs-reindex`; owner runs `reindex-project`.
 - `never-indexed` after a killed `add-project` → `reindex-project`.
 - Watcher dead → `code-indexer unwatch --all`, then re-run `watch --background`.
+
+The cause and remedy for every error type is
+[failures.md](skill/references/failures.md).
 
 ## Security / privacy
 
@@ -284,7 +314,8 @@ GPU passthrough** (8B model, 4096-dim, batch 48) vs ~0.17 docs/s CPU-only.
 The first index of a large repo is the slow part; incremental updates
 re-embed only changed chunks. Qdrant upserts ~550 pts/s. Baseline numbers are
 2026-09 measurements on the owner's LAN host; re-measure with
-`code-indexer eval` (see [SKILL-CLI.md](SKILL-CLI.md)) before quoting new ones.
+`code-indexer eval` (see [query.md](skill/references/query.md)) before
+quoting new ones.
 
 ## MCP client config (Claude Desktop / Hermes / any stdio MCP client)
 
@@ -314,7 +345,7 @@ Configure the client to launch it:
 
 When installed as a tool (`uv tool install -e ".[mcp]"`), point `command` at
 `code-indexer-mcp` directly (no `uvx` wrapper). **stdout is reserved for the
-MCP transport** — all log output goes to stderr; never pipe server stdout
+MCP transport** -- all log output goes to stderr; never pipe server stdout
 into anything that expects log lines. Listing tools does not require Ollama or
 Qdrant to be reachable, and with the semantic extra absent the server starts
 with the seven tools that need no embedding client.
@@ -327,17 +358,23 @@ uv run code-indexer-mcp                  # run the stdio MCP server
 uv run code-indexer list-projects        # one-shot CLI (no daemon)
 uv run pytest -m "not live"              # offline suite (CI runs this)
 uv run pytest -m live                    # live-backend tests (needs Ollama/Qdrant up)
+uv run python scripts/generate_skill_docs.py   # regenerate the roster and command blocks
 ```
 
 Offline tests use fake embedder/store seams (no backends required); live
-tests are marked `live` and deselected by default. Docs drift is guarded by
-`tests/test_docs.py`. Constraints: core pins `tree-sitter==0.26.0` and
-`tree-sitter-language-pack==1.18.0` (older x86-64 CPUs without x86-64-v2;
-pure/prebuilt wheels). The `semantic` extra pins `qdrant-client<1.15`, whose
-resolution brings `numpy<2` (1.26.4); the `mcp` extra pins `mcp<2`.
+tests are marked `live` and deselected by default. Documentation drift is
+guarded by `tests/test_docs.py`: the roster and the generated command blocks
+against the registry, the entry document and each reference against their
+budgets, the exit codes against ADR-0003 section 5, and the installed skill
+copy against the tracked one. Constraints: core pins
+`tree-sitter==0.26.0` and `tree-sitter-language-pack==1.18.0` (older x86-64
+CPUs without x86-64-v2; pure/prebuilt wheels). The `semantic` extra pins
+`qdrant-client<1.15`, whose resolution brings `numpy<2` (1.26.4); the `mcp`
+extra pins `mcp<2`.
 
 ## Upgrading between versions
 
 Manifests auto-migrate (see Schema history). `reindex-project` is only
-required when `index-status` reports `needs-reindex` (fingerprint mismatch)
-or to eagerly backfill schema-v3/v5/v6 derived columns.
+required when `index-status` reports `needs-reindex` (fingerprint mismatch).
+A watcher left running across an upgrade must be restarted in the order
+unwatch → reindex → watch (see [indexing.md](skill/references/indexing.md)).
