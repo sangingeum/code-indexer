@@ -35,7 +35,9 @@ Lazy start: constructing a session spawns nothing. One provider per project
 per invocation, reused across that invocation's requests, terminated at
 close (``atexit`` covers process exit; there is no daemon). Every request
 carries a deadline; an expired request is cancelled and reported as a
-timeout, never as an empty semantic answer. Every semantic answer carries
+timeout, never as an empty semantic answer, and the session that timed out is
+retired: the next request builds a fresh provider rather than queuing behind
+the call that outlived its deadline. Every semantic answer carries
 ``provider: {name, version, transport}``, and a plan built from one carries
 the same object in ADR-0004's ``provider`` member, with the conversion's
 version beside it. Nothing here writes the index: a provider identifier never
@@ -388,6 +390,9 @@ class ProviderSession:
         self._files: dict[str, plans.TextFile] = {}
         self._executor: ThreadPoolExecutor | None = None
         self._closed = False
+        # Set when an expired request forced the provider to be abandoned; kept
+        # for the caller that wants to say why the next request started one.
+        self.retired_reason: str | None = None
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -458,14 +463,44 @@ class ProviderSession:
         try:
             return future.result(timeout=deadline)
         except FutureTimeout:
+            name = self._provider_name()
             self._cancel(provider)
             future.cancel()
+            self._retire(provider, f"{name} did not answer within {deadline:g}s")
             verb = what or f"answer {operation!r}"
             raise ProviderTimeoutError(
-                f"the {self._provider_name()} provider did not {verb} within "
+                f"the {name} provider did not {verb} within "
                 f"{deadline:g}s: the request was cancelled ($/cancelRequest) "
-                "and is reported as a timeout, never as an empty answer"
+                "and is reported as a timeout, never as an empty answer; the "
+                "session is retired, so the next request starts a fresh "
+                "provider rather than queuing behind this call"
             ) from None
+
+    def _retire(self, provider, reason: str) -> None:
+        """Abandon one provider whose answer outlived its deadline.
+
+        Cancelling a running call is a request, not a guarantee: the single
+        worker is still inside the expired call. Keeping that provider would
+        make every later request queue behind it and time out too -- a false
+        statement about a healthy provider, which is the wrong-answer class
+        ADR-0006 section 7 exists to prevent. The instance, its capabilities
+        and its worker are dropped here, and the next request builds a fresh
+        provider.
+        """
+        self.retired_reason = reason
+        if self._instance is provider:
+            self._instance = None
+        self._capabilities = None
+        if self._executor is not None:
+            self._executor.shutdown(wait=False, cancel_futures=True)
+            self._executor = None
+        closer = getattr(provider, "close", None)
+        if callable(closer):
+            try:
+                closer()
+            except Exception:  # noqa: BLE001 - a failed close is logged
+                logger.warning("retired provider failed to close: %s",
+                               reason, exc_info=True)
 
     def _cancel(self, provider) -> None:
         cancel = getattr(provider, "cancel", None)

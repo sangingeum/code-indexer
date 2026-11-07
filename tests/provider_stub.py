@@ -141,6 +141,27 @@ class SlowStartProvider(FixtureProvider):
         super().start()
 
 
+class OnceSlowProvider(FixtureProvider):
+    """Slow on the first semantic call, instant on every call after it.
+
+    Models a wedged server that recovers: the call that overran a deadline is
+    the last one waited on, and anything asked afterwards answers at once --
+    on this object or on the one built to replace it. ``slow_left`` is shared
+    across instances on purpose, so a rebuilt provider counts as recovered.
+    """
+
+    def __init__(self, *args, slow_left: list[int] | None = None,
+                 **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.slow_left = slow_left if slow_left is not None else [1]
+
+    def resolve_symbol(self, query):
+        if self.slow_left[0] > 0:
+            self.slow_left[0] -= 1
+            time.sleep(0.5)
+        return super().resolve_symbol(query)
+
+
 def capability_report(fixture_dir: str = FIXTURE_DIR) -> dict:
     """The capability report a caller reads -- rename is the accepted risk."""
     provider = FixtureProvider(".", fixture_dir=fixture_dir)

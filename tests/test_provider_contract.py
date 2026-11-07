@@ -136,6 +136,42 @@ def test_a_provider_that_answers_nothing_in_time_is_a_timeout_at_exit_3():
     assert stub.cancelled is True  # cancelled, not left running
 
 
+def test_a_timed_out_session_does_not_poison_the_next_request():
+    """A timeout retires the provider; the next request meets a healthy one.
+
+    The review's probe: a provider whose first answer overruns the deadline
+    and whose later answers are instant. Request 2 used to report
+    ``ProviderTimeout`` at 0.05 s against a provider that would have answered,
+    because the single worker was still inside the expired call -- a wrong
+    answer about a healthy provider, indistinguishable from a right one.
+    """
+    slow_left = [1]
+    built = []
+
+    def build(root):
+        stub = provider_stub.OnceSlowProvider(
+            root, capabilities=SUPPORTED_CAPS, slow_left=slow_left)
+        built.append(stub)
+        return stub
+
+    sess = provider.ProviderSession(
+        ROOT, language="python", factory=build, request_deadline=0.05)
+    with pytest.raises(ProviderTimeoutError) as caught:
+        sess.resolve_symbol(provider.SymbolQuery(qualified_name="greet"))
+    assert caught.value.error_type == "ProviderTimeout"
+    assert "retired" in str(caught.value)
+
+    started = time.monotonic()
+    answer = sess.resolve_symbol(provider.SymbolQuery(qualified_name="greet"))
+    elapsed = time.monotonic() - started
+    assert [c.qualified_name for c in answer.candidates] == ["greet"]
+    assert elapsed < 0.5, "request 2 queued behind the expired call"
+    assert len(built) == 2, "the session was not retired for the next request"
+    assert built[0].closed is True
+    assert sess.retired_reason is not None
+    sess.close()
+
+
 def test_a_provider_that_never_becomes_ready_is_unavailable_at_exit_3():
     sess = provider.ProviderSession(
         ROOT, language="python",
