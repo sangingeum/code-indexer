@@ -199,6 +199,6 @@ sentence block needs the same edit.
 
 ## Verdict: **FAIL** — two documentation/contract rows
 
-Evidence: `runs/<gate card>/` (this file, `captures/`, and the four scripts that
+Evidence: this directory (`verification.md`, `captures/`, and the four scripts that
 built the fixtures, took the captures, proved statelessness and produced the
 schema refusal).
