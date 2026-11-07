@@ -2,6 +2,37 @@
 
 ## [Unreleased] — the indexed tree
 
+**`semantic-search` ranks by source kind too.** The last relevance surface
+without the ladder now uses it: source before examples before tests before
+docs before generated/artifact, decided by the same
+`src/code_indexer/ordering.py` classifier every structural answer uses. The
+class key runs in every ranking mode (`vector`, `metadata`, `hybrid`) and
+every retrieval mode (`dense`, `hybrid`, `lexical`), before the output caps,
+so a captured transcript, a fixture or a near-duplicate test can no longer
+win a question about the implementation. It is an order, not a filter: every
+hit in the window is still returned, the demoted ones at the tail.
+
+- **The bare dash is gone.** A hit whose chunk carries no symbol rendered as
+  `-` in compact output (and as nothing in text), so the top answer often
+  said where but not what. Text and compact now print the first non-blank
+  code line of the snippet when there is no enclosing symbol, `file` when
+  the snippet is empty, and `--json` carries the same string as
+  `hit.identity`; no output path can produce `-` or an empty name.
+- **One classifier, no second path rule.** The module's own test/vendor path
+  marker is removed rather than kept in step with `ordering.file_class`: it
+  called `fixtures/`, `vendor/` and `testdata/` non-source while the shared
+  classifier calls them source, so one hit could be tests to search and
+  source to `find-definition`. The metadata ranking mode now adjusts for
+  symbol presence only; paths are judged in one place.
+- **Two waivers, written down in both claims.** A test-targeting query
+  (`test`, `tests`, `testing`, `spec`, `specs`, `fixture`, `fixtures`,
+  `unittest`, `unittests`) sorts the tests rung with source; a data-format
+  query (`json`, `yaml`, `yml`, `toml`) waives the pure-data down-weight and
+  share cap. The `ranking.py` docstring and `skill/references/query.md`
+  (Ordering) state the same key lists per mode and the same two waivers.
+- **Nothing was reindexed.** Ordering and identity are decided at query time
+  from stored rows: no schema change, no `EXTRACTION_VERSION` bump.
+
 **A structural answer is ordered, not merely counted.** `find-definition`,
 `find-symbol`, `find-references`, `find-callers` and the two `overview`
 hotspot lists now share one ordering policy: source before samples before

@@ -183,6 +183,44 @@ listed below.
 | `find-callers` | the same keys as `find-references`, expressed in Python (`ordering.edge_key`): class, named caller, attribution, then `file`, `line`, `symbol`, `relationship`, `receiver` | no count key: the walk's node is a call site, not an aggregate |
 | `overview` hotspots (fan-in and size) | file class, then the count descending, then `file` | no identity key: a file is not a hit, so there is nothing to attribute |
 
+### `semantic-search`: the ladder, then the mode's own order
+
+`semantic-search` uses the same ladder as key 1 -- `source`, `examples`,
+`tests`, `docs`, `generated`/artifact, from `ordering.file_class` -- and there
+the second key is the order the ranking produced, not identity quality:
+
+| ranking / retrieval | keys that fire, in order |
+|---|---|
+| `--ranking vector` (default), `--mode dense` | file class, then cosine score descending |
+| `--ranking metadata` | file class, then adjusted score (cosine + symbol-presence deltas) descending |
+| `--ranking hybrid` | file class, then fused score (cosine + 0.25 x lexical) descending |
+| `--mode lexical` | file class, then bm25 rank |
+| `--mode hybrid` | file class, then reciprocal-rank fusion of the dense and lexical lists |
+| `--all-projects` | file class, then RRF across the projects' lists |
+
+The class key runs in every one of those modes, and before the shaping caps
+(`--limit`, `--per-file`, `--max-chars`/`--max-tokens`, the pure-data share
+cap), so the policy decides which hits fill a capped answer. It never decides
+membership: every hit the store returned in the window is still returned, the
+demoted ones at the tail.
+
+Two waivers, and only two:
+
+1. **A test-targeting query** -- any query token in `test`, `tests`, `testing`,
+   `spec`, `specs`, `fixture`, `fixtures`, `unittest`, `unittests` -- waives
+   the tests rung's demotion: test hits rank with source, and the mode's own
+   order breaks ties among them. Docs and generated artifacts stay demoted.
+2. **A data-format query** -- any query token in `json`, `yaml`, `yml`,
+   `toml` -- waives the pure-data down-weight and the pure-data share cap. A
+   data format is a chunk shape rather than a path class, so this waiver
+   changes no rung: the class order breaks the ties among what remains.
+
+Every hit names what it matched: the enclosing symbol when the chunk has one,
+otherwise the chunk's first non-blank code line, otherwise `file`. Text output
+prints it in parentheses after the line range, compact prints it in the symbol
+column, and `--json` carries the same string as `hit.identity` -- no hit
+renders as a bare `-` or an empty field.
+
 ### The two walks that keep their own order
 
 `find-callees` does not use the policy, and says so: it returns call sites in

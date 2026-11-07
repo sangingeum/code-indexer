@@ -25,14 +25,21 @@ hit (search and hybrid fusion share the contract):
 ```json
 {"project": str, "file": str, "score": float,
  "symbol": str|null, "symbol_type": str|null, "lang": str,
- "start_line": int, "end_line": int, "snippet": str,
+ "start_line": int, "end_line": int, "snippet": str, "identity": str,
  "match": "symbol"|"lexical"|"fused"|missing,
  "rerank_delta": float|missing, "merged_count": int|missing}
 ```
 
-Ordering: score desc, ties by (file, start_line). `match` appears only in
-lexical/hybrid modes; `rerank_delta` only when the reranker is enabled;
-`merged_count` on same-file merged hits.
+`identity` is what the hit matched, and it is never an empty string: the
+`symbol` when the chunk has one, else the first non-blank line of `snippet`,
+else `"file"`. Text and compact output print the same value in the symbol
+position, so a scripted caller reads the name an agent reads.
+
+Ordering: file class first (source, examples, tests, docs, generated/artifact),
+then the order the ranking mode produced (cosine, adjusted score, fused score,
+bm25, or RRF) -- see `skill/references/query.md` (Ordering). `match` appears
+only in lexical/hybrid modes; `rerank_delta` only when the reranker is
+enabled; `merged_count` on same-file merged hits.
 
 ## skeleton --json / outline --json
 
