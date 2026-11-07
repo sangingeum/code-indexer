@@ -235,7 +235,7 @@ the same round — the schema is paid for once so the migration runs once.
 ## Configuration
 
 Resolution order: CLI flags > environment variables > defaults. Full list
-with defaults and one-line descriptions: [SKILL-CLI.md §Key rules](SKILL-CLI.md#key-rules).
+with defaults and one-line descriptions: [indexing.md §Configuration](skill/references/indexing.md#configuration).
 Note: `OLLAMA_URL`/`QDRANT_URL` defaults are LAN placeholders and must be set.
 
 ## Platform support
@@ -274,7 +274,7 @@ override. `.gitignore`/`.codeindexignore` are honored.
   every row with the confidence it carries.
 - C/C++/Java visibility is weak by design (everything public).
 - The language matrix and per-language caveats live in
-  [SKILL-CLI.md §semantic-search](SKILL-CLI.md#subcommand-reference) and
+  [query.md](skill/references/query.md) and
   [docs/languages.md](docs/languages.md).
 
 ## Performance

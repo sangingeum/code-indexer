@@ -1,26 +1,47 @@
 """Documentation-drift tests (offline; part of `pytest -m "not live"`).
 
-Guards README.md and SKILL-CLI.md against drifting from the code:
+The agent surface is one entry document (``SKILL-CLI.md``) and five reference
+files under ``skill/references/``, split and budgeted by ADR-0009. The command
+blocks and the entry document's roster are generated from the CLI registry by
+``scripts/generate_skill_docs.py``; prose is written by hand.
 
-1. command coverage   — every registered CLI command is documented in
-                        SKILL-CLI.md's command block, and every documented
-                        command exists (hidden/dev commands on an allow-list)
-2. option coverage    — every documented --flag exists in the command's
-                        real click parameters (with alias resolution)
-3. duplicate commands — each command appears once in the command block
-4. env var coverage   — env vars read from the code appear in SKILL-CLI.md's
-                        env list; documented env vars are real
-5. MCP parity table   — every registered MCP tool appears in README's
-                        parity table; CLI-only commands are labeled
-6. Python range       — pyproject requires-python matches the README's claim
-7. anchor/link check  — relative markdown links resolve to files/headings
+ADR-0009 section 5 decides six checks, each of which was a defect class first:
 
-Every failure prints the exact mismatch so the fix is mechanical.
+1. roster equality  -- the entry document's roster equals the registry, names
+                       and read-or-write classes both
+2. index closure    -- every reference named exists, every reference file is
+                       named, every command is covered by exactly one
+                       reference's generated sections
+3. budgets          -- 120 lines and 8 KiB for the entry document, 400 lines
+                       and 24 KiB per reference, measured and printed
+4. taxonomy         -- every ADR-0003 exit code appears in the entry document
+                       and in failures.md
+5. generated blocks -- each generated region equals the generator's output, so
+                       a hand edit inside one fails here
+6. installed copy   -- when installed in the new shape (a directory holding
+                       SKILL.md and references/), its digest equals the tracked
+                       digest; when not, the check skips with the reason.
+                       A legacy single-file installed copy is NOT installed in
+                       this shape, so it skips with that reason -- it is a
+                       symlink to the entry document alone and cannot carry
+                       the references the entry document's triggers resolve to.
+
+The MCP parity list stays a separate check (ADR-0007 section 5) in this same
+module: it is a different document with a different owner of truth.
+
+A command is *covered* by a reference when that reference carries the
+command's generated section, headed ``### `name```. Coverage is counted on
+that heading alone, which is why the JSON roster in machine-output.md and the
+remedy tables in failures.md do not make a command covered twice.
 """
 
 from __future__ import annotations
 
+import hashlib
+import importlib.util
+import os
 import re
+import sys
 import tomllib
 from pathlib import Path
 
@@ -30,15 +51,16 @@ from typer.main import get_command as typer_get_command
 
 REPO = Path(__file__).resolve().parent.parent
 README = REPO / "README.md"
-SKILL = REPO / "SKILL-CLI.md"
+ENTRY = REPO / "SKILL-CLI.md"
+REFERENCES_DIR = REPO / "skill" / "references"
 PYPROJECT = REPO / "pyproject.toml"
 JSON_SCHEMA = REPO / "docs" / "json-schema.md"
 CHANGELOG = REPO / "CHANGELOG.md"
+GENERATOR = REPO / "scripts" / "generate_skill_docs.py"
 
-# Dev/ops utilities documented separately in SKILL-CLI.md (they are in the
-# command block under a dev-utilities comment, but not part of the agent
-# workflow sections); allow-list for the bidirectional coverage check.
-HIDDEN_COMMANDS: set[str] = set()
+ENTRY_BUDGET = (120, 8 * 1024)
+REFERENCE_BUDGET = (400, 24 * 1024)
+EXIT_CODES = (0, 1, 2, 3, 4, 5)
 
 SKILL_DESC = re.compile(r"\bdescription:\s*\"(.*)\"", re.M)
 
@@ -46,6 +68,19 @@ SKILL_DESC = re.compile(r"\bdescription:\s*\"(.*)\"", re.M)
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
+def _load_generator():
+    """The generator module, loaded once under a name the suite can hold."""
+    name = "generate_skill_docs"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, GENERATOR)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
 
 def _click_group():
     import code_indexer.cli as cli_mod
@@ -63,80 +98,373 @@ def _walk(group, prefix: str = "") -> dict[str, object]:
 
 
 def _commands() -> dict[str, object]:
-    return _walk(_click_group())
+    """Every registered command, hidden spellings included, by name."""
+    return {n: c for n, c in _walk(_click_group()).items() if " " not in n}
 
 
 def _command_flags(cmd: click.Command) -> set[str]:
-    """Long option names (--x, --x/--y aliases flattened)."""
+    """Long option names (dual spellings included)."""
     flags: set[str] = set()
     for p in cmd.params:
-        opts = getattr(p, "opts", [])
-        name = getattr(p, "name", "")
-        # TyperOption subclasses typer's vendored click, not click itself —
-        # check by attribute, not isinstance.
-        if opts and not name.isupper():
-            for opt in opts:
-                if opt.startswith("--"):
-                    flags.add(opt)
+        for opt in getattr(p, "opts", []):
+            if opt.startswith("--"):
+                flags.add(opt)
     return flags
 
+def _entry_text() -> str:
+    return ENTRY.read_text(encoding="utf-8")
 
-def _flag_aliases(cmd: click.Command) -> dict[str, set[str]]:
-    """primary -> alias set for dual-name options (--type/--symbol-type)."""
-    out: dict[str, set[str]] = {}
-    for p in cmd.params:
-        longs = [o for o in getattr(p, "opts", []) if o.startswith("--")]
-        if len(longs) > 1:
-            out[longs[0]] = set(longs[1:])
+
+def _reference_paths() -> list[Path]:
+    return sorted(p for p in REFERENCES_DIR.glob("*.md") if p.is_file())
+
+
+def _reference_text(name: str) -> str:
+    return (REFERENCES_DIR / name).read_text(encoding="utf-8")
+
+
+def _surface_text() -> str:
+    """The entry document plus every reference: what an agent can load."""
+    parts = [_entry_text()] + [p.read_text(encoding="utf-8") for p in _reference_paths()]
+    return "\n\n".join(parts)
+
+
+def _generated_body(text: str, key: str) -> str:
+    """The body of one generated region, markers excluded."""
+    begin, end = f"<!-- generated:{key}:begin -->", f"<!-- generated:{key}:end -->"
+    start = text.index(begin) + len(begin)
+    stop = text.index(end)
+    return text[start:stop].strip("\n")
+
+
+def _roster() -> dict[str, tuple[str, str]]:
+    """command -> (class, reference file), read from the entry document."""
+    out: dict[str, tuple[str, str]] = {}
+    reference = ""
+    for line in _generated_body(_entry_text(), "roster").splitlines():
+        group = re.match(r"^\*\*([a-z-]+\.md)\*\*", line)
+        if group:
+            reference = group.group(1)
+            continue
+        row = re.match(r"^\| `([^`]+)` \| ([^|]+?) \|", line)
+        if row and reference:
+            out[row.group(1)] = (row.group(2).strip(), reference)
     return out
 
 
-def _skill_text() -> str:
-    return SKILL.read_text(encoding="utf-8")
-
-
-def _readme_text() -> str:
-    return README.read_text(encoding="utf-8")
-
-
-def _fenced_blocks(text: str) -> list[str]:
-    return re.findall(r"```[a-z]*\n(.*?)```", text, re.S)
-
-
-def _documented_command_lines() -> list[str]:
-    """Lines of SKILL-CLI.md's '# registry ... # lifecycle' command block."""
-    for block in _fenced_blocks(_skill_text()):
-        if "code-indexer add-project" in block and "code-indexer index-more" in block:
-            return [
-                ln.strip()
-                for ln in block.splitlines()
-                if ln.strip().startswith("code-indexer ")
-            ]
-    return []
-
-
-def _documented_commands() -> dict[str, str]:
-    """command name -> full documented line."""
-    out: dict[str, str] = {}
-    for line in _documented_command_lines():
-        rest = line[len("code-indexer "):]
-        name = rest.split()[0]
-        out.setdefault(name, line)
+def _command_sections() -> dict[str, list[str]]:
+    """command -> the reference files carrying its generated section."""
+    out: dict[str, list[str]] = {}
+    for path in _reference_paths():
+        for name in re.findall(r"^### `([^`]+)`$", path.read_text(encoding="utf-8"), re.M):
+            out.setdefault(name, []).append(path.name)
     return out
 
 
-def _documented_flags(line: str) -> set[str]:
-    return set(re.findall(r"(--[a-z][a-z0-9-]+)", line))
+def _size(path: Path) -> tuple[int, int]:
+    text = path.read_text(encoding="utf-8")
+    return len(text.splitlines()), len(text.encode("utf-8"))
 
 
-# Section-anchored slices so checks look at the right block of each file.
-def _readme_env_section() -> str:
-    """README now defers env vars to SKILL-CLI.md; both must agree."""
-    text = _skill_text()
-    m = re.search(r"^## Key rules$", text, re.M)
-    assert m, "SKILL-CLI.md is missing the '## Key rules' section"
-    return text[m.start():]
+def _dir_digest(root: Path) -> str:
+    """A digest over every file below `root`, keyed by relative path."""
+    digest = hashlib.sha256()
+    files = sorted(
+        (p for p in root.rglob("*") if p.is_file()),
+        key=lambda p: p.relative_to(root).as_posix(),
+    )
+    for path in files:
+        digest.update(path.relative_to(root).as_posix().encode())
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
 
+
+def _tracked_digest() -> str:
+    """The same digest over the tracked copy, under the installed names."""
+    digest = hashlib.sha256()
+    items = [("SKILL.md", ENTRY)] + [
+        (f"references/{p.name}", p) for p in _reference_paths()
+    ]
+    for relative, path in sorted(items):
+        digest.update(relative.encode())
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+INSTALLED_SHAPE = "a directory holding SKILL.md and references/"
+
+
+def _installed_skill_dirs() -> list[Path]:
+    """Where an installed skill may live, in precedence order."""
+    roots: list[Path] = []
+    override = os.environ.get("CODE_INDEXER_SKILLS_ROOT")
+    if override:
+        roots.append(Path(override))
+    roots.append(Path.home() / ".hermes" / "skills")
+    return [root / "code-indexer" for root in roots]
+
+
+def _installed_skill() -> tuple[Path | None, str]:
+    """The installed copy, or None plus the reason it is not in this shape."""
+    for path in _installed_skill_dirs():
+        if path.is_dir() and (path / "SKILL.md").is_file() and (path / "references").is_dir():
+            return path, ""
+        if path.exists() or path.is_symlink():
+            return None, (
+                f"{path} is not installed in this shape ({INSTALLED_SHAPE}); "
+                "a legacy single-file copy cannot carry the references"
+            )
+    return None, f"no installed skill directory exists ({INSTALLED_SHAPE})"
+
+
+# ---------------------------------------------------------------------------
+# 1. roster equality with the registry
+# ---------------------------------------------------------------------------
+
+def test_roster_equals_the_registry():
+    """The entry document's roster is the registry: names and classes both."""
+    from code_indexer import command_classes
+
+    roster = _roster()
+    registry = _commands()
+    missing = sorted(set(registry) - set(roster))
+    bogus = sorted(set(roster) - set(registry))
+    assert not missing, f"registered but absent from the roster: {missing}"
+    assert not bogus, f"roster names commands that do not exist: {bogus}"
+
+    expected = {}
+    for name in registry:
+        if name in command_classes.WRITE_ONLY_COMMANDS:
+            expected[name] = "write"
+        elif name in command_classes.CONDITIONAL_WRITE_COMMANDS:
+            expected[name] = "write (with --apply)"
+        else:
+            assert name in command_classes.READ_COMMANDS, name
+            expected[name] = "read"
+    wrong = {
+        name: (roster[name][0], cls)
+        for name, cls in expected.items()
+        if roster[name][0] != cls
+    }
+    assert not wrong, f"roster class disagrees with ADR-0003 section 1: {wrong}"
+
+
+def test_roster_names_the_reference_that_carries_the_command():
+    """Each roster line points at the reference whose sections carry it."""
+    sections = _command_sections()
+    wrong = {
+        name: (reference, sections.get(name))
+        for name, (_cls, reference) in _roster().items()
+        if sections.get(name) != [reference]
+    }
+    assert not wrong, f"roster reference pointer is wrong: {wrong}"
+
+
+# ---------------------------------------------------------------------------
+# 2. index closure
+# ---------------------------------------------------------------------------
+
+def test_every_named_reference_exists():
+    """Every reference the entry document names is a file that exists."""
+    named = set(re.findall(r"skill/references/([a-z-]+\.md)", _entry_text()))
+    assert named, "the entry document names no reference"
+    missing = sorted(n for n in named if not (REFERENCES_DIR / n).is_file())
+    assert not missing, f"the entry document names references that do not exist: {missing}"
+
+
+def test_every_reference_file_is_named():
+    """Every file under skill/references/ is named by the entry document."""
+    named = set(re.findall(r"skill/references/([a-z-]+\.md)", _entry_text()))
+    on_disk = {p.name for p in _reference_paths()}
+    orphan = sorted(on_disk - named)
+    assert not orphan, f"reference files the entry document never names: {orphan}"
+
+
+def test_every_command_is_covered_by_exactly_one_reference():
+    """No command without a home, no command with two, no orphan heading."""
+    sections = _command_sections()
+    registry = set(_commands())
+    uncovered = sorted(registry - set(sections))
+    doubled = {n: files for n, files in sections.items() if len(files) > 1}
+    orphan = sorted(set(sections) - registry)
+    assert not uncovered, f"registered commands no reference documents: {uncovered}"
+    assert not doubled, f"commands documented by more than one reference: {doubled}"
+    assert not orphan, f"reference sections for commands that do not exist: {orphan}"
+
+
+# ---------------------------------------------------------------------------
+# 3. budgets
+# ---------------------------------------------------------------------------
+
+def test_entry_document_budget():
+    lines, size = _size(ENTRY)
+    max_lines, max_bytes = ENTRY_BUDGET
+    assert lines <= max_lines and size <= max_bytes, (
+        f"SKILL-CLI.md is {lines} lines / {size} bytes; "
+        f"the budget is {max_lines} lines / {max_bytes} bytes"
+    )
+
+
+@pytest.mark.parametrize("path", _reference_paths(), ids=lambda p: p.name)
+def test_reference_budget(path: Path):
+    lines, size = _size(path)
+    max_lines, max_bytes = REFERENCE_BUDGET
+    assert lines <= max_lines and size <= max_bytes, (
+        f"skill/references/{path.name} is {lines} lines / {size} bytes; "
+        f"the budget is {max_lines} lines / {max_bytes} bytes"
+    )
+
+
+def test_every_reference_opens_with_its_governing_records():
+    """A reference that restates a decision names where it is decided."""
+    for path in _reference_paths():
+        head = path.read_text(encoding="utf-8")[:600]
+        assert "Governed by" in head, f"{path.name} does not name its records"
+        assert re.search(r"ADR-00\d\d", head), f"{path.name} names no ADR"
+
+
+# ---------------------------------------------------------------------------
+# 4. taxonomy coverage
+# ---------------------------------------------------------------------------
+
+def test_entry_document_carries_every_exit_code():
+    text = _entry_text()
+    section = re.search(r"^## Exit codes$(.*?)(?=\n## )", text, re.M | re.S)
+    assert section, "SKILL-CLI.md lost its exit-code table"
+    found = {int(m) for m in re.findall(r"^\| (\d) \|", section.group(1), re.M)}
+    missing = sorted(set(EXIT_CODES) - found)
+    assert not missing, f"exit codes missing from the entry table: {missing}"
+    assert "`ErrorType: message`" in section.group(1), (
+        "the entry table must say ErrorType is the semantic discriminator"
+    )
+
+
+def test_failures_reference_expands_every_exit_code():
+    text = _reference_text("failures.md")
+    missing = [c for c in EXIT_CODES if not re.search(rf"^#+ .*\b{c}\b", text, re.M)]
+    assert not missing, (
+        f"failures.md has no section for exit codes {missing}; "
+        "every code the entry document lists is expanded there"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 5. generated blocks equal the generator
+# ---------------------------------------------------------------------------
+
+def test_generated_blocks_match_the_generator():
+    generator = _load_generator()
+    drifted: list[str] = []
+    for key, body in generator.blocks().items():
+        path = generator.GENERATED[key]
+        text = path.read_text(encoding="utf-8")
+        if _generated_body(text, key) != body:
+            drifted.append(f"{key} in {path.relative_to(REPO)}")
+    assert not drifted, (
+        "generated blocks differ from scripts/generate_skill_docs.py output "
+        f"(run it): {drifted}"
+    )
+
+
+def test_generated_markers_are_balanced():
+    """No region left unrendered, and no file carrying a stray marker."""
+    for path in [ENTRY, *_reference_paths()]:
+        text = path.read_text(encoding="utf-8")
+        begins = re.findall(r"<!-- generated:([a-z-]+):begin -->", text)
+        ends = re.findall(r"<!-- generated:([a-z-]+):end -->", text)
+        assert begins == ends, f"{path.name}: marker pairs are unbalanced ({begins} vs {ends})"
+
+
+EXTERNAL_FLAGS = {
+    # click's own option
+    "--help",
+    # keeper's flags, named where a plan is applied or undone
+    "--expected-hash",
+    "--expected-content",
+    "--task-id",
+}
+
+
+def test_every_mentioned_flag_exists_on_a_command():
+    """A `--flag` in the agent surface is a flag the CLI really accepts."""
+    real: set[str] = set()
+    for cmd in _commands().values():
+        real |= _command_flags(cmd)
+    mentioned = set(re.findall(r"(--[a-z][a-z0-9-]+)", _surface_text()))
+    bogus = sorted(mentioned - real - EXTERNAL_FLAGS)
+    assert not bogus, f"documented flags no command accepts: {bogus}"
+
+
+def test_global_flags_section_names_the_fresh_set():
+    """The global-flags paragraph names every command that really takes
+    --fresh, and does not claim it universally."""
+    text = _reference_text("machine-output.md")
+    section = re.search(r"^## Global flags$(.*?)(?=\n## )", text, re.M | re.S)
+    assert section, "machine-output.md lost the 'Global flags' section"
+    para = section.group(1)
+    assert "--skip-stale-check" in para
+    fresh = sorted(n for n, c in _commands().items() if "--fresh" in _command_flags(c))
+    # `map` and `file-outline` are hidden dual names of skeleton/outline: the
+    # same command, so the paragraph names the canonical spelling only.
+    aliases = {"map", "file-outline"}
+    fresh = [n for n in fresh if n not in aliases]
+    assert fresh == ["find-definition", "find-references", "find-symbol",
+                     "get-code-context", "outline", "semantic-search",
+                     "skeleton"], fresh
+    for name in fresh:
+        assert f"`{name}`" in para, f"{name} accepts --fresh but the section omits it"
+    for name in ("find-callers", "find-callees", "deps", "overview",
+                 "changed-symbols"):
+        assert f"`{name}`" in para, name
+    assert "every project-scoped read/search command also accepts" not in para
+
+
+# ---------------------------------------------------------------------------
+# 6. the installed copy's digest
+# ---------------------------------------------------------------------------
+
+def test_installed_copy_digest_matches_the_tracked_copy():
+    """Equal digest when installed in the new shape; skip with the reason when not."""
+    path, reason = _installed_skill()
+    if path is None:
+        pytest.skip(reason)
+    assert _dir_digest(path) == _tracked_digest(), (
+        f"the installed copy at {path} differs from the tracked copy; "
+        "the release step installs after this test passes"
+    )
+
+
+def test_installed_digest_helper_on_a_throwaway_copy(tmp_path: Path):
+    """The digest helper agrees on an exact copy and disagrees on a tamper."""
+    root = tmp_path / "code-indexer"
+    (root / "references").mkdir(parents=True)
+    (root / "SKILL.md").write_text(_entry_text(), encoding="utf-8")
+    for path in _reference_paths():
+        (root / "references" / path.name).write_bytes(path.read_bytes())
+    assert _dir_digest(root) == _tracked_digest()
+    target = root / "references" / _reference_paths()[0].name
+    target.write_text(target.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    assert _dir_digest(root) != _tracked_digest()
+
+
+def test_installed_digest_helper_skips_a_legacy_copy(tmp_path: Path, monkeypatch):
+    """A single-file installed copy is not installed in this shape."""
+    skills_root = tmp_path / "skills"
+    (skills_root / "code-indexer").mkdir(parents=True)
+    (skills_root / "code-indexer" / "SKILL.md").symlink_to(ENTRY)
+    monkeypatch.setenv("CODE_INDEXER_SKILLS_ROOT", str(skills_root))
+    path, reason = _installed_skill()
+    assert path is None
+    assert "not installed in this shape" in reason
+
+
+# ---------------------------------------------------------------------------
+# the rest of the documentation contract
+# ---------------------------------------------------------------------------
 
 ENV_VARS_IN_CODE = [
     # mirror of src/code_indexer (config._DEFAULTS + scattered getenv reads);
@@ -149,132 +477,47 @@ ENV_VARS_IN_CODE = [
 ]
 
 # CODE_INDEXER_BIN is read by the MCP server (not the CLI), so it is
-# documented in README's MCP section rather than the SKILL env list.
+# documented in README's MCP section rather than the skill's env table.
 MCP_SERVER_ENV_VARS = {"CODE_INDEXER_BIN"}
 
 
-# ---------------------------------------------------------------------------
-# 1. command coverage
-# ---------------------------------------------------------------------------
-
-def test_every_registered_command_is_documented():
-    documented = _documented_commands()
-    missing = sorted(set(_commands()) - set(documented) - HIDDEN_COMMANDS)
-    assert not missing, (
-        "commands registered in the CLI but missing from SKILL-CLI.md's "
-        f"command block: {missing}"
-    )
+def _configuration_section() -> str:
+    """The env table lives in the indexing reference, its one home."""
+    text = _reference_text("indexing.md")
+    m = re.search(r"^## Configuration$", text, re.M)
+    assert m, "indexing.md is missing the '## Configuration' section"
+    return text[m.start():]
 
 
-def test_every_documented_command_exists():
-    cmds = _commands()
-    bogus = sorted(n for n in _documented_commands() if n not in cmds)
-    assert not bogus, f"SKILL-CLI.md documents commands that do not exist: {bogus}"
-
-
-# ---------------------------------------------------------------------------
-# 2. option coverage
-# ---------------------------------------------------------------------------
-
-def test_documented_flags_exist_in_cli():
-    cmds = _commands()
-    bad: list[str] = []
-    for name, line in sorted(_documented_commands().items()):
-        cmd = cmds[name]
-        real = _command_flags(cmd)
-        aliases = _flag_aliases(cmd)
-        for flag in sorted(_documented_flags(line) - {"--help"}):
-            if flag == "--all":
-                # argument-scoped vs project flag; verify on the actual cmd
-                if flag in real:
-                    continue
-                if name in ("watch", "unwatch"):
-                    continue
-                bad.append(f"{name}: documented --all does not exist")
-                continue
-            ok = flag in real or any(flag in v for v in aliases.values())
-            if not ok:
-                bad.append(f"{name}: documented {flag} does not exist "
-                           f"(real options: {sorted(real)})")
-    assert not bad, "\n".join(bad)
-
-
-def test_global_flags_paragraph_names_the_fresh_set():
-    """The 'Global flags:' paragraph must name every command that really
-    accepts --fresh — and must not claim it universally (it is absent on
-    find-callers/find-callees/deps/overview/changed-symbols)."""
-    text = _skill_text()
-    m = re.search(r"^Global flags:.*?(?=\n\n)", text, re.M | re.S)
-    assert m, "SKILL-CLI.md lost the 'Global flags:' paragraph"
-    para = m.group(0)
-    assert "--skip-stale-check" in para
-    cmds = _commands()
-    fresh = sorted(n for n, c in cmds.items()
-                   if "--fresh" in _command_flags(c))
-    # `map` and `file-outline` are hidden dual names of skeleton/outline: the
-    # same command, so the paragraph names the canonical spelling only.
-    aliases = {"map", "file-outline"}
-    fresh = [n for n in fresh if n not in aliases]
-    assert fresh == ["find-definition", "find-references", "find-symbol",
-                     "get-code-context", "outline", "semantic-search",
-                     "skeleton"], fresh
-    for name in fresh:
-        assert f"`{name}`" in para, (
-            f"{name} accepts --fresh but the Global flags paragraph omits it")
-    for name in ("find-callers", "find-callees", "deps", "overview",
-                 "changed-symbols"):
-        assert f"`{name}`" in para, name
-    assert "every project-scoped read/search command also accepts" not in para
-    assert "--fresh" in para
-
-
-# ---------------------------------------------------------------------------
-# 3. duplicate detection
-# ---------------------------------------------------------------------------
-
-def test_no_duplicate_commands_in_block():
-    seen: dict[str, int] = {}
-    for line in _documented_command_lines():
-        name = line[len("code-indexer "):].split()[0]
-        seen[name] = seen.get(name, 0) + 1
-    dupes = sorted(n for n, c in seen.items() if c > 1)
-    # Two legitimate multi-line entries: find-symbol browse mode is a second
-    # spelling of the same command, watch/unwatch show the --all form.
-    allowed = {"find-symbol", "watch", "unwatch"}
-    dupes = [d for d in dupes if d not in allowed]
-    assert not dupes, f"commands listed more than once in SKILL-CLI.md: {dupes}"
-
-
-# ---------------------------------------------------------------------------
-# 4. env var coverage
-# ---------------------------------------------------------------------------
-
-def test_code_env_vars_documented_in_skill():
-    text = _readme_env_section()
+def test_code_env_vars_documented_in_the_reference():
+    text = _configuration_section()
     missing = sorted(v for v in ENV_VARS_IN_CODE if v not in text)
-    assert not missing, f"env vars read by the code but absent from SKILL-CLI.md: {missing}"
+    assert not missing, f"env vars read by the code but absent from indexing.md: {missing}"
     readme = _readme_text()
     missing_mcp = sorted(v for v in MCP_SERVER_ENV_VARS if v not in readme)
-    assert not missing_mcp, (
-        f"MCP-server env vars absent from README: {missing_mcp}")
+    assert not missing_mcp, f"MCP-server env vars absent from README: {missing_mcp}"
 
 
 def test_documented_env_vars_exist_in_code():
-    text = _readme_env_section()
-    documented = set(re.findall(r"\b([A-Z][A-Z0-9_]{2,})\b", text))
+    text = _configuration_section()
+    documented = set(re.findall(r"`([A-Z][A-Z0-9_]{2,})`", text))
     documented -= set(ENV_VARS_IN_CODE) | {"PATH", "JSON", "SQL", "FTS5", "URL",
-                                           "SIGTERM", "SIGINT", "GB", "LRU",
-                                           "WAL", "SDK"}
+                                          "SIGTERM", "SIGINT", "GB", "LRU",
+                                          "WAL", "SDK"}
     bogus = sorted(d for d in documented
                    if d not in ENV_VARS_IN_CODE and "_" in d)
     assert not bogus, (
-        f"SKILL-CLI.md documents env vars the code does not read: {bogus} "
+        f"indexing.md documents env vars the code does not read: {bogus} "
         "(add to ENV_VARS_IN_CODE if the code gained them)"
     )
 
 
+def _readme_text() -> str:
+    return README.read_text(encoding="utf-8")
+
+
 # ---------------------------------------------------------------------------
-# 5. MCP parity table
+# MCP parity table (ADR-0007 section 5)
 # ---------------------------------------------------------------------------
 
 def _mcp_tools() -> list[str]:
@@ -315,7 +558,7 @@ def test_mcp_section_documents_the_install_line_and_usage_record():
 
 
 # ---------------------------------------------------------------------------
-# 6. Python range
+# Python range
 # ---------------------------------------------------------------------------
 
 def test_python_version_consistent():
@@ -330,8 +573,6 @@ def test_python_version_consistent():
     assert not bad, (
         f"README claims {bad} but pyproject requires-python lower bound is {lower}"
     )
-    # The pinned single-version scheme: README must not silently claim support
-    # for a range beyond the upper bound.
     if upper:
         upper_major = upper.split(".")[1] if "." in upper else upper
         for c in claimed:
@@ -355,7 +596,7 @@ def test_python_version_file_matches():
 
 
 # ---------------------------------------------------------------------------
-# 7. link / anchor check
+# link / anchor check
 # ---------------------------------------------------------------------------
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
@@ -376,7 +617,7 @@ def _anchor_of(heading: str) -> str:
 
 def test_relative_links_resolve():
     bad: list[str] = []
-    for path in (README, SKILL):
+    for path in [README, ENTRY, *_reference_paths()]:
         text = path.read_text(encoding="utf-8")
         for target in re.findall(r"\]\((?!http)([^)#]+)(?:#([^)]+))?\)", text):
             rel, anchor = target
@@ -395,7 +636,7 @@ def test_relative_links_resolve():
 
 
 def test_no_dangling_see_below():
-    for path in (README, SKILL):
+    for path in (README, ENTRY):
         text = path.read_text(encoding="utf-8")
         assert "see below" not in text.lower(), (
             f"{path.name} still contains a 'see below' reference"
@@ -403,11 +644,11 @@ def test_no_dangling_see_below():
 
 
 # ---------------------------------------------------------------------------
-# 6. the read contract (ADR-0003) is described, not just implemented
+# the read contract (ADR-0003) is described, not just implemented
 # ---------------------------------------------------------------------------
 
-def test_skill_describes_the_read_write_contract():
-    text = _skill_text()
+def test_the_surface_describes_the_read_write_contract():
+    text = _surface_text()
     # classification
     assert "read command" in text and "write command" in text
     assert "`sweep-orphans --apply`" in text
@@ -430,11 +671,14 @@ def test_skill_describes_the_read_write_contract():
     assert "RebuildRequiredError" in text or "requires a rebuild" in text
 
 
-def test_skill_documents_json_on_the_five_read_commands():
-    documented = _documented_commands()
+def test_the_five_read_answers_document_json():
+    """The five read commands that answer as data say so in their section."""
+    text = _reference_text("machine-output.md")
     for name in ("list-projects", "lookup-project", "index-status",
                  "find-definition", "find-references"):
-        assert "--json" in documented[name], (name, documented[name])
+        row = re.search(rf"^\| `{name}` \|.*\|$", text, re.M)
+        assert row, f"machine-output.md does not list {name}"
+        assert "`--json`" in row.group(0), (name, row.group(0))
 
 
 def test_readme_describes_the_read_contract():
