@@ -1,5 +1,34 @@
 # Changelog
 
+## [Unreleased] — the indexed tree
+
+**Captures are no longer part of this repository's index.** A root
+`.codeindexignore` now names the two non-source trees the scanner skips:
+`runs/` (round records, gate output and captured command logs) and `eval/`
+(the retrieval corpus of queries and their labelled answers). Both stay
+tracked in git; the exclusion is index-only, so `git log` still carries every
+committed record.
+
+- **The measured cost of indexing them.** In the live manifest, `runs/` held
+  939 of 1,111 files, 1,614 of 4,312 chunks and 550 of 2,935 symbols, and
+  those rows tied with or outranked source in semantic search, `find-callers`
+  and hotspot rank. `eval/` went the same way for a different reason: its
+  lines are questions shaped like the ones users type, so an indexed corpus
+  matches a query before the code that answers it does.
+- **Existing rows need a reindex.** The file governs future scans; rows
+  already in a manifest are dropped by a reindex of the project. This entry
+  ships the exclusion, not the pass that applies it to a live index.
+- **`.gitignore` had lost `logs/`.** A commit appended `runs/` to a `logs/`
+  entry that had no trailing newline, leaving the single line `logs/runs/`, so
+  neither tree was ignored while the commit message claimed otherwise. `logs/`
+  is back on its own line. `runs/` is deliberately not ignored: round records
+  are committed on purpose, and ignoring the tree would hide new captures from
+  `git status` and force `git add -f` for the records that stay.
+- **`tests/test_repo_exclusions.py` pins the set.** It copies the
+  repository's own `.codeindexignore` into a throwaway tree shaped like this
+  one and asserts the captures and the corpus stay out while `src/` is
+  scanned; without the file the test fails.
+
 ## [Unreleased] — the retired read-path TTL
 
 **`STALE_TTL` parses nothing now.** The config field it fed was inert -- reads
