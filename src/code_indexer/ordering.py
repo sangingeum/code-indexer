@@ -148,19 +148,19 @@ def symbol_key(row, query_name: str | None = None) -> tuple:
     exact hit, a row that does not (the substring tier) merely shares it. A
     row with no recorded ``symbol_type`` cannot say what it matched, so it
     sorts after its class's named rows; an attributed (``ast``) row then sorts
-    above a textual one. The tail is identity data, so no tie is left to
-    insertion order.
+    above a textual one. The tail is identity data -- name, then file and
+    line, then the declaration hash -- so no tie is left to insertion order.
     """
     return (
         class_weight(row.file),
         0 if query_name is None or _same_name(row.name, query_name) else 1,
         0 if row.symbol_type else 1,
         0 if row.source == "ast" else 1,
+        row.name,
         row.file,
         row.start_line,
         row.qualified_name or "",
         row.decl_hash or "",
-        row.name,
     )
 
 

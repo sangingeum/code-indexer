@@ -82,6 +82,8 @@ import time
 from dataclasses import dataclass
 from urllib.parse import quote
 
+from . import ordering
+
 logger = logging.getLogger("code-indexer.manifest")
 
 SCHEMA_VERSION = "7"
@@ -226,6 +228,19 @@ class ChunkRow:
     chunk_hash: str
     text: str
 
+def _register_ordering(conn: sqlite3.Connection) -> None:
+    """Teach this connection the path classifier the ordering policy uses.
+
+    A capped read orders in SQL, before ``LIMIT`` cuts the answer, so the
+    ranking cannot be applied after the cap. The function is the SAME
+    classifier the Python surfaces use (``ordering.class_weight``), never a
+    second statement of the path rules; registering it per connection writes
+    nothing to the file, so a read-only open keeps its contract.
+    """
+    conn.create_function("file_class_weight", 1, ordering.class_weight,
+                         deterministic=True)
+
+
 def _open_read_only(db_path: str) -> sqlite3.Connection:
     """A connection that cannot write, for every read path.
 
@@ -242,12 +257,14 @@ def _open_read_only(db_path: str) -> sqlite3.Connection:
         # A read-only WAL open can succeed at connect time and fail on the
         # first statement, so prove the file is readable before trusting it.
         conn.execute("SELECT count(*) FROM sqlite_master").fetchone()
+        _register_ordering(conn)
         return conn
     except sqlite3.OperationalError as exc:
         logger.debug("read-only open unavailable for %s (%s); pinning "
                      "query_only instead", db_path, exc)
     conn = sqlite3.connect(db_path, timeout=30)
     conn.execute("PRAGMA query_only=1")
+    _register_ordering(conn)
     return conn
 
 
@@ -285,6 +302,7 @@ class Manifest:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._conn.execute("PRAGMA busy_timeout=5000")
+        _register_ordering(self._conn)
         with self._conn:
             # v7 replaces the symbols table instead of altering it: the old key
             # ``(file, name, start_line)`` is line-bearing, and the new columns
@@ -601,9 +619,21 @@ class Manifest:
                 out[verdict] = int(n)
         return out
 
+    # The ordering policy (``code_indexer.ordering``): file class first, so a
+    # definition in a test fixture or a document never outranks the source it
+    # exercises; then identity quality -- an exact name before a substring
+    # hit, a row with a recorded kind before one without -- then attribution,
+    # then the row's own identity fields so no tie falls to insertion order.
+    # ``file_class_weight`` is the Python classifier registered per
+    # connection, so this capped read ranks by the SAME rules every other
+    # surface uses. The two ``?`` bind the queried name (NULL in browse mode).
     _SYMBOL_ORDER = (
-        " ORDER BY CASE s.source WHEN 'ast' THEN 0 ELSE 1 END, "
-        "s.name, s.start_line, s.file, s.qualified_name, s.decl_hash")
+        " ORDER BY file_class_weight(s.file), "
+        "CASE WHEN ? IS NULL OR s.name = ? COLLATE NOCASE THEN 0 ELSE 1 END, "
+        "CASE WHEN s.symbol_type IS NULL OR s.symbol_type = '' "
+        "THEN 1 ELSE 0 END, "
+        "CASE WHEN s.source = 'ast' THEN 0 ELSE 1 END, "
+        "s.name, s.file, s.start_line, s.qualified_name, s.decl_hash")
 
     def _symbol_filters(self, name: str | None = None,
                         symbol_type: str | None = None,
@@ -686,7 +716,7 @@ class Manifest:
                      language: str | None = None,
                      inherits: str | None = None,
                      has_call: str | None = None) -> list[SymbolRow]:
-        """Exact-first (ast rows above regex rows); optional capped substring tier.
+        """Exact-name read in the ordering policy; optional capped substring tier.
 
         name=None is browse mode (design §2.3): filters only, capped by
         ``limit``. ``limit=None`` is the WHOLE read — a definition list is an
@@ -697,9 +727,12 @@ class Manifest:
         A capped read is never a claim about the population: ``count_symbols``
         answers that from the SAME clause set, so the two cannot drift.
 
-        The order key ends in ``file`` so it is total: ``(name, start_line)``
-        alone is not, and a capped read is only a reproducible prefix when no
-        tie can straddle the cut.
+        The order is ``code_indexer.ordering``'s policy, applied in SQL so it
+        holds BEFORE ``limit`` cuts the answer: file class (source, tests,
+        docs, generated), then identity quality (the queried name exactly, a
+        recorded kind, attributed syntax), then the row's own identity fields
+        — a total key, so a capped read is a reproducible prefix and no tie
+        group can straddle the cut.
         """
         clauses, args = self._symbol_filters(
             name=name, symbol_type=symbol_type, substring=substring,
@@ -710,6 +743,7 @@ class Manifest:
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += self._SYMBOL_ORDER
+        args.extend([name, name])
         if limit is not None:
             sql += " LIMIT ?"
             args.append(limit)
@@ -764,7 +798,8 @@ class Manifest:
             sql += " WHERE " + " AND ".join(clauses)
         sql += self._SYMBOL_ORDER
         return [str(row[3]) for row in
-                self._conn.execute("EXPLAIN QUERY PLAN " + sql, args)]
+                self._conn.execute("EXPLAIN QUERY PLAN " + sql,
+                                   args + [name, name])]
 
     def symbol_files_without_ast(self) -> int:
         """How many files holding symbol rows have no AST extraction.

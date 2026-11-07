@@ -1,12 +1,16 @@
 """The ordering policy: one classifier, one key order, no ties by accident.
 
-The CLI-level proofs (a fixture with MORE references in the test file, a
-determinism re-run) live beside the surfaces they exercise; this module pins the
-classifier and the key shape those surfaces share.
+Two layers. The classifier and key shapes are pinned here directly; the
+surfaces are exercised through the CLI on a fixture built so the ordering
+CANNOT be satisfied by accident -- the test and documentation files carry MORE
+declarations and MORE references than the source file, so a list ordered by
+count, by path or by insertion order disagrees with the answer asserted here.
+A determinism re-run pins the tie-break layer.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from dataclasses import dataclass
@@ -14,8 +18,16 @@ from dataclasses import dataclass
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import pytest  # noqa: E402
+from typer.testing import CliRunner  # noqa: E402
 
+import code_indexer.cli as cli  # noqa: E402
 from code_indexer import ordering  # noqa: E402
+from code_indexer.cli import app  # noqa: E402
+from code_indexer.config import Config  # noqa: E402
+from code_indexer.core import Core  # noqa: E402
+from code_indexer.registry import Registry  # noqa: E402
+
+runner = CliRunner()
 
 
 @dataclass
@@ -151,3 +163,167 @@ def test_the_keys_are_total_so_two_runs_cannot_disagree():
                      qualified_name="Runner.Tick", decl_hash="sha256:b")]
     keys = [ordering.symbol_key(row, "Tick") for row in same_line]
     assert len(set(keys)) == 2, "rows that differ only by declaration hash tie"
+
+
+# ---------------------------------------------------------------------------
+# the CLI surfaces on a fixture that CANNOT pass by accident
+# ---------------------------------------------------------------------------
+#
+# The test file declares the shared name three times and the generated bundle
+# mentions it as often as the source does; the test file also owns a helper
+# with far more references than the source file's own name. A list ordered by
+# count, by path or by insertion order therefore disagrees with every answer
+# asserted below -- only the class weight can produce it.
+
+SOURCE_FILE = "pkg/sim.py"
+SOURCE_TEXT = "def Tick():\n    return 1\n"
+
+TEST_FILE = "tests/test_sim.py"
+TEST_TEXT = (
+    "def Tick(first=1):\n"
+    "    return first\n"
+    "\n"
+    "\n"
+    "def Tick(second=2):\n"
+    "    return second\n"
+    "\n"
+    "\n"
+    "def Tick(third=3):\n"
+    "    return third\n"
+    "\n"
+    "\n"
+    "def exercise():\n"
+    "    Tick()\n"
+    "    Tick()\n"
+    "    Tick()\n"
+    + "".join("    shared_fixture()\n" for _ in range(20))
+)
+
+CONFTEST_FILE = "tests/conftest.py"
+CONFTEST_TEXT = "def shared_fixture():\n    return 1\n"
+
+APP_FILE = "app.py"
+APP_TEXT = "def drive():\n    Tick()\n"
+
+DOC_FILE = "docs/design.md"
+DOC_TEXT = ("# Design\n\n"
+            "Tick is the simulation step. Tick drives every system, and\n"
+            "Tick is measured per frame. A Tick is never skipped.\n")
+
+BUNDLE_FILE = "dist/bundle.min.js"
+BUNDLE_TEXT = "function Tick(){\nTick();\nTick();\nTick();\n}\n"
+
+
+class _StubEmbedder:
+    def dimension(self):
+        return 4
+
+    def embed(self, texts):
+        return [[0.1] * 4 for _ in texts]
+
+    def embed_with_errors(self, texts):
+        return [[0.1] * 4 for _ in texts], []
+
+    def query_instruction_text(self, query):
+        return query
+
+    def close(self):
+        pass
+
+
+class _StubStore:
+    def collection_exists(self, name):
+        return True
+
+    def create_collection(self, name, dim):
+        pass
+
+    def upsert_points(self, name, points):
+        pass
+
+    def purge_file_points(self, *args, **kwargs):
+        return 0
+
+    def count_points(self, name):
+        return 0
+
+    def search(self, *args, **kwargs):
+        return []
+
+    def swap_collection(self, *args, **kwargs):
+        return None
+
+
+@pytest.fixture()
+def rig(tmp_path, monkeypatch):
+    monkeypatch.setenv("INDEX_ROOT", str(tmp_path / "state"))
+    cli._core = None
+    cli._core_skip = False
+    cfg = Config(ollama_url="http://stub", qdrant_url="http://stub",
+                 embed_model="stub", index_root=str(tmp_path / "state"),
+                 embed_batch=48, upsert_batch=256, max_file_bytes=1048576,
+                 watch_debounce=1, watch_sweep_interval=3600)
+    project = tmp_path / "proj"
+    files = {
+        SOURCE_FILE: SOURCE_TEXT, TEST_FILE: TEST_TEXT,
+        CONFTEST_FILE: CONFTEST_TEXT, APP_FILE: APP_TEXT,
+        DOC_FILE: DOC_TEXT, BUNDLE_FILE: BUNDLE_TEXT,
+    }
+    for name, text in files.items():
+        path = project / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    core = Core(cfg)
+    core.embedder = _StubEmbedder()  # type: ignore[assignment]
+    core.store = _StubStore()  # type: ignore[assignment]
+    core.indexer.embedder = core.embedder  # type: ignore[assignment]
+    core.indexer.store = core.store  # type: ignore[assignment]
+    reg = Registry(os.path.join(cfg.index_root, "registry.db"))
+    entry = reg.add(str(project), name="ordering")
+    core.run_index(entry.slug, str(project))
+    monkeypatch.setattr(cli, "_get_core", lambda skip: core)
+    yield core, reg, entry, project
+    reg.close()
+    cli._core = None
+    cli._core_skip = False
+
+
+def _json(project, *args) -> dict:
+    result = runner.invoke(app, [*args, "--project", str(project), "--json"])
+    assert result.exit_code == 0, result.output
+    return json.loads(result.output)
+
+
+def test_the_fixture_really_puts_more_hits_in_the_demoted_classes(rig):
+    """Otherwise every assertion below could pass for the wrong reason."""
+    core, _reg, entry, _project = rig
+    m = core.manifest_for(entry.slug)
+    try:
+        per_file: dict[str, int] = {}
+        for row in m.refs_to("Tick", limit=1000):
+            per_file[row["file"]] = per_file.get(row["file"], 0) + 1
+        assert per_file.get(TEST_FILE, 0) > per_file.get(APP_FILE, 0), per_file
+        declarations = [r.file for r in m.definitions_of("Tick")]
+        assert declarations.count(TEST_FILE) > declarations.count(
+            SOURCE_FILE), declarations
+    finally:
+        m.close()
+
+
+def test_find_definition_puts_the_source_declaration_first(rig):
+    """Three test declarations and one generated one lose to one source row."""
+    _core, _reg, _entry, project = rig
+    data = _json(project, "find-definition", "Tick")
+    files = [d["file"] for d in data["definitions"]]
+    assert files.count(TEST_FILE) >= 3, files
+    assert files[0] == SOURCE_FILE, files
+    weights = [ordering.class_weight(f) for f in files]
+    assert weights == sorted(weights), files
+
+
+def test_find_definition_is_deterministic(rig):
+    _core, _reg, _entry, project = rig
+    first = _json(project, "find-definition", "Tick")
+    second = _json(project, "find-definition", "Tick")
+    assert first == second
+
