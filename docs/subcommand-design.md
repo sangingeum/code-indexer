@@ -284,7 +284,9 @@ Test strategy (`tests/`, pytest, following `test_codeintel.py`):
   see torn symbol rows — replace_file_symbols is atomic per file).
 - Edge cases: empty file, file with no symbols, PATH_PREFIX with no
   matches (empty output, exit 0 — not an error), `outline` on a file not
-  in the manifest (error, exit 1), pre-v3 manifest (hint, no crash).
+  in the manifest (error, exit 1), pre-v3 manifest (every row surface
+  refuses with `RebuildRequiredError`, exit 4 -- a read never migrates it
+  and there is no hint path).
 
 Phase 1 = items 1–8 for skeleton/outline/find-symbol only. Phase 2 adds
 deps + public-api + the import-regex extension. Do not mix phases in one
