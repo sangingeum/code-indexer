@@ -115,7 +115,7 @@ def rig(tmp_path):
     (project / "gone.py").write_text(
         "import os\n\n\ndef gone():\n    return os.getcwd()\n")
     cfg = Config(ollama_url="", qdrant_url="", embed_model="stub",
-                 index_root=str(root), stale_ttl=60, embed_batch=48,
+                 index_root=str(root), embed_batch=48,
                  upsert_batch=256, max_file_bytes=1048576, watch_debounce=3,
                  watch_sweep_interval=300)
     reg = Registry(str(root / "registry.db"))

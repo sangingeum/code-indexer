@@ -52,7 +52,7 @@ def payload(file: str, lang: str, symbol: str | None = None) -> dict:
 def _core(tmp_path, points: list[_Point]) -> Core:
     cfg = Config(
         ollama_url="", qdrant_url="", embed_model="stub",
-        index_root=str(tmp_path / "root"), stale_ttl=60, embed_batch=48,
+        index_root=str(tmp_path / "root"), embed_batch=48,
         upsert_batch=256, max_file_bytes=1048576, watch_debounce=3,
         watch_sweep_interval=300,
     )

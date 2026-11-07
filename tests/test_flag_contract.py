@@ -59,7 +59,7 @@ def test_every_command_accepts_skip_stale_check():
 def captured(tmp_path, monkeypatch):
     """A core whose _get_core records the skip_stale_check argument."""
     cfg = Config(ollama_url="", qdrant_url="", embed_model="stub",
-                 index_root=str(tmp_path / "state"), stale_ttl=60,
+                 index_root=str(tmp_path / "state"),
                  embed_batch=48, upsert_batch=256, max_file_bytes=1048576,
                  watch_debounce=3, watch_sweep_interval=300)
     project = tmp_path / "proj"

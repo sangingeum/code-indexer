@@ -76,7 +76,7 @@ def core(tmp_path, monkeypatch):
     monkeypatch.setenv("WATCH_DEBOUNCE", "1")  # fast quiet period
     cfg = Config(
         ollama_url="http://stub", qdrant_url="http://stub", embed_model="stub",
-        index_root=str(tmp_path / "state"), stale_ttl=0, embed_batch=48,
+        index_root=str(tmp_path / "state"), embed_batch=48,
         upsert_batch=256, max_file_bytes=1048576, watch_debounce=1,
         watch_sweep_interval=3600)
     return _stub_core(cfg)

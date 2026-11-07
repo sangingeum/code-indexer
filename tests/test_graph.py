@@ -250,7 +250,7 @@ def test_import_resolution_js_and_c():
 
 def _rig(tmp_path, monkeypatch):
     cfg = Config(ollama_url="", qdrant_url="", embed_model="stub",
-                 index_root=str(tmp_path / "state"), stale_ttl=60,
+                 index_root=str(tmp_path / "state"),
                  embed_batch=48, upsert_batch=256, max_file_bytes=1048576,
                  watch_debounce=3, watch_sweep_interval=300)
     project = tmp_path / "proj"
@@ -617,7 +617,7 @@ def _wide_rig(tmp_path, monkeypatch, callers: int = 250):
     defined nowhere, which exercises the no-definition seed path.
     """
     cfg = Config(ollama_url="", qdrant_url="", embed_model="stub",
-                 index_root=str(tmp_path / "state"), stale_ttl=60,
+                 index_root=str(tmp_path / "state"),
                  embed_batch=48, upsert_batch=256, max_file_bytes=1048576,
                  watch_debounce=3, watch_sweep_interval=300)
     project = tmp_path / "wide"
@@ -736,7 +736,7 @@ def _many_definitions_rig(tmp_path, monkeypatch, definitions: int = 40,
     capped-root case has an edge to refuse as well as roots to hide.
     """
     cfg = Config(ollama_url="", qdrant_url="", embed_model="stub",
-                 index_root=str(tmp_path / "state"), stale_ttl=60,
+                 index_root=str(tmp_path / "state"),
                  embed_batch=48, upsert_batch=256, max_file_bytes=1048576,
                  watch_debounce=3, watch_sweep_interval=300)
     project = tmp_path / "manydefs"

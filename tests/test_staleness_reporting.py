@@ -96,7 +96,7 @@ class StubStore:
 
 def _config(tmp: str, embed_model: str = "stub-model") -> Config:
     return Config(ollama_url="", qdrant_url="", embed_model=embed_model,
-                  index_root=tmp, stale_ttl=60, embed_batch=48,
+                  index_root=tmp, embed_batch=48,
                   upsert_batch=256, max_file_bytes=1048576,
                   watch_debounce=3, watch_sweep_interval=300)
 

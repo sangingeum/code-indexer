@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased] — the retired read-path TTL
+
+**`STALE_TTL` parses nothing now.** The config field it fed was inert -- reads
+report their verdict from the stat scan, so no code consumed the value. The
+field, its default entry and the integer parse are gone, and every test
+fixture that built a `Config` with it is cleaned up.
+
+- **The variable is still accepted and ignored.** A deployment that exports
+  `STALE_TTL` starts and behaves exactly as before; the retirement is a
+  removal from the config surface, not a new failure for an inherited
+  environment. A value that is not a number no longer raises the way the old
+  parse did, and `tests/test_retired_config_vars.py` pins both facts.
+- **The documented row stays.** The indexing reference keeps `STALE_TTL` and
+  now says it is accepted and ignored; `tests/test_docs.py` checks the retired
+  names against that table instead of listing them as live reads.
+
 ## [Unreleased] — the agent surface
 
 **The documentation an agent loads before it acts is now 118 lines, and the

@@ -86,7 +86,7 @@ def cs_manifest(tmp_path):
     (tmp_path / "state").mkdir()
     (src / "LegitimacyDynamics.cs").write_text(CS_SOURCE)
     cfg = Config(ollama_url="", qdrant_url="", embed_model="stub",
-                 index_root=str(tmp_path / "state"), stale_ttl=60,
+                 index_root=str(tmp_path / "state"),
                  embed_batch=48, upsert_batch=256, max_file_bytes=1048576,
                  watch_debounce=3, watch_sweep_interval=300)
     manifest = Manifest(os.path.join(cfg.index_root, "m.db"))

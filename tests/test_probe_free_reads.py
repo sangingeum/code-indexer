@@ -27,7 +27,7 @@ runner = CliRunner()
 def _config(index_root) -> Config:
     return Config(ollama_url="http://127.0.0.1:1",
                   qdrant_url="http://127.0.0.1:1", embed_model="stub",
-                  index_root=str(index_root), stale_ttl=60, embed_batch=48,
+                  index_root=str(index_root), embed_batch=48,
                   upsert_batch=256, max_file_bytes=1048576, watch_debounce=3,
                   watch_sweep_interval=300)
 

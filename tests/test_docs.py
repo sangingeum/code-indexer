@@ -531,7 +531,9 @@ def test_installed_digest_helper_skips_a_legacy_copy(tmp_path: Path, monkeypatch
 ENV_VARS_IN_CODE = [
     # mirror of src/code_indexer (config._DEFAULTS + scattered getenv reads);
     # kept explicit so a new env var added in code forces an edit here.
-    "OLLAMA_URL", "QDRANT_URL", "EMBED_MODEL", "INDEX_ROOT", "STALE_TTL",
+    # Retired variables are not live reads: they are checked separately, against
+    # config.RETIRED_ENV_VARS, by test_retired_env_vars_stay_documented.
+    "OLLAMA_URL", "QDRANT_URL", "EMBED_MODEL", "INDEX_ROOT",
     "EMBED_BATCH", "UPSERT_BATCH", "MAX_FILE_BYTES", "WATCH_DEBOUNCE",
     "WATCH_QUIET_PERIOD", "WATCH_SWEEP_INTERVAL", "OLLAMA_TIMEOUT",
     "EMBED_CONCURRENCY", "CHUNK_MAX_CHARS", "PARANOID_HASH", "VERBOSE",
@@ -560,10 +562,30 @@ def test_code_env_vars_documented_in_the_reference():
     assert not missing_mcp, f"MCP-server env vars absent from README: {missing_mcp}"
 
 
+def test_retired_env_vars_stay_documented():
+    """A retired variable keeps its row: it is accepted and ignored, not dropped.
+
+    The code names its retired variables in ``config.RETIRED_ENV_VARS``; the
+    reference must keep saying so, because a reader who has one exported needs
+    to find out that it no longer does anything.
+    """
+    from code_indexer.config import RETIRED_ENV_VARS
+
+    text = _configuration_section()
+    missing = sorted(v for v in RETIRED_ENV_VARS if v not in text)
+    assert not missing, (
+        f"retired env vars absent from indexing.md: {missing} "
+        "(the row stays, and says the variable is ignored)"
+    )
+
+
 def test_documented_env_vars_exist_in_code():
+    from code_indexer.config import RETIRED_ENV_VARS
+
     text = _configuration_section()
     documented = set(re.findall(r"`([A-Z][A-Z0-9_]{2,})`", text))
-    documented -= set(ENV_VARS_IN_CODE) | {"PATH", "JSON", "SQL", "FTS5", "URL",
+    documented -= set(ENV_VARS_IN_CODE) | set(RETIRED_ENV_VARS) | {
+        "PATH", "JSON", "SQL", "FTS5", "URL",
                                           "SIGTERM", "SIGINT", "GB", "LRU",
                                           "WAL", "SDK"}
     bogus = sorted(d for d in documented

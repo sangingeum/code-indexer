@@ -14,8 +14,6 @@ _DEFAULTS: dict[str, str] = {
     "qdrant_url": "http://192.168.1.105:6333",
     "embed_model": "qwen3-embedding:8b",
     "index_root": "~/.code-indexer",
-    "stale_ttl": "60",          # RETIRED: parsed into Config.stale_ttl,
-                                 # consumed by nothing (reads never probe)
     "embed_batch": "48",        # texts per Ollama embed request
     "upsert_batch": "256",      # points per Qdrant upsert
     "max_file_bytes": "1048576",  # skip files > 1MB
@@ -25,6 +23,12 @@ _DEFAULTS: dict[str, str] = {
     "embed_concurrency": "1",   # pipeline parsing while embed is in flight
 }
 
+# Retired environment variables: accepted and inert. A deployment may still
+# export one, and setting it must neither raise nor change behaviour. They are
+# named here so the retirement stays visible rather than silent; nothing reads
+# their value.
+RETIRED_ENV_VARS: frozenset[str] = frozenset({"STALE_TTL"})
+
 
 @dataclass
 class Config:
@@ -32,7 +36,6 @@ class Config:
     qdrant_url: str
     embed_model: str
     index_root: str
-    stale_ttl: int
     embed_batch: int
     upsert_batch: int
     max_file_bytes: int
@@ -82,7 +85,6 @@ def load_config(argv: list[str] | None = None) -> Config:
         qdrant_url=cfg["qdrant_url"],
         embed_model=cfg["embed_model"],
         index_root=index_root,
-        stale_ttl=int(cfg["stale_ttl"]),
         embed_batch=int(cfg["embed_batch"]),
         upsert_batch=int(cfg["upsert_batch"]),
         max_file_bytes=int(cfg["max_file_bytes"]),

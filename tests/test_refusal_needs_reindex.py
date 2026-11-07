@@ -89,7 +89,7 @@ def needs_reindex_rig(tmp_path, monkeypatch):
     cli._core_skip = False
     cfg = Config(ollama_url="http://stub", qdrant_url="http://stub",
                  embed_model="stub", index_root=str(tmp_path / "state"),
-                 stale_ttl=0, embed_batch=48, upsert_batch=256,
+                 embed_batch=48, upsert_batch=256,
                  max_file_bytes=1048576, watch_debounce=1,
                  watch_sweep_interval=3600)
     core = Core(cfg)

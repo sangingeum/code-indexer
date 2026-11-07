@@ -277,7 +277,7 @@ for `OLLAMA_URL` and `QDRANT_URL` are LAN placeholders and must be set.
 | `QUERY_INSTRUCTION` | on | query-side embedding instruction; documents are never instructed, so toggling needs no reindex |
 | `PARANOID_HASH` | off | `1` disables the stat fast path and hashes every file |
 | `VERBOSE` | off | verbose diagnostics on stderr |
-| `STALE_TTL` | -- | retired: still parsed for compatibility and consumed by nothing, because a read reports its verdict from the stat scan |
+| `STALE_TTL` | -- | retired: accepted and ignored -- setting it neither raises nor changes behaviour, because a read reports its verdict from the stat scan |
 
 
 `.gitignore` and nested `.codeindexignore` files are honoured; `--include`

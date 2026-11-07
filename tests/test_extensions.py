@@ -138,7 +138,7 @@ def test_doctor_completes_with_the_extra_absent(tmp_path, monkeypatch):
     monkeypatch.setenv("INDEX_ROOT", str(tmp_path / "state"))
     cfg = Config(ollama_url="http://127.0.0.1:1",
                  qdrant_url="http://127.0.0.1:1", embed_model="stub",
-                 index_root=str(tmp_path / "state"), stale_ttl=60,
+                 index_root=str(tmp_path / "state"),
                  embed_batch=48, upsert_batch=256, max_file_bytes=1048576,
                  watch_debounce=3, watch_sweep_interval=300)
     core = Core(cfg)

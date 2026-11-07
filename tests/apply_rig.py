@@ -28,7 +28,7 @@ PROJECT_NAME = "applysample"
 def config_for(tmp_path) -> Config:
     return Config(ollama_url="http://stub", qdrant_url="http://stub",
                   embed_model="stub", index_root=str(tmp_path / "state"),
-                  stale_ttl=0, embed_batch=48, upsert_batch=256,
+                  embed_batch=48, upsert_batch=256,
                   max_file_bytes=1048576, watch_debounce=1,
                   watch_sweep_interval=3600)
 

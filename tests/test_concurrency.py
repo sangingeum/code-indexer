@@ -84,10 +84,9 @@ def _stub_core(cfg: Config) -> Core:
 def core(tmp_path, monkeypatch):
     """A Core wired to stubbed embedder/store and a throwaway index root."""
     monkeypatch.setenv("INDEX_ROOT", str(tmp_path / "state"))
-    monkeypatch.setenv("STALE_TTL", "0")  # always consider stale
     cfg = Config(
         ollama_url="http://stub", qdrant_url="http://stub", embed_model="stub",
-        index_root=str(tmp_path / "state"), stale_ttl=0, embed_batch=48,
+        index_root=str(tmp_path / "state"), embed_batch=48,
         upsert_batch=256, max_file_bytes=1048576, watch_debounce=3,
         watch_sweep_interval=300)
     yield _stub_core(cfg)
