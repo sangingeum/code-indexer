@@ -18,7 +18,7 @@ ordering policy every ranked answer follows, the structural ones included.
 
 - **Class**: read
 - **Arguments**: `query` (required)
-- **Flags**: `--project` <value>, `--limit` <value> (default `8`), `--file-filter` <value>, `--symbol-type` <value>, `--language` <value>, `--ranking` <value> (default `vector`), `--json`, `--per-file` <value>, `--max-chars` <value>, `--max-tokens` <value>, `--context-lines` <value>, `--format` <value> (default `text`), `--rerank` <value>, `--no-rerank`, `--mode` <value> (default `hybrid`), `--skip-stale-check`, `--refresh`, `--fresh`, `--all-projects`
+- **Flags**: `--project` <value>, `--limit` <value> (default `8`), `--file-filter` <value>, `--symbol-type` <value>, `--language` <value>, `--ranking` <value> (default `vector`), `--json`, `--per-file` <value>, `--max-chars` <value>, `--max-tokens` <value>, `--context-lines` <value>, `--format` <value>, `--rerank` <value>, `--no-rerank`, `--mode` <value> (default `hybrid`), `--skip-stale-check`, `--refresh`, `--fresh`, `--all-projects`
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 
 ### `eval`

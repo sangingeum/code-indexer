@@ -22,6 +22,7 @@ import typer
 
 logger = logging.getLogger("code-indexer.cli")
 
+from .command_classes import COMPACT_FORMAT_COMMANDS
 from .errors import fail
 from .errors import ArgumentError, classify, IndexerError, RebuildRequiredError
 from .errors import (AmbiguousSymbolError, ExtensionUnavailableError,
@@ -209,6 +210,134 @@ def _print_version(value: bool) -> None:
         raise typer.Exit()
 
 
+# ---------------------------------------------------------------------------
+# one output-format flag across the read commands
+# ---------------------------------------------------------------------------
+# `--json` is an EXACT alias for `--format json`, so both spellings render the
+# same answer. Giving both is a usage error (exit 2) rather than a silent
+# precedence: one invocation, one answer format, and no caller has to know
+# which flag would have won. `--format compact` exists only on the read
+# commands in COMPACT_FORMAT_COMMANDS, whose compact rendering is one line per
+# record built from fields the text form already prints; everywhere else it is
+# refused with the formats that command does take (entry document, one table).
+FORMATS = ("text", "json", "compact")
+
+FormatOpt = typer.Option(
+    None, "--format",
+    help="Output format: text (default) | json (the same as --json) | "
+         "compact, where the command has a one-line-per-record form. "
+         "Passing --json and --format together is a usage error (exit 2).")
+
+
+def _output_format(fmt: str | None, json_output: bool, *,
+                   command: str) -> str:
+    """Resolve `--format` / `--json` into the one format to render.
+
+    Neither flag is text; `--json` alone is json; `--format` alone is what it
+    names. Both together is a usage error, and `compact` on a command with no
+    compact form is refused naming the formats that command does accept.
+    """
+    compact_ok = command in COMPACT_FORMAT_COMMANDS
+    supported = "|".join(FORMATS if compact_ok else FORMATS[:2])
+    if fmt is not None and fmt not in FORMATS:
+        _usage_die(f"unknown --format value: {fmt!r} (expected {supported})")
+    if fmt is not None and json_output:
+        _usage_die("--json and --format both given: --json is an alias of "
+                   "--format json, so pass one of them")
+    if fmt == "compact" and not compact_ok:
+        _usage_die(f"{command} has no compact form; supported formats: "
+                   f"{supported}")
+    if fmt is not None:
+        return fmt
+    return "json" if json_output else "text"
+
+
+def _compact_record(file: str, start: int, end: int, name: str,
+                    kind: str) -> str:
+    """One symbol record on one line: ``file:start-end name (kind)``."""
+    return f"{file}:{start}-{end} {name} ({kind})"
+
+
+def _format_overview_compact(data: dict[str, Any],
+                             max_lines: int = 60) -> str:
+    """Overview as one tagged line per record: no headers, no indentation.
+
+    Every value is a field the text form already prints; the tag in front
+    names which section the record came from, so a caller reads a record
+    without tracking a header above it.
+    """
+    lines: list[str] = []
+
+    def add(line: str) -> None:
+        if len(lines) < max_lines:
+            lines.append(line)
+
+    add(f"project {data['project']} files={data['files']} loc={data['loc']}")
+    for lang in data["languages"][:5]:
+        add(f"language {lang['language']} files={lang['files']} "
+            f"loc={lang['loc']} share={lang['share']}")
+    for d in data["directories"][:6]:
+        add(f"directory {d['dir']}/ files={d['files']} symbols={d['symbols']}")
+    for e in data["entry_points"][:6]:
+        add(f"entry-point {e}")
+    tests = data["tests"]
+    if tests["count"]:
+        hint = (f" hint={','.join(tests['framework_hint'])}"
+                if tests["framework_hint"] else "")
+        add(f"tests files={tests['count']}{hint}")
+        for t in tests["files"][:4]:
+            add(f"test-file {t}")
+    for c in data["config_files"][:8]:
+        add(f"config {c}")
+    for h in data["hotspots"]["fan_in"][:5]:
+        add(f"hotspot-fan-in {h['file']} fan_in={h['fan_in']}")
+    for h in data["hotspots"]["size"][:5]:
+        add(f"hotspot-size {h['file']} loc={h['loc']}")
+    if len(lines) >= max_lines and lines[-1] != "(truncated)":
+        lines[-1] = "(truncated)"
+    return "\n".join(lines)
+
+
+def _format_skeleton_compact(data: dict[str, Any]) -> str:
+    """Skeleton as one line per symbol, the file repeated on every record.
+
+    The text form prints a file header and indents its symbols under it; a
+    compact record stands alone. `--tree` mode records a directory instead.
+    """
+    if "dirs" in data:
+        lines = [f"{d['dir']}/ symbols={d['symbols']} "
+                 f"dominant={d['dominant'] or 'no code'}"
+                 for d in data["dirs"]]
+        return "\n".join(lines) if lines else "(no files)"
+    lines = [_compact_record(f["file"], s["start_line"], s["end_line"],
+                             s["name"], s["type"])
+             for f in data["files"] for s in f["symbols"]]
+    return "\n".join(lines) if lines else "(no files)"
+
+
+def _format_outline_compact(data: dict[str, Any]) -> str:
+    """Outline as one line per declaration, the file repeated on each."""
+    lines = [_compact_record(data["file"], d["start_line"], d["end_line"],
+                             d["name"], d["type"])
+             for d in data["declarations"]]
+    return "\n".join(lines) if lines else "(no declarations)"
+
+
+def _resolve_symbol_file(core: Core, entry: ProjectEntry, symbol: str) -> str:
+    """The one FILE that declares SYMBOL, resolved project-wide.
+
+    A name with more than one definition is refused (AmbiguousSymbolError,
+    exit 2) with every candidate listed; this never takes the row that
+    happened to sort first.
+    """
+    m = core.read_manifest(entry.slug)
+    try:
+        rows = m.definitions_of(symbol)
+    finally:
+        m.close()
+    return identity.resolve_one(symbol, rows).file
+
+
 SkipOpt = typer.Option(
     False, "--skip-stale-check",
     help="Accepted on the read commands and INERT there: reads never index, "
@@ -237,6 +366,7 @@ FreshOpt = typer.Option(
 @app.command()
 def doctor(
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
+    output_format: str | None = FormatOpt,
     skip_stale_check: bool = SkipOpt,
     refresh: bool = RefreshOpt,
 ) -> None:
@@ -257,6 +387,8 @@ def doctor(
     sections report that absence as unverified instead of dialling or
     crashing, so doctor still works on a core-only install.
     """
+    fmt = _output_format(output_format, json_output, command="doctor")
+    json_output = fmt == "json"
     core = _get_core(skip_stale_check)
     if refresh:
         # Doctor answers no index query, but its per-project fingerprint
@@ -295,6 +427,7 @@ def overview(
         help="Restrict to paths starting with this prefix."),
     max_lines: int = typer.Option(60, "--max-lines", help="Output line cap."),
     json_output: bool = typer.Option(False, "--json"),
+    output_format: str | None = FormatOpt,
     skip_stale_check: bool = SkipOpt,
     refresh: bool = RefreshOpt,
 ) -> None:
@@ -309,6 +442,9 @@ def overview(
     agents already have skeleton/outline/search and the graph tools, so an
     MCP wrapper adds surface area without new capability.
     """
+    fmt = _output_format(output_format, json_output, command="overview")
+    json_output = fmt == "json"
+    compact = fmt == "compact"
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
     _refuse_obsolete_rows(core, entry, refresh=refresh)
@@ -323,6 +459,8 @@ def overview(
     if json_output:
         data.update(verdict_block)
         typer.echo(json.dumps(data))
+    elif compact:
+        typer.echo(_format_overview_compact(data, max_lines=max_lines))
     else:
         typer.echo(overview_mod.format_overview(data, max_lines=max_lines))
 
@@ -342,12 +480,15 @@ def changed_symbols(
     depth: int = typer.Option(1, "--depth", help="Impact traversal depth."),
     max_nodes: int = typer.Option(40, "--max-nodes", help="Impact node cap."),
     json_output: bool = typer.Option(False, "--json"),
+    output_format: str | None = FormatOpt,
     skip_stale_check: bool = SkipOpt,
     refresh: bool = RefreshOpt,
 ) -> None:
     """What changed in symbols: parse NEW/OLD contents from the git diff
     (never trusts the possibly-stale manifest). Post-edit read-only loop:
     run this, then search/get-code-context only for what actually changed."""
+    fmt = _output_format(output_format, json_output, command="changed-symbols")
+    json_output = fmt == "json"
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
     _refuse_obsolete_rows(core, entry, refresh=refresh)
@@ -496,6 +637,7 @@ def find_callers(
     depth: int = typer.Option(2, "--depth", help="Traversal depth."),
     max_nodes: int = typer.Option(40, "--max-nodes", help="Node cap."),
     json_output: bool = typer.Option(False, "--json"),
+    output_format: str | None = FormatOpt,
     skip_stale_check: bool = SkipOpt,
     refresh: bool = RefreshOpt,
 ) -> None:
@@ -527,6 +669,8 @@ def find_callers(
     belong to. Text mode prints the tree plus one line saying the name
     resolved to several definitions. For every reference TO a name use
     `find-references`."""
+    fmt = _output_format(output_format, json_output, command="find-callers")
+    json_output = fmt == "json"
     core, entry = _core_entry(project, skip_stale_check)
     _refuse_obsolete_rows(core, entry, refresh=refresh)
     verdict_block, _ = _read_staleness(core, entry, refresh=False,
@@ -543,6 +687,7 @@ def find_callees(
     depth: int = typer.Option(2, "--depth", help="Traversal depth."),
     max_nodes: int = typer.Option(40, "--max-nodes", help="Node cap."),
     json_output: bool = typer.Option(False, "--json"),
+    output_format: str | None = FormatOpt,
     skip_stale_check: bool = SkipOpt,
     refresh: bool = RefreshOpt,
 ) -> None:
@@ -559,6 +704,8 @@ def find_callees(
     one line saying the name resolved to several definitions. For references
     TO a symbol across both stores use `find-references`.
     """
+    fmt = _output_format(output_format, json_output, command="find-callees")
+    json_output = fmt == "json"
     core, entry = _core_entry(project, skip_stale_check)
     _refuse_obsolete_rows(core, entry, refresh=refresh)
     verdict_block, _ = _read_staleness(core, entry, refresh=False,
@@ -887,6 +1034,7 @@ def remove_project(
 @app.command(name="list-projects")
 def list_projects(json_output: bool = typer.Option(False, "--json",
                                                    help="JSON output."),
+                  output_format: str | None = FormatOpt,
                   skip_stale_check: bool = SkipOpt,
                   refresh: bool = RefreshOpt) -> None:
     """List registered projects with per-project index summary.
@@ -902,6 +1050,8 @@ def list_projects(json_output: bool = typer.Option(False, "--json",
     staleness fields aggregate them (a fan-out answer must not hide a stale
     project).
     """
+    fmt = _output_format(output_format, json_output, command="list-projects")
+    json_output = fmt == "json"
     core = _get_core(skip_stale_check)
     entries = core.registry.list_projects()
     if not entries:
@@ -934,6 +1084,7 @@ def lookup_project(
         help="Project path, slug, or name. Takes precedence over the "
              "positional PATH when both are given."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
+    output_format: str | None = FormatOpt,
     skip_stale_check: bool = SkipOpt,
     refresh: bool = RefreshOpt,
 ) -> None:
@@ -945,6 +1096,8 @@ def lookup_project(
     answer carries the fields the text line prints, the collection name, and
     the staleness block (an unregistered project's verdict is ``unknown``).
     """
+    fmt = _output_format(output_format, json_output, command="lookup-project")
+    json_output = fmt == "json"
     core = _get_core(skip_stale_check)
     selector = project or path
     entry, _err = core.resolve_entry(selector)
@@ -991,10 +1144,7 @@ def semantic_search(
         0, "--context-lines",
         help="Lines of snippet shown per hit in text mode (0 = default 200-char "
              "snippets; compact mode is unaffected)."),
-    output_format: str = typer.Option(
-        "text", "--format",
-        help="Output format: text (verbose, default) | compact (one line per "
-             "hit: path:start-end  symbol  score) | json."),
+    output_format: str | None = FormatOpt,
     rerank: str = typer.Option(
         None, "--rerank",
         help="Rerank mode: heuristic (symbol-name and path-token overlap "
@@ -1047,7 +1197,9 @@ def semantic_search(
     if all_projects and project:
         _usage_die("--all-projects and --project are mutually exclusive; "
                    "omit --project to fan out, or pass one project")
-    fmt = "json" if json_output else output_format
+    fmt = _output_format(output_format, json_output,
+                         command="semantic-search")
+    json_output = fmt == "json"
     if all_projects:
         entries = core.registry.list_projects()
         if not entries:
@@ -1118,6 +1270,7 @@ def index_status(
         help="Project path, slug, or name. Takes precedence over the "
              "positional PATH when both are given."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
+    output_format: str | None = FormatOpt,
     skip_stale_check: bool = SkipOpt,
     refresh: bool = RefreshOpt,
 ) -> None:
@@ -1147,6 +1300,11 @@ def index_status(
     silently omitted, so a missing `fingerprint=` field means the manifest is
     legacy and backfills on the next pass.
     """
+    fmt = _output_format(output_format, json_output, command="index-status")
+    json_output = fmt == "json"
+    # `--format compact` renders the SAME single line the text form prints:
+    # this answer is already one line of key=value fields, so there is nothing
+    # to compact and nothing new to say.
     core = _get_core(skip_stale_check)
     # Both spellings reach the same resolver: a path, a slug, or a custom name.
     # The --project/--name flag wins when both are given; the positional PATH
@@ -1293,6 +1451,7 @@ def sweep_orphans(
         help="Actually delete the orphan rows. Default is a dry run that "
              "prints what it would clear and changes nothing."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
+    output_format: str | None = FormatOpt,
     skip_stale_check: bool = SkipOpt,
     refresh: bool = RefreshOpt,
 ) -> None:
@@ -1310,6 +1469,8 @@ def sweep_orphans(
     property is the dry run plus the reported count. Reads the manifest
     directly and never triggers an index pass. CLI-only index-maintenance
     surface (no MCP tool)."""
+    fmt = _output_format(output_format, json_output, command="sweep-orphans")
+    json_output = fmt == "json"
     core = _get_core(skip_stale_check)
     path = os.path.abspath(os.path.expanduser(path))
     entry = core.registry.get_by_path(path)
@@ -1854,6 +2015,7 @@ def skeleton(
     limit: int | None = typer.Option(
         None, help="Cap symbol lines per file (ignored in --tree mode)."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
+    output_format: str | None = FormatOpt,
     skip_stale_check: bool = SkipOpt,
     refresh: bool = RefreshOpt,
     fresh: bool = FreshOpt,
@@ -1863,6 +2025,9 @@ def skeleton(
     schema-v3 signature when stored. A read: answers from the index and
     reports its staleness; --refresh is the only flag that makes it write.
     --fresh is accepted and inert."""
+    fmt = _output_format(output_format, json_output, command="skeleton")
+    json_output = fmt == "json"
+    compact = fmt == "compact"
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project, hint=path_prefix)
     # Normalize the prefix: `.` or an absolute path under the project root
@@ -1882,6 +2047,9 @@ def skeleton(
                          include_signatures=not no_signatures)
     if json_output:
         data.update(block)
+    if compact:
+        typer.echo(_format_skeleton_compact(data))
+        return
     text = core.format_skeleton(data, "json" if json_output else "text")
     typer.echo(text)
 
@@ -1898,12 +2066,16 @@ def outline(
         False, "--docstrings",
         help="Add one docstring line under each declaration (bounded read)."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
+    output_format: str | None = FormatOpt,
     skip_stale_check: bool = SkipOpt,
     refresh: bool = RefreshOpt,
     fresh: bool = FreshOpt,
 ) -> None:
     """One file: declarations, signatures, one-line docstrings (design §2.2).
     A read; --refresh is the only flag that makes it write, --fresh is inert."""
+    fmt = _output_format(output_format, json_output, command="outline")
+    json_output = fmt == "json"
+    compact = fmt == "compact"
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
     _refuse_obsolete_rows(core, entry, refresh=refresh)
@@ -1915,6 +2087,9 @@ def outline(
         _json_failure(exc, json_output)
     if json_output:
         data.update(block)
+    if compact:
+        typer.echo(_format_outline_compact(data))
+        return
     text = core.format_outline(data, "json" if json_output else "text")
     typer.echo(text)
 
@@ -1923,6 +2098,11 @@ def outline(
 def find_symbol(
     name: str = typer.Argument(
         None, help="Symbol name (optional: omit for browse mode with filters)."),
+    symbol: str = typer.Option(
+        None, "--symbol",
+        help="The symbol name, the same as the positional NAME: one argument "
+             "shape across find-symbol, find-definition and "
+             "get-code-context."),
     project: str = typer.Option(
         None, "--project", "--name",
         help="Project path, slug, or name (--project X or --name X)."),
@@ -1955,6 +2135,7 @@ def find_symbol(
         help="Max rows. Exact-name mode: every definition unless given. "
              "Browse mode and the substring fallback: default cap 25."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
+    output_format: str | None = FormatOpt,
     skip_stale_check: bool = SkipOpt,
     refresh: bool = RefreshOpt,
     fresh: bool = FreshOpt,
@@ -1975,6 +2156,14 @@ def find_symbol(
 
     A read: --refresh is the only flag that makes it write, --fresh is inert,
     and the JSON object carries the staleness block."""
+    fmt = _output_format(output_format, json_output, command="find-symbol")
+    json_output = fmt == "json"
+    compact = fmt == "compact"
+    if symbol is not None:
+        if name is not None and name != symbol:
+            _usage_die(f"NAME {name!r} and --symbol {symbol!r} disagree; "
+                       "pass the symbol once")
+        name = symbol
     core = _get_core(skip_stale_check)
     entry, err = core.resolve_entry(project)
     if entry is None:
@@ -2070,16 +2259,23 @@ def find_symbol(
             if evidence_note:
                 typer.echo(evidence_note)
             return
-        for r in rows:
-            label = ""
-            if match_label:
-                label = ", match=exact" if r.name == name else ", match=substring"
-            conf = "exact" if r.source == "ast" else "heuristic"
-            sig = f"  {r.signature}" if r.signature else ""
-            typer.echo(f"- {entry.path}::{r.file}:{r.start_line}-{r.end_line} "
-                       f"{r.name} ({r.symbol_type}, confidence={conf}{label}, "
-                       f"evidence={identity.evidence_of(r)})"
-                       f"{sig}")
+        if compact:
+            for r in rows:
+                typer.echo(_compact_record(r.file, r.start_line, r.end_line,
+                                           r.name, r.symbol_type))
+        else:
+            for r in rows:
+                label = ""
+                if match_label:
+                    label = (", match=exact" if r.name == name
+                             else ", match=substring")
+                conf = "exact" if r.source == "ast" else "heuristic"
+                sig = f"  {r.signature}" if r.signature else ""
+                typer.echo(f"- {entry.path}::{r.file}:{r.start_line}-"
+                           f"{r.end_line} {r.name} ({r.symbol_type}, "
+                           f"confidence={conf}{label}, "
+                           f"evidence={identity.evidence_of(r)})"
+                           f"{sig}")
         if ambiguous:
             typer.echo(f"{total} definitions match {name!r} and this name is "
                        "ambiguous: each line above is one identity — narrow "
@@ -2094,11 +2290,18 @@ def find_symbol(
 
 @app.command(name="find-definition")
 def find_definition(
-    name: str = typer.Argument(..., help="Symbol name (exact match only)."),
+    name: str = typer.Argument(
+        None, help="Symbol name (exact match only)."),
+    symbol: str = typer.Option(
+        None, "--symbol",
+        help="The symbol name, the same as the positional NAME: one argument "
+             "shape across find-definition, find-symbol and "
+             "get-code-context."),
     project: str = typer.Option(
         None, "--project", "--name",
         help="Project path, slug, or name (--project X or --name X)."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
+    output_format: str | None = FormatOpt,
     exactly_one: bool = typer.Option(
         False, "--exactly-one",
         help="Refuse when the name has more than one definition, listing "
@@ -2114,6 +2317,17 @@ def find_definition(
     `--exactly-one` is for a caller that must act on ONE symbol: a name with
     more than one definition is then refused with every candidate listed,
     never resolved to whichever row sorted first."""
+    fmt = _output_format(output_format, json_output, command="find-definition")
+    json_output = fmt == "json"
+    compact = fmt == "compact"
+    if symbol is not None:
+        if name is not None and name != symbol:
+            _usage_die(f"NAME {name!r} and --symbol {symbol!r} disagree; "
+                       "pass the symbol once")
+        name = symbol
+    if name is None:
+        _usage_die("find-definition needs a NAME positional, or "
+                   "--symbol <name>")
     core = _get_core(skip_stale_check)
     entry, err = core.resolve_entry(project)
     if entry is None:
@@ -2151,6 +2365,10 @@ def find_definition(
             return
         for r in rows:
             conf = "exact" if r.source == "ast" else "heuristic"
+            if compact:
+                typer.echo(_compact_record(r.file, r.start_line, r.end_line,
+                                           r.name, r.symbol_type))
+                continue
             typer.echo(f"- {entry.path}::{r.file}:{r.start_line}-{r.end_line} "
                        f"{r.name} ({r.symbol_type}, confidence={conf})")
     finally:
@@ -2159,7 +2377,10 @@ def find_definition(
 
 @app.command(name="get-code-context")
 def get_code_context(
-    file: str = typer.Argument(..., help="File path relative to the project root."),
+    file: str = typer.Argument(
+        None, help="File path relative to the project root. Optional when "
+                   "--symbol names the symbol: it is then resolved "
+                   "project-wide and an ambiguous name is refused."),
     project: str = typer.Option(
         None, "--project", "--name",
         help="Project path, slug, or name (--project X or --name X)."),
@@ -2168,6 +2389,7 @@ def get_code_context(
     symbol: str = typer.Option(None, help="Resolve range(s) via this symbol."),
     context_lines: int = typer.Option(0, help="Pad each range by N lines."),
     json_output: bool = typer.Option(False, "--json", help="JSON output (carries stale/re_resolved)."),
+    output_format: str | None = FormatOpt,
     skip_stale_check: bool = SkipOpt,
     refresh: bool = RefreshOpt,
     fresh: bool = FreshOpt,
@@ -2185,15 +2407,26 @@ def get_code_context(
     writes nothing; --refresh runs one incremental pass first (the only flag
     that makes this read write). The JSON answer carries the index staleness
     block, while its `stale` field keeps its file-level meaning."""
+    fmt = _output_format(output_format, json_output,
+                         command="get-code-context")
+    json_output = fmt == "json"
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
     _refuse_obsolete_rows(core, entry, refresh=refresh)
     block, stale_line = _read_staleness(core, entry, refresh=False,
                                        json_output=True)
     try:
+        if file is None:
+            if not symbol:
+                _usage_die("get-code-context needs a FILE positional, or "
+                           "--symbol <name> to resolve the symbol "
+                           "project-wide")
+            file = _resolve_symbol_file(core, entry, symbol)
         data = core.code_context(
             entry, file, start_line=start_line, end_line=end_line,
             symbol=symbol, context_lines=context_lines, live=fresh)
+    except IndexerError as exc:
+        _json_failure(exc, json_output)
     except ValueError as exc:
         _json_failure(exc, json_output)
     if json_output:
@@ -2222,6 +2455,7 @@ def find_references(
                    "relationship each row actually carries."),
     limit: int = typer.Option(25, help="Max rows."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
+    output_format: str | None = FormatOpt,
     skip_stale_check: bool = SkipOpt,
     refresh: bool = RefreshOpt,
     fresh: bool = FreshOpt,
@@ -2247,6 +2481,8 @@ def find_references(
     This answers a DIFFERENT question than `find-callers`, which walks fan-in
     edges from the same store. The reference graph is textual and unbound by
     design: there is no compiler resolution, names are matched as text."""
+    fmt = _output_format(output_format, json_output, command="find-references")
+    json_output = fmt == "json"
     core = _get_core(skip_stale_check)
     entry, err = core.resolve_entry(project)
     if entry is None:
@@ -2656,6 +2892,7 @@ def plan_validate(
     plan_dir: str = typer.Option(None, "--plan-dir",
                                  help="Directory holding plan files."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
+    output_format: str | None = FormatOpt,
     skip_stale_check: bool = SkipOpt,
 ) -> None:
     """Report each structural check of a plan. Writes nothing.
@@ -2670,6 +2907,8 @@ def plan_validate(
     A refusal carries ADR-0003's exit code and names the file, the edit and
     the expected and observed hashes.
     """
+    fmt = _output_format(output_format, json_output, command="plan-validate")
+    json_output = fmt == "json"
     try:
         _core, entry = _plan_entry(project)
         requested, path = plans.resolve_ref(ref, _plan_dir(entry, plan_dir),
@@ -2704,6 +2943,7 @@ def plan_show(
         False, "--diff",
         help="Print every affected file and the unified diff it would make."),
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
+    output_format: str | None = FormatOpt,
     skip_stale_check: bool = SkipOpt,
 ) -> None:
     """Print a plan, and with --diff the change it would make. Writes nothing.
@@ -2717,6 +2957,8 @@ def plan_show(
     preconditions run first, so a stale plan is refused rather than drawn
     against bytes it never saw.
     """
+    fmt = _output_format(output_format, json_output, command="plan-show")
+    json_output = fmt == "json"
     hunks: list[dict[str, str]] = []
     try:
         _core, entry = _plan_entry(project)

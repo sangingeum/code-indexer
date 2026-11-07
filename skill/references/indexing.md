@@ -44,7 +44,7 @@ otherwise. The same is true of every pass command below.
 
 - **Class**: write (with --apply)
 - **Arguments**: `path` (required)
-- **Flags**: `--apply`, `--json`, `--skip-stale-check`, `--refresh`
+- **Flags**: `--apply`, `--json`, `--format` <value>, `--skip-stale-check`, `--refresh`
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 
 ### `watch`
@@ -65,28 +65,28 @@ otherwise. The same is true of every pass command below.
 
 - **Class**: read
 - **Arguments**: `path` (optional)
-- **Flags**: `--project` / `--name` <value>, `--json`, `--skip-stale-check`, `--refresh`
+- **Flags**: `--project` / `--name` <value>, `--json`, `--format` <value>, `--skip-stale-check`, `--refresh`
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 
 ### `list-projects`
 
 - **Class**: read
 - **Arguments**: none
-- **Flags**: `--json`, `--skip-stale-check`, `--refresh`
+- **Flags**: `--json`, `--format` <value>, `--skip-stale-check`, `--refresh`
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 
 ### `lookup-project`
 
 - **Class**: read
 - **Arguments**: `path` (optional)
-- **Flags**: `--project` / `--name` <value>, `--json`, `--skip-stale-check`, `--refresh`
+- **Flags**: `--project` / `--name` <value>, `--json`, `--format` <value>, `--skip-stale-check`, `--refresh`
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 
 ### `doctor`
 
 - **Class**: read
 - **Arguments**: none
-- **Flags**: `--json`, `--skip-stale-check`, `--refresh`
+- **Flags**: `--json`, `--format` <value>, `--skip-stale-check`, `--refresh`
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 <!-- generated:commands-indexing:end -->
 

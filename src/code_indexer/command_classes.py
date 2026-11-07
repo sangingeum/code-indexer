@@ -66,6 +66,21 @@ READ_COMMANDS: frozenset[str] = frozenset({
     "skeleton",
 })
 
+# The read commands that also have an honest compact rendering: one line per
+# record, built only from fields the text form already prints. Every other
+# read command takes ``--format text|json`` and REFUSES ``compact`` with a
+# usage error naming what it does support (documented in the entry document),
+# so a missing compact form is a stated refusal, never a silent fallback.
+COMPACT_FORMAT_COMMANDS: frozenset[str] = frozenset({
+    "find-definition",
+    "find-symbol",
+    "index-status",
+    "outline",
+    "overview",
+    "semantic-search",
+    "skeleton",
+})
+
 # The flag that makes a read invocation write (ADR-0003 section 4).
 REFRESH_FLAG = "--refresh"
 

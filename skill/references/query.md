@@ -17,77 +17,77 @@ pass first and therefore writes.
 
 - **Class**: read
 - **Arguments**: none
-- **Flags**: `--project` <value>, `--path-prefix` <value>, `--max-lines` <value> (default `60`), `--json`, `--skip-stale-check`, `--refresh`
+- **Flags**: `--project` <value>, `--path-prefix` <value>, `--max-lines` <value> (default `60`), `--json`, `--format` <value>, `--skip-stale-check`, `--refresh`
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 
 ### `skeleton`
 
 - **Class**: read
 - **Arguments**: `path_prefix` (optional)
-- **Flags**: `--project` / `--name` <value>, `--tree`, `--no-signatures`, `--limit` <value>, `--json`, `--skip-stale-check`, `--refresh`, `--fresh`
+- **Flags**: `--project` / `--name` <value>, `--tree`, `--no-signatures`, `--limit` <value>, `--json`, `--format` <value>, `--skip-stale-check`, `--refresh`, `--fresh`
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 
 ### `map`
 
 - **Class**: read
 - **Arguments**: `path_prefix` (optional)
-- **Flags**: `--project` / `--name` <value>, `--tree`, `--no-signatures`, `--limit` <value>, `--json`, `--skip-stale-check`, `--refresh`, `--fresh`
+- **Flags**: `--project` / `--name` <value>, `--tree`, `--no-signatures`, `--limit` <value>, `--json`, `--format` <value>, `--skip-stale-check`, `--refresh`, `--fresh`
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 
 ### `outline`
 
 - **Class**: read
 - **Arguments**: `file` (required)
-- **Flags**: `--project` / `--name` <value>, `--docstrings`, `--json`, `--skip-stale-check`, `--refresh`, `--fresh`
+- **Flags**: `--project` / `--name` <value>, `--docstrings`, `--json`, `--format` <value>, `--skip-stale-check`, `--refresh`, `--fresh`
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 
 ### `file-outline`
 
 - **Class**: read
 - **Arguments**: `file` (required)
-- **Flags**: `--project` / `--name` <value>, `--docstrings`, `--json`, `--skip-stale-check`, `--refresh`, `--fresh`
+- **Flags**: `--project` / `--name` <value>, `--docstrings`, `--json`, `--format` <value>, `--skip-stale-check`, `--refresh`, `--fresh`
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 
 ### `find-symbol`
 
 - **Class**: read
 - **Arguments**: `name` (optional)
-- **Flags**: `--project` / `--name` <value>, `--kind` / `--type` / `--symbol-type` <value>, `--file` <value>, `--name-pattern` <value>, `--container` <value>, `--visibility` <value>, `--language` <value>, `--inherits` <value>, `--has-call` <value>, `--substring`, `--limit` <value>, `--json`, `--skip-stale-check`, `--refresh`, `--fresh`
+- **Flags**: `--symbol` <value>, `--project` / `--name` <value>, `--kind` / `--type` / `--symbol-type` <value>, `--file` <value>, `--name-pattern` <value>, `--container` <value>, `--visibility` <value>, `--language` <value>, `--inherits` <value>, `--has-call` <value>, `--substring`, `--limit` <value>, `--json`, `--format` <value>, `--skip-stale-check`, `--refresh`, `--fresh`
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 
 ### `find-definition`
 
 - **Class**: read
-- **Arguments**: `name` (required)
-- **Flags**: `--project` / `--name` <value>, `--json`, `--exactly-one`, `--skip-stale-check`, `--refresh`, `--fresh`
+- **Arguments**: `name` (optional)
+- **Flags**: `--symbol` <value>, `--project` / `--name` <value>, `--json`, `--format` <value>, `--exactly-one`, `--skip-stale-check`, `--refresh`, `--fresh`
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 
 ### `find-references`
 
 - **Class**: read
 - **Arguments**: `name` (required)
-- **Flags**: `--project` / `--name` <value>, `--relationship` <value>, `--limit` <value> (default `25`), `--json`, `--skip-stale-check`, `--refresh`, `--fresh`
+- **Flags**: `--project` / `--name` <value>, `--relationship` <value>, `--limit` <value> (default `25`), `--json`, `--format` <value>, `--skip-stale-check`, `--refresh`, `--fresh`
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 
 ### `find-callers`
 
 - **Class**: read
 - **Arguments**: `name` (required)
-- **Flags**: `--project` <value>, `--depth` <value> (default `2`), `--max-nodes` <value> (default `40`), `--json`, `--skip-stale-check`, `--refresh`
+- **Flags**: `--project` <value>, `--depth` <value> (default `2`), `--max-nodes` <value> (default `40`), `--json`, `--format` <value>, `--skip-stale-check`, `--refresh`
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 
 ### `find-callees`
 
 - **Class**: read
 - **Arguments**: `name` (required)
-- **Flags**: `--project` <value>, `--depth` <value> (default `2`), `--max-nodes` <value> (default `40`), `--json`, `--skip-stale-check`, `--refresh`
+- **Flags**: `--project` <value>, `--depth` <value> (default `2`), `--max-nodes` <value> (default `40`), `--json`, `--format` <value>, `--skip-stale-check`, `--refresh`
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 
 ### `get-code-context`
 
 - **Class**: read
-- **Arguments**: `file` (required)
-- **Flags**: `--project` / `--name` <value>, `--start-line` <value>, `--end-line` <value>, `--symbol` <value>, `--context-lines` <value>, `--json`, `--skip-stale-check`, `--refresh`, `--fresh`
+- **Arguments**: `file` (optional)
+- **Flags**: `--project` / `--name` <value>, `--start-line` <value>, `--end-line` <value>, `--symbol` <value>, `--context-lines` <value>, `--json`, `--format` <value>, `--skip-stale-check`, `--refresh`, `--fresh`
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 
 ### `deps`
@@ -101,7 +101,7 @@ pass first and therefore writes.
 
 - **Class**: read
 - **Arguments**: none
-- **Flags**: `--project` <value>, `--base` <value> (default `HEAD`), `--head` <value>, `--staged`, `--include-untracked`, `--impact`, `--depth` <value> (default `1`), `--max-nodes` <value> (default `40`), `--json`, `--skip-stale-check`, `--refresh`
+- **Flags**: `--project` <value>, `--base` <value> (default `HEAD`), `--head` <value>, `--staged`, `--include-untracked`, `--impact`, `--depth` <value> (default `1`), `--max-nodes` <value> (default `40`), `--json`, `--format` <value>, `--skip-stale-check`, `--refresh`
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 <!-- generated:commands-query:end -->
 

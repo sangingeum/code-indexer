@@ -47,14 +47,14 @@ the only command in the tool that writes a source file.
 
 - **Class**: read
 - **Arguments**: `ref` (required)
-- **Flags**: `--project` <value>, `--plan-dir` <value>, `--json`, `--skip-stale-check`
+- **Flags**: `--project` <value>, `--plan-dir` <value>, `--json`, `--format` <value>, `--skip-stale-check`
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 
 ### `plan-show`
 
 - **Class**: read
 - **Arguments**: `ref` (required)
-- **Flags**: `--project` <value>, `--plan-dir` <value>, `--diff`, `--json`, `--skip-stale-check`
+- **Flags**: `--project` <value>, `--plan-dir` <value>, `--diff`, `--json`, `--format` <value>, `--skip-stale-check`
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 
 ### `plan-apply`
