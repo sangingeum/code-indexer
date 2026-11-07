@@ -23,6 +23,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import pytest  # noqa: E402
+import typer  # noqa: E402
 from typer.testing import CliRunner  # noqa: E402
 
 import code_indexer.cli as cli  # noqa: E402
@@ -55,6 +56,61 @@ DUPLICATE = "def step():\n    return 1\n"
 
 # A compact record: the file, the range, the name and the kind, on one line.
 COMPACT_RECORD = re.compile(r"^[^ :]+:\d+-\d+ \S+ \(\w+\)$")
+
+
+def _format_roster() -> set[str]:
+    """The read commands the CLI itself gives BOTH `--json` and `--format`.
+
+    Derived from the typer registration and the read/write roster, not from a
+    list copied by hand: a command that gains the flag pair without a parity
+    case changes this set and the drift test below goes red.
+    """
+    group = typer.main.get_command(app)
+    found: set[str] = set()
+    for name, command in group.commands.items():  # type: ignore[attr-defined]
+        opts = {opt for param in command.params
+                for opt in getattr(param, "opts", ())}
+        if "--json" in opts and "--format" in opts and name in READ_COMMANDS:
+            found.add(name)
+    return found
+
+
+FORMAT_ROSTER = _format_roster()
+
+# The minimal argv each roster command needs to answer (or to refuse for its
+# own reason). Commands absent here would leave the roster with no case; the
+# drift test refuses that.
+PARITY_ARGV: dict[str, tuple[str, ...]] = {
+    "changed-symbols": (),
+    "doctor": (),
+    "file-outline": ("mod.py",),
+    "find-callees": ("helper",),
+    "find-callers": ("helper",),
+    "find-definition": ("helper",),
+    "find-references": ("helper",),
+    "find-symbol": ("helper",),
+    "get-code-context": ("mod.py",),
+    "index-status": (),
+    "list-projects": (),
+    "lookup-project": (),
+    "map": (),
+    "outline": ("mod.py",),
+    "overview": (),
+    "plan-show": (),
+    "plan-validate": (),
+    "semantic-search": ("helper",),
+    "skeleton": (),
+}
+
+# The two reads that take no --project selector at all.
+NO_PROJECT = frozenset({"doctor", "list-projects"})
+
+
+def _invoke(project, command_name: str, *extra: str):
+    argv = [command_name, *PARITY_ARGV[command_name], *extra]
+    if command_name not in NO_PROJECT:
+        argv += ["--project", str(project)]
+    return runner.invoke(app, argv)
 
 
 def _package_version() -> str | None:
@@ -167,18 +223,29 @@ def test_version_needs_no_subcommand_and_no_project():
 # --format json is --json, exactly
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("argv", [
-    ["overview"],
-    ["index-status"],
-    ["find-symbol", "helper"],
-], ids=["overview", "index-status", "find-symbol"])
-def test_format_json_equals_the_json_flag(rig, argv):
+def test_every_read_command_that_takes_the_flag_keeps_a_parity_case():
+    """The roster is derived, so a new flag holder cannot stay untested."""
+    assert FORMAT_ROSTER <= READ_COMMANDS
+    missing = sorted(FORMAT_ROSTER - set(PARITY_ARGV))
+    stale = sorted(set(PARITY_ARGV) - FORMAT_ROSTER)
+    assert not missing, f"no parity argv for {missing}"
+    assert not stale, f"parity argv names commands outside the roster: {stale}"
+
+
+@pytest.mark.parametrize("command_name", sorted(FORMAT_ROSTER))
+def test_format_json_equals_the_json_flag(rig, command_name):
+    """Every read command that takes the pair answers it identically.
+
+    A command with no honest payload here (no vectors, no plan file, no git
+    project) is measured on its refusal path instead: stdout, stderr and exit
+    must still agree byte for byte, so no roster member is skipped.
+    """
     _, _, _, project = rig
-    by_flag = _run(project, *argv, "--json")
-    by_format = _run(project, *argv, "--format", "json")
-    assert by_flag.exit_code == 0, by_flag.output
-    assert by_format.exit_code == 0, by_format.output
+    by_flag = _invoke(project, command_name, "--json")
+    by_format = _invoke(project, command_name, "--format", "json")
     assert by_format.stdout == by_flag.stdout
+    assert by_format.stderr == by_flag.stderr
+    assert by_format.exit_code == by_flag.exit_code
 
 
 @pytest.mark.parametrize("argv", [
@@ -324,8 +391,8 @@ def test_the_four_flag_combinations_agree_exactly_once(rig, argv):
     `--json` alone, `--format json` alone and the agree-pair are one answer,
     byte for byte; `--format text` alone renders the other format; and
     `--json --format text|compact` is exit 2 naming the contradiction. A
-    silent `--format` precedence turns the agreement into a different answer
-    and the disagreement into exit 0, so both halves go red.
+    silent `--format` precedence turns the agree-pair into a different
+    answer and the disagreement into exit 0, so both halves go red.
     """
     _, _, _, project = rig
     by_json = _run(project, *argv, "--json")
