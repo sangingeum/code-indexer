@@ -2573,10 +2573,10 @@ def get_code_context(
 
     Stale-safe: when the file changed since indexing (or --fresh is passed),
     symbol mode re-resolves the symbol against the live file (fresh lines);
-    line mode returns the requested lines but emits one stderr warning line
-    ('Warning: file changed since last index; line numbers may be shifted')
-    and sets stale=true in JSON — the documented exception to
-    stderr-empty-on-success (exit stays 0).
+    line mode returns the requested lines but writes one unprefixed stderr
+    log note ('file changed since last index; line numbers may be shifted')
+    and sets stale=true in JSON — one of the documented stderr lines of a
+    read (exit stays 0).
 
     A read: --fresh means "read the live file, ignore cached symbol rows" and
     writes nothing; --refresh runs one incremental pass first (the only flag

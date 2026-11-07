@@ -30,6 +30,15 @@ sweep writes, and the read contract's graph-notes bullet says a complete
 **empty** answer prints its `note:` lines on stdout (with `truncated: false`),
 as the coverage bullet already described.
 
+Three more contract sentences were false and are corrected: the read-stderr
+enumeration counts SIX cases, the sixth being the package's logging handler --
+an unprefixed log note, which `get-code-context` fires on a file edited after
+its last index -- and names the `errors.fail()` channel beside it; the
+`fingerprint_meaning` shape list is keyed on the values the sentence branches
+on (mode, marker, identity) and not on `vectors_state`; and the coverage table
+says `complete` is vacuously true on an index that holds no files, so a reader
+branches on `files: 0`, not on `complete`.
+
 ## [Unreleased] -- an empty answer names its cause, and coverage travels with it
 
 **An empty read answer says why it is empty.** `find-symbol` returning
@@ -63,21 +72,26 @@ answer (so a cap such as `overview --max-lines` counts stdout alone) and on
 stdout for an empty one, beside its cause -- so a clean answer still says
 nothing.
 
-**The fingerprint verdict says what it means.** `fingerprint=unverified
-reason=embedding-dimension-not-compared` used to be a bare pair of flags.
-`index-status` now also prints the meaning, in one stderr line beside its
-one-line answer and as `fingerprint_meaning` in JSON. The sentence follows
-the verdict printed beside it, because one run compares two things: when the
-row keys matched and the vector identity matches, it says every fingerprint
-key a read can compare matched (embedding model, embedded-text format,
-chunker and extraction version) and names the embedding dimension as the one
-key left uncompared, since learning the configured dimension needs the
-service; when `vectors_state=stale`, it names the key that did not match
-(`embed_model: a -> b` or `embed_text_version: a -> b`) and says
-`reindex-project` rebuilds it; `needs-reindex` names its differing row keys
-the same way; and an index that records no fingerprint gets "the fingerprint
-comparison did not run" rather than silence, which reads as a pass. The
-field names are unchanged.
+**The fingerprint verdict says what it means, and the sentence follows the
+line.** `fingerprint=unverified reason=embedding-dimension-not-compared` used
+to be a bare pair of flags. `index-status` now also prints the meaning, in one
+stderr line beside its one-line answer and as `fingerprint_meaning` in JSON.
+The sentence is a function of the three values the line prints beside it --
+the vectors mode, the recorded marker and the identity comparison -- in that
+order, and never of `vectors_state` alone: on a project kept `vectors=off`
+under a different model the marker reads `current` and the sentence says the
+recorded identity differs. With vectors on, a differing identity says a key
+did not match and names it (`embed_model: a -> b` or `embed_text_version: a ->
+b`) and says `reindex-project` rebuilds it; matched keys with a recorded
+`stale` marker say the MANIFEST's record is what is stale; `needs-reindex`
+names its differing row keys the same way; with vectors off there is no
+vector side at all, so no rebuild is prescribed; and an index that records no
+fingerprint gets "the fingerprint comparison did not run" rather than
+silence, which reads as a pass. `stale` is a marker no pass in this build
+writes -- it is accepted and explained, not produced -- and an `error` marker
+is the line's own verdict, which the sentence does not speak to. The branch
+ids and the field values that reach them are the table in
+`docs/json-schema.md`. The field names are unchanged.
 
 Purely additive for JSON consumers: a caller that ignores `coverage`,
 `empty_reason` and `fingerprint_meaning` sees the bytes it saw before. No

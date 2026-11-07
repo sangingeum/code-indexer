@@ -253,7 +253,11 @@ symbol rows -- the language-capability matrix's own runtime probe -- so a
 project whose only shell files parsed still says `["shell"]`.
 `freshness` repeats the staleness verdict (`fresh` | `stale` | `unknown`),
 never a second estimate. `complete` is true only when every file in scope
-parsed and none was withheld; it is null when `scope` is `none`.
+parsed and none was withheld; it is null when `scope` is `none`. `complete`
+is about parsed-versus-unparsed files, not about the index holding anything:
+on an index that holds no files the counts are 0 and `complete` is vacuously
+true, so read `files: 0` (or `empty_reason: index-empty`) and not
+`complete`.
 
 ## empty_reason (a name read that found nothing)
 
@@ -329,22 +333,36 @@ An unregistered selector answers `registered: false` with its `path` and an
 ```
 
 `fingerprint_meaning` is the human half of the `fingerprint`/`reason` pair,
-and it follows the verdict printed beside it -- one run compares the ROW keys
-and the VECTOR identity, so the sentence has three shapes:
+and it follows the verdict printed beside it: one run compares the ROW keys
+and the VECTOR identity, and the sentence branches on mode + marker +
+identity, in that order. Each row below is one branch of
+`fingerprint.meaning` -- the ids are that function's own list
+(`MEANING_BRANCHES`), so a branch cannot ship without a row:
 
-* row keys matched and the vector identity matches (`unverified`,
-  `vectors_state` not `stale`): every fingerprint key a read can compare
-  matched -- embedding model, embedded-text format, chunker and extraction
-  version -- and the recorded embedding model and format are this build's;
-  the embedding DIMENSION is the one key left uncompared, because learning
-  the configured dimension needs the service, so vectors of another
-  dimension recorded under the same model name would not be flagged there;
-* a key did not match (`vectors_state: stale`, or `needs-reindex`): the
-  sentence names the key -- `embed_model: a -> b`, `embed_text_version: a ->
-  b`, or a row key such as `chunker_version: 1 -> 2` -- and says the index
-  must be rebuilt with `reindex-project`. It never says every key matched;
-* no verdict was reached (the index records no fingerprint): the sentence
-  says the comparison did not run, which is not a pass.
+| branch | reached when | the sentence says |
+|---|---|---|
+| `row-keys-differ` | a row key differs: `fingerprint: needs-reindex`, and `reason` names it | the named row key (`chunker_version: 1 -> 2`) makes the row reads refuse until `reindex-project`; it never says every key matched, and with `vectors=on` it names a stale vector side too when one is true |
+| `vectors-on-identity-matched` | `fingerprint: unverified`, `vectors: on`, the identity matches (no recorded identity key differs), `vectors_state`: `current`, `absent` or `error` | every fingerprint key a read can compare matched -- embedding model, embedded-text format, chunker and extraction version -- and the recorded embedding model and format are this build's; the DIMENSION is the one key left uncompared, because learning the configured dimension needs the service, so vectors of another dimension recorded under the same model name would not be flagged there |
+| `vectors-on-identity-differs` | `fingerprint: unverified`, `vectors: on`, a recorded identity key differs (`vectors_state: stale` -- the read derives that marker from this comparison) | a key did not match, and the sentence names it (`embed_model: a -> b`, `embed_text_version: a -> b`): the vector side is stale and a vector rebuild is what clears it |
+| `vectors-on-marker-stale` | `fingerprint: unverified`, `vectors: on`, the identity matches, and the manifest still records `vectors_state: stale` (a marker this build never writes -- see below) | the MANIFEST's record is what is stale: no key differs, so none is named, and a vector rebuild is still the clearing pass |
+| `vectors-off-identity-differs` | `fingerprint: unverified`, `vectors: off`, a recorded identity key differs (with vectors off the line prints `vectors_state` as recorded, so it may read `current` here) | there is no vector side -- no vectors are stored and no vector query runs -- so nothing can be stale and no rebuild is prescribed; the difference is an inert fact about the next vectors-on pass, which writes its own collection, and a recorded `stale` marker is inert too |
+| `vectors-off-identity-matched` | `fingerprint: unverified`, `vectors: off`, the identity matches | every fingerprint key a read can compare matched, and the dimension is the one key it cannot compare; there is no vector side here, so no rebuild is prescribed |
+| `no-verdict-recorded` | no `fingerprint` field: the index records no fingerprint, or an incomplete one | the comparison did not run, which is not a pass; with `vectors: off` it adds that there is no vector side either |
+
+`vectors_state` is the marker the manifest RECORDS, never a second
+comparison: on a vectors-on project the read derives `stale` from the
+identity comparison, and on a vectors-off project it prints the recorded
+marker as it stands. So "`vectors_state` is not `stale`" does not mean every
+key matched -- on a project kept `vectors=off` under a different `EMBED_MODEL`
+the line prints `vectors=off vectors_state=current` and the sentence says the
+recorded identity differs.
+
+`stale` is accepted and documented, and this build never writes it: it is the
+marker an earlier build left when a vector rebuild was interrupted. An
+`error` marker (the last vector pass lost chunks to embed failures) is not a
+fingerprint branch, and the sentence does not speak to it -- the sentence
+describes the key comparison, so the error verdict is the line's own field to
+read.
 
 The text form prints the sentence as one stderr line beside the one-line
 answer, which keeps its single-line shape. The field names of the pair are
@@ -674,8 +692,8 @@ RebuildRequiredError, LockedError, InternalError. Exit codes: 0 success
 3 backend or extension unavailable, 4 the index requires a rebuild, 5 lock
 or concurrency conflict.
 
-On success, a READ command writes stderr only in these five cases, each
-with its own condition and stream:
+On success, a read command writes these lines to stderr, each with its own
+condition and stream:
 
 * the one-line `Warning: index is stale: ...` -- one per project whose
   freshness verdict is `stale` (or `unknown`, which has its own line), on
@@ -697,12 +715,21 @@ with its own condition and stream:
   `truncated` OR empty, where the notes are part of what the reader is reading
   (an empty answer carries its explanation where it is read, as the coverage
   bullet says), and on **stderr** beside a complete, non-empty tree.
+* the log note -- any WARNING the package's own logging handler emits during a
+  read, with no prefix and no `ErrorType`: `get-code-context` on a file edited
+  after its last index writes `file changed since last index; line numbers may
+  be shifted` at exit 0, from the logger at `core.py`'s stale branch. On
+  **stderr**, WARNING and above, both forms. A note is not an answer: stdout
+  keeps its shape.
 
-That is an enumeration, not a promise: every stderr write in the CLI is a
-literal `typer.echo(..., err=True)` except two writers with a computed stream
-(the coverage line's and the graph notes'), so the five above are the only
-cases a read command reaches. Everything else a read answer has to say goes to
-stdout.
+That is an enumeration of the cases a read DOCUMENTS, not a promise that
+stderr is otherwise silent. In this build every read-side line above is a
+`typer.echo(..., err=True)` call, except two writers that pick their stream
+per answer (the coverage line's and the graph notes'), and two channels reach
+stderr outside that enumeration: `errors.fail()`, which prints the single
+`ErrorType: description` line on FAILURE, and the package's logging handler at
+WARNING, which a successful read fires in the log-note case above. A line with
+neither a documented prefix nor an `ErrorType` is a log note.
 
 Lifecycle and maintenance commands are not reads and do not follow that
 shape. `add-project`, `index-more`, `reindex-project` and `remove-project`

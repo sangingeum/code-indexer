@@ -218,34 +218,34 @@ embedding identity is not the one this build would write -- plus
 (`parse=parsed:N,parse_error:N,parse_unavailable:N`).
 
 Both verdict pairs are flags a caller branches on, and the text form adds one
-stderr line saying what the pair MEANS. It reads no source of its own: it is
-handed the same verdict object the line's `vectors=`/`vectors_state=` fields
-come from -- mode, marker and identity comparison -- so the sentence and the
-line cannot disagree.
+stderr line saying what the pair MEANS. It is handed the same verdict object
+the `vectors=`/`vectors_state=` fields come from -- mode, marker and
+identity -- so the two cannot disagree; the ids below are `MEANING_BRANCHES`
+and json-schema.md carries each row's field values.
 
-- `fingerprint=unverified` with `vectors_state` NOT `stale`: every fingerprint
-  key a read can compare matched (embedding model, embedded-text format,
-  chunker, extraction version) and the recorded model and format are this
-  build's; the embedding DIMENSION is the one key left uncompared -- learning
-  it needs the service -- so another dimension under the same model name is
-  not flagged.
-- `vectors_state=stale` (with `fingerprint=unverified`): the sentence names the
-  key that did not match (`embed_model: a -> b`, `embed_text_version: a -> b`)
-  and says `reindex-project` clears it; it never says every key matched.
-- `fingerprint=needs-reindex reason=<differences>`: the named row keys differ
-  (chunker and/or extraction), so the row reads refuse until a rebuild; a
-  stale vector side is named too when both are true.
-- `vectors=off`: there is no vector side -- no vectors are stored and no
-  vector query runs -- so nothing about vectors can be stale and no vector
-  rebuild is prescribed. A recorded identity that differs from this build's
-  is an inert fact: it changes nothing until a vectors-on pass, which writes
-  a new collection under its own identity. (This is the state a line can read
-  `vectors=off vectors_state=current` beside a recorded model that differs.)
-- `vectors_state=stale` with a matching identity (a marker this build never
-  writes): the sentence says the MANIFEST's record is what is stale.
-- no recorded fingerprint (no `fingerprint` field on the line): the
-  comparison did not run, and the sentence says so -- silence would read as a
-  pass.
+- `row-keys-differ` (`fingerprint=needs-reindex`): the named row keys differ,
+  so the row reads refuse until a rebuild; a stale vector side is named too,
+  and with vectors off the sentence says the clearing pass is a row pass.
+- `vectors-on-identity-matched` (`vectors=on`, no recorded identity key
+  differs): every key a read can compare matched; the DIMENSION is the one it
+  cannot compare, because learning it needs the service.
+- `vectors-on-identity-differs` (`vectors=on`, a recorded identity key
+  differs, `vectors_state=stale`): the sentence names the key that did not
+  match and says `reindex-project` clears it -- never "every key matched".
+- `vectors-on-marker-stale` (`vectors=on`, identity matches, the manifest
+  records `stale` -- a marker this build never writes): the sentence says the
+  MANIFEST's record is what is stale.
+- `vectors-off-identity-differs` (`vectors=off`, a recorded identity
+  differs): there is no vector side, so nothing about vectors is stale, no
+  rebuild is prescribed, and the difference is inert until a vectors-on pass.
+- `vectors-off-identity-matched` (`vectors=off`, identity matches): every
+  comparable key matched and no rebuild is prescribed -- no vector side here.
+- `no-verdict-recorded` (no `fingerprint` field): the comparison did not run,
+  and the sentence says so -- silence would read as a pass.
+
+`vectors_state` is the RECORDED marker; `stale` is written by no pass in this
+build, and with vectors off the marker is printed as-is -- "not `stale`" never
+means every key matched.
 
 JSON carries the same sentence as `fingerprint_meaning`; the field names are
 unchanged and the one-line answer keeps its shape because the sentence rides
