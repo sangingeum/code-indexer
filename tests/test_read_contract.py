@@ -318,6 +318,33 @@ def test_stale_answer_prints_one_count_line_on_every_read(rig):
     assert f"reindex-project {project}" in line, line
 
 
+def test_the_stale_line_states_what_a_stale_answer_means(rig):
+    """Guidance and repair ride beside the count, not instead of it.
+
+    ADR-0003 section 3: the stale text line carries
+    ``answers describe the index, not the tree`` beside the refresh hint. A
+    count without the guidance reads as a fact about the tree -- the one
+    misreading the verdict exists to prevent -- so this pins both clauses,
+    and their order, on a one-reason verdict that must stay one line.
+    """
+    core, entry, project, embedder, store = rig
+    (project / "c.py").write_text("def added():\n    return 3\n")
+    result = runner.invoke(app, ["find-symbol", "Core", "--project",
+                                 str(project)])
+    assert result.exit_code == 0, result.output
+    lines = [ln for ln in result.stderr.splitlines()
+             if ln.startswith("Warning: index is stale")]
+    assert len(lines) == 1, result.stderr
+    line = lines[0]
+    assert "1 added file" in line, line
+    assert "answers describe the index, not the tree" in line, line
+    assert f"reindex-project {project}" in line, line
+    # the guidance comes before the repair, so the sentence is never a
+    # trailing fragment of the command
+    assert line.index("answers describe the index") < line.index("reindex-project"), line
+    assert "\n" not in line and "\r" not in line, line
+
+
 def test_the_stale_banner_keeps_no_state_file(rig, tmp_path):
     """Silence is never stored: no marker appears anywhere a later read reads.
 

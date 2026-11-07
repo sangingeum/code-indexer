@@ -277,15 +277,20 @@ def warning_line(verdict: StalenessVerdict, project_path: str, *,
                  include_withheld: bool = True) -> str | None:
     """Exactly one stderr line, or None for a fresh answer.
 
-    Stale shape -- a stateless count, identical on every read while the tree
-    stays stale, so it is always visible and never wallpaper by surprise:
+    Stale shape -- a stateless count, the meaning it carries, and the repair,
+    identical on every read while the tree stays stale, so it is always
+    visible and never wallpaper by surprise:
 
       Warning: index is stale: 2 modified files, 1 deleted file -- <path>;
-      refresh with code-indexer reindex-project <path>
+      answers describe the index, not the tree; refresh with code-indexer
+      reindex-project <path>
 
-    The line is short by design: the per-file reasons, the revision and the
-    pass timestamp stay in the JSON block every call, and ``index-status``
-    prints them on request. Nothing is remembered between invocations -- a
+    The meaning sentence is not optional: a count without it reads as a fact
+    about the tree rather than about the answer, which is the one misreading
+    the verdict exists to prevent -- so it rides beside the refresh hint the
+    way the ``unknown`` branch already carries it. The line is short by
+    design: the per-file reasons, the revision and the pass timestamp stay in
+    the JSON block every call, and ``index-status`` prints them on request. Nothing is remembered between invocations -- a
     CLI cannot know it is the same reader, so a marker file, a manifest mtime
     or a suppressed first occurrence would make silence mean something the
     process cannot verify. There is no session token: every read states the
@@ -305,6 +310,7 @@ def warning_line(verdict: StalenessVerdict, project_path: str, *,
     if include_withheld and withheld:
         facts.append(withheld)
     return (f"Warning: index is stale: {'; '.join(facts)} -- {project_path}; "
+            "answers describe the index, not the tree; "
             f"refresh with code-indexer reindex-project {project_path}")
 
 
