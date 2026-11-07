@@ -8,7 +8,11 @@ test-index/
 *.db-wal
 *.db-shm
 *.lock
-logs/runs/
+logs/
+# runs/ is deliberately not ignored here: round records and gate reports are
+# committed on purpose, so ignoring the tree would hide new captures from
+# git status and force `git add -f` for the records that stay. Captures are
+# kept out of the code index by .codeindexignore, not by git.
 !uv.lock
 # Generated plan documents (ADR-0004): never committed.
 .code-indexer/
