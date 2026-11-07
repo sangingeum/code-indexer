@@ -1,0 +1,34 @@
+{
+  "provider": {"name": "stub-fixture", "version": "1.0.0", "transport": "in-process"},
+  "capabilities": {
+    "resolve_symbol": "supported",
+    "find_references": "supported",
+    "prepare_rename": "unsupported"
+  },
+  "declarations": {
+    "greet": [
+      {"path": "sample.py", "start": {"line": 0, "character": 0}, "end": {"line": 1, "character": 26}, "qualified_name": "greet", "symbol_type": "function"}
+    ],
+    "farewell": [
+      {"path": "sample.py", "start": {"line": 3, "character": 0}, "end": {"line": 4, "character": 16}, "qualified_name": "farewell", "symbol_type": "function"}
+    ],
+    "duplicated": [
+      {"path": "sample.py", "start": {"line": 6, "character": 0}, "end": {"line": 7, "character": 12}, "qualified_name": "duplicated", "symbol_type": "function"},
+      {"path": "sample.py", "start": {"line": 9, "character": 0}, "end": {"line": 10, "character": 12}, "qualified_name": "duplicated", "symbol_type": "function"}
+    ]
+  },
+  "references": {
+    "greet": [
+      {"path": "sample.py", "start": {"line": 0, "character": 4}, "end": {"line": 0, "character": 9}}
+    ],
+    "farewell": []
+  },
+  "rename_edits": {
+    "greet": [
+      {"path": "sample.py", "start": {"line": 0, "character": 4}, "end": {"line": 0, "character": 9}, "new_text": "hello"}
+    ]
+  },
+  "refusals": {
+    "farewell": "the fixture has no reference answer for this declaration"
+  }
+}
