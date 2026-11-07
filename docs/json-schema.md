@@ -233,19 +233,24 @@ nothing is classified and every rowless path is an `added` reason -- the row
 the next pass will write.
 
 `unreadable_count`, `unreadable_files` and `unreadable_summary` describe the
-rowless scanned paths the check could not OPEN (permissions, a broken symlink
-target, an I/O error). The check could not look at them, so they are neither
-stale reasons nor withheld files -- an `added` reason would say the path is new
-and a reindex would never clear it. They are counted, listed (capped at five)
-and phrased like the withheld fields, on a `fresh` verdict too, and the text
-line says so even when the verdict is fresh: `1 file could not be read
-(permission or I/O error), so part of the tree was not checked`.
+rowless paths the check could not OPEN (permissions, a broken symlink target,
+an I/O error). The check could not look at them, so they are neither stale
+reasons nor withheld files -- an `added` reason would say the path is new and a
+reindex would never clear it. They are counted, listed (capped at five) and
+phrased like the withheld fields, on a `fresh` verdict too, and the text line
+says so even when the verdict is fresh: `1 file could not be read (permission
+or I/O error), so part of the tree was not checked`. The state reports what
+the diff saw, and no more: the scanner drops a path it cannot open, so the
+check only ever sees a path the scan returned -- a file already unreadable
+when the tree was walked (a stable `chmod 000`, a dangling symlink) never
+reaches the diff and is not counted.
 
 Consumer rule: `stale: false` with a non-zero `withheld_count` is not
 "nothing was withheld", and `stale` alone says nothing about withheld files.
 Branch on `withheld_count`, not on `stale`. The same rule holds for
 `unreadable_count`: a fresh verdict with a non-zero count means part of the
-tree was never compared.
+tree the scan returned was never compared -- not that every unreadable path on
+disk was reported.
 
 `get-code-context --json` keeps `stale` as its FILE-level field and adds the
 rest of this block; the file-level warning line is unchanged.
@@ -281,14 +286,17 @@ walk the whole index and report `project` scope.
 recorded verdict. `files_withheld` comes from the staleness block's withheld
 list, intersected with the answer's scope when the scope names paths.
 `files_unreadable` comes from the staleness block's unreadable list the same
-way: rowless scanned paths the check could not open, which are neither parsed
-nor withheld.
+way: rowless paths the check could not open, which are neither parsed nor
+withheld. A path the scanner itself dropped never reaches that list, so this
+count is what the diff saw, not an inventory of the disk.
 `languages_without_ast` lists the languages IN SCOPE whose files yield no AST
 symbol rows -- the language-capability matrix's own runtime probe -- so a
 project whose only shell files parsed still says `["shell"]`.
 `freshness` repeats the staleness verdict (`fresh` | `stale` | `unknown`),
-never a second estimate. `complete` is true only when every file in scope
-parsed and none was withheld or unreadable; it is null when `scope` is `none`. `complete`
+never a second estimate. `complete` is true only when every file the scan
+returned in scope parsed and none was withheld or unreadable -- nothing the
+scan returned is missing; a path the scanner could not open never entered the
+scan and is not counted. It is null when `scope` is `none`. `complete`
 is about parsed-versus-unparsed files, not about the index holding anything:
 on an index that holds no files the counts are 0 and `complete` is vacuously
 true, so read `files: 0` (or `empty_reason: index-empty`) and not

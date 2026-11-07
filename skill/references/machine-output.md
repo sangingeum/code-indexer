@@ -87,7 +87,7 @@ Every read answer that comes from the index carries these fields in JSON:
 | `withheld_files` | `[{file, reason: sensitive filename\|sensitive content}]`, capped at five while `withheld_count` is the total |
 | `withheld_summary` | the same phrase the text line prints -- `1 file skipped (sensitive content)` -- or null |
 | `withheld_unexamined_count` | rowless paths the re-check's budget never reached; they ride the `added` reasons, so a non-zero value means the re-check was truncated |
-| `unreadable_count` | rowless scanned paths the check could NOT open (permission, a broken symlink target, an I/O error); present on a `fresh` verdict, and never a stale reason -- no reindex clears a condition that stops the read |
+| `unreadable_count` | rowless paths the check could NOT open (permission, a broken symlink target, an I/O error); present on a `fresh` verdict, and never a stale reason -- no reindex clears a condition that stops the read. The scanner drops a path it cannot open, so only a path the scan returned reaches this state |
 | `unreadable_files` | `[{file}]`, capped at five while `unreadable_count` is the total |
 | `unreadable_summary` | `1 file could not be read (permission or I/O error)`, or null |
 | `index_revision` | the revision the answer was read from |
@@ -121,7 +121,9 @@ A path the check could not OPEN is the same kind of fact, named the same way:
 `1 file could not be read (permission or I/O error)`. It is not "withheld"
 (nothing sensitive was seen) and not "added" (nothing was compared), and
 reporting it as `added` would leave a permanent stale banner that no reindex
-can clear.
+can clear. The scanner drops a path it cannot open before the diff runs, so
+this state reports what the diff saw, and no more: a path the scan never
+returned -- a stable `chmod 000`, a dangling symlink -- is not counted.
 
 A fresh answer prints nothing extra -- unless a path was unreadable, in which
 case the one line states it (`Warning: 1 file could not be read (permission or
@@ -139,14 +141,15 @@ running `index-status` to decide whether to trust the answer.
 
 | field | meaning |
 |---|---|
-| `coverage` | `{scope, files, files_parsed, files_not_parsed, files_withheld, files_unreadable, languages_without_ast, freshness, complete}` -- `scope` is `project` (the whole index), `answer` (the files this answer read: `outline`, `get-code-context`, `find-symbol --file`) or `none` (the command reads no index: `doctor`, `list-projects`, the eval reports, the plan readers, an unregistered `lookup-project`). A `none` block has null counts, never zeros; `complete` is null there too. `complete` is about parsed-versus-unparsed files, not about the index holding anything: on an index that holds no files it is vacuously true, so read `files: 0` (or `empty_reason: index-empty`), not `complete`. |
+| `coverage` | `{scope, files, files_parsed, files_not_parsed, files_withheld, files_unreadable, languages_without_ast, freshness, complete}` -- `scope` is `project` (the whole index), `answer` (the files this answer read: `outline`, `get-code-context`, `find-symbol --file`) or `none` (the command reads no index: `doctor`, `list-projects`, the eval reports, the plan readers, an unregistered `lookup-project`). A `none` block has null counts, never zeros; `complete` is null there too. `complete` is true only when nothing the scan returned is missing -- a path the scanner could not open never entered the scan, so it is not counted. It is about parsed-versus-unparsed files, not about the index holding anything: on an index that holds no files it is vacuously true, so read `files: 0` (or `empty_reason: index-empty`), not `complete`. |
 | `empty_reason` | one value for a read that found nothing -- `name-absent`, `files-not-parsed` (count and languages in the sentence), `language-without-ast` (language named) or `index-empty` -- in that fixed precedence, with `empty_reason_sentence` carrying the same sentence the text form prints. The VALUES are shared by the name reads and `semantic-search`; the sentence is worded per surface (a search says its query matched nothing, never that "the name is absent"). Absent on a `semantic-search --all-projects` fan-out, which has no single index. |
 
 `files_not_parsed` counts `parse_error` + `parse_unavailable` + rows with no
 verdict. `files_withheld` intersects the staleness block's withheld list with
 the answer's scope. `files_unreadable` does the same with the unreadable list:
-rowless scanned paths the check could not open, which are neither parsed nor
-withheld, and count against `complete`. `languages_without_ast` lists the languages in scope whose
+rowless paths the check could not open (the scanner already dropped the ones it
+could not open, so only a path the scan returned is here), which are neither
+parsed nor withheld, and count against `complete`. `languages_without_ast` lists the languages in scope whose
 files yield no AST symbol rows -- a shell-only project whose files parsed
 still says `["shell"]` -- and `freshness` repeats the staleness verdict, never
 a second estimate.

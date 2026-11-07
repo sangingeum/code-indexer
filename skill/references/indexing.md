@@ -392,9 +392,9 @@ opened, up to the same 256 KiB prefix, inside an 8 MiB budget per check
 charged in bytes actually read (an approximation, not a measured threshold).
 A path past the budget stays `added` and rides `withheld_unexamined_count`.
 
-A rowless path the check cannot OPEN is a third state. The scan and the diff
-are two moments (a permission change, a broken symlink target or an I/O error
-lands between them), so it is reported as `unreadable_count` /
-`unreadable_files` with the phrase `1 file could not be read (permission or
-I/O error)` -- never as `added`, whose banner no reindex could clear, and
-never as withheld, whose material nothing ever saw.
+A rowless path the check cannot OPEN is a third state: scan and diff are two
+moments (a permission change, a broken symlink, an I/O error lands between
+them), so it reports `unreadable_count` / `unreadable_files` with `1 file
+could not be read (permission or I/O error)` -- never `added` or withheld.
+The scanner drops paths it cannot open, so this reports only what the diff
+saw: a path the scan never returned is not counted.

@@ -1,7 +1,7 @@
 # Changelog
 
 ## [Unreleased] — four surface questions answered, one scan set corrected,
-and the help listing grouped
+the help listing grouped, and three fixes recorded
 
 **`code-indexer --help` groups the 33 registered commands into two panels; the
 command surface itself is unchanged.** `Core` holds the six an agent needs
@@ -42,6 +42,36 @@ record quoted is corrected to the shipped one-line form, under the owner's
 ruling, keeping the sentence that says what a stale answer means. The reasoning,
 the landed edits and the two follow-ups that want their own card are in
 `docs/decisions/index-surface-rulings.md`.
+
+**A search hit with no symbol and an empty snippet now names its own file.**
+`identity` used to be the bare word `file` whenever a hit carried neither a
+symbol nor a snippet line, so two such hits in different files were
+indistinguishable in the compact, JSON and text forms alike. The three forms
+now name the hit's file (`pkg/one.py`) and agree with each other; only a hit
+that carries no path at all -- a guard a real answer does not reach, because
+every stored hit has one -- still falls back to the literal `file`. No key,
+shape or default changed.
+
+**A path the staleness check cannot open is its own reported state.** A rowless
+path the check could not open (permission, a broken symlink target, an I/O
+error between the scan and the diff) was folded into the `added` reasons,
+which left a stale banner no reindex could clear. It is now carried beside the
+verdict as `unreadable_count` / `unreadable_files` / `unreadable_summary` (the
+list capped at five, the count the total), never as a stale reason and never
+as withheld; the coverage block gains `files_unreadable`, and `complete` is
+false while the count is non-zero. A fresh answer with one such path prints
+`1 file could not be read (permission or I/O error), so part of the tree was
+not checked` instead of staying silent. The state reports what the diff saw:
+the scanner drops a path it cannot open, so a path the scan never returned is
+not counted.
+
+**`doctor`'s reachability probes are bounded, and its checks stream.** Each
+Ollama and Qdrant reachability probe is bounded by `doctor_probe_timeout`
+(default 5 s, from `DOCTOR_PROBE_TIMEOUT` or the new `--probe-timeout` flag
+when set) instead of waiting on a blackholed host; a dial that reaches the
+bound fails with `timed out after <n>s`. The one-line-per-check output is
+flushed as each section returns, so the local checks appear while the probes
+are still dialling rather than after them. A host that answers is unaffected.
 
 ## [Unreleased] — one verdict source for the fingerprint sentence
 
