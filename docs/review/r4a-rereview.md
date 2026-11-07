@@ -34,7 +34,7 @@ that commit, and 0 again at this record's tip after the last capture.
 
 The single test failure is the installed-copy digest test in `test_docs.py` —
 the installed-skill digest, which the dispatch predicted stays red until the
-butler installs after the legs land. Nothing else is red. The difference from
+orchestrator installs the skill after the legs land. Nothing else is red. The difference from
 the fold leg's own capture is instructive: it had a second failure,
 `test_publishing_hygiene.py::test_tracked_tree_is_clean`, and that was this
 reviewer's record. It is gone.
