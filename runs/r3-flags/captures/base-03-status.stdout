@@ -1,0 +1,1 @@
+project=<scratch>/proj state=idle rows=current vectors=off vectors_state=absent schema=7 languages_without_ast=[bash, css, html, java, json, kotlin, lua, markdown, php, ruby, rust, swift, toml, yaml] parse=parsed:2,parse_error:0,parse_unavailable:0

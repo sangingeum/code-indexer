@@ -1,0 +1,23 @@
+setup exit=0
+base-01-overview exit=0
+base-02-overview-json exit=0
+base-03-status exit=0
+base-04-status-json exit=0
+base-05-skeleton exit=0
+base-06-outline exit=0
+base-07-find-symbol exit=0
+base-08-find-definition-json exit=0
+base-09-context exit=0
+base-10-references-json exit=0
+--- ten invocations ---
+[01-overview] 0 stdout=169B
+[02-overview-json] 0 stdout=623B
+[03-status] 0 stdout=249B
+[04-status-json] 0 stdout=591B
+[05-skeleton] 0 stdout=250B
+[06-outline] 0 stdout=146B
+[07-find-symbol] 0 stdout=95B
+[08-find-definition-json] 0 stdout=721B
+[09-context] 0 stdout=91B
+[10-references-json] 0 stdout=921B
+done

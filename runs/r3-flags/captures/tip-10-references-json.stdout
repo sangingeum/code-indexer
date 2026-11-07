@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "name": "helper",
+  "project": "<scratch>/proj",
+  "relationship": null,
+  "references": [
+    {
+      "file": "mod.py",
+      "line": 7,
+      "from_symbol": "caller",
+      "target": "helper",
+      "relationship": "call",
+      "confidence": "ast",
+      "receiver": null,
+      "project": "<scratch>/proj",
+      "target_confidence": "exact"
+    },
+    {
+      "file": "mod.py",
+      "line": 12,
+      "from_symbol": "render",
+      "target": "helper",
+      "relationship": "call",
+      "confidence": "ast",
+      "receiver": null,
+      "project": "<scratch>/proj",
+      "target_confidence": "exact"
+    }
+  ],
+  "total": 2,
+  "stale": false,
+  "stale_known": true,
+  "stale_reasons": [],
+  "stale_reason_count": 0,
+  "withheld_count": 0,
+  "withheld_files": [],
+  "withheld_summary": null,
+  "withheld_unexamined_count": 0,
+  "index_revision": "1",
+  "last_indexed": "2026-11-07T11:42:17Z"
+}

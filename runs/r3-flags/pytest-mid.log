@@ -1,0 +1,36 @@
+.......................................................................F [  7%]
+........................................................................ [ 14%]
+........................................................................ [ 21%]
+........................................................................ [ 28%]
+........................................................................ [ 35%]
+........................................................................ [ 43%]
+........................................................................ [ 50%]
+........................................................................ [ 57%]
+........................................................................ [ 64%]
+........................................................................ [ 71%]
+........................................................................ [ 78%]
+........................................................................ [ 86%]
+........................................................................ [ 93%]
+....................................................................     [100%]
+=================================== FAILURES ===================================
+__________________ test_generated_blocks_match_the_generator ___________________
+
+    def test_generated_blocks_match_the_generator():
+        generator = _load_generator()
+        drifted: list[str] = []
+        for key, body in generator.blocks().items():
+            path = generator.GENERATED[key]
+            text = path.read_text(encoding="utf-8")
+            if _generated_body(text, key) != body:
+                drifted.append(f"{key} in {_under_checkout(path)}")
+>       assert not drifted, (
+            "generated blocks differ from scripts/generate_skill_docs.py output "
+            f"(run it): {drifted}"
+        )
+E       AssertionError: generated blocks differ from scripts/generate_skill_docs.py output (run it): ['commands-indexing in skill/references/indexing.md', 'commands-query in skill/references/query.md', 'commands-semantic in skill/references/semantic.md', 'commands-plans in skill/references/plans.md']
+E       assert not ['commands-indexing in skill/references/indexing.md', 'commands-query in skill/references/query.md', 'commands-semantic in skill/references/semantic.md', 'commands-plans in skill/references/plans.md']
+
+tests/test_docs.py:416: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_docs.py::test_generated_blocks_match_the_generator - Assert...
+1 failed, 1003 passed, 2 deselected in 106.60s (0:01:46)

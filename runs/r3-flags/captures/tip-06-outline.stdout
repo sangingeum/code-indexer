@@ -1,0 +1,4 @@
+function helper:1-3  def helper(x):
+function caller:6-7  def caller():
+class Widget:10-12  class Widget:
+function render:11-12  def render(self):
