@@ -33,6 +33,15 @@ out of published content. This script enforces them mechanically:
                           a word that merely contains a name is not flagged.
   board-card-id           internal board card ids (a T- prefix plus six digits)
                           are forbidden in authored surfaces.
+  internal-profile-path   the household's own profile directory shape
+                          (`.hermes/profiles/<name>`) is forbidden in EVERY
+                          tracked file, captures included. A quoted traceback
+                          carries the path it ran under, so a capture can
+                          disclose a profile name that no authored document
+                          would be allowed to carry, and the name is the same
+                          disclosure whichever surface carries it. Only the
+                          path shape is governed: an indexed project's own
+                          files may legitimately be named after a person.
 
 Surface split. Authored is the complement of capture — everything except
 capture data: every tracked text file is governed by the name and card-id
@@ -103,6 +112,10 @@ WINDOWS_USER_RE = re.compile(
     r"(?i)[a-z]:[\\/]{1,2}(?:users|documents and settings)[\\/]")
 SMB_RE = re.compile(r"(?i)smb:/{2}")
 CARD_ID_RE = re.compile(r"\b" + "T" + r"-[0-9]{6}\b")
+# The household's own profile directory shape. Unlike the name and card-id
+# rules, this one governs CAPTURES too: a quoted traceback carries the path it
+# ran under, and a profile name in a path is the same disclosure as one in prose.
+PROFILE_PATH_RE = re.compile(r"\.hermes/profiles/([A-Za-z][A-Za-z0-9_.-]*)")
 TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]*")
 
 # A home-path segment is pattern text only when it BEGINS with one of these: a
@@ -175,6 +188,10 @@ def _check_card_id(line: str) -> list[str]:
     return [match.group(0) for match in CARD_ID_RE.finditer(line)]
 
 
+def _check_profile_path(line: str) -> list[str]:
+    return [match.group(0) for match in PROFILE_PATH_RE.finditer(line)]
+
+
 def _scan(path: Path, rel: Path) -> list[str] | None:
     """Return violation lines for one file, or None when the file is skipped."""
     try:
@@ -190,6 +207,8 @@ def _scan(path: Path, rel: Path) -> list[str] | None:
     for lineno, line in enumerate(raw.decode("utf-8", errors="replace").splitlines(), 1):
         for detail in _check_absolute_path(line):
             violations.append(f"{rel}:{lineno}: absolute-host-path: {detail}")
+        for detail in _check_profile_path(line):
+            violations.append(f"{rel}:{lineno}: internal-profile-path: {detail}")
         if not authored:
             continue
         for detail in _check_profile_name(line):
