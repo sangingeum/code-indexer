@@ -1,4 +1,4 @@
-# T-000117 — narrow re-verify of the R2b fold leg
+# R2b fold leg — narrow re-verify
 
 Reviewed tip: `dea142d` (`git ls-remote origin refs/heads/main` = `dea142d39b61…`).
 Fold range `b813871..dea142d`, four commits, nine files, every commit `%G? = G`:
@@ -173,10 +173,11 @@ rungs. The docs state exactly that.
 
 - `uv run pytest tests/ -q -W error` → `988 passed, 2 deselected in 104.00s`,
 exit 0 (`15-pytest.txt`). The installed-copy digest test is green, as the
-butler predicted after the mirror refresh.
+routing side had already confirmed after the mirror refresh.
 - `uvx ruff check src tests scripts` → `All checks passed!`, exit 0 (`17-ruff.txt`).
-- `uv run python scripts/publishing_hygiene_lint.py` → run last, after this
-file was written (`18-hygiene.txt`).
+- `uv run python scripts/publishing_hygiene_lint.py` → the final run is the
+post-redaction one and prints `violations=0` over 830 tracked files
+(`18-hygiene.txt`).
 - Every commit in `b813871..dea142d` signed, `%G? = G` (four commits).
 - `skill/references/query.md` = 399 lines / 20982 bytes against the 400-line /
 24 KiB budget.
@@ -185,7 +186,7 @@ file was written (`18-hygiene.txt`).
 
 `pyproject.toml` carries no `[tool.code-indexer.ordering]` table (rg over the
 file finds no `[tool.code-indexer` section), and
-`ordering.load_class_names('/home/keum/dev/athena/code-indexer') ==
+`ordering.load_class_names('<repo>') ==
 ordering.DEFAULT_CLASS_NAMES` is `True` (`14-class-probe.json`,
 `checkout_ladder.checkout.equals_default = true`). This checkout's ladder is the
 built-in one, so no path changes class, F2 cannot move its figures and declining
@@ -197,4 +198,14 @@ Seven rows PASS, one row (8) PASS, regression PASS. One residue noted under F6
 (`cli.py:975`) for routing, outside the folded file set and outside this card's
 failing surface.
 
-**VERDICT = PASS** for T-000117.
+**VERDICT = PASS** for the fold re-verify card.
+
+## Capture hygiene
+
+Captures were first committed as raw output. The publishing-hygiene lint, run
+over the tracked tree afterwards, flagged 29 violations the untracked pass could
+not see: host paths in the captures and, in this file, the card id and an
+internal role name. Every host path is now the published spelling
+(`<home>/scratch/…`, `<repo>`), this file no longer names the card by
+team id, and the lint re-run prints `violations=0` (`18-hygiene.txt`). No probe
+value, score, order or exit code was changed by the redaction.
