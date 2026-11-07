@@ -44,7 +44,7 @@ case-folds them.
 
 One classifier serves every surface, so a path cannot be "tests" to the
 overview and "source" to `find-references`. The prose form of this policy
-lives in `skill/references/query.md` (Ordering); the SQL form used where a
+lives in `skill/references/semantic.md` (Ordering); the SQL form used where a
 read is capped below the ranking (the symbol and reference reads) calls
 ``class_weight`` as the SQLite function ``file_class_weight`` rather than
 restating the path rules.

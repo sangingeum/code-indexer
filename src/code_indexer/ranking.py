@@ -44,7 +44,7 @@ The path marker this module used to carry is gone. It called `fixtures/`,
 "tests" to semantic-search and "source" to find-definition. One classifier
 serves every surface now.
 
-`skill/references/query.md` (Ordering) states the same order for the reader of
+`skill/references/semantic.md` (Ordering) states the same order for the reader of
 the output. All functions are pure and unit-testable without Qdrant or Ollama.
 """
 
