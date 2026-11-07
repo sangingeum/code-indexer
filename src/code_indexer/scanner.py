@@ -102,6 +102,34 @@ def _load_ignore_spec(dirpath: str) -> pathspec.PathSpec:
     return spec
 
 
+def _ordered_specs(root: str, dirpath: str) -> list[pathspec.PathSpec]:
+    """The ignore specs governing ``dirpath``, root first -- git's order."""
+    chain = []
+    cur = dirpath
+    while True:
+        chain.append(cur)
+        if cur == root:
+            break
+        cur = os.path.dirname(cur)
+    return [_load_ignore_spec(path) for path in reversed(chain)]
+
+
+def _ignored(rel_path: str, specs: list[pathspec.PathSpec]) -> bool:
+    """Git's composition: the last matching rule wins, deepest spec last.
+
+    ``check_file`` reports the verdict AND the index of the pattern that
+    decided it inside that spec, so a rule in a deeper file overrides one in
+    a shallower file -- a negation included. This is what keeps the scan and
+    ``git check-ignore`` agreeing on the repository's own exclusions.
+    """
+    ignored = False
+    for spec in specs:
+        checked = spec.check_file(rel_path)
+        if checked.index is not None:
+            ignored = bool(checked.include)
+    return ignored
+
+
 def _is_binary(path: str) -> bool:
     """Null byte in first 8KB or known binary extension."""
     ext = os.path.splitext(path)[1].lower()
@@ -145,15 +173,16 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
     the scan to a subtree (e.g. ``src/**``); None = whole project.
     ``priority``: matching files are returned FIRST (indexed before the
     rest of the pass).
+
+    Nested ``.gitignore``/``.codeindexignore`` compose the way git composes
+    them: the specs are consulted from the root outwards, and the LAST
+    matching rule decides, so a deeper ``!pattern`` re-includes what a
+    shallower spec excluded. A directory the composed verdict ignores is
+    pruned, which also carries git's rule that nothing inside an excluded
+    directory can be re-included: there is no walk left to re-include in.
     """
     previous = previous if previous is not None and \
         os.environ.get("PARANOID_HASH") not in ("1", "true") else {}
-    """Walk *root* and return kept files with sha256 content hashes.
-
-    Honors nested .gitignore/.codeindexignore with per-directory pathspec
-    composition (a file is checked against every spec between root and its
-    parent directory, matching git's semantics closely enough for indexing).
-    """
     root = os.path.abspath(root)
     results: list[ScannedFile] = []
     _GITIGNORE_CACHE.clear()
@@ -177,35 +206,27 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
     for dirpath, dirnames, filenames in os.walk(root, topdown=True):
         rel_dir = os.path.relpath(dirpath, root)
 
-        # Per-directory ignore composition: check this dir's own ignore files,
-        # and prune dirnames in-place so we never descend into ignored trees.
+        # Per-directory ignore composition: prune dirnames in-place so we
+        # never descend into ignored trees. A directory's OWN ignore file
+        # says nothing about the directory itself, so the deciding specs are
+        # those from the root down to its parent, in git's order.
         if rel_dir != ".":
-            specs = []
-            cur = dirpath
-            while cur != root and len(cur) > len(root):
-                specs.append(_load_ignore_spec(cur))
-                cur = os.path.dirname(cur)
             dir_rel = rel_dir.replace(os.sep, "/") + "/"
-            if any(spec.match_file(dir_rel) for spec in specs):
+            parent_specs = _ordered_specs(root, os.path.dirname(dirpath))
+            if _ignored(dir_rel, parent_specs):
                 dirnames[:] = []
                 continue
 
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        specs = _ordered_specs(root, dirpath)
 
         for fname in filenames:
             check_budget()
             abs_path = os.path.join(dirpath, fname)
             rel_path = os.path.relpath(abs_path, root).replace(os.sep, "/")
-            # Check every ignore spec from root down to this directory
-            # (per-directory composition, design Risk 5).
-            specs = []
-            cur = dirpath
-            while True:
-                specs.append(_load_ignore_spec(cur))
-                if cur == root:
-                    break
-                cur = os.path.dirname(cur)
-            if any(spec.match_file(rel_path) for spec in specs):
+            # Every ignore spec from root down to this directory, root
+            # first: the last matching rule decides (design Risk 5).
+            if _ignored(rel_path, specs):
                 logger.debug("skip (ignored): %s", rel_path)
                 continue
             try:

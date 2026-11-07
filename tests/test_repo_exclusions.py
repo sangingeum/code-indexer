@@ -6,14 +6,22 @@ working checkout and not tracked) and ``eval/`` (the retrieval evaluation
 corpus, which is tracked and ships). The test copies the repository's own file
 into a throwaway tree shaped like this one, so it checks the patterns that ship
 rather than a fixture written to match the scanner.
+
+Nested files compose by git's rule -- the deepest matching rule decides -- so
+the suite also pins that a nested negation re-includes what a shallower spec
+excluded, and checks the whole composition against ``git check-ignore``.
 """
 
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from code_indexer.scanner import scan_project
 
 REPO = Path(__file__).resolve().parent.parent
-
+GIT = shutil.which("git")
 
 
 def _repo_ignore_patterns() -> str:
@@ -21,7 +29,6 @@ def _repo_ignore_patterns() -> str:
     path = REPO / ".codeindexignore"
     assert path.is_file(), "the repository root has no .codeindexignore"
     return path.read_text(encoding="utf-8")
-
 
 
 def _repo_shaped_tree(tmp_path: Path) -> Path:
@@ -52,7 +59,6 @@ def _repo_shaped_tree(tmp_path: Path) -> Path:
     return root
 
 
-
 def test_repo_exclusions_keep_non_source_trees_out_of_the_index(tmp_path):
     scanned = {f.path for f in scan_project(str(_repo_shaped_tree(tmp_path)))}
     assert "src/app.py" in scanned
@@ -65,22 +71,57 @@ def test_repo_exclusions_keep_non_source_trees_out_of_the_index(tmp_path):
     assert "pkg/runs/c.py" in scanned
 
 
+def test_a_nested_negation_re_includes_what_a_shallower_spec_excluded(tmp_path):
+    """The deepest matching rule decides, exactly as git composes the files.
 
-def test_a_root_negation_cannot_re_include_a_nested_exclusion(tmp_path):
-    """Per-directory specs compose by ``any()``; a nested match always wins.
-
-    The root file excludes and then re-includes ``keep.txt``; a nested file
-    excludes it again. The nested spec is consulted even where the root one
-    says no, so the negation stops at the directory that re-excluded it.
+    The root file excludes ``secret.txt`` and ``*.log``; ``src/`` negates both.
+    Git answers "not ignored" for ``src/secret.txt`` and ``src/trace.log``,
+    so the scan keeps them -- while the root-level ``secret.txt``, which no
+    deeper file re-includes, stays out. A composition that let ANY spec's
+    match win would drop the nested pair instead.
     """
     root = _repo_shaped_tree(tmp_path)
-    (root / "keep.txt").write_text("root level\n")
-    (root / "src" / "keep.txt").write_text("nested level\n")
+    (root / "secret.txt").write_text("root level\n")
+    (root / "src" / "secret.txt").write_text("nested level\n")
+    (root / "src" / "trace.log").write_text("nested log\n")
     (root / ".codeindexignore").write_text(
-        _repo_ignore_patterns() + "\nkeep.txt\n!keep.txt\n", encoding="utf-8"
+        _repo_ignore_patterns() + "\nsecret.txt\n*.log\n", encoding="utf-8"
     )
-    (root / "src" / ".codeindexignore").write_text("keep.txt\n", encoding="utf-8")
+    (root / "src" / ".codeindexignore").write_text(
+        "!secret.txt\n!trace.log\n", encoding="utf-8"
+    )
 
     scanned = {f.path for f in scan_project(str(root))}
-    assert "keep.txt" in scanned
-    assert "src/keep.txt" not in scanned
+    assert "src/secret.txt" in scanned
+    assert "src/trace.log" in scanned
+    assert "secret.txt" not in scanned
+
+
+@pytest.mark.skipif(GIT is None, reason="git is not installed")
+def test_the_scan_agrees_with_git_check_ignore(tmp_path):
+    """One composition, two readers: the scan keeps what git does not ignore.
+
+    The same rules are written to ``.gitignore`` and ``.codeindexignore`` in
+    two directories, then ``git check-ignore`` is asked about every file. The
+    scan set and git's answer must be the same set, which is the guarantee a
+    nested negation gives and ``any()`` could not.
+    """
+    root = tmp_path / "repo"
+    (root / "src").mkdir(parents=True)
+    paths = ["secret.txt", "src/secret.txt", "src/trace.log", "src/keep.py"]
+    for rel in paths:
+        (root / rel).write_text("x = 1\n", encoding="utf-8")
+    rules = {".": "secret.txt\n*.log\n", "src": "!secret.txt\n!trace.log\n"}
+    for sub, text in rules.items():
+        (root / sub / ".gitignore").write_text(text, encoding="utf-8")
+        (root / sub / ".codeindexignore").write_text(text, encoding="utf-8")
+    subprocess.run([GIT, "init", "-q", str(root)], check=True,
+                   capture_output=True, text=True)
+    listed = subprocess.run(
+        [GIT, "-C", str(root), "check-ignore", "--stdin"],
+        input="\n".join(paths) + "\n", capture_output=True, text=True,
+        check=True)
+    git_ignored = set(listed.stdout.split())
+
+    scanned = {f.path for f in scan_project(str(root))} & set(paths)
+    assert scanned == {p for p in paths if p not in git_ignored}

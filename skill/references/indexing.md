@@ -252,9 +252,8 @@ unchanged and the one-line answer keeps its shape because the sentence rides
 stderr.
 
 Every read answer's JSON, `index-status` included, carries the `coverage`
-block -- files in scope, parsed and unparsed counts, withheld files, the
-languages with no AST reader, and freshness (see
-[machine-output.md](machine-output.md)).
+block: files in scope, parsed and unparsed counts, withheld files, languages
+with no AST reader, freshness -- fields in [machine-output.md](machine-output.md).
 
 `index-status` takes `--format text|json` (`--json` is the exact alias) and
 `--format compact`, which is the SAME one line the text form prints: this
@@ -362,17 +361,18 @@ globs plus high-confidence content patterns) are skipped unless
 `--allow-sensitive`; files larger than `MAX_FILE_BYTES` (1 MB default) and
 binaries are skipped. The skip counts are reported by `index-status`.
 
-`.gitignore` and `.codeindexignore` answer different questions, so a tree can
-appear in one and not the other. Git decides what is committed; the index
-decides what is searchable. This repository excludes two non-source trees from
-the index in the root `.codeindexignore`: `runs/` (round captures, gate output
-and command logs, kept in the working checkout and no longer tracked) and
-`eval/` (the retrieval corpus, whose lines are questions
-shaped like the ones users type, so indexing them ranks near-duplicate queries
-above the code they point at; this one stays tracked). The patterns are anchored to the repository
-root (`/runs/`, `/eval/`), so a same-named directory under `src/` stays
-indexed. The exclusion governs scans: rows already in a manifest are dropped
-by a reindex of the project, not by the file.
+`.gitignore` and `.codeindexignore` answer different questions -- git decides
+what is committed, the index what is searchable. This repository excludes two
+non-source trees in the root `.codeindexignore`: `runs/` (round captures, gate
+output and command logs, kept in the working checkout, no longer tracked) and
+`eval/` (the retrieval corpus, whose lines are questions shaped like the ones
+users type, so indexing them ranks near-duplicate queries above the code they
+point at; this one stays tracked). Anchored to the repository root (`/runs/`,
+`/eval/`), they leave a same-named directory under `src/` indexed. Nested
+ignore files compose as git composes them: the last matching rule, read from
+the root outwards, decides, so a deeper `!pattern` re-includes what a shallower
+file excluded. The exclusion governs scans: rows already in a manifest are
+dropped by a reindex of the project, not by the file.
 
 A file the sensitive scan withholds sits in the gap between the scan set and
 the manifest: it is scanned, it deliberately has no row, and it is **not** a
