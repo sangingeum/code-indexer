@@ -4,6 +4,7 @@
 - Date: 2026-11-07
 - Deciders: owner (ratification), architecture review
 - Supersedes / Superseded by: --
+- Amended: 2026-11-07 -- section 2 previously read "Migrated on open", a sentence that licensed a read to migrate and empty a manifest; ADR-0003 section 1 governs, so the sentence now says the next pass migrates and a read never does.
 
 ## Decision in one paragraph
 
@@ -48,7 +49,7 @@ What each bump invalidates, and what the user then runs:
 
 - `extraction_version` -- invalidates every row parsed from source (symbols, refs, imports, chunks) and each file's points, because chunk boundaries and point ids move with them. Leaves the embedding identity, the collection and the dimension intact. The user runs one pass per project; unchanged chunk text re-embeds from the content-addressed cache, not from the model.
 - `embedding_version` -- invalidates the collection as a whole and leaves every manifest row intact. A new collection is built under the new identity and swapped in; the old one is dropped after the swap.
-- `index_schema_version` -- invalidates the manifest tables the change touches and leaves the collection intact whenever chunk text and chunk identity are untouched. Migrated on open; reparse only where the change requires it.
+- `index_schema_version` -- invalidates the manifest tables the change touches and leaves the collection intact whenever chunk text and chunk identity are untouched. Migrated by the next pass, never by a read; reparse only where the change requires it. ADR-0003 section 1 governs: a read that meets an older recorded schema refuses with `RebuildRequiredError` (exit 4) and leaves the migration to the next pass.
 
 Two rules follow and are not negotiable. **Vectors are never mixed across models**: a collection holds exactly one embedding identity, recorded in `meta` and stamped into the collection name, and a changed identity means a new collection, never an append. **Rows survive an embedding bump and vectors survive a schema bump**: a model change never forces a reparse, a manifest migration never forces a re-embed. An implementation coupling them has misread this record.
 
