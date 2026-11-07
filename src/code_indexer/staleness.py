@@ -263,33 +263,49 @@ def block(verdict: StalenessVerdict) -> dict[str, Any]:
     }
 
 
-def _counts(reasons: tuple[Reason, ...]) -> str:
+def _count_phrase(reasons: tuple[Reason, ...]) -> str:
+    """``2 modified files, 1 added file`` -- a count per kind, in fixed order."""
     parts = []
     for kind in _KIND_ORDER:
         n = sum(1 for r in reasons if r.kind == kind)
         if n:
-            parts.append(f"{n} {kind}")
+            parts.append(f"{n} {kind} file" + ("" if n == 1 else "s"))
     return ", ".join(parts)
 
 
-def warning_line(verdict: StalenessVerdict, project_path: str) -> str | None:
+def warning_line(verdict: StalenessVerdict, project_path: str, *,
+                 include_withheld: bool = True) -> str | None:
     """Exactly one stderr line, or None for a fresh answer.
 
-    Stale shape (the record's own wording):
-      Warning: index is stale (3 files changed since 2026-11-06T22:10:00Z:
-      2 modified, 1 deleted); answers describe the index, not the tree.
-      Refresh: code-indexer reindex-project <path>
+    Stale shape -- a stateless count, identical on every read while the tree
+    stays stale, so it is always visible and never wallpaper by surprise:
+
+      Warning: index is stale: 2 modified files, 1 deleted file -- <path>;
+      refresh with code-indexer reindex-project <path>
+
+    The line is short by design: the per-file reasons, the revision and the
+    pass timestamp stay in the JSON block every call, and ``index-status``
+    prints them on request. Nothing is remembered between invocations -- a
+    CLI cannot know it is the same reader, so a marker file, a manifest mtime
+    or a suppressed first occurrence would make silence mean something the
+    process cannot verify. There is no session token: every read states the
+    verdict it just computed.
+
+    ``include_withheld`` appends the withheld-file state (a skip, never a
+    stale reason) for callers that do not print it themselves; ``index-status``
+    passes False because its own line already carries it.
     """
     if verdict.state == FRESH:
         return None
     if verdict.state == UNKNOWN:
         return ("Warning: index staleness check did not run "
                 f"({verdict.detail}); answers describe the index, not the tree.")
-    files = "file" if verdict.reason_count == 1 else "files"
-    return (f"Warning: index is stale ({verdict.reason_count} {files} changed "
-            f"since {verdict.last_indexed or 'an unknown pass'}: "
-            f"{_counts(verdict.reasons)}); answers describe the index, not the "
-            f"tree. Refresh: code-indexer reindex-project {project_path}")
+    facts = [_count_phrase(verdict.reasons)]
+    withheld = _withheld_summary(verdict.withheld, verdict.withheld_count)
+    if include_withheld and withheld:
+        facts.append(withheld)
+    return (f"Warning: index is stale: {'; '.join(facts)} -- {project_path}; "
+            f"refresh with code-indexer reindex-project {project_path}")
 
 
 def aggregate(verdicts: Mapping[str, StalenessVerdict]) -> dict[str, Any]:

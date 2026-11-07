@@ -389,13 +389,21 @@ def _refuse_obsolete_rows(core: Core, entry: ProjectEntry, *,
 
 
 def _read_staleness(core: Core, entry: ProjectEntry, *, refresh: bool,
-                    json_output: bool) -> tuple[dict[str, Any], str | None]:
+                    json_output: bool,
+                    announce_withheld: bool = True
+                    ) -> tuple[dict[str, Any], str | None]:
     """Refresh when asked, then report the index's verdict for one project.
 
-    Text mode prints at most ONE stderr line (the record's shape) and nothing
-    on stdout. JSON mode adds the block to the answer instead, so a machine
-    consumer branches on fields rather than parsing prose. A read without
-    ``--refresh`` never writes.
+    Text mode prints at most ONE stderr line -- the stateless count line
+    (``warning_line``) -- and nothing on stdout. JSON mode adds the complete
+    block to the answer instead, so a machine consumer branches on fields
+    rather than parsing prose and never depends on the line's brevity. A read
+    without ``--refresh`` never writes.
+
+    ``announce_withheld`` is False for a caller whose own output already
+    states the withheld files (``index-status`` does); every other read gets
+    the skip state in the same line as the verdict, never folded into the
+    reasons.
 
     Returns ``(block, warning line or None)``. The line comes from the ONE
     verdict this call computed: a caller that answers in JSON and still wants
@@ -407,7 +415,8 @@ def _read_staleness(core: Core, entry: ProjectEntry, *, refresh: bool,
         except IndexerError as exc:
             fail(exc)
     verdict = core.staleness(entry)
-    line = staleness.warning_line(verdict, entry.path)
+    line = staleness.warning_line(verdict, entry.path,
+                                  include_withheld=announce_withheld)
     if line and not json_output:
         typer.echo(line, err=True)
     return staleness.block(verdict), line
@@ -1244,7 +1253,8 @@ def index_status(
         fields["note"] = ("registered but no indexing pass has completed; "
                           "run reindex-project to build the index")
     block, _ = _read_staleness(core, entry, refresh=False,
-                               json_output=json_output)
+                               json_output=json_output,
+                               announce_withheld=False)
     # One count on the line, and it is the tree's (not the last pass's): a
     # withheld file is its own fact, not a stale reason and not a silent zero.
     # The hint that lifts the exclusion rides in the same phrase.
@@ -2162,7 +2172,8 @@ def get_code_context(
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
     _refuse_obsolete_rows(core, entry, refresh=refresh)
-    block, _ = _read_staleness(core, entry, refresh=False, json_output=True)
+    block, stale_line = _read_staleness(core, entry, refresh=False,
+                                       json_output=True)
     try:
         data = core.code_context(
             entry, file, start_line=start_line, end_line=end_line,
@@ -2173,10 +2184,8 @@ def get_code_context(
         payload = {**block, **data, "schema": 1}
         typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
         return
-    if not data.get("stale"):
-        line = staleness.warning_line(core.staleness(entry), entry.path)
-        if line:
-            typer.echo(line, err=True)
+    if not data.get("stale") and stale_line:
+        typer.echo(stale_line, err=True)
     for seg in data["segments"]:
         typer.echo(f"--- {data['file']}:{seg['start_line']}-{seg['end_line']} ---")
         if seg.get("error"):

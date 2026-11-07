@@ -288,22 +288,110 @@ def test_fresh_answer_prints_nothing_extra(rig):
     assert "Warning: index" not in result.stderr, result.stderr
 
 
-def test_stale_answer_prints_the_record_line_once(rig):
+def test_stale_answer_prints_one_count_line_on_every_read(rig):
+    """The banner is a stateless count: same single line, read after read.
+
+    Five reads of one genuinely stale project are five answers -- a CLI
+    cannot know they came from one reader -- so every one of them states the
+    verdict. Nothing is remembered, and nothing is suppressed: the line is
+    short enough to stay visible rather than becoming wallpaper.
+    """
     core, entry, project, embedder, store = rig
     (project / "b.py").write_text("def other():\n    return 99\n")
     (project / "c.py").write_text("def added():\n    return 3\n")
-    result = runner.invoke(app, ["find-symbol", "Core", "--project",
-                                 str(project)])
+    lines: list[str] = []
+    for _ in range(5):
+        result = runner.invoke(app, ["find-symbol", "Core", "--project",
+                                     str(project)])
+        assert result.exit_code == 0, result.output
+        count_lines = [ln for ln in result.stderr.splitlines()
+                       if ln.startswith("Warning: index is stale")]
+        assert len(count_lines) == 1, result.stderr
+        lines.append(count_lines[0])
+        assert "Warning" not in result.stdout
+    assert len(set(lines)) == 1, lines
+    line = lines[0]
+    assert line.startswith("Warning: index is stale: "), line
+    assert "1 modified file, 1 added file" in line, line
+    assert "since " not in line, line        # no pass timestamp in the banner
+    assert "b.py" not in line and "c.py" not in line, line
+    assert f"reindex-project {project}" in line, line
+
+
+def test_the_stale_banner_keeps_no_state_file(rig, tmp_path):
+    """Silence is never stored: no marker appears anywhere a later read reads.
+
+    A marker or a recorded timestamp would let a later, unrelated process
+    believe it had already been told something it never saw. The ONLY state
+    a read leaves behind is the answer itself.
+    """
+    core, entry, project, embedder, store = rig
+    (project / "c.py").write_text("def added():\n    return 3\n")
+    index_root = pathlib.Path(core.cfg.index_root)
+
+    def tracked() -> list[str]:
+        return sorted(str(p.relative_to(index_root)) for p in index_root.rglob("*")
+                      if not p.name.endswith((".db", "-wal", "-shm")))
+
+    before = tracked()
+    for _ in range(3):
+        result = runner.invoke(app, ["find-symbol", "Core", "--project",
+                                     str(project)])
+        assert result.exit_code == 0, result.output
+    assert tracked() == before, [p for p in tracked() if p not in before]
+    assert not [p for p in project.rglob("*")
+                if "warn" in p.name or "stale" in p.name], "a marker was written"
+
+
+def test_json_carries_every_reason_on_every_read(rig):
+    """The banner's brevity never reaches the machine-readable answer."""
+    core, entry, project, embedder, store = rig
+    (project / "b.py").write_text("def other():\n    return 99\n")
+    (project / "c.py").write_text("def added():\n    return 3\n")
+    reasons = [{"kind": "modified", "file": "b.py"},
+               {"kind": "added", "file": "c.py"}]
+    seen = []
+    for _ in range(5):
+        result = runner.invoke(app, ["find-symbol", "Core", "--project",
+                                     str(project), "--json"])
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert payload["stale"] is True
+        assert payload["stale_known"] is True
+        assert payload["stale_reasons"] == reasons, payload["stale_reasons"]
+        assert payload["stale_reason_count"] == 2
+        assert payload["index_revision"] == "1"
+        assert payload["last_indexed"].endswith("Z")
+        seen.append(payload["stale_reasons"])
+    assert seen == [reasons] * 5, seen
+
+
+def test_a_stale_and_skipped_project_reports_both_states(rig):
+    """A skip is not a stale reason, and a stale read does not hide it."""
+    core, entry, project, embedder, store = rig
+    (project / "notes.md").write_text(
+        "token: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0."
+        "abcdefghijklmnopqrstu\n")
+    (project / "c.py").write_text("def added():\n    return 3\n")
+    result = runner.invoke(app, ["overview", "--project", str(project)])
     assert result.exit_code == 0, result.output
     lines = [ln for ln in result.stderr.splitlines()
              if ln.startswith("Warning: index is stale")]
     assert len(lines) == 1, result.stderr
-    line = lines[0]
-    assert "2 files changed" in line, line
-    assert "1 modified, 1 added" in line, line
-    assert "answers describe the index, not the tree" in line
-    assert f"Refresh: code-indexer reindex-project {project}" in line
-    assert "Warning" not in result.stdout
+    assert "1 added file" in lines[0], lines[0]
+    assert "1 file skipped (sensitive content)" in lines[0], lines[0]
+    payload = json.loads(runner.invoke(
+        app, ["overview", "--project", str(project), "--json"]).stdout)
+    assert payload["stale_reasons"] == [{"kind": "added", "file": "c.py"}]
+    assert payload["withheld_files"] == [
+        {"file": "notes.md", "reason": "sensitive content"}]
+    assert payload["withheld_count"] == 1
+    # index-status states the skip on its own line, so its warning omits it:
+    # the fact appears exactly once in a command's output, never twice.
+    status = runner.invoke(app, ["index-status", "--project", str(project)])
+    assert status.exit_code == 0, status.output
+    assert (status.stdout + status.stderr).count(
+        "skipped (sensitive content)") == 1, status.stdout + status.stderr
 
 
 def test_unknown_answer_says_the_check_did_not_run(rig):
