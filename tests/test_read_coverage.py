@@ -201,6 +201,16 @@ def test_an_empty_index_says_the_project_is_not_indexed(index_project):
     assert payload["empty_reason"] == "index-empty"
     assert "the project is not indexed" in payload["empty_reason_sentence"]
     assert payload["coverage"]["files"] == 0
+    # `complete` counts parsed-versus-unparsed files, not whether the index
+    # holds anything: it is vacuously true on a zero-file index, and the doc
+    # says so -- a reader must branch on `files: 0`, never on `complete`.
+    assert payload["coverage"]["complete"] is True
+    schema = os.path.join(os.path.dirname(__file__), "..", "docs",
+                          "json-schema.md")
+    with open(schema, encoding="utf-8") as handle:
+        flat = " ".join(handle.read().split())
+    assert "on an index that holds no files the counts are 0" in flat
+    assert "`complete` is vacuously" in flat
 
     text = runner.invoke(app, ["find-symbol", "zzz_missing", "--project",
                                str(project)])
@@ -502,6 +512,9 @@ _VECTORS_OFF_WITH_A_DIFFERENT_MODEL = "reproducer-vectors-off-other-model"
     pytest.param("on", "match", "absent", "match", id="on-absent"),
     # vectors on, a recorded marker nothing in this build writes.
     pytest.param("on", "match", "stale", "match", id="on-recorded-stale"),
+    # a row key differs AND the manifest records the collection stale too.
+    pytest.param("on", "match", "stale", "differ",
+                 id="on-needs-reindex-and-marked-stale"),
     pytest.param("on", "match", "error", "match", id="on-error"),
     # vectors on, a row key differs: the row surfaces refuse.
     pytest.param("on", "match", "current", "differ", id="on-needs-reindex"),
@@ -518,6 +531,10 @@ _VECTORS_OFF_WITH_A_DIFFERENT_MODEL = "reproducer-vectors-off-other-model"
     # vectors off, marker still `current` from an earlier vectors-on build.
     pytest.param("off", "differ", "current", "differ",
                  id="off-everything-else-differs"),
+    # vectors off, identity matches, and the manifest still records `stale`:
+    # the inert clause the matched branch appends.
+    pytest.param("off", "match", "stale", "match",
+                 id="off-matched-recorded-stale"),
 ])
 def test_the_sentence_and_the_line_cannot_contradict(
         index_project, mode, identity, marker, row_key):
@@ -554,6 +571,11 @@ def test_the_sentence_and_the_line_cannot_contradict(
         elif identity == "differ":
             assert "its vectors are stale too" in meaning, meaning
             assert _VECTORS_OFF_WITH_A_DIFFERENT_MODEL in meaning, meaning
+        elif marker == "stale":
+            # Identity matches, so no key is named, but the recorded marker
+            # makes the reindex rebuild the collection too.
+            assert ("the manifest also records the vector collection as "
+                    "stale") in meaning, meaning
         return
     if vectors == "off":
         # There is no vector side: say so, and never prescribe a rebuild.
@@ -565,6 +587,9 @@ def test_the_sentence_and_the_line_cannot_contradict(
             assert _VECTORS_OFF_WITH_A_DIFFERENT_MODEL in meaning, meaning
             assert "inert" in meaning, meaning
             assert "no vector side to be stale" in meaning, meaning
+        if marker == "stale":
+            # A recorded marker nothing in this build writes, inert while off.
+            assert "inert while vectors are off" in meaning, meaning
     elif identity == "differ":
         assert "did not match" in meaning, meaning
         assert _VECTORS_OFF_WITH_A_DIFFERENT_MODEL in meaning, meaning
@@ -711,3 +736,78 @@ def test_every_read_with_a_json_form_carries_coverage(index_project,
         assert "coverage" in payload, command_name
         assert payload["coverage"]["scope"] in ("project", "answer", "none"), \
             command_name
+
+
+# ---------------------------------------------------------------------------
+# the seam: one computation feeds the sentence AND the machine field
+# ---------------------------------------------------------------------------
+#
+# The rule the fingerprint fix embodies is not "pass a verdict object"; it is
+# that a human sentence and a machine field are rendered from ONE computation.
+# Each surface below already satisfies it by construction, which is exactly
+# why these tests exist: they are what keeps it true when the next change
+# reaches for a second source.
+
+
+def test_the_staleness_banner_is_derived_from_the_block_it_ships_with(
+        index_project):
+    """The `Warning:` line counts what the JSON block counts -- one verdict."""
+    core, entry, project = index_project({"mod.py": PY})
+    (project / "mod.py").write_text(
+        PY + "\ndef extra():\n    return 2\n", encoding="utf-8")
+
+    payload = _json(runner.invoke(
+        app, ["find-symbol", "helper", "--project", str(project), "--json"]))
+    assert payload["stale"] is True and payload["stale_known"] is True
+    modified = sum(1 for reason in payload["stale_reasons"]
+                   if reason["kind"] == "modified")
+    assert modified == 1, payload["stale_reasons"]
+
+    text = runner.invoke(app, ["find-symbol", "helper", "--project",
+                               str(project)])
+    banner = [line for line in text.stderr.splitlines()
+              if line.startswith("Warning: index is stale")]
+    assert len(banner) == 1, text.stderr
+    # the count in the sentence IS the block's count, not a second walk
+    assert f"{modified} modified file" in banner[0], banner[0]
+    assert f"{payload['stale_reason_count']} " in banner[0] or modified == \
+        payload["stale_reason_count"], (banner[0], payload)
+
+
+def test_the_coverage_line_is_derived_from_the_block_it_ships_with(
+        index_project):
+    """The one text line and the coverage object are the same dict."""
+    core, entry, project = index_project({"mod.py": PY, "notes.md": MD})
+    payload = _json(runner.invoke(
+        app, ["find-symbol", "helper", "--project", str(project), "--json"]))
+    block = payload["coverage"]
+    assert block["complete"] is False
+
+    text = runner.invoke(app, ["find-symbol", "helper", "--project",
+                               str(project)])
+    lines = [line for line in text.stderr.splitlines()
+             if line.startswith("coverage: ")]
+    assert len(lines) == 1, text.stderr
+    # built from the block's own values, so a second count cannot appear
+    assert lines[0] == (f"coverage: {block['files_parsed']} of {block['files']} "
+                        f"files parsed, {block['files_not_parsed']} not parsed"), \
+        (lines[0], block)
+
+
+def test_the_pass_summary_line_and_the_payload_are_one_result(index_project):
+    """A pass prints the payload's own numbers, in text and in JSON."""
+    core, entry, project = index_project({"mod.py": PY})
+    payload = _json(runner.invoke(
+        app, ["reindex-project", str(project), "--json"]))
+    assert payload["index"]["state"] == "idle", payload
+    result = payload["index"]["result"]
+
+    text = runner.invoke(app, ["reindex-project", str(project)])
+    assert text.exit_code == 0, text.output
+    lines = [line for line in text.stdout.splitlines() if line.strip()]
+    assert lines, text.output
+    # the text form is the payload's result, rendered -- not a recount
+    head, _, body = lines[0].partition(": ")
+    assert head == entry.slug, lines[0]
+    assert json.loads(body) == result, (json.loads(body), result)
+

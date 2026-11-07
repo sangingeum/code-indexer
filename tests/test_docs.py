@@ -850,18 +850,24 @@ def _error_contract_section() -> str:
 
 
 def test_the_success_stderr_contract_is_an_enumeration_not_an_exclusivity_claim():
-    """The doc names every note a READ command may write on success.
+    """The doc names every line a read may write on success, and its channels.
 
     Uniqueness over all commands was never true: a scoped `semantic-search`
     writes its own note, and the pass/lifecycle commands write their own
-    lines. The claim kept here is over reads, and it is an enumeration with
-    each case's condition and stream.
+    lines. The claim kept here is over reads, it is an enumeration with each
+    case's condition and stream, and it carries the TWO channels that reach
+    stderr outside it (`errors.fail()` on failure, the logging handler at
+    WARNING) -- the handler is the sixth case, measured at exit 0 by
+    `test_the_log_note_a_successful_read_writes_is_the_documented_one`. The
+    code-side pin is `tests/test_stderr_writers.py`, which walks the source.
     """
     section = _error_contract_section()
     flat = " ".join(section.split())
     assert "nowhere else" not in flat
     assert "exactly three documented cases" not in flat
-    assert "a READ command writes stderr only in these five cases" in flat
+    # The lead is a claim about what is WRITTEN, not an exclusivity claim.
+    assert "a read command writes these lines to stderr" in flat
+    assert "only in these five cases" not in flat
     # every read-side writer, named with the condition it needs
     assert "Warning: index is stale" in section
     assert "`coverage:` line" in section and "NON-empty" in section
@@ -870,29 +876,121 @@ def test_the_success_stderr_contract_is_an_enumeration_not_an_exclusivity_claim(
     assert "`note: ...` lines of a graph answer" in section
     assert "`find-callers`" in section and "`find-callees`" in section
     assert "`semantic-search` on a project indexed with a scope" in flat
+    assert "the log note" in flat
+    assert "file changed since last index" in flat
     # each case says which stream it lands on, in its own bullet
     parts = section.split("* the ")[1:]
-    assert len(parts) >= 5, parts
-    for part in parts[:5]:
+    assert len(parts) >= 6, parts
+    for part in parts[:6]:
         assert "**stderr**" in part or "**stdout**" in part, part
+    # the two channels outside the enumeration, and the claim's own scope
+    assert "`errors.fail()`" in flat
+    assert "logging handler" in flat
+    assert "enumeration of the cases a read DOCUMENTS" in flat
 
 
-def test_no_document_keeps_the_unconditional_fingerprint_claim():
-    """Every copy of the sentence follows the verdict now.
+def _fingerprint_sentence_rows() -> dict[str, tuple[str, str]]:
+    """branch id -> (the 'reached when' cell, the 'the sentence says' cell)."""
+    text = JSON_SCHEMA.read_text(encoding="utf-8")
+    start = text.index("Each row below is one branch of")
+    table = text[start:].split("\n\n`vectors_state` is the marker", 1)[0]
+    rows: dict[str, tuple[str, str]] = {}
+    for line in table.splitlines():
+        if not line.startswith("| `"):
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        rows[cells[0].strip("`")] = (cells[1], cells[2])
+    return rows
 
-    The old clause named the four keys as matched and only THEN mentioned the
-    dimension, so it was printed as true in the same run that reports
-    `vectors_state=stale` -- the run in which the embedding model did not
-    match. A document that keeps it would be describing a sentence the code no
-    longer prints.
+
+def _sentence_shapes() -> dict[str, set[tuple[str, str, str]]]:
+    """branch -> the (mode, identity, marker) values that reach it.
+
+    Derived by executing the code's own branch selector over the whole state
+    space, so the expectation is the shipped key and not a second opinion.
     """
-    old = "extraction version); the embedding dimension was not compared"
-    bad = [path.name for path in [JSON_SCHEMA, CHANGELOG, *_reference_paths()]
-           if old in path.read_text(encoding="utf-8")]
-    assert not bad, bad
-    # and the three shapes are named where the sentence is explained
-    for path in [JSON_SCHEMA, CHANGELOG] + [p for p in _reference_paths()
-                                            if p.name == "indexing.md"]:
+    from code_indexer import fingerprint as fp
+
+    shapes: dict[str, set[tuple[str, str, str]]] = {}
+    for state in ("unverified", "needs-reindex", None):
+        for mode in ("on", "off"):
+            for marker in ("current", "absent", "stale", "error"):
+                for identity in (None, "embed_model: a -> b"):
+                    vectors = {"vectors": mode, "vectors_state": marker,
+                               "identity_reason": identity}
+                    branch = fp.meaning_branch(state, vectors=vectors)
+                    shapes.setdefault(branch, set()).add(
+                        (mode, "differs" if identity else "matches", marker))
+    return shapes
+
+
+def test_every_branch_of_the_fingerprint_sentence_has_a_documented_row():
+    """The doc's table IS the code's branch list, row for row.
+
+    Each row must state the field values that reach its branch, computed by
+    running the selector over the state space -- so a row keyed on the wrong
+    field (the pre-fix table was keyed on `vectors_state`, and was false on a
+    vectors-off project under a different model) cannot pass, and a branch
+    added without a row reddens here.
+    """
+    from code_indexer import fingerprint as fp
+
+    rows = _fingerprint_sentence_rows()
+    shapes = _sentence_shapes()
+    assert set(rows) == set(fp.MEANING_BRANCHES), (
+        sorted(set(rows) ^ set(fp.MEANING_BRANCHES)))
+    assert set(shapes) == set(fp.MEANING_BRANCHES), sorted(shapes)
+
+    for branch, cells in shapes.items():
+        condition, says = rows[branch]
+        modes = {mode for mode, _identity, _marker in cells}
+        identities = {identity for _mode, identity, _marker in cells}
+        markers = {marker for _mode, _identity, marker in cells}
+        if modes == {"on"}:
+            assert "`vectors: on`" in condition, (branch, condition)
+        if modes == {"off"}:
+            assert "`vectors: off`" in condition, (branch, condition)
+        if identities == {"differs"}:
+            assert "identity key differs" in condition, (branch, condition)
+        if identities == {"matches"}:
+            assert "matches" in condition, (branch, condition)
+        if markers == {"stale"}:
+            assert "stale" in condition, (branch, condition)
+        if branch == "row-keys-differ":
+            assert "needs-reindex" in condition, condition
+        if branch == "no-verdict-recorded":
+            assert "no `fingerprint` field" in condition, condition
+        if branch == fp.ON_IDENTITY_DIFFERS:
+            # The sentence for a differing identity never claims agreement, and
+            # the row carries the words the code prints.
+            printed = fp.meaning("unverified", None, vectors={
+                "vectors": "on", "vectors_state": "stale",
+                "identity_reason": "embed_model: a -> b"})
+            assert "did not match" in printed, printed
+            assert "did not match" in says, (branch, says)
+            assert "every fingerprint key a read can compare matched" not in says
+        if branch == fp.NO_VERDICT_RECORDED:
+            printed = fp.meaning(None, None, vectors={
+                "vectors": "on", "vectors_state": "current",
+                "identity_reason": None})
+            assert "did not run" in printed, printed
+            assert "did not run" in says, (branch, says)
+        if markers == {"stale"}:
+            # The marker this build never writes is stated as the MANIFEST's.
+            assert "manifest" in says.lower(), (branch, says)
+
+    # The reference names the same ids, so its bullet list cannot rot apart
+    # from the table; the CHANGELOG names the key and points at the table.
+    indexing = (REPO / "skill" / "references" / "indexing.md").read_text(
+        encoding="utf-8")
+    for branch in fp.MEANING_BRANCHES:
+        assert f"`{branch}`" in indexing, branch
+    changelog = " ".join(CHANGELOG.read_text(encoding="utf-8").split())
+    assert "when `vectors_state=stale`, it names the key" not in changelog
+    assert "the vectors mode, the recorded marker and the identity comparison" \
+        in changelog
+    for path in [JSON_SCHEMA, CHANGELOG, *(p for p in _reference_paths()
+                                            if p.name == "indexing.md")]:
         text = " ".join(path.read_text(encoding="utf-8").split())
         assert "did not match" in text, path.name
         assert "did not run" in text, path.name
