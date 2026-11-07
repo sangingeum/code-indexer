@@ -1,0 +1,17 @@
+# Capture for the round-4 fold re-verification. Absolute host paths were
+# elided before this file was committed: <project-root>, <base-worktree>,
+# <scratch>, <home>. The command and its output are otherwise unmodified.
+# --------------------------------------------------------------------
+============================= test session starts ==============================
+platform linux -- Python 3.12.12, pytest-9.1.1, pluggy-1.6.0
+rootdir: <project-root>
+configfile: pyproject.toml
+plugins: anyio-4.15.1
+collected 139 items / 126 deselected / 13 selected
+
+tests/test_plan_apply.py ......                                          [ 46%]
+tests/test_plan_format.py ....                                           [ 76%]
+tests/test_partial_apply.py ..                                           [ 92%]
+tests/test_read_contract.py .                                            [100%]
+
+====================== 13 passed, 126 deselected in 0.99s ======================

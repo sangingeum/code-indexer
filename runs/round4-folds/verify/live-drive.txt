@@ -1,0 +1,356 @@
+# Capture for the round-4 fold re-verification. Absolute host paths were
+# elided before this file was committed: <project-root>, <base-worktree>,
+# <scratch>, <home>. The command and its output are otherwise unmodified.
+# --------------------------------------------------------------------
+
+======================================================================
+FOLD-D baseline: a sealed plan validates and previews
+======================================================================
+$ code-indexer plan-replace-body one --project foldsample --file mod.py --text   return 41
+exit=0
+--- stdout ---
+plan sha256:0dfa82c76ccf8a02e41d993acb4f2da99cb062698ce498b687c785c0fe2e1fdb
+path <scratch>/live/proj/.code-indexer/plans/0dfa82c76ccf8a02e41d993acb4f2da99cb062698ce498b687c785c0fe2e1fdb.json
+replace_body mod.py:2-2, 1 line(s)
+--- stderr ---
+
+$ code-indexer plan-validate <scratch>/live/proj/.code-indexer/plans/0dfa82c76ccf8a02e41d993acb4f2da99cb062698ce498b687c785c0fe2e1fdb.json --project foldsample
+exit=0
+--- stdout ---
+plan sha256:0dfa82c76ccf8a02e41d993acb4f2da99cb062698ce498b687c785c0fe2e1fdb
+identity structural (file_hash, decl_hash, region_hash)
+- plan hash: ok -- sha256:0dfa82c76ccf8a02e41d993acb4f2da99cb062698ce498b687c785c0fe2e1fdb recomputed from the document's canonical bytes
+- schema: ok -- schema_version 1, operation replace_body, 1 file(s), 1 edit(s)
+- requests: ok -- syntax_required true, semantic_required false
+- paths: ok -- 1 path(s) project-relative and inside the project root
+- file bytes: ok -- 1 file(s) decoded as UTF-8 and read as stored bytes
+- file hash and newline declaration: ok -- mod.py sha256:5a418ef5621ed0b6a32c75968394274978433f2ab31eb1184f4c24ab1d3fa960 (lf)
+- replacement text: ok -- 1 replacement block(s), no carriage return
+- node re-derivation: ok -- mod.py:one (function) re-derived at lines 1-2, decl_hash sha256:21c7b1a8146b7da113030235662be9417af7bb944c0ab5d5a76f09ce386afec2
+- line and byte cross-check: ok -- every recorded line and byte offset agrees with the stored bytes
+- region hashes: ok -- 1 region(s) hash to the bytes the plan recorded
+- overlap and ordering: ok -- 1 edit(s) in application order (path ascending, then start line descending): mod.py:2
+- syntax verdicts: reported -- mod.py parsed
+structural checks only -- file bytes, the parser's verdict and region arithmetic; nothing here claims the result compiles or type-checks
+--- stderr ---
+
+$ code-indexer plan-show <scratch>/live/proj/.code-indexer/plans/0dfa82c76ccf8a02e41d993acb4f2da99cb062698ce498b687c785c0fe2e1fdb.json --project foldsample --diff
+exit=0
+--- stdout ---
+{
+  "created_at": "2026-11-07T00:55:56Z",
+  "edits": [
+    {
+      "end_byte": 23,
+      "end_line": 2,
+      "expected_old_text": "    return 1",
+      "expected_old_text_hash": "sha256:53c12eb946042ae3b9ba989052cf85e8cb2a0f8502c61b3f8429f78013cfc459",
+      "kind": "replace_body",
+      "new_text": "    return 41",
+      "path": "mod.py",
+      "start_byte": 11,
+      "start_line": 2
+    }
+  ],
+  "files": [
+    {
+      "expected_hash": "sha256:5a418ef5621ed0b6a32c75968394274978433f2ab31eb1184f4c24ab1d3fa960",
+      "language": "python",
+      "newline": "lf",
+      "path": "mod.py"
+    }
+  ],
+  "operation": "replace_body",
+  "plan_id": "sha256:0dfa82c76ccf8a02e41d993acb4f2da99cb062698ce498b687c785c0fe2e1fdb",
+  "provider": {
+    "name": "tree-sitter-structural",
+    "version": "1"
+  },
+  "repository": {
+    "index_revision": "unknown",
+    "project": "foldsample"
+  },
+  "schema_version": 1,
+  "target": {
+    "decl_hash": "sha256:21c7b1a8146b7da113030235662be9417af7bb944c0ab5d5a76f09ce386afec2",
+    "language": "python",
+    "path": "mod.py",
+    "qualified_name": "one",
+    "range": {
+      "end_byte": 23,
+      "end_line": 2,
+      "start_byte": 0,
+      "start_line": 1
+    },
+    "symbol_type": "function"
+  },
+  "validation": {
+    "semantic_required": false,
+    "syntax_required": true
+  }
+}
+--- mod.py
+--- a/mod.py
++++ b/mod.py
+@@ -1,5 +1,5 @@
+ def one():
+-    return 1
++    return 41
+ 
+ 
+ def two():
+--- stderr ---
+
+
+======================================================================
+FOLD-D tampered document at its own path
+======================================================================
+$ code-indexer plan-validate <scratch>/live/proj/.code-indexer/plans/0dfa82c76ccf8a02e41d993acb4f2da99cb062698ce498b687c785c0fe2e1fdb.json --project foldsample
+exit=2
+--- stdout ---
+plan sha256:0dfa82c76ccf8a02e41d993acb4f2da99cb062698ce498b687c785c0fe2e1fdb
+identity structural (file_hash, decl_hash, region_hash)
+- plan hash: failed -- PlanHashMismatch: the document hashes to sha256:ca85bea0ff4edf33dcde3172eaa8913fdcbb2477683ccb0f1f3780d479dc0f17 but carries plan_id sha256:0dfa82c76ccf8a02e41d993acb4f2da99cb062698ce498b687c785c0fe2e1fdb: a plan rewritten after sealing is refused
+structural checks only -- file bytes, the parser's verdict and region arithmetic; nothing here claims the result compiles or type-checks
+--- stderr ---
+PlanHashMismatch: the document hashes to sha256:ca85bea0ff4edf33dcde3172eaa8913fdcbb2477683ccb0f1f3780d479dc0f17 but carries plan_id sha256:0dfa82c76ccf8a02e41d993acb4f2da99cb062698ce498b687c785c0fe2e1fdb: a plan rewritten after sealing is refused
+$ code-indexer plan-show <scratch>/live/proj/.code-indexer/plans/0dfa82c76ccf8a02e41d993acb4f2da99cb062698ce498b687c785c0fe2e1fdb.json --project foldsample --diff
+exit=2
+--- stdout ---
+
+--- stderr ---
+PlanHashMismatch: the document hashes to sha256:ca85bea0ff4edf33dcde3172eaa8913fdcbb2477683ccb0f1f3780d479dc0f17 but carries plan_id sha256:0dfa82c76ccf8a02e41d993acb4f2da99cb062698ce498b687c785c0fe2e1fdb: a plan rewritten after sealing is refused
+$ code-indexer plan-show <scratch>/live/proj/.code-indexer/plans/0dfa82c76ccf8a02e41d993acb4f2da99cb062698ce498b687c785c0fe2e1fdb.json --project foldsample
+exit=2
+--- stdout ---
+
+--- stderr ---
+PlanHashMismatch: the document hashes to sha256:ca85bea0ff4edf33dcde3172eaa8913fdcbb2477683ccb0f1f3780d479dc0f17 but carries plan_id sha256:0dfa82c76ccf8a02e41d993acb4f2da99cb062698ce498b687c785c0fe2e1fdb: a plan rewritten after sealing is refused
+
+======================================================================
+FOLD-D structurally invalid plan (no files[])
+======================================================================
+$ code-indexer plan-show <scratch>/live/proj/.code-indexer/plans/structurally-invalid.json --project foldsample --diff
+exit=2
+--- stdout ---
+
+--- stderr ---
+PlanFormatError: the document is missing required member(s): created_at, files, plan_id, provider, repository, target, validation
+
+======================================================================
+FOLD-B duplicated files[] path refused
+======================================================================
+duplicated plan: 8d5eb5ad8112fb722336798194684baf6ee2e0d1fa3fb8920da837b0b084245b.json
+$ code-indexer plan-apply <scratch>/live/proj/.code-indexer/plans/8d5eb5ad8112fb722336798194684baf6ee2e0d1fa3fb8920da837b0b084245b.json --project foldsample --json
+exit=2
+--- stdout ---
+{"schema": 1, "ErrorType": "PlanFormatError", "error": "files[] names 'mod.py' more than once: one path, one record -- a duplicated entry would be applied twice and reported once, so it is refused rather than collapsed"}
+--- stderr ---
+
+mod.py bytes after the refusal: 'def one():\n    return 1\n\n\ndef two():\n    return 2\n'
+keeper journal entries: 0
+
+======================================================================
+FOLD-B/carried shape: one report record per distinct path
+======================================================================
+$ code-indexer plan-apply <scratch>/live/proj/.code-indexer/plans/8f0d9bfc89ebe7c7c0feba08dfe7b8136a327334bc288f2cc0666e0a28b5abad.json --project foldsample --dry-run --json
+exit=0
+--- stdout ---
+{
+  "schema": 1,
+  "plan_id": "sha256:8f0d9bfc89ebe7c7c0feba08dfe7b8136a327334bc288f2cc0666e0a28b5abad",
+  "identity": {
+    "verified": "structural",
+    "basis": [
+      "file_hash",
+      "decl_hash",
+      "region_hash"
+    ]
+  },
+  "dry_run": true,
+  "partial": false,
+  "files": [
+    {
+      "path": "mod.py",
+      "status": "would_apply",
+      "edits": [
+        {
+          "kind": "replace_body",
+          "start_line": 2,
+          "end_line": 2,
+          "operation_id": null
+        }
+      ]
+    },
+    {
+      "path": "other.py",
+      "status": "would_apply",
+      "edits": [
+        {
+          "kind": "replace_body",
+          "start_line": 2,
+          "end_line": 2,
+          "operation_id": null
+        }
+      ]
+    }
+  ],
+  "operations": [],
+  "undo": [],
+  "receipt_path": null,
+  "post_apply": [],
+  "refresh": "skipped",
+  "caveat": "parse verdicts only -- a file the parser accepts is not a file that compiles or type-checks, and a file whose language has no grammar here reports parse_unavailable, which is a failed claim rather than a pass"
+}
+--- stderr ---
+
+report file records: [('mod.py', 'would_apply'), ('other.py', 'would_apply')]
+
+======================================================================
+FOLD-C two edits on one file, the second refused (text report)
+======================================================================
+$ code-indexer plan-apply <scratch>/live/proj/.code-indexer/plans/e4f2ed7641df58ef1e0fc385c8233b62efa00db17202d713f1ff01ff77a90dd4.json --project foldsample
+exit=1
+--- stdout ---
+plan sha256:e4f2ed7641df58ef1e0fc385c8233b62efa00db17202d713f1ff01ff77a90dd4
+identity structural (file_hash, decl_hash, region_hash)
+- mod.py: partially_applied
+    replace_body lines 6-6: op_00000000001001
+    replace_body lines 2-2: INVALID_ARGUMENT: the stub keeper was told to fail this mutation
+0 of 1 file(s) applied
+1 of 2 edit(s) in mod.py landed; the rest were refused
+partial: true
+recovery (undo in reverse order):
+  keeper history undo op_00000000001001
+receipt <scratch>/live/proj/.code-indexer/receipts/e4f2ed7641df58ef1e0fc385c8233b62efa00db17202d713f1ff01ff77a90dd4-20261107T005557Z.json
+parse verdicts only -- a file the parser accepts is not a file that compiles or type-checks, and a file whose language has no grammar here reports parse_unavailable, which is a failed claim rather than a pass
+refresh: skipped
+--- stderr ---
+PartialApply: mod.py: keeper refused the edit (INVALID_ARGUMENT): the stub keeper was told to fail this mutation; 1 operation(s) had already run and stay written until they are undone in reverse order
+
+======================================================================
+FOLD-C the same, JSON
+======================================================================
+$ code-indexer plan-apply <scratch>/live/proj/.code-indexer/plans/e4f2ed7641df58ef1e0fc385c8233b62efa00db17202d713f1ff01ff77a90dd4.json --project foldsample --json
+exit=1
+--- stdout ---
+{
+  "schema": 1,
+  "plan_id": "sha256:e4f2ed7641df58ef1e0fc385c8233b62efa00db17202d713f1ff01ff77a90dd4",
+  "identity": {
+    "verified": "structural",
+    "basis": [
+      "file_hash",
+      "decl_hash",
+      "region_hash"
+    ]
+  },
+  "dry_run": false,
+  "partial": true,
+  "files": [
+    {
+      "path": "mod.py",
+      "status": "partially_applied",
+      "edits": [
+        {
+          "kind": "replace_body",
+          "start_line": 6,
+          "end_line": 6,
+          "operation_id": "op_00000000001001"
+        },
+        {
+          "kind": "replace_body",
+          "start_line": 2,
+          "end_line": 2,
+          "operation_id": null,
+          "error_code": "INVALID_ARGUMENT",
+          "error_message": "the stub keeper was told to fail this mutation"
+        }
+      ]
+    }
+  ],
+  "operations": [
+    "op_00000000001001"
+  ],
+  "undo": [
+    "keeper history undo op_00000000001001"
+  ],
+  "receipt_path": "<scratch>/live/proj/.code-indexer/receipts/e4f2ed7641df58ef1e0fc385c8233b62efa00db17202d713f1ff01ff77a90dd4-20261107T005557Z.json",
+  "post_apply": [],
+  "refresh": "skipped",
+  "caveat": "parse verdicts only -- a file the parser accepts is not a file that compiles or type-checks, and a file whose language has no grammar here reports parse_unavailable, which is a failed claim rather than a pass",
+  "ErrorType": "PartialApply",
+  "error": "mod.py: keeper refused the edit (INVALID_ARGUMENT): the stub keeper was told to fail this mutation; 1 operation(s) had already run and stay written until they are undone in reverse order",
+  "exit_code": 1
+}
+--- stderr ---
+PartialApply: mod.py: keeper refused the edit (INVALID_ARGUMENT): the stub keeper was told to fail this mutation; 1 operation(s) had already run and stay written until they are undone in reverse order
+
+======================================================================
+partial is derived, not forced: a refusal before the first write
+======================================================================
+$ code-indexer plan-apply <scratch>/live/proj/.code-indexer/plans/a382b358f2e3c09d5f90b4c393ba18d62ff024b36645dcd3dcec0862f6277124.json --project foldsample --json
+exit=1
+--- stdout ---
+{
+  "schema": 1,
+  "plan_id": "sha256:a382b358f2e3c09d5f90b4c393ba18d62ff024b36645dcd3dcec0862f6277124",
+  "identity": {
+    "verified": "structural",
+    "basis": [
+      "file_hash",
+      "decl_hash",
+      "region_hash"
+    ]
+  },
+  "dry_run": false,
+  "partial": false,
+  "files": [
+    {
+      "path": "mod.py",
+      "status": "failed",
+      "edits": [
+        {
+          "kind": "replace_body",
+          "start_line": 2,
+          "end_line": 2,
+          "operation_id": null,
+          "error_code": "INVALID_ARGUMENT",
+          "error_message": "the stub keeper was told to fail this mutation"
+        }
+      ]
+    }
+  ],
+  "operations": [],
+  "undo": [],
+  "receipt_path": null,
+  "post_apply": [],
+  "refresh": "skipped",
+  "caveat": "parse verdicts only -- a file the parser accepts is not a file that compiles or type-checks, and a file whose language has no grammar here reports parse_unavailable, which is a failed claim rather than a pass",
+  "ErrorType": "KeeperFailure",
+  "error": "mod.py: keeper refused the edit (INVALID_ARGUMENT): the stub keeper was told to fail this mutation",
+  "exit_code": 1
+}
+--- stderr ---
+KeeperFailure: mod.py: keeper refused the edit (INVALID_ARGUMENT): the stub keeper was told to fail this mutation
+
+======================================================================
+N3 plan-apply refuses the inert stale flag
+======================================================================
+$ code-indexer plan-apply <scratch>/live/proj/.code-indexer/plans/a382b358f2e3c09d5f90b4c393ba18d62ff024b36645dcd3dcec0862f6277124.json --project foldsample --skip-stale-check
+exit=2
+--- stdout ---
+
+--- stderr ---
+ArgumentError: plan-apply refuses --skip-stale-check: a plan's staleness is not skippable when a source file is about to be written; the pre-pass compares every touched file's hash
+mod.py unchanged: True
+
+======================================================================
+N3 the refusal happens before keeper is even probed (no keeper on PATH)
+======================================================================
+$ code-indexer plan-apply <scratch>/live/proj/.code-indexer/plans/a382b358f2e3c09d5f90b4c393ba18d62ff024b36645dcd3dcec0862f6277124.json --project foldsample --skip-stale-check
+exit=2
+--- stdout ---
+
+--- stderr ---
+ArgumentError: plan-apply refuses --skip-stale-check: a plan's staleness is not skippable when a source file is about to be written; the pre-pass compares every touched file's hash

@@ -1,0 +1,5 @@
+# Capture for the round-4 fold re-verification. Absolute host paths were
+# elided before this file was committed: <project-root>, <base-worktree>,
+# <scratch>, <home>. The command and its output are otherwise unmodified.
+# --------------------------------------------------------------------
+publishing hygiene: scanned=747 skipped=0 violations=0 (untracked files are out of scope)

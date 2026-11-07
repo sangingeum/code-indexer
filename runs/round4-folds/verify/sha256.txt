@@ -1,0 +1,6 @@
+# Capture for the round-4 fold re-verification. Absolute host paths were
+# elided before this file was committed: <project-root>, <base-worktree>,
+# <scratch>, <home>. The command and its output are otherwise unmodified.
+# --------------------------------------------------------------------
+38167676fa36c9be18b58b285018654a9a642044e1798d34c1bb9a2d2d9dc0d5  SKILL-CLI.md
+38167676fa36c9be18b58b285018654a9a642044e1798d34c1bb9a2d2d9dc0d5  <home>/.hermes/skills/code-indexer/SKILL.md

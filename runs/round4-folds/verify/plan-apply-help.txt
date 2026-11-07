@@ -1,0 +1,62 @@
+# Capture for the round-4 fold re-verification. Absolute host paths were
+# elided before this file was committed: <project-root>, <base-worktree>,
+# <scratch>, <home>. The command and its output are otherwise unmodified.
+# --------------------------------------------------------------------
+                                                                                
+ Usage: code-indexer plan-apply [OPTIONS] {ref}                                 
+                                                                                
+ Apply a plan through filekeeper and report what each file did.                 
+                                                                                
+ A read-only pre-pass runs first -- the same code `plan-validate` runs, so      
+ the two commands cannot disagree about what stale means -- and one             
+ failure there refuses the whole plan with exit 5 and no mutation.              
+ Otherwise each edit is one filekeeper line-range mutation carrying the         
+ hash observed immediately before it, files in ascending path order and,        
+ within a file, start lines descending. A failure stops the run: no further     
+ file is attempted and no compensating write is issued, because an undo is      
+ most likely to be refused just after a failure.                                
+                                                                                
+ What a caller may assume is exactly this: nothing is written before every      
+ precondition passes, each file's bytes move from old to new through            
+ keeper's hash guard, the operations that ran can be undone in reverse          
+ order, and there is no cross-file guarantee. The report lists every file       
+ as applied, would_apply, failed or not_attempted, and hands back the           
+ ordered operation ids -- undo them in reverse with `keeper history undo`.      
+ Every keeper call carries `--task-id <plan_id>`, so keeper's own journal       
+ reconstructs the application.                                                  
+                                                                                
+ Post-apply verdicts are the parser's, per file: parsed, parse_error with       
+ the offending lines, or parse_unavailable. They are not a compile check,       
+ and the reparse writes nothing unless --refresh is passed. The verdict         
+ comes from the same rung `plan-validate` reads, so the two cannot              
+ disagree about one file; parse_unavailable is unreachable through an           
+ apply by construction, because a file whose language has no grammar is         
+ refused at the locator first, with LocatorMismatch.                            
+                                                                                
+ --skip-stale-check is refused here (ArgumentError, exit 2): a plan's           
+ staleness is not skippable when a source file is about to be written.          
+                                                                                
+╭─ Arguments ──────────────────────────────────────────────────────────────────╮
+│ *    ref      <str>  A plan path or sha256:<hex>. [required]                 │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ --project                 <str>  Project path, slug, or name.                │
+│ --plan-dir                <str>  Directory holding plan files.               │
+│ --dry-run                        Pass keeper's own --dry-run to every call:  │
+│                                  the pre-pass still runs and every file      │
+│                                  reports would_apply, but no file is written │
+│                                  and no receipt is kept.                     │
+│ --json                           JSON output.                                │
+│ --skip-stale-check               Accepted on every command and INERT: reads  │
+│                                  never index, so there is nothing to skip.   │
+│                                  Reporting staleness without repairing it is │
+│                                  the default; use --refresh to repair.       │
+│ --refresh                        Run an incremental index pass first (one    │
+│                                  per project for --all-projects / doctor),   │
+│                                  then answer from the result. This is the    │
+│                                  ONLY flag that turns a read command into a  │
+│                                  write; a pass held by another process fails │
+│                                  with LockedError (exit 5).                  │
+│ --help                           Show this message and exit.                 │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
