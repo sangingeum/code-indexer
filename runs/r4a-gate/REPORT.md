@@ -24,9 +24,10 @@ defect's own reproduction is the subject.
    manifest at 09:04:21Z and came out the same (`bar1-repeat-base-json.txt`,
    `bar1-repeat-cand-json.txt`) — a pass cannot repair the base defect.
 
-2. **No leak, no rows — PASS.** Seven fixture patterns (the key id, the PEM
-   header, its body line, the GitHub and Slack token prefixes) counted zero
-   times in three candidate answers (`bar2-leakscan.txt`). The withheld path
+2. **No leak, no rows — PASS.** Six fixture patterns, named by layer and never reprinted (the key id, the
+   PEM header and its body line, a key-id fragment, the GitHub and Slack token
+   prefixes) counted zero times in four candidate answers — `index-status`,
+   `find-symbol`, `semantic-search` and the text line (`bar2-leakscan.txt`). The withheld path
    has no `files`, `symbols`, `chunks` or `refs` row (`bar2-db-check.txt`: four
    counts, all 0), so no snippet can be served. The new state names the path
    and the reason, nothing else.
