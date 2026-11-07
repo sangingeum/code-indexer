@@ -828,5 +828,57 @@ def test_changelog_has_the_read_contract_section():
     assert "failed search" in section and "exits 3" in section
 
 
+def _paragraphs(text: str) -> list[str]:
+    return [p for p in re.split(r"\n\s*\n", text) if p.strip()]
+
+
+def test_json_schema_does_not_call_map_answer_scoped():
+    """`map` is the `skeleton` alias: it answers project-wide, not per file."""
+    text = JSON_SCHEMA.read_text(encoding="utf-8")
+    assert "`file-outline`/`map`" not in text
+    scope = [p for p in _paragraphs(text) if "`answer` (the files" in p]
+    assert scope, "json-schema.md lost the answer-scope paragraph"
+    assert "map" not in " ".join(scope), scope
+    assert "not answer-scoped" in " ".join(scope) or any(
+        "not answer-scoped" in p for p in _paragraphs(text))
+
+
+def test_the_success_stderr_contract_names_all_three_senders():
+    """Success writes stderr for the stale warning, the coverage line, and
+    the fingerprint meaning -- and the old "only" promise is gone."""
+    text = JSON_SCHEMA.read_text(encoding="utf-8")
+    assert "The only non-verbose stderr output on success is" not in text
+    section = text.split("## Error contract (non-JSON)", 1)[1]
+    section = section.split("\n## ", 1)[0]
+    assert "staleness" in section and "Warning" in section
+    assert "`coverage:` line" in section
+    assert "`fingerprint meaning:` line" in section
+    assert "stderr" in section
+
+
+def test_machine_output_says_which_stream_the_coverage_line_uses():
+    text = _reference_text("machine-output.md")
+    flat = " ".join(text.split())
+    assert "On a normal answer it goes to **stderr**" in flat
+    assert "both go to **stdout**" in flat
+
+
+def test_the_no_hit_promise_carves_out_the_all_projects_fan_out():
+    """A fan-out has no single index, so it carries no `empty_reason`."""
+    docs = {
+        "machine-output.md": _reference_text("machine-output.md"),
+        "semantic.md": _reference_text("semantic.md"),
+        "json-schema.md": JSON_SCHEMA.read_text(encoding="utf-8"),
+        "CHANGELOG.md": CHANGELOG.read_text(encoding="utf-8"),
+    }
+    for name, text in docs.items():
+        carved = [p for p in _paragraphs(text)
+                  if "--all-projects" in p
+                  and ("empty_reason" in p or "Neither field" in p)]
+        assert carved, f"{name} promises a cause without carving out the fan-out"
+        assert any("no results" in p or "no-hit" in p or "no hits" in p
+                   for p in carved), name
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

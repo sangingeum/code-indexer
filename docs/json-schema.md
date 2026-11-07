@@ -234,13 +234,16 @@ block. It is what the answer could see, so a caller never has to run
  "complete": bool|null}
 ```
 
-`scope` says which files the answer covered: `project` (the whole index),
+`scope` says which files the answer covered: `project` (the whole index)
 `answer` (the files this answer actually read -- `outline`,
-`get-code-context`, `find-symbol --file`, and the `file-outline`/`map`
-aliases), or `none` (the command reads no index: `doctor`, `list-projects`,
+`get-code-context`, `find-symbol --file` and the `file-outline` alias), or
+`none` (the command reads no index: `doctor`, `list-projects`,
 the eval reports, `plan-show`, `plan-validate`, and an unregistered
 `lookup-project`). A `none` block carries null counts rather than zeros:
 zero would claim "nothing to parse" about an answer that never looked.
+
+`skeleton` is not answer-scoped, and neither is its hidden `map` alias: both
+walk the whole index and report `project` scope.
 
 `files_not_parsed` is `parse_error` + `parse_unavailable` + rows with no
 recorded verdict. `files_withheld` comes from the staleness block's withheld
@@ -272,8 +275,18 @@ reader, so no symbol is extracted; the sentence names the language.
 The precedence is fixed in that order, so one condition never reports two
 values. `empty_reason_sentence` is the same sentence the text form prints,
 with the command's own lead (`no symbols matching 'X'`, `no references to
-'X'`, `no results`) in front. Exit codes do not change: an empty answer is
+'X'`, `no results`) in front. The four VALUES are shared; the sentence is
+worded per surface, because the symbol reads look for a NAME and
+`semantic-search` looks for text -- a search with no hits says
+`no results: nothing in an index that parsed N of M files matched the query`,
+never "the name is absent". Exit codes do not change: an empty answer is
 not an error.
+
+Neither field appears on a `semantic-search --all-projects` fan-out: the
+vocabulary describes ONE index, and a fan-out has no single index to describe.
+That answer keeps `"hits": []`, its `coverage` block is `scope: none` with
+null counts, and the text form prints the bare legacy `no results`; per-project
+reasons are the honest form and are not fabricated for the fan-out.
 
 ## list-projects --json
 
@@ -317,10 +330,13 @@ An unregistered selector answers `registered: false` with its `path` and an
 
 `fingerprint_meaning` is the human half of the `fingerprint`/`reason` pair:
 the sentence saying what was NOT compared and what a reader should conclude
-(for `unverified`: the embedding fingerprint was not compared against the
-configured model, so vectors may have been built with another model). The
-text form prints it as one stderr line beside the one-line answer, which
-keeps its single-line shape. The field names of the pair are unchanged.
+(for `unverified`: every key a read can compare matched -- embedding model,
+embedded-text format, chunker and extraction version -- while the embedding
+DIMENSION was not compared, because learning the configured dimension needs
+the service, so vectors of another dimension recorded under the same model
+name would not be flagged). The text form prints it as one stderr line beside
+the one-line answer, which keeps its single-line shape. The field names of
+the pair are unchanged.
 
 The fields the text line prints, under the same names, plus the staleness
 block and the coverage object. `sensitive_skipped` is the exception: it is JSON-only, counts what the
@@ -642,8 +658,13 @@ ArgumentError, ConfigError, NotFoundError, BackendError,
 RebuildRequiredError, LockedError, InternalError. Exit codes: 0 success
 (including zero hits), 1 other runtime failure, 2 usage (argument) error,
 3 backend or extension unavailable, 4 the index requires a rebuild, 5 lock
-or concurrency conflict. The only non-verbose stderr output on success is
-the documented single-line staleness Warning.
+or concurrency conflict. On success, non-verbose output writes stderr in
+exactly three documented cases and nowhere else: the single-line staleness
+Warning; the ONE `coverage:` line, when a non-empty answer's coverage is
+incomplete (an empty answer prints it on stdout beside its cause, and a
+complete answer prints nothing); and the `fingerprint meaning:` line that
+`index-status` prints beside its one-line answer. Everything else an answer
+has to say goes to stdout.
 
 A plan refusal names itself the same way and reuses those numbers: `PlanStale`
 (5), `PathEscapesProject` / `OverlappingEdits` / `AmbiguousOrder` /

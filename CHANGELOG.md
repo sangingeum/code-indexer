@@ -12,8 +12,13 @@ vocabulary shared by `find-symbol`, `find-definition`, `find-references`,
 `files-not-parsed` (the sentence names the count and the languages),
 `language-without-ast` (the sentence names the language) or `index-empty`,
 in that fixed precedence, with `empty_reason_sentence` carrying the sentence
-the text form prints after its lead. Exit codes do not change: an empty
-answer is not an error.
+the text form prints after its lead. The VALUES are shared by every surface;
+the sentence is worded for the one that answers, so `semantic-search` says
+"nothing in an index that parsed N of M files matched the query" rather than
+speaking of a name. A `semantic-search --all-projects` fan-out is the one
+exception: it has no single index to describe, so a no-hit fan-out prints the
+bare `no results` with `coverage.scope: none` and no `empty_reason`. Exit
+codes do not change: an empty answer is not an error.
 
 **Coverage travels with every read answer.** Every read command's JSON now
 carries one `coverage` object: files in scope, files parsed, files not parsed,
@@ -23,17 +28,21 @@ the files the answer actually read where that is knowable (`outline`,
 `get-code-context`, `find-symbol --file` say `scope: "answer"`), project-wide
 otherwise, and `scope: "none"` for a command that reads no index (`doctor`,
 `list-projects`, the eval reports, the two plan reads). The text form prints
-one short line ONLY when coverage is incomplete, so a clean answer still says
+one short line ONLY when coverage is incomplete -- on stderr for a non-empty
+answer (so a cap such as `overview --max-lines` counts stdout alone) and on
+stdout for an empty one, beside its cause -- so a clean answer still says
 nothing.
 
 **The fingerprint verdict says what it means.** `fingerprint=unverified
 reason=embedding-dimension-not-compared` used to be a bare pair of flags.
 `index-status` now also prints the meaning, in one stderr line beside its
-one-line answer and as `fingerprint_meaning` in JSON: the embedding
-fingerprint was not compared against the configured model (a read cannot
-learn its dimension without dialling the service), so vectors may have been
-built with another model. `needs-reindex` explains its own reason the same
-way. The field names are unchanged.
+one-line answer and as `fingerprint_meaning` in JSON: every fingerprint key a
+read can compare matched (embedding model, embedded-text format, chunker and
+extraction version); the embedding dimension was not compared, because
+learning the configured dimension needs the service, so vectors of another
+dimension recorded under the same model name would not be flagged there.
+`needs-reindex` explains its own reason the same way. The field names are
+unchanged.
 
 Purely additive for JSON consumers: a caller that ignores `coverage`,
 `empty_reason` and `fingerprint_meaning` sees the bytes it saw before. No

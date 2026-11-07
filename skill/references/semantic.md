@@ -54,10 +54,14 @@ code-indexer semantic-search "where does the token refresh happen" --project /pa
 - On a `vectors=off` project, `semantic-search` refuses with `ConfigError`,
   exit 4, before the query is embedded -- never a silent lexical answer.
 - No hits is `no results` plus its cause: the answer carries `empty_reason` /
-  `empty_reason_sentence` (text prints `no results: <cause>`), so an empty
-  search does not read as "nothing here matches" when the index never parsed
-  the files. Every answer also carries the `coverage` block (see
-  [machine-output.md](machine-output.md)).
+  `empty_reason_sentence` (text prints `no results: <cause>`, worded for this
+  surface -- "nothing ... matched the query", not "the name is absent"), so
+  an empty search does not read as "nothing here matches" when the index
+  never parsed the files. A `--all-projects` fan-out is the exception: it has
+  no single index to describe, so a no-hit fan-out prints the bare
+  `no results` with `coverage.scope: none` and no `empty_reason`; read the
+  per-project blocks for detail. Every answer also carries the `coverage`
+  block (see [machine-output.md](machine-output.md)).
 - `--format text|compact|json` is the shared read flag of this command too;
   `--json` is its exact alias; passing both is accepted when they agree and
   is `ArgumentError`, exit 2, when they name different formats (see

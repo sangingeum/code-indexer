@@ -127,7 +127,7 @@ running `index-status` to decide whether to trust the answer.
 | field | meaning |
 |---|---|
 | `coverage` | `{scope, files, files_parsed, files_not_parsed, files_withheld, languages_without_ast, freshness, complete}` -- `scope` is `project` (the whole index), `answer` (the files this answer read: `outline`, `get-code-context`, `find-symbol --file`) or `none` (the command reads no index: `doctor`, `list-projects`, the eval reports, the plan readers, an unregistered `lookup-project`). A `none` block has null counts, never zeros; `complete` is null there too. |
-| `empty_reason` | one value for a name read that found nothing -- `name-absent`, `files-not-parsed` (count and languages in the sentence), `language-without-ast` (language named) or `index-empty` -- in that fixed precedence, with `empty_reason_sentence` carrying the same sentence the text form prints. |
+| `empty_reason` | one value for a read that found nothing -- `name-absent`, `files-not-parsed` (count and languages in the sentence), `language-without-ast` (language named) or `index-empty` -- in that fixed precedence, with `empty_reason_sentence` carrying the same sentence the text form prints. The VALUES are shared by the name reads and `semantic-search`; the sentence is worded per surface (a search says its query matched nothing, never that "the name is absent"). Absent on a `semantic-search --all-projects` fan-out, which has no single index. |
 
 `files_not_parsed` counts `parse_error` + `parse_unavailable` + rows with no
 verdict. `files_withheld` intersects the staleness block's withheld list with
@@ -136,20 +136,30 @@ files yield no AST symbol rows -- a shell-only project whose files parsed
 still says `["shell"]` -- and `freshness` repeats the staleness verdict, never
 a second estimate.
 
-The text form prints ONE short line, only when coverage is incomplete:
+The text form adds ONE short line when coverage is incomplete. On a normal
+answer it goes to **stderr** (stdout stays the answer, so a cap such as
+`overview --max-lines` counts stdout alone); on an empty answer there is no
+answer to keep clean, so the cause and this line both go to **stdout**:
 
 ```
 coverage: 124 of 184 files parsed, 60 not parsed; 1 file withheld for privacy
 ```
 
-A clean answer prints nothing, so the line is a signal rather than wallpaper.
-An empty answer prints its cause instead, after the legacy lead:
+On a complete answer neither stream carries the line, so it is a signal rather
+than wallpaper. An empty answer prints its cause after the legacy lead, worded
+per surface: a symbol read says "the name is absent ..." while
+`semantic-search` says what its query found:
 
 ```
 no symbols matching 'X': the name is absent from an index that parsed 124 of 184 files
+no results: nothing in an index that parsed 124 of 184 files matched the query
 ```
 
-Exit codes do not move: an empty answer is still not an error.
+A `semantic-search --all-projects` fan-out is the exception: with no hits it
+prints the bare `no results` and carries no `empty_reason`, because the
+vocabulary describes one index and a fan-out has none (`coverage.scope` is
+`none` with null counts; the per-project split is the caller's source of
+detail). Exit codes do not move: an empty answer is still not an error.
 
 ## Which commands answer as data
 

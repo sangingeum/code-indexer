@@ -202,10 +202,12 @@ embedding identity is not the one this build would write -- plus
 
 Both verdict pairs are flags a caller branches on, and the text form adds one
 stderr line saying what the pair MEANS. `fingerprint=unverified
-reason=embedding-dimension-not-compared` means the embedding fingerprint was
-not compared against the configured model -- a read cannot learn its
-dimension without dialling the service -- so the vectors may have been built
-with another model. `fingerprint=needs-reindex reason=<differences>` means the
+reason=embedding-dimension-not-compared` means every fingerprint key a read
+can compare matched -- embedding model, embedded-text format, chunker and
+extraction version -- while the embedding DIMENSION was not compared,
+because learning the configured dimension needs the service; vectors of
+another dimension recorded under the same model name would not be flagged.
+`fingerprint=needs-reindex reason=<differences>` means the
 index was built by other extraction or chunking code than this build runs, so
 the row reads refuse until a rebuild. JSON carries the same sentence as
 `fingerprint_meaning`; the pair's field names are unchanged, and the one-line
