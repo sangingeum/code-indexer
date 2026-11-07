@@ -43,6 +43,10 @@ Every read answer that comes from the index carries these fields in JSON:
 | `stale_known` | boolean; false means the verdict is `unknown`, so `stale: false` alone never means "checked and fresh" |
 | `stale_reasons` | `[{kind: modified\|added\|deleted, file}]`, capped at five |
 | `stale_reason_count` | total count before the cap |
+| `withheld_count` | files the sensitive layer skipped; present on a `fresh` verdict, so a withheld file is a skip, not a stale reason |
+| `withheld_files` | `[{file, reason: sensitive filename\|sensitive content}]`, capped at five while `withheld_count` is the total |
+| `withheld_summary` | the same phrase the text line prints -- `1 file skipped (sensitive content)` -- or null |
+| `withheld_unexamined_count` | rowless paths the re-check's budget never reached; they ride the `added` reasons, so a non-zero value means the re-check was truncated |
 | `index_revision` | the revision the answer was read from |
 | `last_indexed` | timestamp of the pass that wrote the index, ISO-8601 UTC |
 
