@@ -748,6 +748,40 @@ def test_the_surface_describes_the_read_write_contract():
     for code in ("| 0 |", "| 1 |", "| 2 |", "| 3 |", "| 4 |", "| 5 |"):
         assert code in text, code
     assert "RebuildRequiredError" in text or "requires a rebuild" in text
+# The banner's shipped one-line form, both ends anchored: a count phrase, the
+# meaning sentence, then the repair, in that order. The anchors are the point --
+# a loose substring check stayed green while a document quoted the count prefix
+# and carried the sentence only in the prose around it.
+_STALE_BANNER = re.compile(
+    r"Warning: index is stale: \d+ (?:modified|added|deleted) files?"
+    r"(?:, \d+ (?:modified|added|deleted) files?)* -- <path>; "
+    r"answers describe the index, not the tree; "
+    r"refresh with code-indexer reindex-project <path>"
+)
+
+
+def test_every_document_quoting_the_stale_banner_quotes_the_whole_line():
+    """Each quoting document carries the shipped line in full, per document.
+
+    ``README.md`` is in this surface because it is the first document a reader
+    opens and its quote went stale for a whole round while the loose check in
+    ``test_the_surface_describes_the_read_write_contract`` stayed green: the
+    count matched in one place and the sentence matched in the prose beside
+    it. Matching the whole one-line form per document is what makes that drift
+    red -- a count without the sentence, or the sentence moved in front of the
+    count, is not the shipped line.
+    """
+    bad: list[str] = []
+    for path in [README, ENTRY, *_reference_paths()]:
+        quoted = [ln.strip() for ln in path.read_text(encoding="utf-8").splitlines()
+                  if ln.strip().startswith("Warning: index is stale")]
+        if path in (README, ENTRY) and not quoted:
+            bad.append(f"{path.name}: quotes no stale banner line")
+        for ln in quoted:
+            if not _STALE_BANNER.fullmatch(ln):
+                bad.append(f"{path.name}: stale line is not the shipped "
+                           f"one-line form:\n  {ln}")
+    assert not bad, "\n".join(bad)
 
 
 def test_the_five_read_answers_document_json():
