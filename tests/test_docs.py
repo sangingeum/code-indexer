@@ -372,14 +372,14 @@ def _declared_error_types() -> set[str]:
     """The ``error_type`` strings the code declares: what stderr shows a caller."""
     text = ERRORS.read_text(encoding="utf-8")
     return {m.group(1)
-            for m in re.finditer(r'^\s+error_type = "([A-Za-z]+)"', text, re.M)}
+            for m in re.finditer(r'^\s+error_type = "([A-Za-z0-9_]+)"', text, re.M)}
 
 
 def _documented_error_types() -> set[str]:
     """The `ErrorType` column of every cause-and-remedy row in failures.md."""
     text = _reference_text("failures.md")
     cells = {m.group(1)
-             for m in re.finditer(r"^\| `([A-Za-z]+)` \|", text, re.M)}
+             for m in re.finditer(r"^\| `([A-Za-z0-9_]+)` \|", text, re.M)}
     # The column heading is a backticked `ErrorType` in the same position.
     return cells - {ERROR_TYPE_HEADING}
 
