@@ -20,10 +20,11 @@ Sections (each capped):
 - config/build: known config/build filenames present at the root
 - hotspots: top files by fan-in (distinct files importing them or
   referencing their symbols) and by size, ordered by the same policy as
-  every other structural answer: source, tests, docs, generated/artifact,
-  then the count. A fixture or an audit document that accumulates
-  identifier mentions does not win orientation.
-"""
+  every other structural answer: source, examples, tests, docs,
+  generated/artifact, then the count. A test fixture, a shipped sample or an
+  audit document that accumulates identifier mentions does not win
+  orientation. The ladder is the project's own: `[tool.code-indexer.ordering]`
+  in its pyproject may add directory names to a rung."""
 
 from __future__ import annotations
 
@@ -32,7 +33,8 @@ import os
 from typing import Any
 
 from .manifest import Manifest
-from .ordering import TESTS, file_class, hotspot_key
+from .ordering import (TESTS, ClassNames, file_class, hotspot_key,
+                       load_class_names)
 
 # Known config/build files, checked at the project root.
 _CONFIG_FILES = (
@@ -58,6 +60,7 @@ def _root_dirname(project_path: str) -> str:
 def build_overview(m: Manifest, project_path: str,
                    path_prefix: str = "") -> dict[str, Any]:
     """Assemble the overview dict from manifest data (no source parsing)."""
+    names = load_class_names(project_path)
     files = m.all_files()
     if path_prefix:
         files = {p: f for p, f in files.items()
@@ -159,7 +162,7 @@ def build_overview(m: Manifest, project_path: str,
 
     # -- tests -------------------------------------------------------------
     test_files = sorted(p for p in files
-                        if _is_test_path(p))
+                        if _is_test_path(p, names))
     frameworks: list[str] = []
     root_names = {os.path.basename(p) for p in files}
     for fw, patterns in _FRAMEWORK_HINTS:
@@ -191,10 +194,10 @@ def build_overview(m: Manifest, project_path: str,
     # them, so a count-only list reports them as the centre of the codebase.
     hotspots_fan = sorted(
         ({"file": f, "fan_in": n} for f, n in fan_in.items()),
-        key=lambda d: hotspot_key(d["file"], d["fan_in"]))[:10]
+        key=lambda d: hotspot_key(d["file"], d["fan_in"], names))[:10]
     hotspots_size = sorted(
         ({"file": p, "loc": f.loc or 0} for p, f in files.items()),
-        key=lambda d: hotspot_key(d["file"], d["loc"]))[:10]
+        key=lambda d: hotspot_key(d["file"], d["loc"], names))[:10]
 
     return {
         "project": _root_dirname(project_path),
@@ -210,13 +213,13 @@ def build_overview(m: Manifest, project_path: str,
     }
 
 
-def _is_test_path(path: str) -> bool:
+def _is_test_path(path: str, names: ClassNames) -> bool:
     """The overview's test list uses the SAME classifier the ordering does.
 
     Two spellings of "test" would let a file be listed as a test and ranked
     as source (or the reverse).
     """
-    return file_class(path) == TESTS
+    return file_class(path, names) == TESTS
 
 
 def format_overview(data: dict[str, Any], max_lines: int = 60) -> str:

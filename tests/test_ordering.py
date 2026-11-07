@@ -13,7 +13,6 @@ from __future__ import annotations
 import json
 import os
 import sys
-from dataclasses import dataclass
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -21,26 +20,15 @@ import pytest  # noqa: E402
 from typer.testing import CliRunner  # noqa: E402
 
 import code_indexer.cli as cli  # noqa: E402
+import code_indexer.graph as graph  # noqa: E402
 from code_indexer import ordering  # noqa: E402
 from code_indexer.cli import app  # noqa: E402
 from code_indexer.config import Config  # noqa: E402
 from code_indexer.core import Core  # noqa: E402
+from code_indexer.manifest import Manifest  # noqa: E402
 from code_indexer.registry import Registry  # noqa: E402
 
 runner = CliRunner()
-
-
-@dataclass
-class Row:
-    """The subset of ``SymbolRow`` a key reads."""
-
-    file: str
-    name: str
-    symbol_type: str | None = "function"
-    start_line: int = 1
-    source: str = "ast"
-    qualified_name: str | None = None
-    decl_hash: str | None = None
 
 
 @pytest.mark.parametrize("path", [
@@ -78,9 +66,27 @@ def test_test_paths_are_tests(path):
     "doc/architecture.rst",
     "notes.txt",
     "tests/README.md",  # a document wherever it sits; the tests rule reads code
+    # The documents every repository has, spelled without an extension: no
+    # suffix rule can see them, so a basename set has to.
+    "LICENSE",
+    "LICENSE.md",
+    "LICENCE",
+    "COPYING",
+    "NOTICE",
+    "AUTHORS",
+    "README",
+    "CHANGELOG",
+    "CONTRIBUTING",
+    "pkgs/core/LICENSE",
 ])
 def test_documents_are_docs(path):
     assert ordering.file_class(path) == ordering.DOCS, path
+
+
+def test_an_unrecognised_extension_on_a_document_name_stays_source():
+    """The basename set is exact: it classifies a document, not a guess."""
+    assert ordering.file_class("README.weird") == ordering.SOURCE
+    assert ordering.file_class("license.py") == ordering.SOURCE
 
 
 @pytest.mark.parametrize("path", [
@@ -108,30 +114,70 @@ def test_an_unrecognised_shape_stays_source():
     assert ordering.file_class("mystery.qqq") == ordering.SOURCE
 
 
-def test_the_class_ladder_is_source_test_doc_artifact():
-    assert ordering.CLASS_ORDER == (ordering.SOURCE, ordering.TESTS,
-                                    ordering.DOCS, ordering.GENERATED)
+def test_the_class_ladder_is_source_example_test_doc_artifact():
+    assert ordering.CLASS_ORDER == (ordering.SOURCE, ordering.EXAMPLES,
+                                    ordering.TESTS, ordering.DOCS,
+                                    ordering.GENERATED)
     weights = [ordering.class_weight(p) for p in (
-        "src/app.py", "tests/test_app.py", "docs/design.md",
-        "dist/app.min.js")]
-    assert weights == [0, 1, 2, 3], weights
+        "src/app.py", "examples/demo.py", "tests/test_app.py",
+        "docs/design.md", "dist/app.min.js")]
+    assert weights == [0, 1, 2, 3, 4], weights
 
 
-def test_symbol_key_puts_the_class_first_and_the_exact_name_before_a_prefix():
-    source = Row(file="src/app.py", name="Tick")
-    tests = Row(file="tests/test_app.py", name="Tick")
-    assert ordering.symbol_key(source, "Tick") < ordering.symbol_key(
-        tests, "Tick")
-    prefix = Row(file="src/prefix.py", name="Ticker")
-    assert ordering.symbol_key(source, "Tick") < ordering.symbol_key(
-        prefix, "Tick"), "a row that merely shares a prefix is not an exact hit"
+@pytest.mark.parametrize("path", [
+    "examples/planner.py",
+    "examples/supervisor/main.py",
+    "sample/quickstart.py",
+    "packages/api/demo/server.py",
+])
+def test_sample_code_is_examples(path):
+    assert ordering.file_class(path) == ordering.EXAMPLES, path
 
 
-def test_a_row_that_cannot_name_its_match_sorts_last_in_its_class():
-    named = Row(file="src/a.py", name="Tick", symbol_type="method")
-    unnamed = Row(file="src/a.py", name="Tick", symbol_type=None)
-    assert ordering.symbol_key(named, "Tick") < ordering.symbol_key(
-        unnamed, "Tick")
+def test_a_test_inside_a_sample_tree_is_still_a_test():
+    """Rules apply in order, so the more specific rung wins."""
+    assert ordering.file_class("examples/test_planner.py") == ordering.TESTS
+
+
+def test_a_project_may_add_directory_names_to_a_rung(tmp_path):
+    """The ladder is the default, not the whole policy: a project extends it."""
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.code-indexer.ordering]\n"
+        'docs = ["manuals"]\n'
+        'examples = ["recipes"]\n'
+        'tests = ["harness"]\n')
+    names = ordering.load_class_names(str(tmp_path))
+    assert ordering.file_class("manuals/chapter.py", names) == ordering.DOCS
+    assert ordering.file_class("recipes/tour.py", names) == ordering.EXAMPLES
+    assert ordering.file_class("harness/util.py", names) == ordering.TESTS
+    # Additive, never subtractive: a rung the project did not name survives.
+    assert ordering.file_class("tests/test_app.py", names) == ordering.TESTS
+
+
+def test_a_missing_or_malformed_ordering_table_yields_the_builtin_ladder(
+        tmp_path):
+    assert ordering.load_class_names(str(tmp_path)) == \
+        ordering.DEFAULT_CLASS_NAMES
+    (tmp_path / "pyproject.toml").write_text("this is not toml [")
+    assert ordering.load_class_names(str(tmp_path)) == \
+        ordering.DEFAULT_CLASS_NAMES
+
+
+def test_the_sql_function_reads_the_same_ladder_as_the_python_keys(tmp_path):
+    """One classifier, two layers: a capped read cannot disagree with a key."""
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.code-indexer.ordering]\n" 'docs = ["manuals"]\n')
+    names = ordering.load_class_names(str(tmp_path))
+    m = Manifest(":memory:", class_names=names)
+    try:
+        weights = m._conn.execute(
+            "SELECT file_class_weight('manuals/chapter.py'),"
+            " file_class_weight('src/app.py')").fetchone()
+    finally:
+        m.close()
+    assert list(weights) == [ordering.class_weight("manuals/chapter.py", names),
+                             ordering.class_weight("src/app.py", names)]
+    assert weights[0] == ordering.CLASS_WEIGHT[ordering.DOCS]
 
 
 def test_edge_key_promotes_the_caller_that_names_its_symbol():
@@ -156,13 +202,15 @@ def test_hotspot_key_ranks_class_before_the_count():
         "src/other.py", 99)
 
 
-def test_the_keys_are_total_so_two_runs_cannot_disagree():
-    same_line = [Row(file="src/a.py", name="Tick", start_line=5,
-                     qualified_name="Runner.Tick", decl_hash="sha256:a"),
-                 Row(file="src/a.py", name="Tick", start_line=5,
-                     qualified_name="Runner.Tick", decl_hash="sha256:b")]
-    keys = [ordering.symbol_key(row, "Tick") for row in same_line]
-    assert len(set(keys)) == 2, "rows that differ only by declaration hash tie"
+def test_the_edge_key_is_total_so_two_runs_cannot_disagree():
+    first = ordering.edge_key("src/a.py", "Runner.Tick", 5, "call", "ast",
+                              "runner", ordering.DEFAULT_CLASS_NAMES)
+    second = ordering.edge_key("src/a.py", "Runner.Tick", 5, "call", "ast",
+                               "runner", ordering.DEFAULT_CLASS_NAMES)
+    assert first == second
+    other = ordering.edge_key("src/a.py", "Runner.Tick", 5, "call", "ast",
+                              "other")
+    assert first != other, "different receivers must not tie"
 
 
 # ---------------------------------------------------------------------------
@@ -216,6 +264,35 @@ DOC_TEXT = ("# Design\n\n"
 
 BUNDLE_FILE = "dist/bundle.min.js"
 BUNDLE_TEXT = "function Tick(){\nTick();\nTick();\nTick();\n}\n"
+
+# The document every repository has, spelled without an extension, and wordy
+# enough to win a size list and to accumulate identifier mentions: class, not
+# size, is what keeps it out of the orientation answer.
+LICENCE_FILE = "LICENSE"
+LICENCE_TEXT = ("Copyright (c) the authors.\n\n"
+                + "Tick is a simulation step, and this licence mentions Tick "
+                  "only because it speaks about the software.\n" * 8)
+
+# A named call site and a module-level mention of the same name, both in
+# source: the identity key is the only thing that orders one above the other.
+LOOSE_FILE = "src/loose.py"
+LOOSE_TEXT = ('"""Tick references with no enclosing declaration."""\n'
+              "\n"
+              "Tick()\n")
+
+# Importers of the same module, one source and one test: both are level 1 of
+# `deps`, and only the class key keeps the production importer first. The
+# paths are chosen so that PATH order would give the reverse (examples, spec,
+# web): `web/uses_sim.py` is spelled after `spec/uses_sim.py`, so an
+# alphabetically sorted level puts the test importer first.
+USES_FILE = "web/uses_sim.py"
+USES_TEXT = "from src.sim import Tick\n\n\ndef use():\n    Tick()\n"
+TESTS_USES_FILE = "spec/uses_sim.py"
+TESTS_USES_TEXT = "from src.sim import Tick\n\n\ndef check():\n    Tick()\n"
+
+# Code shipped to be read: after source, before tests.
+EXAMPLE_FILE = "examples/sim_demo.py"
+EXAMPLE_TEXT = "from src.sim import Tick\n\n\ndef demo():\n    Tick()\n"
 
 
 class _StubEmbedder:
@@ -272,6 +349,9 @@ def rig(tmp_path, monkeypatch):
         SOURCE_FILE: SOURCE_TEXT, TEST_FILE: TEST_TEXT,
         CONFTEST_FILE: CONFTEST_TEXT, APP_FILE: APP_TEXT,
         DOC_FILE: DOC_TEXT, BUNDLE_FILE: BUNDLE_TEXT,
+        LICENCE_FILE: LICENCE_TEXT, LOOSE_FILE: LOOSE_TEXT,
+        USES_FILE: USES_TEXT, TESTS_USES_FILE: TESTS_USES_TEXT,
+        EXAMPLE_FILE: EXAMPLE_TEXT,
     }
     for name, text in files.items():
         path = project / name
@@ -387,4 +467,82 @@ def test_find_callers_puts_source_call_sites_ahead_of_the_test_harness(rig):
     assert TEST_FILE in files, files
     weights = [ordering.class_weight(name) for name in files]
     assert weights == sorted(weights), files
+
+
+def test_find_references_puts_a_named_call_site_before_a_module_level_mention(
+        rig):
+    """The identity key is the ONLY thing separating these two rows.
+
+    Both sit in source, and `src/loose.py` sorts first by path: without the
+    enclosing-symbol key the module-level mention would lead the answer.
+    """
+    _core, _reg, _entry, project = rig
+    rows = _json(project, "find-references", "Tick", "--limit", "100")[
+        "references"]
+    files = [row["file"] for row in rows]
+    assert LOOSE_FILE in files, files
+    assert files[0] != LOOSE_FILE, files
+    named = [i for i, row in enumerate(rows)
+             if row["file"] in (APP_FILE, USES_FILE)]
+    loose = [i for i, row in enumerate(rows) if row["file"] == LOOSE_FILE]
+    assert named, files
+    assert max(named) < min(loose), files
+    assert all(row["from_symbol"] is None for row in rows
+               if row["file"] == LOOSE_FILE)
+
+
+def test_find_references_ranks_shipped_samples_between_source_and_tests(rig):
+    _core, _reg, _entry, project = rig
+    files = [row["file"] for row in _json(
+        project, "find-references", "Tick", "--limit", "100")["references"]]
+    assert EXAMPLE_FILE in files, files
+    sample = files.index(EXAMPLE_FILE)
+    assert all(sample > i for i, name in enumerate(files)
+               if name in (APP_FILE, USES_FILE)), files
+    assert all(sample < i for i, name in enumerate(files)
+               if name in (TEST_FILE, DOC_FILE)), files
+
+
+def test_the_licence_document_does_not_win_orientation(rig):
+    """Larger than the source file and full of identifier mentions, still
+    outside both hotspot lists: the class, not the count, decides."""
+    core, _reg, entry, project = rig
+    from code_indexer.overview import build_overview
+
+    m = core.manifest_for(entry.slug)
+    try:
+        data = build_overview(m, str(project))
+        sizes = {path: f.loc or 0 for path, f in m.all_files().items()}
+    finally:
+        m.close()
+    assert sizes[LICENCE_FILE] > sizes[SOURCE_FILE], sizes
+    assert ordering.file_class(LICENCE_FILE) == ordering.DOCS
+    fan = [row["file"] for row in data["hotspots"]["fan_in"]]
+    size = [row["file"] for row in data["hotspots"]["size"]]
+    assert fan[0] == SOURCE_FILE, fan
+    assert size[0] == SOURCE_FILE, size
+    # Fan-in attributes a name to the file that DEFINES it, and the licence
+    # defines nothing, so it cannot appear there at all.
+    assert LICENCE_FILE not in fan, fan
+    # Size would promote it -- it is the largest file in the tree -- and the
+    # class still ranks it below every source row, including the smallest.
+    assert size[0] == SOURCE_FILE, size
+    assert size.index(LICENCE_FILE) > size.index(SOURCE_FILE), size
+
+
+def test_deps_orders_each_level_by_class_before_the_node_cap(rig):
+    """One source importer, one sample, one test importer: path order puts
+    `spec/` first, so only the class key produces this answer -- and with one
+    slot left it decides WHICH importer survives the cap."""
+    core, _reg, entry, _project = rig
+    walk = graph.deps_for_file(core, entry.slug, SOURCE_FILE, direction="in")
+    level = walk["in"][1]
+    assert set(level) == {USES_FILE, EXAMPLE_FILE, TESTS_USES_FILE}, level
+    assert level == [USES_FILE, EXAMPLE_FILE, TESTS_USES_FILE], level
+
+    capped = graph.deps_for_file(core, entry.slug, SOURCE_FILE,
+                                 direction="in", max_nodes=2)
+    assert capped["in"][1] == [USES_FILE], capped
+    assert capped["omitted"] == 2, capped
+    assert capped["truncated"] is True, capped
 

@@ -228,20 +228,28 @@ class ChunkRow:
     chunk_hash: str
     text: str
 
-def _register_ordering(conn: sqlite3.Connection) -> None:
+def _register_ordering(conn: sqlite3.Connection,
+                       names: ordering.ClassNames
+                       = ordering.DEFAULT_CLASS_NAMES) -> None:
     """Teach this connection the path classifier the ordering policy uses.
 
     A capped read orders in SQL, before ``LIMIT`` cuts the answer, so the
     ranking cannot be applied after the cap. The function is the SAME
     classifier the Python surfaces use (``ordering.class_weight``), never a
-    second statement of the path rules; registering it per connection writes
-    nothing to the file, so a read-only open keeps its contract.
+    second statement of the path rules, closed over the SAME directory names
+    (``names``: the project's ladder, built-in plus its own additions), so the
+    two layers cannot disagree about what a test or a sample tree is.
+    Registering it per connection writes nothing to the file, so a read-only
+    open keeps its contract.
     """
-    conn.create_function("file_class_weight", 1, ordering.class_weight,
-                         deterministic=True)
+    conn.create_function(
+        "file_class_weight", 1,
+        lambda path: ordering.class_weight(path, names), deterministic=True)
 
 
-def _open_read_only(db_path: str) -> sqlite3.Connection:
+def _open_read_only(db_path: str,
+                    names: ordering.ClassNames
+                    = ordering.DEFAULT_CLASS_NAMES) -> sqlite3.Connection:
     """A connection that cannot write, for every read path.
 
     ``mode=ro`` is the contract: no journal-mode write, no DDL, no migration,
@@ -257,14 +265,14 @@ def _open_read_only(db_path: str) -> sqlite3.Connection:
         # A read-only WAL open can succeed at connect time and fail on the
         # first statement, so prove the file is readable before trusting it.
         conn.execute("SELECT count(*) FROM sqlite_master").fetchone()
-        _register_ordering(conn)
+        _register_ordering(conn, names)
         return conn
     except sqlite3.OperationalError as exc:
         logger.debug("read-only open unavailable for %s (%s); pinning "
                      "query_only instead", db_path, exc)
     conn = sqlite3.connect(db_path, timeout=30)
     conn.execute("PRAGMA query_only=1")
-    _register_ordering(conn)
+    _register_ordering(conn, names)
     return conn
 
 
@@ -290,19 +298,21 @@ class Manifest:
     refuses rather than migrates — migrating is a write pass's job.
     """
 
-    def __init__(self, db_path: str, *, writable: bool = True):
+    def __init__(self, db_path: str, *, writable: bool = True,
+                 class_names: ordering.ClassNames | None = None):
         self.db_path = db_path
         self.writable = writable
+        self.class_names = class_names or ordering.DEFAULT_CLASS_NAMES
         self._migrated_from: str | None = None
         if not writable:
-            self._conn = _open_read_only(db_path)
+            self._conn = _open_read_only(db_path, self.class_names)
             self.schema_version = _recorded_schema(self._conn)
             return
         self._conn = sqlite3.connect(db_path, timeout=30)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._conn.execute("PRAGMA busy_timeout=5000")
-        _register_ordering(self._conn)
+        _register_ordering(self._conn, self.class_names)
         with self._conn:
             # v7 replaces the symbols table instead of altering it: the old key
             # ``(file, name, start_line)`` is line-bearing, and the new columns
@@ -620,16 +630,20 @@ class Manifest:
         return out
 
     # The ordering policy (``code_indexer.ordering``): file class first, so a
-    # definition in a test fixture or a document never outranks the source it
-    # exercises; then identity quality -- an exact name before a substring
-    # hit, a row with a recorded kind before one without -- then attribution,
-    # then the row's own identity fields so no tie falls to insertion order.
-    # ``file_class_weight`` is the Python classifier registered per
+    # definition in a test fixture, a shipped sample or a document never
+    # outranks the source it exercises; then identity quality -- a row with a
+    # recorded kind before one without, attributed syntax before a textual
+    # row -- then the row's own identity fields so no tie falls to insertion
+    # order. ``file_class_weight`` is the Python classifier registered per
     # connection, so this capped read ranks by the SAME rules every other
-    # surface uses. The two ``?`` bind the queried name (NULL in browse mode).
+    # surface uses, over the SAME project ladder.
+    #
+    # There is no exact-name key here, and there cannot be one: the exact tier
+    # and the substring tier are two QUERIES (`find_symbols(..., substring=)`),
+    # and the substring tier runs only when the exact tier is empty, so no
+    # single answer holds both an exact and a fuzzy row for a key to separate.
     _SYMBOL_ORDER = (
         " ORDER BY file_class_weight(s.file), "
-        "CASE WHEN ? IS NULL OR s.name = ? COLLATE NOCASE THEN 0 ELSE 1 END, "
         "CASE WHEN s.symbol_type IS NULL OR s.symbol_type = '' "
         "THEN 1 ELSE 0 END, "
         "CASE WHEN s.source = 'ast' THEN 0 ELSE 1 END, "
@@ -743,7 +757,6 @@ class Manifest:
         if clauses:
             sql += " WHERE " + " AND ".join(clauses)
         sql += self._SYMBOL_ORDER
-        args.extend([name, name])
         if limit is not None:
             sql += " LIMIT ?"
             args.append(limit)
@@ -799,7 +812,7 @@ class Manifest:
         sql += self._SYMBOL_ORDER
         return [str(row[3]) for row in
                 self._conn.execute("EXPLAIN QUERY PLAN " + sql,
-                                   args + [name, name])]
+                                   args).fetchall()]
 
     def symbol_files_without_ast(self) -> int:
         """How many files holding symbol rows have no AST extraction.
@@ -861,12 +874,17 @@ class Manifest:
         filtered to a set of stored relationships.
 
         Ordered by the policy (``code_indexer.ordering``), applied in SQL so
-        it holds BEFORE ``limit`` cuts the answer: file class (source, tests,
-        docs, generated), then identity quality -- a target that has a
-        definition row before one that only matches text, attributed syntax
-        before a textual row -- then ``(file, line, relationship,
-        from_symbol, receiver)``, which is total, so a capped read is a
-        reproducible prefix and no tie group can straddle the cut.
+        it holds BEFORE ``limit`` cuts the answer: file class (source,
+        examples, tests, docs, generated), then identity quality -- a
+        reference inside a NAMED enclosing symbol before a module-level
+        mention, which is the one identity fact that varies across the rows of
+        one name -- then attributed syntax before a textual row, then
+        ``(file, line, relationship, from_symbol, receiver)``, which is total,
+        so a capped read is a reproducible prefix and no tie group can
+        straddle the cut.
+
+        The name takes no key, and no case policy: ``to_name = ?`` already
+        pins it exactly, so every row compares equal on it.
         """
         sql = self._REF_COLS + " WHERE to_name = ?"
         args: list = [name]
@@ -875,8 +893,8 @@ class Manifest:
                     + ",".join("?" * len(relationships)) + ")")
             args.extend(relationships)
         sql += (" ORDER BY file_class_weight(file),"
-                " CASE WHEN EXISTS (SELECT 1 FROM symbols s"
-                " WHERE s.name = refs.to_name) THEN 0 ELSE 1 END,"
+                " CASE WHEN from_symbol IS NOT NULL AND from_symbol <> ''"
+                " THEN 0 ELSE 1 END,"
                 " CASE WHEN confidence = 'ast' THEN 0 ELSE 1 END,"
                 " file, line, relationship, from_symbol, receiver LIMIT ?")
         args.append(limit)

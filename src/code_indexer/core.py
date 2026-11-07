@@ -26,6 +26,7 @@ from .fingerprint import (ConfigError, EMBED_FORMAT, configured_values,
                           vector_side_mismatches)
 from .locks import project_lock
 from .manifest import SCHEMA_VERSION, Manifest, SymbolRow
+from . import ordering
 from . import ranking
 from . import staleness
 from . import ts_chunker
@@ -197,6 +198,24 @@ class Core:
     # paths / manifests / state
     # ------------------------------------------------------------------
 
+    def class_names(self, slug: str) -> ordering.ClassNames:
+        """The project's ordering ladder: built-in names plus its own.
+
+        Read once per slug from the project root's ``pyproject.toml``
+        (``[tool.code-indexer.ordering]``) and handed to every manifest this
+        Core opens, so a Python ordering key and the SQL ``file_class_weight``
+        function of the same project read the SAME classifier. An unregistered
+        slug or a malformed file yields the built-in ladder.
+        """
+        cache = getattr(self, "_class_names", None)
+        if cache is None:
+            cache = self._class_names = {}
+        if slug not in cache:
+            entry = self.registry.get_by_slug(slug)
+            cache[slug] = ordering.load_class_names(
+                entry.path if entry else None)
+        return cache[slug]
+
     def manifest_for(self, slug: str, *, writable: bool = True) -> Manifest:
         """Open one project's manifest — writable unless a reader asks otherwise.
 
@@ -216,12 +235,13 @@ class Core:
         """
         d = os.path.join(self.cfg.index_root, slug)
         path = os.path.join(d, "manifest.db")
+        names = self.class_names(slug)
         if writable:
             os.makedirs(d, exist_ok=True)
-            return Manifest(path, writable=True)
+            return Manifest(path, writable=True, class_names=names)
         if not os.path.isfile(path):
-            return Manifest(":memory:")
-        return Manifest(path, writable=False)
+            return Manifest(":memory:", class_names=names)
+        return Manifest(path, writable=False, class_names=names)
 
     def read_manifest(self, slug: str) -> Manifest:
         """Open one project's manifest READ-ONLY: the read-path contract.
@@ -1380,8 +1400,12 @@ class Core:
 
         ``relationship`` filters the *reported* vocabulary
         (calls|includes|inherits|references); ``None`` returns every row.
-        Rows come back sorted by (file, line, relationship), capped at
-        ``limit``.
+        Rows come back in the ordering policy's order -- file class first, then
+        a reference inside a named enclosing symbol before a module-level
+        mention, then attributed syntax, then (file, line, relationship,
+        from_symbol, receiver) -- capped at ``limit``. ``find-references``
+        reads a capped store query, so the order is applied before the cap and
+        the answer is its prefix.
         """
         if (relationship is not None
                 and relationship not in self._REFERENCE_FILTERS):

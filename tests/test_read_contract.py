@@ -216,9 +216,9 @@ def test_a_read_opens_the_manifest_read_only(rig, args, monkeypatch):
     opened: list[tuple[str, bool]] = []
     original = Manifest.__init__
 
-    def spy(self, db_path, *, writable=True):
-        opened.append((str(db_path), writable))
-        original(self, db_path, writable=writable)
+    def spy(self, db_path, **kwargs):
+        opened.append((str(db_path), kwargs.get("writable", True)))
+        original(self, db_path, **kwargs)
 
     monkeypatch.setattr(Manifest, "__init__", spy)
     result = runner.invoke(app, [*args, "--project", str(project)])

@@ -223,24 +223,26 @@ def _file_defines(m: Manifest, file: str, name: str) -> bool:
     return any(s.name == name for s in m.symbols_for_file(file))
 
 
-def _ordered_edges(edges: list[tuple]) -> list[tuple]:
+def _ordered_edges(edges: list[tuple],
+                   names: ordering.ClassNames) -> list[tuple]:
     """`_expand_callers` edges in the ordering policy's order.
 
-    File class first (source, tests, docs, generated), then identity quality --
-    a hit that names its caller before a module-level one, attributed before
-    textual -- then the caller row's own fields, so the walk's tree is
-    reproducible and a test file's call sites never interleave with
-    production's.
+    File class first (source, examples, tests, docs, generated), then identity
+    quality -- a hit that names its caller before a module-level one,
+    attributed before textual -- then the caller row's own fields, so the
+    walk's tree is reproducible and a test file's call sites never interleave
+    with production's.
     """
     return sorted(edges, key=lambda edge: ordering.edge_key(
-        edge[0], edge[2], edge[1], edge[3], edge[4], edge[5]))
+        edge[0], edge[2], edge[1], edge[3], edge[4], edge[5], names))
 
 
-def _ordered_ref_rows(rows: list[dict]) -> list[dict]:
+def _ordered_ref_rows(rows: list[dict],
+                      names: ordering.ClassNames) -> list[dict]:
     """Store reference rows in the same order (the definition-less seed)."""
     return sorted(rows, key=lambda row: ordering.edge_key(
         row["file"], row["from_symbol"], row["line"], row["relationship"],
-        row["confidence"], row.get("receiver")))
+        row["confidence"], row.get("receiver"), names))
 
 
 def _expand_callees(core, m: Manifest, file: str, symbol: str | None
@@ -257,6 +259,15 @@ def _expand_callees(core, m: Manifest, file: str, symbol: str | None
 
 
 def _definer_of(m: Manifest, name: str) -> str | None:
+    """The ONE defining file of ``name``, or ``None`` when several define it.
+
+    Class-blind by construction, not by oversight: a name defined in more than
+    one file resolves to no file (there is no candidate to prefer), so the
+    only case that returns a path is the case where exactly one file exists
+    and a class rule would have nothing to choose between. The label therefore
+    never promotes a sample tree over source; an ambiguous name keeps the
+    asking file as its label instead.
+    """
     files = sorted({r.file for r in m.definitions_of(name)})
     return files[0] if len(files) == 1 else None
 
@@ -272,10 +283,12 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
     Definition roots keep ``(file, symbol)`` identity.
 
     The tree is ordered by the same policy every structural answer uses:
-    file class first (source, tests, docs, generated), then a call site that
-    names its caller before a module-level one, then the row's own fields. So
-    a test harness's call sites never interleave with production's, and the
-    same index renders the same tree twice.
+    file class first (source, examples, tests, docs, generated), then a call
+    site that names its caller before a module-level one, then the row's own
+    fields. So a test harness's call sites never interleave with production's,
+    and the same index renders the same tree twice. The Python key
+    (``ordering.edge_key``) is the same key the store's `find-references`
+    expresses in SQL, over the project's own class ladder.
 
     The subject may be dotted (``Type.Member``): the qualifier is resolved
     against the symbol rows and the fan-in is matched on the trailing member
@@ -297,6 +310,7 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
     depth-cap refusal instead of dropping edges silently.
     """
     m = _manifest_for(core, slug)
+    names = core.class_names(slug)
     notes: list[str] = []
     omitted = 0
     depth_capped = False
@@ -354,7 +368,7 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
                 "fields are not extracted); seeding from reference rows "
                 "instead of reporting none")
             seeds: list[GraphNode] = []
-            for r in _ordered_ref_rows(ref_rows):
+            for r in _ordered_ref_rows(ref_rows, names):
                 if len(seeds) >= max_nodes:
                     omitted += 1
                     continue
@@ -384,7 +398,7 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
                 tgt = target if level == 0 else (
                     node.symbol or os.path.basename(node.file))
                 for (file, line, frm, rel, conf, recv, edge_target
-                     ) in _ordered_edges(_expand_callers(core, m, tgt)):
+                     ) in _ordered_edges(_expand_callers(core, m, tgt), names):
                     key = _site_key(file, line, frm, rel)
                     if key in seen:
                         continue
@@ -576,8 +590,21 @@ def deps_for_file(core, slug: str, path: str, direction: str = "both",
                   depth: int = 2, max_nodes: int = 60) -> dict:
     """Import graph around one file: `in` (importers), `out` (imports),
     or both. Returns {'in': [...], 'out': [...]} of file names per level,
-    plus `truncated` / `omitted` / `notes` describing a refused edge."""
+    plus `truncated` / `omitted` / `notes` describing a refused edge.
+
+    Every level is ordered by the ordering policy's class key (class first,
+    then path) BEFORE the node cap fills, so an importer in a test tree, a
+    sample tree or a document cannot take a budget slot ahead of a production
+    importer. The answer stays a WALK -- levels are kept apart, because "what
+    imports this" is a distance question, not a relevance ranking -- so the
+    policy reorders each level and never flattens them into one list.
+    """
     m = _manifest_for(core, slug)
+    names = core.class_names(slug)
+
+    def level_key(f: str) -> tuple[int, str]:
+        return (ordering.class_weight(f, names), f)
+
     notes: list[str] = []
     omitted = 0
     depth_capped = False
@@ -589,14 +616,14 @@ def deps_for_file(core, slug: str, path: str, direction: str = "both",
             for r in all_rows:
                 if r["file"] == f and r["resolved_file"]:
                     seen.add(r["resolved_file"])
-            return sorted(seen)
+            return sorted(seen, key=level_key)
 
         def in_edges(f: str) -> list[str]:
             seen: set[str] = set()
             for r in all_rows:
                 if r["resolved_file"] == f and r["file"] != f:
                     seen.add(r["file"])
-            return sorted(seen)
+            return sorted(seen, key=level_key)
 
         want_out = direction in ("out", "both")
         want_in = direction in ("in", "both")
@@ -622,8 +649,8 @@ def deps_for_file(core, slug: str, path: str, direction: str = "both",
                         nxt.append(t)
                 if not nxt:
                     break
-                levels_out[lvl] = sorted(nxt)
-                frontier = nxt
+                levels_out[lvl] = sorted(nxt, key=level_key)
+                frontier = list(levels_out[lvl])
             else:
                 # Ran out of levels, not out of files: ask the store whether
                 # the frontier still has an unvisited edge.
