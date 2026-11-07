@@ -4,6 +4,7 @@
 - Date: 2026-11-07
 - Deciders: owner (ratification), architecture review
 - Supersedes / Superseded by: --
+- Amended: 2026-11-07 -- section 1's removal list named ten tools; `find_definition` was missing from it, while the shipped registry (`code-indexer-mcp --help`), `README.md` and the release note all name eleven.
 
 ## Decision in one paragraph
 
@@ -38,7 +39,7 @@ The MCP server is kept, but only as an optional extra carrying a narrowed read-o
 | `get_code_context` | reading exact lines by range or symbol |
 | `semantic_search` | registered only when the semantic extra is importable |
 
-- Removed: the three lifecycle tools (`add_project`, `reindex_project`, `remove_project`, and the implicit write path behind them), `index_status`, `lookup_project`, `outline`, `deps`, `find_callees`, `find_symbols`, `changed_symbols`. Writes are exactly what an MCP client should not be able to trigger by a tool call that carries no preview, and every removed read duplicates a kept tool's shape or the CLI.
+- Removed: the three lifecycle tools (`add_project`, `reindex_project`, `remove_project`, and the implicit write path behind them), `index_status`, `lookup_project`, `outline`, `deps`, `find_callees`, `find_definition`, `find_symbols`, `changed_symbols`. Writes are exactly what an MCP client should not be able to trigger by a tool call that carries no preview, and every removed read duplicates a kept tool's shape or the CLI.
 - Eight tools with one schema each is a starting point the implementation leg may trim further; it may not add a tool that the rule above excludes without a superseding record.
 
 ### 2. The relay must stop lying

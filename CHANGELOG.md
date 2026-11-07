@@ -353,7 +353,7 @@ identity is unchanged and unchanged chunk text re-embeds from the cache.
   semantic extra fails with one line — `ConfigError: the semantic extension
   is not installed; install code-indexer[semantic]` — and exit 3, instead of
   a traceback. The MCP server is imported only by `code-indexer-mcp`.
-- **Ten MCP tools removed, and `find-definition` with them.** The surface is
+- **Eleven MCP tools removed, and `find-definition` with them.** The surface is
   now the eight read-only query shapes: `list_projects`, `overview`,
   `skeleton`, `find_symbol`, `find_references`, `find_callers`,
   `get_code_context`, and `semantic_search` when the semantic extra is
