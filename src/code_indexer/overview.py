@@ -182,6 +182,11 @@ def build_overview(m: Manifest, project_path: str,
     # file plus references to a name that file defines. It is complete by
     # construction; the old version counted a 5,000-row sample of `refs`,
     # which on a large index was under 1% of the table and unstable besides.
+    # The name half is per NAME, not per definition: a reference carries the
+    # name it observed, so the lexicographically first defining file is the
+    # representative owner and a test module that sorts before the source can
+    # hold a source name's count. The class ordering below is what keeps that
+    # file out of the list; the number itself is a property of the name.
     # Under --path-prefix the aggregate is scoped to the files being
     # reported: a name defined both inside and outside the prefix belongs to
     # its in-prefix definition, or its in-prefix references are attributed

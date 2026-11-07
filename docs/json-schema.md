@@ -80,11 +80,14 @@ entry_points, tests, config_files, hotspots) + `schema: 1`.
 
 `hotspots.fan_in` is `[{"file": str, "fan_in": int}]`, the top ten by a
 **complete** per-file count: resolved imports into the file plus references
-to a name that file defines, self-references excluded. It is a count, never a
-sample of the reference table, so two runs over one index agree exactly.
-Under `--path-prefix` the count is scoped to the files being reported on: a
-name defined both inside and outside the prefix belongs to its in-prefix
-definition, so the prefix keeps the references it owns.
+to a name that file defines, self-references excluded. The name half is an
+aggregate per NAME, so a name defined in several files credits its whole count
+to the first defining file -- a reference records the name it observed, never
+which definition it meant. It is a count, never a sample of the reference
+table, so two runs over one index agree exactly. Under `--path-prefix` the
+count is scoped to the files being reported on: a name defined both inside and
+outside the prefix belongs to its in-prefix definition, so the prefix keeps
+the references it owns.
 
 ## changed-symbols --json
 

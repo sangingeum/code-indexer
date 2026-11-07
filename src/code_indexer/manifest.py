@@ -1096,14 +1096,24 @@ class Manifest:
 
         Two complete aggregates, never a row sample: resolved imports INTO a
         file, plus references to a name that file defines (a reference from
-        the file itself is not fan-in). With a name defined in several files
-        the first definition owns it — the first definition AMONG the files
-        being reported on. Pass ``scope_prefix`` (what ``overview
-        --path-prefix`` reports) and a name defined both inside and outside
-        the prefix keeps its in-prefix owner; without that scoping the
-        ownership is decided over the whole store, and a reference to an
-        in-prefix definition is then attributed to an out-of-prefix file and
-        dropped by the caller's filter. Sorted by count desc, then file.
+        the file itself is not fan-in).
+
+        The name half is an aggregate per NAME, not per definition, and that
+        is the contract rather than an accident: a reference row records the
+        name it observed and which definition it meant is not knowable from
+        it, so a name defined in several files credits its whole count to the
+        lexicographically first defining file -- the first definition AMONG
+        the files being reported on. Read the row as "this file defines that
+        name and it is the representative owner", never as "the code lives
+        here": a test or spec module that sorts before the source owning the
+        same name takes the number, and the class ladder in ``ordering`` is
+        what keeps such a file out of the hotspot list. Pass ``scope_prefix``
+        (what ``overview --path-prefix`` reports) and a name defined both
+        inside and outside the prefix keeps its in-prefix owner; without that
+        scoping the ownership is decided over the whole store, and a
+        reference to an in-prefix definition is then attributed to an
+        out-of-prefix file and dropped by the caller's filter. Sorted by
+        count desc, then file.
         """
         counts: dict[str, int] = {}
         imports_sql = ("SELECT resolved_file, COUNT(*) FROM imports"
