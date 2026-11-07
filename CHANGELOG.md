@@ -1,5 +1,35 @@
 # Changelog
 
+## [Unreleased] — four surface questions answered, and one scan set corrected
+
+**Nested ignore files compose the way git composes them.** A file was skipped
+if ANY per-directory ignore file matched it, which made a nested exclusion
+absolute: a deeper `!pattern` could not re-include what a shallower file
+excluded, so `git check-ignore` and the scan disagreed about the same tree, and
+the scanner's docstring claimed the agreement it did not have. The scan now
+reads the specs from the root outwards and lets the last matching rule decide.
+A scan set can only grow under that rule, so nothing leaves a manifest: files a
+project's nested negations had been losing arrive as `added` staleness reasons
+on the first read after the upgrade and gain rows on the next pass. The test
+that pinned the old composition is rewritten to the contract it holds now, and
+a second one asks `git check-ignore` about the same tree so the two readers
+cannot drift apart again.
+
+**Four further rulings are recorded in prose, and behaviour stays where it is.**
+Fan-in is a declared aggregate per name, credited to the name's first defining
+file: a reference row records the name it observed, never which definition it
+meant, and the references now say what a reader may conclude rather than
+calling the number an artefact. `--symbol` keeps the bare declaration name on
+every name read, with the dotted `qualified_name` named as a field a read
+reports and never one it takes back -- and the refusal the reference quotes is
+the one the tool prints. A path prefix narrows the files an answer reports, not
+the coverage scope, so a prefix answer's counts stay comparable with
+`index-status`; a test now pins that. The staleness banner one architectural
+record quoted is corrected to the shipped one-line form, under the owner's
+ruling, keeping the sentence that says what a stale answer means. The reasoning,
+the landed edits and the two follow-ups that want their own card are in
+`docs/decisions/index-surface-rulings.md`.
+
 ## [Unreleased] — one verdict source for the fingerprint sentence
 
 **The `index-status` sentence now reads the same vector verdict its line
