@@ -771,13 +771,13 @@ condition and stream:
   keeps its shape.
 
 That is an enumeration of the cases a read DOCUMENTS, not a promise that
-stderr is otherwise silent. In this build every read-side line above is a
-`typer.echo(..., err=True)` call, except two writers that pick their stream
-per answer (the coverage line's and the graph notes'), and two channels reach
-stderr outside that enumeration: `errors.fail()`, which prints the single
-`ErrorType: description` line on FAILURE, and the package's logging handler at
-WARNING, which a successful read fires in the log-note case above. A line with
-neither a documented prefix nor an `ErrorType` is a log note.
+stderr is otherwise silent. A line reaches stderr from one of three kinds of
+writer: a read's own note -- an echo whose stream the case chooses; the one
+failure line from `errors.fail()`, which prints the single
+`ErrorType: description` line on FAILURE; or a log record from the package's
+logging handler, at WARNING by default, which a successful read fires in the
+log-note case above. A line with neither a documented prefix nor an
+`ErrorType` is a log note.
 
 Lifecycle and maintenance commands are not reads and do not follow that
 shape. `add-project`, `index-more`, `reindex-project` and `remove-project`

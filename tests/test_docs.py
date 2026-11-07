@@ -887,6 +887,10 @@ def test_the_success_stderr_contract_is_an_enumeration_not_an_exclusivity_claim(
     assert "`errors.fail()`" in flat
     assert "logging handler" in flat
     assert "enumeration of the cases a read DOCUMENTS" in flat
+    # the rule, not a mechanism list: no claim that every line is an echo,
+    # so a later edit cannot reintroduce the false clause.
+    assert "`typer.echo(..., err=True)` call" not in flat
+    assert "except two writers" not in flat
 
 
 def _fingerprint_sentence_rows() -> dict[str, tuple[str, str]]:
