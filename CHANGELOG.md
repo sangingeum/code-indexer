@@ -7,9 +7,13 @@ without the ladder now uses it: source before examples before tests before
 docs before generated/artifact, decided by the same
 `src/code_indexer/ordering.py` classifier every structural answer uses. The
 class key runs in every ranking mode (`vector`, `metadata`, `hybrid`) and
-every retrieval mode (`dense`, `hybrid`, `lexical`), before the output caps,
-so a captured transcript, a fixture or a near-duplicate test can no longer
-win a question about the implementation. It is an order, not a filter: every
+every retrieval mode (`dense`, `hybrid`, `lexical`), after the scoring pass
+and before the generic output caps, so a near-duplicate test can no longer
+win a question about the implementation -- nor a fixture, where it sits under
+a tests or spec tree. Two cases the order does NOT close, and where each was
+closed instead: a captured transcript is excluded by `.codeindexignore`, and
+a captured `.err` or a fixture in a top-level `fixtures/` tree is still
+source to the classifier and still wins. It is an order, not a filter: every
 hit in the window is still returned, the demoted ones at the tail.
 
 - **The bare dash is gone.** A hit whose chunk carries no symbol rendered as

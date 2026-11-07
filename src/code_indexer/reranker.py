@@ -9,10 +9,10 @@ cross-encoder / model reranker behind RERANK_MODEL is a small change (check
 availability in doctor, wrap the same interface, keep determinism).
 
 The default HeuristicReranker builds on the existing ranking module (no
-extra model): symbol-name and path/filename token overlap with the query,
-test/vendor/generated path penalties, and a mild penalty for files already
-represented >= 2 times in the window (generic per-file diversification —
-distinct from the output-side --per-file cap, which trims AFTER ranking).
+extra model): symbol-name and path-token overlap with the query, and a mild
+penalty for files already represented >= 2 times in the window (generic
+per-file diversification — distinct from the output-side --per-file cap,
+which trims AFTER ranking).
 
 Deterministic for fixed input: no randomness, stable tie-breaking by
 (file, start_line). Applied only when enabled (eval-gated default-off;

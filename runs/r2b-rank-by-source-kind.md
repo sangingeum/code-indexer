@@ -1,9 +1,13 @@
 # Rank semantic search by source kind
 
 `semantic-search` was the last relevance surface without the ordering policy
-the structural answers already shared. A test file, a captured transcript, a
-fixture or a docs page could win a question about the implementation, and a
-hit with no enclosing symbol rendered as a bare `-` in the symbol column.
+the structural answers already shared. A test file or a docs page could win a
+question about the implementation, and a hit with no enclosing symbol
+rendered as a bare `-` in the symbol column. Two cases that sentence used to
+name are not this order's work: a captured transcript is excluded by
+`.codeindexignore`, and a captured `.err` or a file in a top-level
+`fixtures/` tree is still `source` to the classifier -- only a fixture under
+a `tests/` or `spec/` tree is demoted.
 
 ## What changed
 
@@ -12,7 +16,8 @@ One policy, enforced by code, tests and two matching documents:
 - `src/code_indexer/ordering.py` stays the ONLY classifier. `--ranking vector`,
   `metadata`, `hybrid` and `--mode dense`, `hybrid`, `lexical` all funnel
   through one `ranking.class_order` call placed after the mode's scoring and
-  before the shaping caps.
+  after the pure-data share cap, before the generic caps (`--per-file`,
+  `--max-chars` / `--max-tokens`, `--limit`); it reorders and never removes.
 - The module's own path marker is gone. It called `fixtures/`, `vendor/` and
   `testdata/` non-source while the shared classifier calls them source, so one
   hit could be "tests" to search and "source" to `find-definition`.

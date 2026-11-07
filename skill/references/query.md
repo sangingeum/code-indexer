@@ -163,10 +163,9 @@ ordered by one policy, in this order:
    never insertion order); for `semantic-search`, the order its ranking
    produced.
 
-**This is an ordering, not a filter.** Every hit is still returned, the
-demoted ones after the promoted ones. Each surface keeps its cap and default
-(`--limit`, `--max-nodes`, the ten-row hotspot lists); the policy decides the
-fill of a capped answer and never drops one from an uncapped answer.
+**This is an ordering, not a filter.** Every hit is still returned, the demoted
+ones after the promoted ones; each surface keeps its cap and default (`--limit`,
+`--max-nodes`, the ten-row hotspot lists), and the policy decides the fill.
 
 ### Which keys fire on which surface
 
@@ -187,10 +186,11 @@ vector`, `--mode dense`); adjusted score, cosine plus symbol-presence deltas
 (`--ranking metadata`); fused score, cosine + 0.25 x lexical (`--ranking
 hybrid`); bm25 rank (`--mode lexical`); reciprocal-rank fusion of the dense
 and lexical lists (`--mode hybrid`); RRF across the projects' lists
-(`--all-projects`). The class key fires in every one of those modes and
-before the shaping caps (`--limit`, `--per-file`, `--max-chars` /
-`--max-tokens`, the pure-data share cap), so the policy decides which hits
-fill a capped answer and never which hits are returned.
+(`--all-projects`). Every one of those modes runs the class key after the scoring
+pass and the pure-data share cap, before the generic caps (`--per-file`,
+`--max-chars`/`--max-tokens`, `--limit`): it reorders and never removes, while
+they remove. The exact-symbol pin of `--mode hybrid` orders within its rung, so
+a test-defined exact match can still sit below source.
 
 Two waivers, and only two. A **test-targeting query** (`test`, `tests`,
 `testing`, `spec`, `specs`, `fixture`, `fixtures`, `unittest`, `unittests`)

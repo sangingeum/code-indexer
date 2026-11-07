@@ -1185,9 +1185,10 @@ class Core:
 
         # Result shaping: merge overlapping/adjacent same-file hits, one class
         # order for every retrieval and ranking mode, generic per-file cap,
-        # budget trim (lowest-ranked dropped first). The class order runs
-        # before the caps so the policy decides which hits fill them; it is an
-        # order, never a filter (ranking.class_order).
+        # budget trim (lowest-ranked dropped first). The class order runs after
+        # the pure-data share cap above and before the generic caps, so it
+        # decides which hits fill them; it is an order, never a filter
+        # (ranking.class_order).
         if merge:
             all_hits = ranking.merge_overlapping(all_hits)
         # The ladder is each hit's own project table, never the built-in
@@ -1269,7 +1270,10 @@ class Core:
         """RRF-fuse the FTS bm25 ranking with the dense ranking (k=60).
 
         Exact-symbol shortcut: an identifier-shaped query also runs
-        find_symbol and pins exact matches first, labelled match=symbol.
+        find_symbol and pins exact matches first, labelled match=symbol. The
+        pin orders inside its own rung only: the class order in `search`
+        re-sorts this list afterwards, so an exact match defined in a test or
+        docs file can still sit below a source hit.
         """
         lexical = self._lexical_hits(entry, query, limit)
         fused = ranking.rrf_fuse({"dense": dense_hits, "lexical": lexical},
