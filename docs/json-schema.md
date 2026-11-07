@@ -104,7 +104,11 @@ is non-zero, and the compact form carries
 
 Under `--path-prefix` the count is scoped to the files being reported on:
 only target files inside the prefix are counted, and `unattributed` counts
-the reference rows that SIT inside it. An index built before per-definition
+the reference rows that SIT inside it. The prefix filters by the RESOLVED
+target: it never re-attributes a reference to a definition outside the
+prefix, so a name whose references resolve outside it reports no fan-in
+inside the prefix (and a reference from outside still counts toward a
+target inside). An index built before per-definition
 attribution answers from the old per-name aggregate -- the row reads report
 `needs-reindex` instead, until `reindex-project` writes the resolved targets.
 
