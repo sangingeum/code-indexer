@@ -125,3 +125,38 @@ def test_the_scan_agrees_with_git_check_ignore(tmp_path):
 
     scanned = {f.path for f in scan_project(str(root))} & set(paths)
     assert scanned == {p for p in paths if p not in git_ignored}
+
+
+def test_a_nested_negation_cannot_resurrect_a_pruned_directory(tmp_path):
+    """The prune is git's rule, not an optimisation a later change may remove.
+
+    Git refuses to re-include anything inside an excluded directory: there is
+    no walk left to re-include in. The scanner prunes for that reason, so the
+    FILE SET is the contract here, not the walk length -- a nested negation
+    inside a pruned tree must not resurrect rows (which would also make the
+    scanner disagree with ``git check-ignore``).
+    """
+    root = tmp_path / "repo"
+    (root / "skipdir").mkdir(parents=True)
+    (root / "keep").mkdir()
+    paths = ["e.py", "keep/d.py", "skipdir/a.py", "skipdir/b.py"]
+    for rel in paths:
+        (root / rel).write_text("x = 1\n", encoding="utf-8")
+    for name in (".gitignore", ".codeindexignore"):
+        (root / name).write_text("skipdir/\n", encoding="utf-8")
+        (root / "skipdir" / name).write_text("!a.py\n", encoding="utf-8")
+
+    scanned = {f.path for f in scan_project(str(root))} & set(paths)
+    # Asserted without git too, so the guarantee survives on a git-less host.
+    assert scanned == {"e.py", "keep/d.py"}, scanned
+
+    if GIT is None:
+        return
+    subprocess.run([GIT, "init", "-q", str(root)], check=True,
+                   capture_output=True, text=True)
+    listed = subprocess.run(
+        [GIT, "-C", str(root), "check-ignore", "--stdin"],
+        input="\n".join(paths) + "\n", capture_output=True, text=True,
+        check=True)
+    git_ignored = set(listed.stdout.split())
+    assert scanned == {p for p in paths if p not in git_ignored}
