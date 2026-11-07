@@ -1,0 +1,75 @@
+Live invocations at review tip 8e7fde7, one indexed project, masked.
+<checkout> = the repository checkout; <home> = the user's home.
+
+## the version line
+$ code-indexer --version
+code-indexer 0.1.0       exit=0
+
+## the agreeing pair is accepted
+$ code-indexer overview --json --format json
+{...}                    exit=0   (the JSON payload, not a usage error)
+
+## the disagreeing pair is refused, with the documented reason
+$ code-indexer overview --json --format text
+ArgumentError: --json and --format text disagree: --json is an alias of
+--format json; pass one of them
+                         exit=2   stdout empty
+
+## an unknown value names what the command does support
+$ code-indexer overview --format xml
+ArgumentError: unknown --format value: 'xml' (expected text|json|compact)
+                         exit=2
+
+## compact is refused where there is no compact form
+$ code-indexer find-references helper --format compact
+ArgumentError: find-references has no compact form; supported formats: text|json
+                         exit=2   stdout empty
+
+## no locator at all: both relaxed positionals refuse as usage errors
+$ code-indexer get-code-context
+ArgumentError: get-code-context needs a FILE positional, or --symbol <name> to
+resolve the symbol project-wide
+                         exit=2
+$ code-indexer find-definition
+ArgumentError: find-definition needs a NAME positional, or --symbol <name>
+                         exit=2
+
+## --symbol is the positional NAME, byte for byte (find-definition)
+$ code-indexer find-definition --symbol _output_format
+- <checkout>::src/code_indexer/cli.py:235-251 _output_format (function, confidence=exact)
+$ code-indexer find-definition _output_format
+- <checkout>::src/code_indexer/cli.py:235-251 _output_format (function, confidence=exact)
+
+## the compact record is not the text record: two fields and the signature drop
+$ code-indexer find-symbol build_overview --format compact
+src/code_indexer/overview.py:60-83 build_overview (function)
+$ code-indexer find-symbol build_overview
+- <checkout>::src/code_indexer/overview.py:60-83 build_overview (function,
+confidence=exact, evidence=ast)  def build_overview(m: Manifest, project_path: str,
+
+## overview compact: the section caps are the text renderer's own caps
+$ code-indexer overview | wc -l                    39
+$ code-indexer overview --format compact | wc -l   35
+$ code-indexer overview --format compact | cut -d' ' -f1 | sort | uniq -c
+      2 config
+      6 directory
+      6 entry-point
+      5 hotspot-fan-in
+      5 hotspot-size
+      5 language
+      1 project
+      4 test-file
+      1 tests
+(payload carries 13 languages, 8 directories, 10 fan-in and 10 size hotspots;
+the text renderer prints 5 / 6 / 6 / 4 / 5 as well, so compact loses no row
+the text form keeps)
+
+## budget figures, read from git, not from a record
+git show 105484f:SKILL-CLI.md | wc -lc     115  7149
+git show 9c29da3:SKILL-CLI.md | wc -lc     120  7645
+git show 8e7fde7:SKILL-CLI.md | wc -lc     120  7810
+git show 8e7fde7:tests/test_output_format.py | wc -l   550
+git show 105484f:skill/references/query.md | wc -lc  292 13798
+git show 8e7fde7:skill/references/query.md | wc -lc  323 15922
+rg -c '^@app.command' src/code_indexer/cli.py    33
+rg -c '"--json"' src/code_indexer/cli.py        26
