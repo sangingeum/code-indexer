@@ -1335,7 +1335,8 @@ def semantic_search(
         m = core.read_manifest(entry.slug)
         try:
             empty = coverage_mod.empty_answer(
-                "no results", coverage_mod.files_in_scope(m))
+                "no results", coverage_mod.files_in_scope(m),
+                surface=coverage_mod.SURFACE_SEARCH)
         finally:
             m.close()
     rerank_mode = "none" if no_rerank else rerank

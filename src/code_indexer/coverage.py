@@ -47,6 +47,12 @@ from .manifest import Manifest, ManifestFile
 SCOPE_PROJECT = "project"
 SCOPE_ANSWER = "answer"
 SCOPE_NONE = "none"
+
+# Which question an empty answer is answering. The four reason VALUES are the
+# same on every surface; only the human sentence differs, because a name read
+# looks for a name in an index of symbols and a search looks for text.
+SURFACE_SYMBOL = "symbol"
+SURFACE_SEARCH = "search"
 SCOPES = (SCOPE_PROJECT, SCOPE_ANSWER, SCOPE_NONE)
 
 # The empty-answer vocabulary. One enum, shared by every name read.
@@ -207,19 +213,31 @@ def text_line(coverage: dict[str, Any]) -> str | None:
             f"files parsed, {coverage['files_not_parsed']} not parsed{tail}")
 
 
-def explain_empty(files: Sequence[ManifestFile]) -> tuple[str, str]:
+def explain_empty(files: Sequence[ManifestFile],
+                  surface: str = SURFACE_SYMBOL) -> tuple[str, str]:
     """``(empty_reason, sentence)`` for an empty answer over these files.
 
-    Precedence, in the card's order: the name is absent from an index that
+    Precedence, in the card's order: the subject is absent from an index that
     parsed the files that could hold it; the files that would hold it were not
     parsed; the language has no AST reader at all; the project is not indexed.
+
+    ``surface`` changes only the human sentence, never the reason value. A
+    name read asks whether a NAME is in an index of symbols, so its sentences
+    say "the name"; ``semantic-search`` asks whether any indexed text matches
+    its QUERY, so it says so in its own words -- the same four values must not
+    be read as a name lookup on the search surface.
     """
+    search = surface == SURFACE_SEARCH
     total = len(files)
     if not total:
         return (INDEX_EMPTY,
                 "the project is not indexed: the index holds no files")
     parsed = [row for row in files if row.parse_verdict == "parsed"]
     if any(has_symbol_reader(row.language) for row in parsed):
+        if search:
+            return (NAME_ABSENT,
+                    f"nothing in an index that parsed {len(parsed)} of "
+                    f"{total} files matched the query")
         return (NAME_ABSENT,
                 f"the name is absent from an index that parsed {len(parsed)} "
                 f"of {total} files")
@@ -227,20 +245,25 @@ def explain_empty(files: Sequence[ManifestFile]) -> tuple[str, str]:
     if unparsed:
         languages = ", ".join(sorted({row.language or "unknown"
                                        for row in unparsed}))
+        subject = "the query" if search else "the name"
         return (FILES_NOT_PARSED,
                 f"{len(unparsed)} of {total} files were not parsed "
-                f"({languages}), so the name may live in files the index "
+                f"({languages}), so {subject} may live in files the index "
                 "never read")
     language_names = sorted({row.language or "unknown" for row in parsed})
     languages = ", ".join(language_names)
     verb = "has" if len(language_names) == 1 else "have"
+    if search:
+        return (LANGUAGE_WITHOUT_AST,
+                f"{languages} {verb} no AST reader, so no indexed symbol "
+                "comes from the files that would hold the query")
     return (LANGUAGE_WITHOUT_AST,
             f"{languages} {verb} no AST reader, so no symbol is extracted "
             "from the files that would hold it")
 
 
-def empty_answer(lead: str, files: Sequence[ManifestFile]
-                 ) -> tuple[str, str]:
+def empty_answer(lead: str, files: Sequence[ManifestFile],
+                 surface: str = SURFACE_SYMBOL) -> tuple[str, str]:
     """``(empty_reason, the full sentence)``, cause appended to the lead."""
-    reason, detail = explain_empty(files)
+    reason, detail = explain_empty(files, surface)
     return reason, f"{lead}: {detail}"

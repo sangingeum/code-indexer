@@ -219,6 +219,51 @@ def test_the_reason_vocabulary_is_the_same_on_every_name_read(index_project):
         assert payload["empty_reason"] == "language-without-ast", argv
 
 
+def test_the_search_surface_words_its_own_cause(index_project):
+    """Same four VALUES, but a search's sentence speaks about its query.
+
+    `no results: the name is absent ...` was read by a search over a query
+    that isn't a name; the reason value must stay (it is machine surface) and
+    only the human sentence is worded for the surface that answers.
+    """
+    core, entry, project = index_project({"mod.py": PY})
+    payload = _json(runner.invoke(
+        app, ["semantic-search", "zzz_absent_query", "--project",
+              str(project), "--json"]))
+    assert payload["hits"] == []
+    assert payload["empty_reason"] == "name-absent"
+    sentence = payload["empty_reason_sentence"]
+    assert sentence.startswith("no results:")
+    assert "matched the query" in sentence
+    assert "the name" not in sentence
+
+    text = runner.invoke(app, ["semantic-search", "zzz_absent_query",
+                               "--project", str(project)])
+    assert text.exit_code == 0, text.output
+    assert "matched the query" in text.stdout
+    assert "the name is absent" not in text.stdout
+
+    # The symbol reads on the SAME index keep their own wording.
+    sym = _json(runner.invoke(
+        app, ["find-symbol", "zzz_absent", "--project", str(project),
+              "--json"]))
+    assert sym["empty_reason"] == "name-absent"
+    assert "the name is absent" in sym["empty_reason_sentence"]
+    assert "matched the query" not in sym["empty_reason_sentence"]
+
+
+def test_the_search_surface_names_unparsed_files_without_speaking_of_a_name(
+        index_project):
+    core, entry, project = index_project({"notes.md": MD}, name="docs")
+    payload = _json(runner.invoke(
+        app, ["semantic-search", "zzz_absent_query", "--project",
+              str(project), "--json"]))
+    assert payload["empty_reason"] == "files-not-parsed"
+    sentence = payload["empty_reason_sentence"]
+    assert "so the query may live in files the index never read" in sentence
+    assert "the name" not in sentence
+
+
 # ---------------------------------------------------------------------------
 # coverage travels with the answer
 # ---------------------------------------------------------------------------
@@ -283,13 +328,42 @@ def test_the_fingerprint_verdict_states_its_meaning(index_project):
     assert payload["fingerprint"] == "unverified"
     assert payload["reason"] == "embedding-dimension-not-compared"
     meaning = payload["fingerprint_meaning"]
-    assert "not compared against the configured model" in meaning
-    assert "another model" in meaning
+    # The sentence must name the gap that IS open and must not name the doubt
+    # the read path already rules out: the model and its embedded-text format
+    # ARE compared, and a mismatch is refused.
+    assert "dimension was not compared" in meaning
+    assert "another dimension" in meaning
+    assert "not compared against the configured model" not in meaning
+    assert "another model" not in meaning
+    for compared in ("embedding model", "embedded-text format", "chunker",
+                     "extraction version"):
+        assert compared in meaning, compared
 
     text = runner.invoke(app, ["index-status", "--project", str(project)])
     assert len(text.stdout.splitlines()) == 1
     assert "fingerprint=unverified" in text.stdout
     assert "fingerprint meaning:" in text.stderr
+
+
+def test_the_fingerprint_sentence_names_the_keys_the_read_path_compares():
+    """The sentence is pinned to the comparison the code actually makes."""
+    from code_indexer import fingerprint as fp
+
+    compared = set(fp.PROBE_FREE_KEYS)
+    assert compared == {"embed_model", "embed_text_version", "chunker_version",
+                        "extraction_version"}
+    # The one key a read cannot learn without the service is the one the
+    # sentence says was not compared.
+    assert "embed_dim" in fp.FINGERPRINT_KEYS
+    assert "embed_dim" not in compared
+
+    recorded = fp.Fingerprint(embed_model="other-model", embed_dim=8,
+                              embed_text_version="v1", chunker_version=1,
+                              extraction_version=1)
+    configured = fp.configured_values("stub")
+    diffs = fp.probe_free_mismatches(recorded, configured)
+    assert any(d.startswith("embed_model: ") for d in diffs)
+    assert not any(d.startswith("embed_dim: ") for d in diffs)
 
 
 # ---------------------------------------------------------------------------

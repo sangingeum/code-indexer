@@ -304,10 +304,12 @@ def meaning(state: str | None, reason: str | None) -> str | None:
     when there is no verdict to explain (an ``ok`` project prints no pair).
     """
     if state == "unverified":
-        return ("the embedding fingerprint was not compared against the "
-                "configured model (a read cannot learn its dimension without "
-                "dialling the service); vectors may have been built with "
-                "another model")
+        return ("every fingerprint key a read can compare matched (embedding "
+                "model, embedded-text format, chunker and extraction "
+                "version); the embedding dimension was not compared, because "
+                "learning the configured dimension needs the service, so "
+                "vectors of another dimension recorded under the same model "
+                "name would not be flagged here")
     if state == "needs-reindex":
         return (f"the recorded fingerprint disagrees with this build "
                 f"({reason}); the index was built by other extraction or "
