@@ -131,6 +131,8 @@ The three plan writers — `plan-replace-body`, `plan-insert-symbol`,
 `plan-delete-declaration` — are write commands whose only write is one plan
 document in the plan directory; under `--print` they write nothing at all.
 `plan-validate` and `plan-show` are reads and write nothing, always.
+`plan-apply` is a write command: it mutates the sources through filekeeper and
+writes one receipt. Under `--dry-run` it writes nothing at all.
 
 Global flags: every command accepts `--skip-stale-check`, and it is
 **inert**: reads never index, so there is nothing to skip, and reporting
@@ -196,6 +198,7 @@ code-indexer plan-delete-declaration SYMBOL [--project P] [--file F] [--kind K] 
 code-indexer plan-rename-symbol SYMBOL   # RESERVED: refused (exit 2), nothing written
 code-indexer plan-validate REF [--project P] [--plan-dir D] [--json]   # per-check verdicts; writes nothing; a stale file exits 5
 code-indexer plan-show REF [--project P] [--diff] [--plan-dir D] [--json]   # the document as read; --diff adds the unified diff; writes nothing
+code-indexer plan-apply REF [--project P] [--plan-dir D] [--dry-run] [--refresh] [--json]   # WRITE: one keeper mutation per edit after a read-only pre-pass; per-file report, ordered operation ids, receipt
 
 # lifecycle
 code-indexer index-status [--project P | --name P | /path/repo] [--json] [--refresh]
@@ -423,9 +426,67 @@ code-indexer plan-show sha256:<hex> --project P --diff
   `position: end` with no line number.
 - **A stale file refuses.** The plan's `files[].expected_hash` is checked
   first: a mismatch is `PlanStale`, exit 5, naming the file and both hashes.
-  `plan-apply` is not built yet — this leg prepares, validates and previews.
   `plan-rename-symbol` is reserved and refused, because references are textual
   and nothing would verify a rename.
+
+## Applying a plan (the only command that writes a source file)
+
+```bash
+code-indexer plan-apply sha256:<hex> --project P            # apply, then report
+code-indexer plan-apply sha256:<hex> --project P --dry-run  # the same report, nothing written
+```
+
+`plan-apply` needs `keeper` (filekeeper 0.1.8 or newer) on `PATH`; an absent
+keeper is `KeeperUnavailable`, exit 3, with the install line, and there is no
+fallback path. Once per invocation it reads `keeper file replace-lines --help`
+and requires the flags it is about to pass (`--expected-hash`,
+`--expected-content`, `--dry-run`); a build that dropped one is
+`KeeperCapabilityMissing`, exit 3, naming the flag.
+
+What a caller may assume, and nothing more:
+
+1. **Nothing is written before every precondition passes.** A read-only
+   pre-pass — the same code `plan-validate` runs, so the two cannot disagree
+   about what stale means — checks every file hash, re-derives the targeted
+   node, and reproduces every edit's region. One failure refuses the whole
+   plan (`PlanStale`, exit 5) with zero mutations.
+2. **Each file's bytes move from old to new through keeper's hash guard.**
+   Each edit is one keeper line-range mutation carrying the hash observed
+   immediately before it; a concurrent change is refused by keeper itself and
+   the file keeps its bytes. Files apply in ascending path order and, within a
+   file, start lines descending.
+3. **The operations that ran can be undone in reverse order.** Every
+   operation id is in the report and the receipt, in application order.
+4. **No promise across files.** A failure stops the run: no further file is
+   attempted and no compensating write is issued, because an undo is most
+   likely to be refused just after a failure. The report says which files were
+   `applied`, which `would_apply`, which `failed` and which are
+   `not_attempted`, and names the keeper code and message for the failure.
+
+Exit codes: a pre-pass refusal is 5 `PlanStale` and is not a partial apply; a
+mid-loop failure is 1 `PartialApply` with the report on stdout once anything
+was written, and 1 `KeeperFailure` when nothing was; keeper 5 maps to 5.
+
+**Recovery** is the ordered operation id list, undone in reverse:
+
+```bash
+keeper history undo op_...   # last operation first, as the report prints it
+```
+
+Undo them in the order the report prints (reverse of application). keeper
+refuses an undo with exit 12 when an affected path moved after the operation;
+that ends recovery and is reported, never retried. Every call also carries
+`--task-id <plan_id>`, so `keeper history list --task-id sha256:<hex>`
+reconstructs the whole application from keeper's own journal. A JSON receipt
+is written to `<project>/.code-indexer/receipts/<plan-hash>-<timestamp>.json`
+and its path printed — losing the receipt loses convenience, not evidence.
+
+**Post-apply** reparses every modified file and reports the parser's own
+verdict per file: `parsed`, `parse_error` (with the offending lines) or
+`parse_unavailable` when the language has no grammar here. This is a parse
+verdict, never a compile verdict. The reparse writes nothing; `--refresh`
+runs one incremental index pass after the report and the report says which
+happened (`refresh: ran` / `refresh: skipped`).
 
 ## Vectors are an option, not a precondition
 
@@ -821,6 +882,14 @@ the command then answers normally.
   never saw.
 - **plan-rename-symbol** — reserved and refused (exit 2). References are
   textual, so nothing in this tool would verify a rename.
+- **plan-apply** — apply the plan's edits through filekeeper and report every
+  file. `--dry-run` runs the same pre-pass and the same report and writes
+  nothing at all; the keeper `--dry-run` goes to every call. It is a write
+  command: the only command in this roster that mutates a source file. A
+  pre-pass refusal is exit 5 with zero mutations, a mid-loop failure is exit 1
+  `PartialApply` with the report on stdout, an absent keeper is exit 3
+  `KeeperUnavailable` and never a fallback. `--refresh` runs one incremental
+  pass after the report and the report says so.
 
 ## Token reduction (schema v3)
 

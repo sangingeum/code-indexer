@@ -447,6 +447,47 @@ hashes, overlap and ordering, syntax verdicts.
 from the plan plus the current bytes with `--- a/<path>` / `+++ b/<path>`
 headers.
 
+## plan-apply --json
+
+```json
+{"schema": 1, "plan_id": str,
+ "identity": {"verified": "structural",
+              "basis": ["file_hash", "decl_hash", "region_hash"]},
+ "dry_run": bool, "partial": bool,
+ "files": [{"path": str,
+            "status": "applied|would_apply|failed|not_attempted",
+            "edits": [{"kind": str, "start_line": int|null,
+                       "end_line": int|null, "position": str,
+                       "operation_id": str|null,
+                       "error_code": str, "error_message": str}]}],
+ "operations": [str], "undo": [str], "receipt_path": str|null,
+ "post_apply": [{"path": str,
+                 "verdict": "parsed|parse_error|parse_unavailable",
+                 "lines": [int]}],
+ "refresh": str, "caveat": str,
+ "ErrorType": str, "error": str, "exit_code": int}
+```
+
+`files` names every file in the plan, in ascending path order, and `edits`
+holds the edits that were attempted, in application order. `operation_id` is
+present (and `null` under `--dry-run`) on every attempted edit; `error_code`
+and `error_message` appear only on the edit that failed. `position` appears
+only for an insertion.
+
+`operations` is the recovery reference in application order; `undo` is the
+same list as the commands that reverse it, last operation first. `receipt_path`
+is the JSON receipt written for a run that changed something, and `null` under
+`--dry-run` or when nothing was written. `post_apply` covers the files that
+were actually modified (empty under `--dry-run`), and `lines` is non-empty
+only for `parse_error`. `refresh` is `skipped`, `ran`, or `failed (...)` — it
+says which happened rather than assuming one.
+
+`partial` is `true` only when a failure left some files written and some not.
+The last three members appear only when the run failed, and the exit code is
+the taxonomy's: 5 for a stale pre-pass or a keeper 5, 1 for `PartialApply`
+(something was written) or `KeeperFailure` (nothing was), 3 for
+`KeeperUnavailable` or `KeeperCapabilityMissing`.
+
 ## Error contract (non-JSON)
 
 Failures print exactly one line `ErrorType: description` to stderr:
@@ -456,6 +497,15 @@ RebuildRequiredError, LockedError, InternalError. Exit codes: 0 success
 3 backend or extension unavailable, 4 the index requires a rebuild, 5 lock
 or concurrency conflict. The only non-verbose stderr output on success is
 the documented single-line staleness Warning.
+
+A plan refusal names itself the same way and reuses those numbers: `PlanStale`
+(5), `PathEscapesProject` / `OverlappingEdits` / `AmbiguousOrder` /
+`AmbiguousNode` / `PlanFormatError` / `PlanHashMismatch` /
+`SubLineEditUnsupported` / `CarriageReturnInPlan` (2), `LocatorMismatch` (5),
+`NotUtf8` / `NewlineMismatch` / `MixedNewlines` / `PlanFormatError` (1),
+`SemanticProviderUnavailable` (3). Applying adds `KeeperUnavailable` and
+`KeeperCapabilityMissing` (3), `KeeperFailure` and `PartialApply` (1). No exit
+number was added to the five.
 
 ## Error contract (--json)
 

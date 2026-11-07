@@ -6,7 +6,8 @@
 previewed without writing.** Six plan commands appear: three writers
 (`plan-replace-body`, `plan-insert-symbol`, `plan-delete-declaration`),
 `plan-validate`, `plan-show`, and `plan-rename-symbol` as a reserved, refused
-verb. No command applies a plan yet — that is the next leg.
+verb — and `plan-apply` applies one through filekeeper, reporting every file
+and handing back the ordered operations to undo.
 
 - **A plan is its file.** The document's canonical bytes (UTF-8, sorted keys,
   no insignificant whitespace, no trailing newline) are hashed to
@@ -47,6 +48,42 @@ offsets into the stored bytes with offset 0 after any BOM (the BOM is
   `CarriageReturnInPlan`, `SubLineEditUnsupported`, `OverlappingEdits`,
   `AmbiguousOrder`, `AmbiguousNode`, `LocatorMismatch`, `PlanStale`,
   `PlanFormatError`, `PlanHashMismatch`, `SemanticProviderUnavailable`.
+- **`plan-apply` applies the plan, one filekeeper mutation per edit.**
+  `plan-apply <ref>` runs a read-only pre-pass first — the same code
+  `plan-validate` runs, so the two cannot disagree about what stale means —
+  and one failure there refuses the whole plan (`PlanStale`, exit 5) with zero
+  mutations. Each edit is then one `keeper file replace-lines\|insert-lines\|
+  delete-lines` call carrying the hash observed immediately before it and, when
+  the plan carries it, the expected region text; the next edit's hash is the
+  `after_hash` keeper returned. Files apply in ascending path order and, within
+  a file, start lines descending. A failure stops the run: no further file, no
+  compensating write.
+- **The report names every file** as `applied`, `would_apply`, `failed` or
+  `not_attempted`, with per-edit ranges, operation ids and the keeper code and
+  message on a failure, plus the plan id, the structural identity and whether
+  the run is partial. A mid-loop failure is exit 1 `PartialApply` with the
+  report on stdout once anything was written, and `KeeperFailure` when nothing
+  was; keeper 5 maps to 5.
+- **The way back is a list.** Every operation id is printed in application
+  order and undone in reverse with `keeper history undo <id>`; a refused undo
+  (exit 12) ends recovery and is reported, never retried. Every call carries
+  `--task-id <plan_id>`, so `keeper history list --task-id sha256:<hex>`
+  reconstructs the application from keeper's journal, and a JSON receipt lands
+  in `.code-indexer/receipts/<plan-hash>-<timestamp>.json` with its path
+  printed.
+- **`--dry-run` writes nothing** and still runs the pre-pass: keeper's own
+  `--dry-run` goes to every call and every file reports `would_apply`.
+- **No fallback path.** An absent keeper is `KeeperUnavailable` (exit 3) with
+  the install line, and a keeper whose `file replace-lines --help` lacks
+  `--expected-hash`, `--expected-content` or `--dry-run` is
+  `KeeperCapabilityMissing` (exit 3), naming the flag: the probe is by flag and
+  not by version, because a build that keeps the version and drops a guard has
+  to be caught.
+- **Post-apply is a parse verdict, never a compile verdict.** Every modified
+  file is reparsed and reported `parsed`, `parse_error` with the offending
+  lines, or `parse_unavailable` where the language has no grammar — read from
+  the parser, never from the chunker's fallback. The reparse writes nothing;
+  `--refresh` runs one incremental pass afterwards and the report says so.
 - `.code-indexer/` (the plan directory) is now ignored: plans are generated
   documents and are never committed.
 
