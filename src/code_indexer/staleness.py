@@ -12,6 +12,11 @@ Three verdicts, never a boolean guess:
 - ``stale`` -- at least one reason (modified, added, deleted file);
 - ``unknown`` -- the check could not run (project path absent, no completed
   pass, or the scan exceeded its own budget). ``unknown`` is never ``fresh``.
+
+A file the sensitive layer withholds is NOT a fourth verdict and NOT a stale
+reason: the index pass drops it deliberately, so the diff re-applies the same
+detector to the scanned paths it cannot find and reports them beside the
+verdict as ``skipped`` (path + reason only, never the material).
 """
 
 from __future__ import annotations
@@ -19,6 +24,10 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
+
+from .sensitive import (SKIP_REASON_CONTENT, SKIP_REASON_FILENAME,
+                        content_is_sensitive, filename_is_sensitive,
+                        skip_reason_text)
 
 FRESH = "fresh"
 STALE = "stale"
@@ -36,6 +45,14 @@ SCAN_BUDGET_FILES = 200_000
 # Order in which reasons are counted and listed.
 _KIND_ORDER = ("modified", "added", "deleted")
 
+# The skip decision is re-derived on the read path, so its reads are bounded
+# exactly like the pass's: the same 256 KiB prefix per file decides the same
+# verdict, and the total byte budget keeps an all-new tree from turning a
+# read command into an index pass (what is not examined stays an honest
+# ``added`` reason, never a silent skip).
+SENSITIVE_READ_CHARS = 65536 * 4
+SENSITIVE_RECHECK_BYTES = 8 * 1024 * 1024
+
 
 @dataclass(frozen=True)
 class Reason:
@@ -47,12 +64,29 @@ class Reason:
 
 
 @dataclass(frozen=True)
+class SkippedFile:
+    """A scanned path the sensitive layer withholds.
+
+    ``file`` is the path and ``reason`` names the layer that fired
+    ('sensitive filename' or 'sensitive content') — never the material.
+    """
+
+    file: str
+    reason: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {"file": self.file, "reason": self.reason}
+
+
+@dataclass(frozen=True)
 class StalenessVerdict:
     """One project's verdict. ``detail`` explains an ``unknown``."""
 
     state: str
     reasons: tuple[Reason, ...] = ()
     reason_count: int = 0
+    skipped: tuple[SkippedFile, ...] = ()
+    skipped_count: int = 0
     last_indexed: str | None = None
     index_revision: str | None = None
     detail: str | None = None
@@ -86,10 +120,17 @@ def detect(indexed: Mapping[str, Any], scanned: Iterable[Any], *,
     is the scanner's result for the same tree and the same include/exclude
     rules. A file whose stat changed but whose content hash still matches is
     NOT reported: nothing a reader can observe changed.
+
+    A scanned path with no manifest row is a sensitive skip when the same
+detector the pass applied still withholds it; only the rest become
+``added`` reasons. That keeps a deliberately withheld file out of the stale
+banner without making a genuinely new file invisible.
     """
     tree = {f.path: f for f in scanned}
     reasons: list[Reason] = []
-    for path in sorted(set(tree) - set(indexed)):
+    skipped, added = _classify_skipped(
+        [tree[path] for path in sorted(set(tree) - set(indexed))])
+    for path in added:
         reasons.append(Reason("added", path))
     for path in sorted(set(indexed) - set(tree)):
         reasons.append(Reason("deleted", path))
@@ -100,8 +141,63 @@ def detect(indexed: Mapping[str, Any], scanned: Iterable[Any], *,
     state = STALE if reasons else FRESH
     return StalenessVerdict(state=state, reasons=tuple(reasons),
                             reason_count=len(reasons),
+                            skipped=tuple(skipped), skipped_count=len(skipped),
                             last_indexed=last_indexed,
                             index_revision=index_revision)
+
+
+def _classify_skipped(candidates: list[Any]) -> tuple[list[SkippedFile],
+                                                       list[str]]:
+    """Split scanned-but-unindexed paths into sensitive skips and real adds.
+
+    The pass drops a sensitive file without writing a row, so the diff
+    re-applies the SAME detector to the paths it cannot explain: the filename
+    layer is decided from the path alone (no read), the content layer reads
+    the same prefix the pass reads, so the two agree on the file. The verdict
+    carries the path and the layer that fired — never the material.
+
+    The read path is bounded: ``SENSITIVE_RECHECK_BYTES`` caps the total
+    examined, and a path past the budget stays an ``added`` reason. Reporting
+    a file stale when the detector was not re-applied is conservative and
+    honest; reporting it fresh would not be.
+    """
+    skipped: list[SkippedFile] = []
+    added: list[str] = []
+    budget = SENSITIVE_RECHECK_BYTES
+    for f in candidates:
+        if filename_is_sensitive(f.path):
+            skipped.append(SkippedFile(f.path, skip_reason_text("filename")))
+            continue
+        if budget <= 0:
+            added.append(f.path)
+            continue
+        try:
+            with open(f.abs_path, encoding="utf-8", errors="replace") as fh:
+                text = fh.read(SENSITIVE_READ_CHARS)
+        except OSError:
+            added.append(f.path)
+            continue
+        budget -= f.size or len(text)
+        if content_is_sensitive(text):
+            skipped.append(SkippedFile(f.path, skip_reason_text("content")))
+        else:
+            added.append(f.path)
+    return skipped, added
+
+
+def _skipped_summary(skipped: Iterable[SkippedFile], count: int) -> str | None:
+    """``1 file skipped (sensitive content)``, or None when nothing was held."""
+    if not count:
+        return None
+    files = "file" if count == 1 else "files"
+    parts = []
+    for reason in (SKIP_REASON_CONTENT, SKIP_REASON_FILENAME):
+        n = sum(1 for s in skipped if s.reason == reason)
+        if n:
+            # The numeral is dropped when it would only repeat the total, so
+            # a single withholding reads '1 file skipped (sensitive content)'.
+            parts.append(reason if count == 1 else f"{n} {reason}")
+    return f"{count} {files} skipped ({', '.join(parts)})"
 
 
 def unknown(detail: str, *, last_indexed: str | None = None,
@@ -111,12 +207,22 @@ def unknown(detail: str, *, last_indexed: str | None = None,
 
 
 def block(verdict: StalenessVerdict) -> dict[str, Any]:
-    """The additive JSON block, schema 1 (ADR-0003 section 3)."""
+    """The additive JSON block, schema 1 (ADR-0003 section 3).
+
+    ``skipped_*`` describes the files the sensitive layer withholds: a count,
+    a path+reason list (capped like the reasons) and the same phrase the text
+    line prints. It is present on a FRESH verdict, so "nothing changed" and
+    "one file withheld on purpose" never read alike.
+    """
     return {
         "stale": verdict.stale,
         "stale_known": verdict.known,
         "stale_reasons": [r.to_dict() for r in verdict.reasons[:REASON_CAP]],
         "stale_reason_count": verdict.reason_count,
+        "skipped_count": verdict.skipped_count,
+        "skipped_files": [s.to_dict() for s in verdict.skipped[:REASON_CAP]],
+        "skipped_summary": _skipped_summary(verdict.skipped,
+                                            verdict.skipped_count),
         "index_revision": verdict.index_revision,
         "last_indexed": verdict.last_indexed,
     }
@@ -165,6 +271,8 @@ def aggregate(verdicts: Mapping[str, StalenessVerdict]) -> dict[str, Any]:
     for verdict in verdicts.values():
         merged.extend(verdict.reasons)
     total = sum(v.reason_count for v in verdicts.values())
+    merged_skipped = [s for v in verdicts.values() for s in v.skipped]
+    skipped_total = sum(v.skipped_count for v in verdicts.values())
     known = all(v.known for v in verdicts.values())
     any_stale = any(v.stale for v in verdicts.values())
     return {
@@ -172,6 +280,9 @@ def aggregate(verdicts: Mapping[str, StalenessVerdict]) -> dict[str, Any]:
         "stale_known": known,
         "stale_reasons": [r.to_dict() for r in merged[:REASON_CAP]],
         "stale_reason_count": total,
+        "skipped_count": skipped_total,
+        "skipped_files": [s.to_dict() for s in merged_skipped[:REASON_CAP]],
+        "skipped_summary": _skipped_summary(merged_skipped, skipped_total),
         "index_revision": None,
         "last_indexed": None,
     }

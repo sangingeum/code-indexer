@@ -88,3 +88,15 @@ def file_is_sensitive(rel_path: str, text: str) -> str | None:
     if content_is_sensitive(text):
         return "content"
     return None
+
+
+# The phrases a withholding is reported by. They name the LAYER that fired,
+# never the material it withheld: an answer may say a file was skipped for
+# sensitive content, and must never repeat the content itself.
+SKIP_REASON_FILENAME = "sensitive filename"
+SKIP_REASON_CONTENT = "sensitive content"
+
+
+def skip_reason_text(verdict: str) -> str:
+    """The reported phrase for one verdict ('filename' or 'content')."""
+    return SKIP_REASON_FILENAME if verdict == "filename" else SKIP_REASON_CONTENT

@@ -1246,6 +1246,10 @@ def index_status(
                           "run reindex-project to build the index")
     block, _ = _read_staleness(core, entry, refresh=False,
                                json_output=json_output)
+    # A sensitive skip is its own state, not a stale reason and not a silent
+    # zero: the count and the layer that fired ride on the same line.
+    if block.get("skipped_summary"):
+        parts.append(str(block["skipped_summary"]))
     if json_output:
         fields.update(block)
         fields["schema"] = 1
