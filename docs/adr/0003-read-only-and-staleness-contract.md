@@ -4,6 +4,7 @@
 - Date: 2026-11-07
 - Deciders: owner (ratification), architecture review
 - Supersedes / Superseded by: --
+- Amended: 2026-11-07 -- section 3 quoted the pre-fix banner (`Warning: index is stale (3 files changed since 2026-11-06T22:10:00Z: 2 modified, 1 deleted); answers describe the index, not the tree. Refresh: code-indexer reindex-project <path>`); under the owner's ruling of the same date it now quotes the shipped one-line form -- the count phrase, the meaning sentence and the repair on ONE line, the meaning sentence kept because a count without it reads as a fact about the tree rather than about the answer.
 
 ## Decision in one paragraph
 
@@ -53,7 +54,7 @@ JSON, on every read command's answer -- in the commands that have a JSON mode to
 
 A withheld file is reported beside the verdict, not as one of its reasons: `stale: false` with a non-zero `withheld_count` means that nothing in the tree differs from the index, not that nothing was withheld from it. The override that admits sensitive material to the index (`--allow-sensitive`) is honoured by the check as well: with it set, a rowless path is an ordinary `added` reason, because that is what the next pass will do.
 
-Text mode prints exactly one stderr line and nothing on stdout: `Warning: index is stale (3 files changed since 2026-11-06T22:10:00Z: 2 modified, 1 deleted); answers describe the index, not the tree. Refresh: code-indexer reindex-project <path>`. A fresh answer prints nothing extra; an `unknown` answer prints one line saying the check did not run.
+Text mode prints exactly one stderr line and nothing on stdout: `Warning: index is stale: 3 modified files, 1 deleted file -- <path>; answers describe the index, not the tree; refresh with code-indexer reindex-project <path>`. A fresh answer prints nothing extra; an `unknown` answer prints one line saying the check did not run.
 
 ### 4. How refresh is triggered
 
