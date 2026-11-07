@@ -12,6 +12,11 @@ A failure stops the run. No compensating write is issued, because an undo is
 most likely to be refused just after a failure and a half-undone tree is the
 state no report describes. The report is assembled from what happened, and the
 ordered operation ids are the recovery reference.
+
+A ``parse_unavailable`` verdict is unreachable through ``plan-apply`` by
+construction: the locator refuses a file whose language has no grammar first,
+with ``LocatorMismatch``, and the verdict itself is verified at the parser --
+it is a parse fact about that file, never an apply behaviour.
 """
 
 from __future__ import annotations
@@ -332,17 +337,22 @@ def _problem_lines(root_node, limit: int = 12) -> list[int]:
 def post_apply_verdict(root: str, paths: list[str]) -> list[dict[str, Any]]:
     """Reparse every modified file and report what the parser said.
 
-    The verdict is the parser's own -- ``has_error`` and ``is_missing`` -- not
-    the chunker's, which never fails because it falls back. Nothing is
-    written: this is a read of the bytes keeper just wrote.
+    The verdict comes from ``ts_chunker.parse_file`` -- the same one rung
+    ``plan-validate`` reads -- so a file cannot be ``parse_unavailable`` to
+    the validate and ``parsed`` here. The tree is parsed a second time only to
+    name the offending lines of a ``parse_error``; it never decides the
+    verdict. Nothing is written: this is a read of the bytes keeper just
+    wrote.
     """
     out: list[dict[str, Any]] = []
     for path in paths:
         tf = plans.read_text_file(root, path)
-        tree, verdict = ts_chunker.parse_tree(path, tf.text)
+        _chunks, verdict = ts_chunker.parse_file(path, tf.text)
         entry: dict[str, Any] = {"path": path, "verdict": verdict, "lines": []}
-        if tree is not None and verdict == ts_chunker.PARSE_ERROR:
-            entry["lines"] = _problem_lines(tree.root_node)
+        if verdict == ts_chunker.PARSE_ERROR:
+            tree, _parsed = ts_chunker.parse_tree(path, tf.text)
+            if tree is not None:
+                entry["lines"] = _problem_lines(tree.root_node)
         out.append(entry)
     return out
 

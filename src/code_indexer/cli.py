@@ -2665,8 +2665,21 @@ def plan_apply(
 
     Post-apply verdicts are the parser's, per file: parsed, parse_error with
     the offending lines, or parse_unavailable. They are not a compile check,
-    and the reparse writes nothing unless --refresh is passed.
+    and the reparse writes nothing unless --refresh is passed. The verdict
+    comes from the same rung `plan-validate` reads, so the two cannot
+    disagree about one file; parse_unavailable is unreachable through an
+    apply by construction, because a file whose language has no grammar is
+    refused at the locator first, with LocatorMismatch.
+
+    --skip-stale-check is refused here (ArgumentError, exit 2): a plan's
+    staleness is not skippable when a source file is about to be written.
     """
+    if skip_stale_check:
+        _json_failure(ArgumentError(
+            "plan-apply refuses --skip-stale-check: a plan's staleness is not "
+            "skippable when a source file is about to be written; the "
+            "pre-pass compares every touched file's hash"), json_output)
+        return
     refresh_error: IndexerError | None = None
     application: apply_mod.Application | None = None
     try:

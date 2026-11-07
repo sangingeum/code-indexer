@@ -134,10 +134,12 @@ document in the plan directory; under `--print` they write nothing at all.
 `plan-apply` is a write command: it mutates the sources through filekeeper and
 writes one receipt. Under `--dry-run` it writes nothing at all.
 
-Global flags: every command accepts `--skip-stale-check`, and it is
-**inert**: reads never index, so there is nothing to skip, and reporting
-staleness without repairing it is the default. Exactly seven commands also
-accept `--fresh`: `semantic-search`, `skeleton`, `outline`, `find-symbol`,
+Global flags: every command accepts `--skip-stale-check`. On every command but
+one it is **inert**: reads never index, so there is nothing to skip, and
+reporting staleness without repairing it is the default. `plan-apply` is the
+exception: it refuses the flag (`ArgumentError`, exit 2), because a plan's
+staleness is not skippable when a source file is about to be written. Exactly
+seven commands also accept `--fresh`: `semantic-search`, `skeleton`, `outline`, `find-symbol`,
 `find-definition`, `get-code-context`, and `find-references`. It is absent on
 `find-callers`, `find-callees`, `deps`, `overview`, and `changed-symbols`.
 On `get-code-context` `--fresh` keeps its meaning — read the live file and
@@ -493,7 +495,12 @@ and its path printed — losing the receipt loses convenience, not evidence.
 **Post-apply** reparses every modified file and reports the parser's own
 verdict per file: `parsed`, `parse_error` (with the offending lines) or
 `parse_unavailable` when the language has no grammar here. This is a parse
-verdict, never a compile verdict. The reparse writes nothing; `--refresh`
+verdict, never a compile verdict, and it is read from the same parser rung
+`plan-validate` reports, so the two surfaces cannot disagree about one file.
+`parse_unavailable` is unreachable **through** `plan-apply` by construction:
+the locator refuses a file whose language has no grammar first, with
+`LocatorMismatch`, and the verdict is verified at the parser -- it is not an
+apply behaviour. The reparse writes nothing; `--refresh`
 runs one incremental index pass after the report and the report says which
 happened (`refresh: ran` / `refresh: skipped`).
 
@@ -897,7 +904,9 @@ the command then answers normally.
   pre-pass refusal is exit 5 with zero mutations, a mid-loop failure is exit 1
   `PartialApply` with the report on stdout, an absent keeper is exit 3
   `KeeperUnavailable` and never a fallback. `--refresh` runs one incremental
-  pass after the report and the report says so.
+  pass after the report and the report says so. `--skip-stale-check` is
+  refused here (`ArgumentError`, exit 2): a plan's staleness is not skippable
+  when a source file is about to be written.
 
 ## Token reduction (schema v3)
 

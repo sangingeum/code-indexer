@@ -22,7 +22,7 @@ it, because references are textual and nothing would verify the rename.
   hash per touched file, the declared newline convention, one region hash per
   edit, and the old bytes when they fit under 8 KiB.
 - **Coordinates are rules, not conventions.** 1-based inclusive lines, byte
-offsets into the stored bytes with offset 0 after any BOM (the BOM is
+  offsets into the stored bytes with offset 0 after any BOM (the BOM is
   preserved and lies inside no range), the terminator not part of its line, no
   columns, and a line/byte cross-check that turns a corrupted offset into
   arithmetic failure instead of a silent wrong edit. A final line without a

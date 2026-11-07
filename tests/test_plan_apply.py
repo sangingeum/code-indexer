@@ -22,7 +22,7 @@ from typer.testing import CliRunner  # noqa: E402
 import apply_rig  # noqa: E402
 from code_indexer import apply as apply_mod  # noqa: E402
 from code_indexer import keeper as keeper_mod  # noqa: E402
-from code_indexer import plans  # noqa: E402
+from code_indexer import plans, ts_chunker  # noqa: E402
 from code_indexer.cli import app  # noqa: E402
 from code_indexer.errors import (  # noqa: E402
     EXIT_BACKEND,
@@ -556,3 +556,46 @@ def test_an_attribute_block_stays_with_its_declaration(make_rig):
         "    return 41\n")
     assert "    @staticmethod\n    def helper():\n        return attr\n" \
         in built.read("deco.py")
+
+
+def test_the_post_apply_verdict_is_the_same_rung_the_validate_reads(
+        tmp_path):
+    """One source for a file's syntax verdict, not two that can disagree.
+
+    The validate ladder reads ts_chunker.parse_file; the post-apply report
+    used to read parse_tree, which answers `parsed` for a file whose AST holds
+    no unit at all while parse_file answers `parse_unavailable` for the same
+    bytes. Both now read parse_file, so the two surfaces cannot disagree.
+    """
+    root = str(tmp_path)
+    (tmp_path / "quiet.py").write_text("# nothing to declare\n")
+    (tmp_path / "broken.py").write_text("def broken(:\n    return 1\n")
+    reported = {item["path"]: item
+                for item in apply_mod.post_apply_verdict(
+                    root, ["quiet.py", "broken.py"])}
+    for path in ("quiet.py", "broken.py"):
+        text = plans.read_text_file(root, path).text
+        _chunks, verdict = ts_chunker.parse_file(path, text)
+        assert reported[path]["verdict"] == verdict
+    assert reported["quiet.py"]["verdict"] == "parse_unavailable"
+    assert reported["broken.py"]["verdict"] == "parse_error"
+    assert reported["broken.py"]["lines"]
+
+
+def test_plan_apply_refuses_the_inert_skip_stale_flag(rig):
+    """A write command does not accept a flag promising to skip its guard.
+
+    --skip-stale-check is inert on reads because reads never index; on the one
+    command that writes a source file it would read as a feature and do
+    nothing. It is refused explicitly, before keeper is probed and before any
+    precondition runs.
+    """
+    plan_path = apply_rig.plan_replacing_one(rig, "mod.py", "one",
+                                             "    return 41")
+    result = run(rig, plan_path, "--skip-stale-check", "--json")
+    assert result.exit_code == EXIT_USAGE
+    payload = json.loads(result.stdout)
+    assert payload["ErrorType"] == "ArgumentError"
+    assert "not skippable" in payload["error"]
+    assert rig.mutations() == []
+    assert "    return 41" not in rig.read("mod.py")
