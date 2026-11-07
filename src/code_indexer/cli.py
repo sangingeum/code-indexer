@@ -19,10 +19,11 @@ import time
 from typing import Any, NoReturn
 
 import typer
+from typer.models import CommandInfo
 
 logger = logging.getLogger("code-indexer.cli")
 
-from .command_classes import COMPACT_FORMAT_COMMANDS
+from .command_classes import COMPACT_FORMAT_COMMANDS, HELP_PANEL_ORDER, help_panel
 from .errors import fail
 from .errors import ArgumentError, classify, IndexerError, RebuildRequiredError
 from .errors import (AmbiguousSymbolError, ExtensionUnavailableError,
@@ -65,6 +66,29 @@ app = typer.Typer(
 
 _core: Core | None = None
 _core_skip: bool = False
+
+
+def _command_name(info: CommandInfo) -> str:
+    """One command's registered spelling, by typer's own naming rule."""
+    if info.name:
+        return info.name
+    assert info.callback is not None, "a registered command has a callback"
+    return info.callback.__name__.lower().replace("_", "-")
+
+
+def apply_help_panels(infos: list[CommandInfo]) -> list[CommandInfo]:
+    """Assign each command's help panel and return them in panel order.
+
+    ``command_classes.HELP_PANEL_BY_COMMAND`` is the single source of the
+    assignment. An unpanelled command raises here, naming itself, instead of
+    rendering under a default heading -- a new command cannot ship ungrouped.
+    The sort is stable and panel-rank only: registration order inside a panel
+    is untouched.
+    """
+    rank = {panel: index for index, panel in enumerate(HELP_PANEL_ORDER)}
+    for info in infos:
+        info.rich_help_panel = help_panel(_command_name(info))
+    return sorted(infos, key=lambda info: rank[help_panel(_command_name(info))])
 
 
 def _get_core(skip_stale_check: bool) -> Core:
@@ -3354,6 +3378,11 @@ def eval_compare(
     except json.JSONDecodeError as exc:
         _die(f"error: bad report JSON: {exc}")
     typer.echo(compare_reports(ra, rb))
+
+
+# The listing is grouped here, after every command is registered; the command
+# set, their flags and their own --help are untouched.
+app.registered_commands[:] = apply_help_panels(app.registered_commands)
 
 
 if __name__ == "__main__":

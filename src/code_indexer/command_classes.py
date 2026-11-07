@@ -17,6 +17,8 @@ pass before the answer).
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 WRITE_ONLY_COMMANDS: frozenset[str] = frozenset({
     "add-project",
     "index-more",
@@ -101,3 +103,84 @@ def is_write_command(name: str, *, sweep_apply: bool = False) -> bool:
 def all_commands() -> frozenset[str]:
     """The closed roster, alias spellings included, exactly once each."""
     return WRITE_ONLY_COMMANDS | CONDITIONAL_WRITE_COMMANDS | READ_COMMANDS
+
+
+# ---------------------------------------------------------------------------
+# Help panels: the listing a new agent reads, never the command set.
+#
+# Nothing here adds, removes, renames or re-flags a command. A panel is a
+# heading on the top-level listing only: each command's own --help is built
+# from its callback and never sees these names.
+# ---------------------------------------------------------------------------
+
+CORE_PANEL = "Core"
+ADVANCED_PANEL = "Advanced"
+
+# Panel order in ``code-indexer --help``. The entry point is listed first, so a
+# reader meets the six commands a new agent needs before the long tail.
+HELP_PANEL_ORDER: tuple[str, ...] = (CORE_PANEL, ADVANCED_PANEL)
+
+# Every registered command, exactly one panel each. This dict is the single
+# source of the assignment: ``cli.apply_help_panels`` reads it at import, and
+# ``tests/test_help_panels.py`` compares it with the typer registry -- so a
+# command added without a panel fails the suite instead of shipping under a
+# default heading.
+HELP_PANEL_BY_COMMAND: dict[str, str] = {
+    # Core: orientation, structure, lookup, context, meaning, state. These are
+    # the six commands every survey respondent used; nothing else qualifies.
+    "overview": CORE_PANEL,
+    "skeleton": CORE_PANEL,
+    "find-symbol": CORE_PANEL,
+    "get-code-context": CORE_PANEL,
+    "semantic-search": CORE_PANEL,
+    "index-status": CORE_PANEL,
+    # Advanced: everything else. Registration order inside this panel already
+    # clusters by task family, so it reads as: diagnostic and change reads,
+    # graph reads, registry, index maintenance, freshness, file structure, the
+    # plan family, then measurement.
+    "doctor": ADVANCED_PANEL,
+    "changed-symbols": ADVANCED_PANEL,
+    "find-callers": ADVANCED_PANEL,
+    "find-callees": ADVANCED_PANEL,
+    "deps": ADVANCED_PANEL,
+    "add-project": ADVANCED_PANEL,
+    "index-more": ADVANCED_PANEL,
+    "remove-project": ADVANCED_PANEL,
+    "list-projects": ADVANCED_PANEL,
+    "lookup-project": ADVANCED_PANEL,
+    "sweep-orphans": ADVANCED_PANEL,
+    "reindex-project": ADVANCED_PANEL,
+    "watch": ADVANCED_PANEL,
+    "unwatch": ADVANCED_PANEL,
+    "outline": ADVANCED_PANEL,
+    "find-definition": ADVANCED_PANEL,
+    "find-references": ADVANCED_PANEL,
+    "plan-replace-body": ADVANCED_PANEL,
+    "plan-insert-symbol": ADVANCED_PANEL,
+    "plan-delete-declaration": ADVANCED_PANEL,
+    "plan-validate": ADVANCED_PANEL,
+    "plan-show": ADVANCED_PANEL,
+    "plan-apply": ADVANCED_PANEL,
+    "eval": ADVANCED_PANEL,
+    "eval-compare": ADVANCED_PANEL,
+    # The two hidden alias spellings never render, but the registry holds
+    # them, so they carry a panel like every other registered command.
+    "map": ADVANCED_PANEL,
+    "file-outline": ADVANCED_PANEL,
+}
+
+
+def help_panel(name: str) -> str:
+    """The help panel for ``name``; an unpanelled command is a roster defect."""
+    try:
+        return HELP_PANEL_BY_COMMAND[name]
+    except KeyError:
+        raise KeyError(
+            f"command {name!r} has no help panel: add it to "
+            "HELP_PANEL_BY_COMMAND in command_classes.py"
+        ) from None
+
+
+def unpanelled(names: Iterable[str]) -> list[str]:
+    """The names in ``names`` carrying no panel assignment, sorted."""
+    return sorted(name for name in names if name not in HELP_PANEL_BY_COMMAND)
