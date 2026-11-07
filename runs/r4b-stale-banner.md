@@ -215,3 +215,125 @@ never duplicated. JSON carries both, distinctly:
 | `after-double-fault.txt` | tip, both states distinctly, text and JSON |
 | `after-fresh.txt` | tip, fresh checkout: 0 bytes on stderr |
 | `base-index.txt`, `base-fresh-status.txt`, `base-fresh-overview.err` | base setup and the fresh read used to seed the fixtures |
+
+## Fix round
+
+The QA gate on this round failed two rows (its record is the verification
+document under `runs/` beside this one); everything else it measured was
+already green. Both rows are repaired here.
+
+Tip: `a80c9ae` (dispatch) -> `abd6540` (the banner and its pinning test) ->
+`d0210fc` (the documents).
+
+### The stale line carries its meaning again
+
+The stale branch dropped `answers describe the index, not the tree`, so the
+count read as a fact about the tree rather than about the answer. It is back,
+beside the refresh hint, on the same one stateless line -- count, project,
+guidance, repair:
+
+```
+Warning: index is stale: 1 added file -- <scratch>/proj; answers describe the index, not the tree; refresh with code-indexer reindex-project <scratch>/proj
+```
+
+One stale read of a fresh throwaway project (two files indexed, one added
+afterwards): exit 0, the answer on stdout, this single line on stderr
+(`captures/bar1-text.stderr`). The previous code tip `7704364` printed the
+same line without the sentence (`captures/base-text.stderr`).
+
+Nothing stateless was traded away to make room: no session token is read, no
+marker file is written, no first occurrence is suppressed, and the line is
+rendered from the verdict of the call. The other shapes keep their clauses:
+
+- three kinds at once (`captures/three-kinds-text.stderr`):
+
+  ```
+  Warning: index is stale: 1 modified file, 1 added file, 1 deleted file -- <scratch>/proj5; answers describe the index, not the tree; refresh with code-indexer reindex-project <scratch>/proj5
+  ```
+
+- stale and holding a withheld file (`captures/double-fault-text.stderr`):
+
+  ```
+  Warning: index is stale: 1 added file; 1 file skipped (sensitive content) -- <scratch>/proj2; answers describe the index, not the tree; refresh with code-indexer reindex-project <scratch>/proj2
+  ```
+
+- every one of those reads is `exit=0` (`captures/*.exit`).
+
+The pin is `test_the_stale_line_states_what_a_stale_answer_means` in
+`tests/test_read_contract.py`: on a one-reason verdict it requires the count,
+the guidance sentence and the refresh hint, requires the guidance to come
+before the repair, and requires the line to hold no newline. Removing either
+clause fails it.
+
+### Every document quotes the shipped line
+
+- `README.md` -- quotes the shipped line verbatim in a fenced block, and the
+  same block now names `withheld_count`, `withheld_files`, `withheld_summary`
+  and `withheld_unexamined_count` beside the six fields it already listed.
+- `SKILL-CLI.md` -- quotes the shipped line and nothing else; the prose about
+  what the line does no longer lives there.
+- `skill/references/machine-output.md` -- the one document that describes the
+  line in prose. Its quote is updated and so is the prose: the line is a
+  count with its meaning and its repair, not "the kinds of change and the
+  project, and nothing else".
+- `CHANGELOG.md` -- the Unreleased entry quotes the shipped line.
+- `skill/references/indexing.md` describes withheld reporting, not the banner;
+  it already names `withheld_count` / `withheld_files` and needed no change.
+- `docs/adr/0003-read-only-and-staleness-contract.md` is untouched: its
+  quoted example is the owner's call and is carded separately.
+
+The installed copy of the entry document and its references is refreshed to
+the tracked documents, so the digest check is green at this tip.
+
+### The measurements
+
+1. **The line.** A fresh throwaway project, one read -- pasted above. It
+   carries the count phrase, the guidance sentence and the refresh hint.
+2. **The JSON is unchanged.** `overview --json` from this tip and from a
+   worktree at `7704364` over the same index produce byte-identical stdout:
+   `captures/bar2-json-diff.txt` is empty, the base worktree head is in
+   `captures/bar2-base-sha.txt`. The block still carries all ten fields, with
+   `stale_reasons` `[{kind: added, file: gamma.py}]`, `stale_reason_count` 1,
+   `index_revision` `1` and a `last_indexed` stamp; the double-fault and
+   three-kind captures carry every reason and the withheld fields
+   (`captures/double-fault-json.stdout`, `captures/three-kinds-json.stdout`).
+3. **Two shells, one line, no state file.** Shell A (`env -i` with the index
+   root and a UTC clock) and shell B (a different working directory, `TZ`,
+   `LANG`, `TERM`, `SHELL` and a bogus stale-token variable) print
+   byte-identical lines; `diff` against the first read is empty
+   (`captures/bar3-shellA.stderr`, `captures/bar3-shellB.stderr`). Files in
+   the index root and the project tree before and after those reads
+   (`captures/state-before.txt`, `captures/state-after.txt`, diff in
+   `captures/state-diff.txt`): `manifest.db` is unchanged in size and mtime,
+   and the only new entries are SQLite's own sidecars -- an empty
+   `manifest.db-wal` and a 32 KiB `manifest.db-shm`. No file named like a
+   marker, session, seen, stamp or token exists anywhere in the throwaway
+   root (`captures/state-marker-files.txt` is empty).
+4. **The grep sweep.** `git ls-files | xargs grep -n "Warning: index is
+   stale"` (`captures/bar4-grep.txt`). Every current surface -- the code, the
+   tests, `README.md`, `SKILL-CLI.md`, `machine-output.md`, `CHANGELOG.md` --
+   carries the shipped text or asserts it. The remaining hits are dated
+   evidence under `runs/`: earlier rounds' captures print the shape the tool
+   printed then, and the sections above this one record the shape this round
+   shipped before the fix. No current-surface document quotes an old shape.
+5. **The suite.** `uv run pytest tests/ -q -W error`: **1003 passed, 2
+   deselected** in 106.50 s, zero red (`pytest-tip.log`) -- one more test
+   than the gate's 1002, the new pin. The installed-copy digest is green
+   because the mirror was refreshed to the tracked documents.
+6. **Lint.** `uvx ruff check src tests scripts`: All checks passed
+   (`ruff.txt`). Publishing hygiene runs after the last capture: see below.
+
+### Captures
+
+| file | what |
+|---|---|
+| `capture.sh`, `redact.py` | the fixture, the reads and the redaction of host prefixes |
+| `bar1-text.*`, `bar1-text-again.*` | the two identical one-reason reads: stdout, stderr, exit |
+| `bar2-json.stdout`, `base-json.stdout`, `bar2-json-diff.txt` | the JSON read at this tip and at `7704364`, and their diff |
+| `base-text.stderr` | the same read at `7704364`, without the sentence |
+| `bar3-shellA.*`, `bar3-shellB.*` | the two unrelated environments |
+| `state-before.txt`, `state-after.txt`, `state-diff.txt`, `state-marker-files.txt` | what the reads left behind |
+| `double-fault-text.stdout`, `double-fault-json.stdout` | stale and withheld, both clauses |
+| `three-kinds-text.stdout`, `three-kinds-json.stdout` | modified, added and deleted at once |
+| `bar4-grep.txt` | every tracked quote of the banner |
+| `pytest-tip.log`, `ruff.txt` | the suite and the linter at this tip |
