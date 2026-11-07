@@ -135,18 +135,14 @@ code-indexer overview --project /path/to/repo
 # the structural map of one subtree, signatures included
 code-indexer skeleton --project /path/to/repo src/code_indexer
 
-# one file's declarations, with one-line docstrings
-code-indexer outline src/code_indexer/cli.py --docstrings
-
-# a name's every definition, then the exact lines of one of them
+# a name's every definition
 code-indexer find-definition Tracker
-code-indexer get-code-context src/code_indexer/core.py --symbol Core.search
 ```
 
 ## Ordering: source, then samples, tests, docs, artifacts
 
-Every RANKED structural answer -- `find-definition`, `find-symbol`,
-`find-references`, `find-callers`, and both `overview` hotspot lists -- is
+Every RANKED answer -- `find-definition`, `find-symbol`, `find-references`,
+`find-callers`, both `overview` hotspot lists and `semantic-search` -- is
 ordered by one policy, in this order:
 
 1. **File class** -- `source`, then `examples`, then `tests`, then `docs`, then
@@ -160,20 +156,21 @@ ordered by one policy, in this order:
    `example`, `sample`, `samples`, `demo` and `demos` directories are shipped
    samples; everything else -- unknown shapes and vendored trees included -- is
    source.
-2. **Identity quality** -- a hit that can name what it matched sorts above one
-   that merely shares a name (a recorded kind, a named enclosing symbol,
-   attributed `ast` syntax), and a deterministic tie-break over the row's own
-   identity fields -- never insertion order -- closes the order.
+2. **The surface's own second key** -- identity quality for the structural
+   surfaces (a hit that can name what it matched sorts above one that merely
+   shares a name: a recorded kind, a named enclosing symbol, attributed `ast`
+   syntax, then a deterministic tie-break over the row's identity fields --
+   never insertion order); for `semantic-search`, the order its ranking
+   produced.
 
 **This is an ordering, not a filter.** Every hit is still returned, the
 demoted ones after the promoted ones. Each surface keeps its cap and default
-(`--limit`, `--max-nodes`, the ten-row hotspot lists); the policy decides
-which hits fill a capped answer, and an uncapped answer never drops one.
+(`--limit`, `--max-nodes`, the ten-row hotspot lists); the policy decides the
+fill of a capped answer and never drops one from an uncapped answer.
 
 ### Which keys fire on which surface
 
-A key that cannot VARY across the rows of one answer is not a key, so none is
-listed below.
+A key that cannot VARY across the rows of one answer is not a key.
 
 | surface | keys that can fire, in order | what cannot fire, and why |
 |---|---|---|
@@ -185,78 +182,60 @@ listed below.
 
 ### `semantic-search`: the ladder, then the mode's own order
 
-`semantic-search` uses the same ladder as key 1 -- `source`, `examples`,
-`tests`, `docs`, `generated`/artifact, from `ordering.file_class` -- and there
-the second key is the order the ranking produced, not identity quality:
+Key 2 is the order the ranking produced: cosine descending (`--ranking
+vector`, `--mode dense`); adjusted score, cosine plus symbol-presence deltas
+(`--ranking metadata`); fused score, cosine + 0.25 x lexical (`--ranking
+hybrid`); bm25 rank (`--mode lexical`); reciprocal-rank fusion of the dense
+and lexical lists (`--mode hybrid`); RRF across the projects' lists
+(`--all-projects`). The class key fires in every one of those modes and
+before the shaping caps (`--limit`, `--per-file`, `--max-chars` /
+`--max-tokens`, the pure-data share cap), so the policy decides which hits
+fill a capped answer and never which hits are returned.
 
-| ranking / retrieval | keys that fire, in order |
-|---|---|
-| `--ranking vector` (default), `--mode dense` | file class, then cosine score descending |
-| `--ranking metadata` | file class, then adjusted score (cosine + symbol-presence deltas) descending |
-| `--ranking hybrid` | file class, then fused score (cosine + 0.25 x lexical) descending |
-| `--mode lexical` | file class, then bm25 rank |
-| `--mode hybrid` | file class, then reciprocal-rank fusion of the dense and lexical lists |
-| `--all-projects` | file class, then RRF across the projects' lists |
-
-The class key runs in every one of those modes, and before the shaping caps
-(`--limit`, `--per-file`, `--max-chars`/`--max-tokens`, the pure-data share
-cap), so the policy decides which hits fill a capped answer. It never decides
-membership: every hit the store returned in the window is still returned, the
-demoted ones at the tail.
-
-Two waivers, and only two:
-
-1. **A test-targeting query** -- any query token in `test`, `tests`, `testing`,
-   `spec`, `specs`, `fixture`, `fixtures`, `unittest`, `unittests` -- waives
-   the tests rung's demotion: test hits rank with source, and the mode's own
-   order breaks ties among them. Docs and generated artifacts stay demoted.
-2. **A data-format query** -- any query token in `json`, `yaml`, `yml`,
-   `toml` -- waives the pure-data down-weight and the pure-data share cap. A
-   data format is a chunk shape rather than a path class, so this waiver
-   changes no rung: the class order breaks the ties among what remains.
-
-Every hit names what it matched: the enclosing symbol when the chunk has one,
-otherwise the chunk's first non-blank code line, otherwise `file`. Text output
-prints it in parentheses after the line range, compact prints it in the symbol
-column, and `--json` carries the same string as `hit.identity` -- no hit
-renders as a bare `-` or an empty field.
+Two waivers, and only two. A **test-targeting query** (`test`, `tests`,
+`testing`, `spec`, `specs`, `fixture`, `fixtures`, `unittest`, `unittests`)
+sorts the tests rung with source -- the mode's order breaks ties among them,
+and docs or generated artifacts stay demoted. A **data-format query** (`json`,
+`yaml`, `yml`, `toml`) waives the pure-data down-weight and share cap; it
+changes no rung, because a data format is a chunk shape rather than a path
+class, so the class order breaks the ties among what remains. Every hit names
+what it matched: the enclosing symbol, else the chunk's first non-blank code
+line, else `file` -- in parentheses in text output, in the symbol column in
+compact, as `hit.identity` in `--json`. No bare `-`.
 
 ### The two walks that keep their own order
 
-`find-callees` does not use the policy, and says so: it returns call sites in
-store order (by line), because "what does this symbol reach, and where" reads
-one body rather than ranking the tree; `--max-nodes` counts that walk's nodes.
+`find-callees` does not use the policy: it returns call sites in store order
+(by line), because "what does this symbol reach, and where" reads one body
+rather than ranking the tree; `--max-nodes` counts that walk's nodes.
 
 `deps` DOES order each level by class before the node cap fills, so a test,
 sample or docs importer cannot take a budget slot ahead of a production one;
-it keeps the levels apart, because "what imports this, and how distantly" is a
-walk, not one ranked list.
+the levels stay levels: "what imports this, and how distantly" is a walk.
 
 ### One classifier, one case policy
 
 The classifier lives in `src/code_indexer/ordering.py`; a capped SQL read
-calls it as the `file_class_weight` function rather than restating the rules.
-Case is compared in exactly one place -- the symbol read's `COLLATE NOCASE`,
-which is ASCII case-insensitivity -- and no other surface compares names, so a
-non-ASCII identifier compares exactly everywhere.
+calls it as `file_class_weight` rather than restating the rules. Case is
+compared in one place only -- the symbol read's `COLLATE NOCASE` (ASCII) --
+and no other surface compares names, so a non-ASCII identifier compares
+exactly everywhere.
 
 ### The ladder is the default; a project may extend it
 
 `[tool.code-indexer.ordering]` in the project root's `pyproject.toml` adds
-DIRECTORY names to a rung -- `docs`, `examples` and `tests`, each a list. The
-additions are additive: a project classifies a rung member it names, but
-cannot declare `tests/` or `docs/` away. Both layers honour the same table,
-because the SQL function is registered closed over it.
+DIRECTORY names to a rung -- `docs`, `examples`, `tests`, each a list. The
+additions are additive: a project can name a rung member but cannot declare
+`tests/` or `docs/` away. Both layers honour the same table: the SQL function
+is registered closed over it.
 
-Why class outranks count: a test fixture, a shipped sample or an audit
-document accumulates identifier mentions because it exercises or quotes the
-code beneath it, so a list ordered by fan-in alone reports the fixture as the
-centre of the codebase. The class is a property of the path, so the order does
-not move with the index's incidental hit distribution. One caveat the
-ordering cannot repair: fan-in counts references to names AS OWNED BY the
-first defining file, so for a name defined in several files the count is an
-attribution artefact -- the class decides which files fill the ten slots, not
-what the numbers mean.
+Why class outranks count: a fixture, sample or audit document accumulates
+identifier mentions because it exercises or quotes the code beneath it, so a
+fan-in list reports the fixture as the centre of the codebase; class is a
+property of the path and does not move with hit distribution. Caveat: fan-in
+counts references AS OWNED BY the first defining file, so a name defined in
+several files carries an attribution artefact -- class decides which files
+fill the ten slots, not what the numbers mean.
 
 The workflow that keeps context small: `semantic-search` to locate,
 `find-symbol`/`find-definition` to confirm identity, `get-code-context
@@ -302,12 +281,10 @@ files with no grammar, so an empty answer from those two filters carries an
 `evidence_note` (JSON) or one explanatory line (text). Do not read such a
 zero as a negative.
 
-**Browse-mode order.** With no NAME there is no queried name to match, so
-browse mode's answer is class first, then `name`, `file`, `start_line`,
-`qualified_name`, `decl_hash`. That is a decision, not an accident: one key
-list serves both tiers, and the exact-name clause drops out because the
-answer has no name clause. A `--limit` smaller than the population therefore
-keeps the alphabetically first names OF THE PROMOTED CLASS, not of the tree.
+**Browse-mode order.** With no name there is no name clause, so the answer is
+class, `name`, `file`, `start_line`, `qualified_name`, `decl_hash`: one key
+list serves both tiers. A `--limit` below the population keeps the
+alphabetically first names OF THE PROMOTED CLASS, not of the tree.
 
 **Limits and ambiguity.** Exact-name `find-symbol` and `find-definition`
 return every definition; `--limit` bounds only when given. Browse mode (no
@@ -334,22 +311,18 @@ code-indexer deps src/code_indexer/cli.py --direction both --format edges
 ```
 
 - `find-references` reads the single reference store; every row carries
-  `confidence=` (`ast` or `heuristic`) and `receiver=`, and `--limit`
-  defaults to 25.
-- `find-callers` walks fan-in over `refs`; every **call site** is a node.
-- `find-callees` walks fan-out; a **target** is a node, so one target
-  reached twice is one callee.
+  `confidence=` (`ast` or `heuristic`) and `receiver=`, `--limit` defaults
+  to 25.
+- `find-callers` walks fan-in over `refs`; every **call site** is a node,
+  while `find-callees` walks fan-out where a **target** is a node, so one
+  target reached twice is one callee.
 - Both accept a dotted `Type.Member`, union over an ambiguous name, label
   each direct hit with `targets`, and report `truncated`/`omitted` when
   `--max-nodes` cut the walk.
-- `deps` resolves imports to files; unresolved edges are not drawn. Each
-  level is ordered by file class before the node cap fills, so a test,
-  sample or docs importer cannot take a budget slot ahead of a production
-  one; the levels themselves stay levels, because the answer is a walk.
-- `find-callees` is the one graph arm outside the ordering policy: its
-  children arrive in call-site order (by line), because "what does this
-  symbol reach" is a reading of one body rather than a relevance list over
-  the tree. `find-callers` is inside the policy, class first.
+- `deps` resolves imports to files; unresolved edges are not drawn, and each
+  level is class-ordered before the node cap fills (see the two walks above).
+- `find-callees` is the one graph arm outside the policy: call-site order,
+  because "what does this symbol reach" reads one body (see the two walks).
 
 Under these walks the store hands over everything it holds: the graph reads
 take `limit=None` by default, and a cap belongs to the layer above, which
@@ -375,38 +348,26 @@ Line-range mode on a changed file returns the requested lines plus one
 ```bash
 # meaning-shaped question, hybrid mode, eight hits
 code-indexer semantic-search "where does the token refresh happen" --project /path/to/repo
-
-# spread hits across files, compact output for a context window
-code-indexer semantic-search "lock ordering" --per-file 2 --format compact --max-chars 1200
-
-# run a labeled query set and compare two reports
-code-indexer eval --project /path/to/repo --queries eval/queries.jsonl --mode hybrid
-code-indexer eval-compare base.json candidate.json
 ```
 
 - `--mode` is `hybrid` (default), `dense` or `lexical`; `--ranking` is
-  `vector` (default), `metadata` or `hybrid`. `--mode lexical` answers from
-  the FTS table with no vector and no service.
+  `vector` (default), `metadata` or `hybrid`; `--mode lexical` answers from
+  the FTS table with no vector and no service. `--max-chars`/`--max-tokens`
+  cap the returned context, `--per-file` spreads hits across files, and
+  `--context-lines` widens each snippet.
 - One embedding attempt per query, with a short timeout. A search resolves
   ONE project by default and fans out only with `--all-projects`, where a
   30 s wall stops the walk (`skipped` with `reason=budget`, `partial: true`).
-- `--max-chars` / `--max-tokens` cap the returned context; `--per-file`
-  spreads hits across files; `--context-lines` widens each snippet.
-- On a `vectors=off` project, `semantic-search` refuses with `ConfigError`
-  and exit 4 before the query is embedded -- it never degrades to a lexical
-  answer silently.
-- `eval` writes its report to `--out` (else stdout) and `eval-compare` reads
-  two report files. Neither has a `--json` mode: the report file is already
-  machine-readable.
+- On a `vectors=off` project, `semantic-search` refuses with `ConfigError`,
+  exit 4, before the query is embedded -- never a silent lexical answer.
+- `eval` writes its report to `--out` (else stdout); `eval-compare` reads two
+  report files. Neither has `--json`: the report is already machine-readable.
 
 ## What changed
 
 ```bash
 # symbols touched by the working-tree changes
 code-indexer changed-symbols --include-untracked
-
-# what a range of commits changed, plus callers and candidate tests
-code-indexer changed-symbols --base origin/main --head HEAD --impact
 ```
 
 `changed-symbols` parses NEW/OLD contents out of the git diff, so it needs no
