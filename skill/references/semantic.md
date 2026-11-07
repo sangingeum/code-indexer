@@ -67,8 +67,9 @@ code-indexer semantic-search "where does the token refresh happen" --project /pa
   is `ArgumentError`, exit 2, when they name different formats (see
   [machine-output.md](machine-output.md)).
 - The hit's own line names what it matched: the enclosing symbol, else the
-  chunk's first non-blank code line, else `file` -- in parentheses in text
-  output, in the symbol column in compact, as `hit.identity` in `--json`.
+  chunk's first non-blank code line, else the hit's own file path -- in
+  parentheses in text output, in the symbol column in compact, as
+  `hit.identity` in `--json`.
 
 ## The eval harness
 
@@ -162,8 +163,8 @@ and docs or generated artifacts stay demoted. A **data-format query** (`json`,
 changes no rung, because a data format is a chunk shape rather than a path
 class, so the class order breaks the ties among what remains. Every hit names
 what it matched: the enclosing symbol, else the chunk's first non-blank code
-line, else `file` -- in parentheses in text output, in the symbol column in
-compact, as `hit.identity` in `--json`. No bare `-`.
+line, else the hit's own file path -- in parentheses in text output, in the
+symbol column in compact, as `hit.identity` in `--json`. No bare `-`.
 
 ### The two walks that keep their own order
 

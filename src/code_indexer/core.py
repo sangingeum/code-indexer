@@ -44,9 +44,11 @@ def _hit_identity(hit: dict[str, Any], width: int = 80) -> str:
     """What a hit matched, for every output format.
 
     The enclosing symbol when the chunk has one; otherwise the first non-blank
-    line of the chunk's snippet; ``file`` when the chunk has neither (an empty
-    or whitespace-only snippet). Never an empty string and never a bare dash:
-    text, compact and JSON name the same thing, so a scripted caller reads the
+    line of the chunk's snippet; otherwise the hit's own file path, which is
+    always known, so a hit never carries a constant in place of its name. The
+    literal ``file`` survives only as the last resort for a hit dict that
+    carries no path at all. Never an empty string and never a bare dash: text,
+    compact and JSON name the same thing, so a scripted caller reads the
     answer an agent reads.
     """
     symbol = (hit.get("symbol") or "").strip()
@@ -56,7 +58,7 @@ def _hit_identity(hit: dict[str, Any], width: int = 80) -> str:
         line = raw.strip()
         if line:
             return line[:width]
-    return "file"
+    return (hit.get("file") or "").strip()[:width] or "file"
 
 
 logger = logging.getLogger("code-indexer.core")
@@ -1337,7 +1339,7 @@ class Core:
         ``skipped_count`` / ``partial`` and the additive staleness block, so
         a consumer can tell the result is partial. Each JSON hit also carries
         ``identity``: exactly the name the text modes print (the symbol, else
-        the first non-blank snippet line, else ``file``).
+        the first non-blank snippet line, else the hit's file path).
         ``dropped`` > 0 appends one trailing truncation line in text/compact
         mode, and a non-empty ``skipped`` appends one trailing partial-result
         line (the documented exceptions to single-line stderr reporting).

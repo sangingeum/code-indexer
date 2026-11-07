@@ -211,10 +211,33 @@ def test_a_hit_without_a_symbol_names_what_matched(rig):
     assert "(import os)" in text_line
 
 
-def test_hit_identity_falls_back_to_the_file_qualifier():
+def test_hit_identity_falls_back_to_the_file_path():
+    """A symbol-less hit with a blank snippet names its own file, not a
+    constant: identity exists so a consumer can tell hits apart."""
+    hit = {"symbol": None, "snippet": "", "file": "pkg/mod.py"}
+    assert _hit_identity(hit) == "pkg/mod.py"
+    assert _hit_identity({**hit, "snippet": " \n\n\t\n"}) == "pkg/mod.py"
+    # The last resort survives only for a hit dict that carries no path at all.
     assert _hit_identity({"symbol": None, "snippet": ""}) == "file"
-    assert _hit_identity({"symbol": None, "snippet": " \n\n\t\n"}) == "file"
-    assert _hit_identity({"symbol": "alpha", "snippet": "x"}) == "alpha"
+    assert _hit_identity({"symbol": "alpha", "snippet": "x",
+                          "file": "pkg/mod.py"}) == "alpha"
+
+
+def test_the_three_formats_name_the_file_for_a_symbol_less_blank_snippet(rig):
+    """Text, compact and JSON print the same identity -- the hit's path when
+    neither a symbol nor a snippet line can name it."""
+    core, entry = rig
+    hit = {"project": entry.path, "file": "src/blank.py",
+           "start_line": 1, "end_line": 2, "snippet": " \n\n\t\n",
+           "score": 0.5, "symbol": None}
+    text = core.format_hits([hit], "text")
+    compact = core.format_hits([hit], "compact")
+    payload = json.loads(core.format_hits([hit], "json"))
+
+    text_line = next(ln for ln in text.splitlines() if "src/blank.py" in ln)
+    assert text_line.endswith("(src/blank.py)"), text_line
+    assert "  src/blank.py  " in compact
+    assert payload["hits"][0]["identity"] == "src/blank.py"
 
 
 def test_the_same_query_twice_gives_the_same_order(rig):
