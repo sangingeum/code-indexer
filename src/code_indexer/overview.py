@@ -19,7 +19,10 @@ Sections (each capped):
 - tests: test files/dirs and a framework hint
 - config/build: known config/build filenames present at the root
 - hotspots: top files by fan-in (distinct files importing them or
-  referencing their symbols) and by size
+  referencing their symbols) and by size, ordered by the same policy as
+  every other structural answer: source, tests, docs, generated/artifact,
+  then the count. A fixture or an audit document that accumulates
+  identifier mentions does not win orientation.
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ import os
 from typing import Any
 
 from .manifest import Manifest
+from .ordering import TESTS, file_class, hotspot_key
 
 # Known config/build files, checked at the project root.
 _CONFIG_FILES = (
@@ -181,12 +185,16 @@ def build_overview(m: Manifest, project_path: str,
     # outside and then filtered away.
     fan_in = {f: n for f, n in m.file_fan_in(path_prefix or None)
               if f in files}
+    # Ordered by the policy, not by the raw count: source first, then tests,
+    # docs and artifacts. A test fixture and an audit document accumulate
+    # identifier mentions because they exercise or quote the code beneath
+    # them, so a count-only list reports them as the centre of the codebase.
     hotspots_fan = sorted(
         ({"file": f, "fan_in": n} for f, n in fan_in.items()),
-        key=lambda d: (-d["fan_in"], d["file"]))[:10]
+        key=lambda d: hotspot_key(d["file"], d["fan_in"]))[:10]
     hotspots_size = sorted(
         ({"file": p, "loc": f.loc or 0} for p, f in files.items()),
-        key=lambda d: (-d["loc"], d["file"]))[:10]
+        key=lambda d: hotspot_key(d["file"], d["loc"]))[:10]
 
     return {
         "project": _root_dirname(project_path),
@@ -203,13 +211,12 @@ def build_overview(m: Manifest, project_path: str,
 
 
 def _is_test_path(path: str) -> bool:
-    base = os.path.basename(path)
-    parts = path.split("/")
-    if any(seg in ("tests", "test", "__tests__", "spec") for seg in parts[:-1]):
-        return True
-    return base.startswith("test_") or base.endswith("_test.py") \
-        or ".test." in base or ".spec." in base or base.endswith("_test.go") \
-        or base == "conftest.py"
+    """The overview's test list uses the SAME classifier the ordering does.
+
+    Two spellings of "test" would let a file be listed as a test and ranked
+    as source (or the reverse).
+    """
+    return file_class(path) == TESTS
 
 
 def format_overview(data: dict[str, Any], max_lines: int = 60) -> str:

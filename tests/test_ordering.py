@@ -176,7 +176,7 @@ def test_the_keys_are_total_so_two_runs_cannot_disagree():
 # asserted below -- only the class weight can produce it.
 
 SOURCE_FILE = "pkg/sim.py"
-SOURCE_TEXT = "def Tick():\n    return 1\n"
+SOURCE_TEXT = "def Tick():\n    return 1\n\n\ndef reset():\n    return 0\n"
 
 TEST_FILE = "tests/test_sim.py"
 TEST_TEXT = (
@@ -339,6 +339,31 @@ def test_find_references_puts_source_rows_before_more_numerous_test_rows(rig):
     assert weights == sorted(weights), files
     # An ordering, not a filter: every row is returned.
     assert data["total"] == len(data["references"])
+
+
+def test_overview_hotspots_promote_source_over_a_larger_test_fixture(rig):
+    """The test fixture has MORE fan-in and MORE size, and still loses."""
+    core, _reg, entry, project = rig
+    from code_indexer.overview import build_overview
+
+    m = core.manifest_for(entry.slug)
+    try:
+        data = build_overview(m, str(project))
+    finally:
+        m.close()
+    fan = {row["file"]: row["fan_in"] for row in data["hotspots"]["fan_in"]}
+    assert fan[CONFTEST_FILE] > fan[SOURCE_FILE], fan
+    assert data["hotspots"]["fan_in"][0]["file"] == SOURCE_FILE, fan
+    size = {row["file"]: row["loc"] for row in data["hotspots"]["size"]}
+    assert size[TEST_FILE] > size[SOURCE_FILE], size
+    assert data["hotspots"]["size"][0]["file"] == SOURCE_FILE, size
+
+
+def test_overview_hotspots_are_deterministic(rig):
+    _core, _reg, _entry, project = rig
+    first = _json(project, "overview")
+    second = _json(project, "overview")
+    assert first["hotspots"] == second["hotspots"]
 
 
 def test_find_references_is_deterministic(rig):
