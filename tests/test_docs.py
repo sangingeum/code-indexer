@@ -739,7 +739,7 @@ def test_the_surface_describes_the_read_write_contract():
     for field in ("stale", "stale_known", "stale_reasons",
                   "stale_reason_count", "index_revision", "last_indexed"):
         assert f"`{field}`" in text, field
-    assert "Warning: index is stale (3 files changed since" in text
+    assert "Warning: index is stale: 2 modified files, 1 deleted file" in text
     assert "answers describe the index, not the tree" in text
     # bounded query
     assert "--all-projects" in text and "reason=budget" in text

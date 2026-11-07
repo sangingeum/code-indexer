@@ -88,6 +88,11 @@ working tree, and reports `fresh`, `stale` (with reasons) or `unknown` -- and
 takes the project's flock and runs one incremental pass before answering.
 Otherwise repair is explicit -- a pass command or the watcher.
 
+A stale read prints one stateless count line -- `Warning: index is stale: 2
+modified files -- <path>; refresh with code-indexer reindex-project <path>` --
+on every call. Nothing is remembered between invocations; the per-file
+reasons, revision and timestamp stay in `--json` on every call.
+
 A file the sensitive layer withholds is not a staleness reason: it is reported
 as `1 file skipped (sensitive content)` (JSON: `withheld_count`) on a fresh verdict.
 

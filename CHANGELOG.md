@@ -1,5 +1,30 @@
 # Changelog
 
+## [Unreleased] — the banner states its count
+
+**The staleness banner is a stateless one-line count.** Every read of a stale
+project printed the same paragraph -- `index is stale (1 file changed since
+<timestamp>: 1 added); answers describe the index, not the tree. Refresh: ...`
+-- so a reader who saw it a few times stopped treating it as a signal. The
+line is now a count that is identical on every read while the tree stays
+stale and short enough to stay visible: `Warning: index is stale: 1 added
+file -- <path>; refresh with code-indexer reindex-project <path>`. The kinds
+and their counts are the whole text answer; the per-file reasons,
+`index_revision` and `last_indexed` stay in the `--json` block on every call,
+and `index-status` prints them on request. Nothing is stored, remembered or
+suppressed: a marker file, a manifest-mtime heuristic or a silent first
+occurrence would all make a later process believe it had already been told
+something it never saw, so none of them exists and there is no session token
+-- every read states the verdict it just computed. A withheld file is still a
+skip rather than a stale reason, and on a project that is both stale and
+holds skipped files the same line carries both facts distinctly (`1 added
+file; 1 file skipped (sensitive content)`), while `index-status` states the
+skip in its own line and its warning omits it, so no fact prints twice. Exit
+codes are unchanged: a stale read is still exit 0 with one stderr line, a
+schema-version refusal is still exit 4, and a failed command still prints no
+answer on stdout. `JSON` keys are unchanged -- no schema or
+`EXTRACTION_VERSION` change, no reindex.
+
 ## [Unreleased] — the reference split
 
 **The query reference is split at its concern boundary, and the budget did
