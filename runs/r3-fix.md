@@ -39,7 +39,8 @@ naming the contradiction. That is the base-decisive invocation
   `semantic-search` (through the stub rig): agree-pair exit 0 and identical to
   `--json`; `--format text` alone unchanged and different from JSON; `--json`
   alone unchanged; `--json --format text|compact` exit 2, stdout empty, message
-  naming the contradiction.
+  naming the contradiction. Unchanged is pinned per command: `--format text`
+  equals the no-flag invocation byte for byte.
 - **The mutation the gate ran still goes red.** `--format` silently winning
   (`return fmt` in place of the refusal) turned the three four-combination
   cases red — 3 failed — and the mutation was reverted by undo, not by a
@@ -79,7 +80,7 @@ naming the contradiction. That is the base-decisive invocation
     uv run pytest tests/ -q -W error        1067 passed, 2 deselected (base 6430168: 1049 passed, 2 deselected)
     uvx ruff check src tests scripts        All checks passed!
     uv run python scripts/publishing_hygiene_lint.py
-                                            scanned=1238 skipped=0 violations=0
+                                            scanned=1241 skipped=0 violations=0
 
 This record does not claim warn-clean: five `watcher.py:343` fork warnings under
 CI's own command are outside this round.
@@ -100,6 +101,7 @@ test passing. The repository was not touched by the sync.
 | `099c896` | G | the narrowed rule and its four-combination tests |
 | `4257200` | G | parity pinned on the whole read roster |
 | `43fec69` | G | docs and changelog follow the code |
+| `3bff398` | G | `--format text` pinned against the no-flag invocation |
 | (this record) | | `runs/r3-fix.md` and its captures |
 
 ## Open
