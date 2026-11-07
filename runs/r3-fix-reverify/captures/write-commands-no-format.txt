@@ -1,0 +1,5 @@
+argv	exit	stderr_first_line
+add-project x --format json	2	No such option: --format
+reindex-project x --format json	2	No such option: --format
+add-project x --format compact	2	No such option: --format
+reindex-project x --format compact	2	No such option: --format

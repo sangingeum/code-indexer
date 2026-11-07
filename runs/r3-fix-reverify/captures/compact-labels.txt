@@ -1,0 +1,7 @@
+command	bytesA	bytesB	raw_equal	masked_equal
+overview	185	185	yes	yes
+index-status	604	605	no	yes
+skeleton	175	175	yes	yes
+outline	117	117	yes	yes
+find-symbol	29	29	yes	yes
+find-definition	29	29	yes	yes

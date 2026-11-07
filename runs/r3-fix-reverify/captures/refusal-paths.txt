@@ -1,0 +1,16 @@
+command	spelling	exit	stdout_bytes	stderr_first_line	agree
+plan-show	--json	2	0	Try 'code-indexer plan-show --help' for help.	-
+plan-show	--format json	2	0	Try 'code-indexer plan-show --help' for help.	-
+# plan-show : two spellings agree on stdout+stderr+exit = True
+plan-validate	--json	2	0	Try 'code-indexer plan-validate --help' for help.	-
+plan-validate	--format json	2	0	Try 'code-indexer plan-validate --help' for help.	-
+# plan-validate : two spellings agree on stdout+stderr+exit = True
+plan-show no-such-plan	--json	1	120	-	-
+plan-show no-such-plan	--format json	1	120	-	-
+# plan-show no-such-plan: two spellings agree on stdout+stderr+exit = True
+plan-validate no-such-plan	--json	1	120	-	-
+plan-validate no-such-plan	--format json	1	120	-	-
+# plan-validate no-such-plan: two spellings agree on stdout+stderr+exit = True
+semantic-search helper	--json	0	807	-	-
+semantic-search helper	--format json	0	807	-	-
+# semantic-search helper: two spellings agree on stdout+stderr+exit = True

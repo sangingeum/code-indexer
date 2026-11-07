@@ -1,0 +1,2 @@
+help_listed_commands=31
+doctor overview changed-symbols find-callers find-callees deps add-project index-more remove-project list-projects lookup-project semantic-search index-status sweep-orphans reindex-project watch unwatch skeleton outline find-symbol find-definition get-code-context find-references plan-replace-body plan-insert-symbol plan-delete-declaration plan-validate plan-show plan-apply eval eval-compare
