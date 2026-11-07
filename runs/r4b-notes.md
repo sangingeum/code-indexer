@@ -48,11 +48,25 @@ the runs.
 
 ## No behavioural change
 
-`runs/r4b-notes/bytecode-compare.txt` compiles the base and tip copies of
-`src/code_indexer/staleness.py` and compares every code object: 21 in each,
-none differing once the leading docstring is excluded, `warning_line`'s
-bytecode and non-docstring constants identical (`bytecode_compare.py`). The
-only `src/` hunk in the round is that docstring wrap.
+Two independent checks, both against the base tree at `2822102`:
+
+- `runs/r4b-notes/bytecode-compare.txt`: compiles the base and tip copies of
+  `src/code_indexer/staleness.py` and compares every code object -- 21 in
+  each, none differing once the leading docstring is excluded, and
+  `warning_line`'s bytecode and non-docstring constants identical
+  (`bytecode_compare.py`). The only `src/` hunk in the round is that docstring
+  wrap.
+- `runs/r4b-notes/payload-compare.txt`: `capture-seven.sh` builds the same
+  fixtures and one shared index, then runs the base checkout and the tip
+  checkout through the same interpreter, moment by moment. Fifteen
+  base-vs-tip comparisons show `0` diff bytes on stdout, stderr and exit code:
+  `overview` stale, `index-status`, `overview` unknown, `overview` with three
+  reason kinds, `overview` stale plus withheld, `overview --allow-sensitive`,
+  and `semantic-search --all-projects`, each in text where text exists and in
+  JSON. Exit codes match on both sides in every row, the non-zero ones
+  included (unregistered project `1`, `--allow-sensitive` usage `2`,
+  vectors-off fan-out `4`). The per-file captures stay untracked beside the
+  log.
 
 ## Verification
 
@@ -61,7 +75,9 @@ only `src/` hunk in the round is that docstring wrap.
 | full suite `pytest tests/ -q -W error` | 1004 passed, 2 deselected, exit 0 (base 1003 + the new drift test) | `pytest-tip.log` |
 | `ruff check src tests scripts` | all checks passed | `ruff.txt` |
 | publishing hygiene, before the evidence commit | 1122 scanned, 0 violations | `hygiene.txt` |
+| base-vs-tip read payloads and exit codes | 15/15 byte-identical, exit codes equal | `payload-compare.txt` |
 
 The seven read shapes and the exit codes are untouched: no executable line
-changed, and the full suite (which covers the staleness JSON block across
+changed, the payload capture above compares them byte for byte against the
+base tree, and the full suite (which covers the staleness JSON block across
 verdicts, the withheld cases and the read/write split) is green.
