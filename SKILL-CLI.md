@@ -100,6 +100,9 @@ working tree, and reports `fresh`, `stale` (with reasons) or `unknown` -- and
 takes the project's flock and runs one incremental pass before answering.
 Otherwise repair is explicit -- a pass command or the watcher.
 
+A file the sensitive layer withholds is not a staleness reason: it is reported
+as `1 file skipped (sensitive content)` (JSON: `skipped_count`) on a fresh verdict.
+
 ## The read-only guarantee
 
 A read command never writes the manifest, the vector store or the sources: it

@@ -200,6 +200,12 @@ embedding identity is not the one this build would write -- plus
 `rows=current|absent` and the parse-verdict counts
 (`parse=parsed:N,parse_error:N,parse_unavailable:N`).
 
+It also names what the sensitive layer withheld: a suffixed
+`1 file skipped (sensitive content)` (or `sensitive filename`), and in
+`--json` the `skipped_count` / `skipped_files` / `skipped_summary` fields.
+Those files have no rows and are not stale reasons -- see the note under
+"Indexing scope and environment" below.
+
 `list-projects` gives the same summary for every registered project.
 `lookup-project` answers only whether a path, slug or name is registered, and
 indexes nothing. `doctor` runs the installation health checks (runtime
@@ -296,8 +302,17 @@ shaped like the ones users type, so indexing them ranks near-duplicate queries
 above the code they point at). The patterns are anchored to the repository
 root (`/runs/`, `/eval/`), so a same-named directory under `src/` stays
 indexed. The exclusion governs scans: rows already in a manifest are dropped
-by a reindex of the project, not by the file. One file stays in the gap
-between the scan set and the manifest: a file skipped by the sensitive scan is
-not excluded by this file and keeps reporting as an added file after a
-reindex, so a single persistent "added" reason is that known accounting gap,
-not churn.
+by a reindex of the project, not by the file.
+
+A file the sensitive scan withholds sits in the gap between the scan set and
+the manifest: it is scanned, it deliberately has no row, and it is **not** a
+staleness reason. The diff re-applies the same detector to the scanned paths
+it cannot find, so such a file is reported as `skipped` with the layer that
+fired -- `index-status` prints `1 file skipped (sensitive content)`, and
+`--json` carries `skipped_count`, `skipped_files` and `skipped_summary` --
+while the verdict stays `fresh`. A genuinely new non-sensitive file still
+reports `added`, and a withheld file that changes content is still skipped,
+because the detector is re-applied rather than remembered. The check reads no
+more than the pass does: only scanned paths with no row are opened, up to the
+same 256 KiB prefix, inside a total 8 MiB budget per check -- a path past
+that budget stays an honest `added` reason rather than a silent skip.

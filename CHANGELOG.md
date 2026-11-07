@@ -2,6 +2,24 @@
 
 ## [Unreleased] — the indexed tree
 
+**A withheld file is a skip, not a stale reason.** The index pass drops a
+sensitive file on purpose and writes no row for it, so the tree-vs-manifest
+diff saw a scanned path with no row and reported it as `added` on every read
+-- `index is stale (1 file changed ... 1 added)`, exit 0, forever. The diff
+now re-applies the same detector to the paths it cannot explain, and a
+withheld file is its own state: `index-status` prints
+`1 file skipped (sensitive content)` and `--json` carries `skipped_count`,
+`skipped_files` (path + the layer that fired) and `skipped_summary`, on a
+`fresh` verdict, so the banner is quiet and the skip is still visible and
+counted. A genuinely new non-sensitive file still reports `added`; a withheld
+file whose content changes is still skipped, because the detector is re-run
+rather than remembered; and no path, row, snippet or field names the material.
+Nothing was migrated: no manifest schema change, no `EXTRACTION_VERSION` bump,
+an existing manifest answers correctly without a reindex. The re-check reads
+only scanned paths with no row, at the same 256 KiB prefix and inside an
+8 MiB per-check budget, so it costs tens of microseconds on a real checkout
+and degrades to honest `added` reasons rather than a silent skip.
+
 **`semantic-search` ranks by source kind too.** The last relevance surface
 without the ladder now uses it: source before examples before tests before
 docs before generated/artifact, decided by the same

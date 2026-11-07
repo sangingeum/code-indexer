@@ -178,8 +178,12 @@ block (`schema` stays `1`):
 ```json
 {"stale": bool, "stale_known": bool,
  "stale_reasons": [{"kind": "modified|added|deleted", "file": str}],
- "stale_reason_count": int, "index_revision": str|null,
- "last_indexed": str|null}
+ "stale_reason_count": int,
+ "skipped_count": int,
+ "skipped_files": [{"file": str,
+                    "reason": "sensitive filename|sensitive content"}],
+ "skipped_summary": str|null,
+ "index_revision": str|null, "last_indexed": str|null}
 ```
 
 `stale_known` false means the verdict is `unknown` (project path absent, no
@@ -188,6 +192,14 @@ never means "checked and fresh". `stale_reasons` is capped at five while
 `stale_reason_count` is the total before the cap. `index_revision` names the
 pass the answer was read from and `last_indexed` is that pass's timestamp in
 ISO-8601 UTC.
+
+`skipped_count`, `skipped_files` and `skipped_summary` describe files the
+sensitive layer withholds: they are scanned and deliberately rowless, so they
+are neither stale reasons nor silently absent. `skipped_files` is capped at
+five while `skipped_count` is the total; each entry names the path and the
+layer (`sensitive filename` | `sensitive content`), never the material. The
+fields are present on a `fresh` verdict, so "nothing changed" and "one file
+withheld on purpose" never read alike.
 
 `get-code-context --json` keeps `stale` as its FILE-level field and adds the
 other five fields; the file-level warning line is unchanged.
