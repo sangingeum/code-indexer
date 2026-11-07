@@ -1,12 +1,13 @@
 # R4a review — a withheld file is a skip, not a stale reason
 
-Card T-000121 · review of card T-000102 · base `143d85f`, code tip `219fd61`,
-evidence `95fa312` (runs/r4a-gate/, 64 captures).
+Two-axis review of the round landed on its own card: base `143d85f`, code tip
+`219fd61`, evidence `95fa312` (runs/r4a-gate/, 64 captures).
 
-Reviewer: solomon. The two axes were run separately (standings against the
-record and the documents; spec against the governing records and the survey)
-and aggregated here. The QA gate is of record: its ten bars were not re-run,
-and its three non-blocking findings are disposed of at the end.
+Authored by the household reviewer. The two axes were run separately
+(standings against the record and the documents; spec against the governing
+records and the survey) and aggregated here. The QA gate is of record: its
+ten bars were not re-run, and its three non-blocking findings are disposed of
+at the end.
 
 **Verdict: changes-requested.** The design is right — derive the skip rather
 than store it, re-apply the same detector, report beside the verdict, never
@@ -240,8 +241,8 @@ allowance.
 ### 4. Cost vs signal
 
 The survey's ask is "the stale banner states once, and stays complete in JSON"
-(SYNTHESIS.md:100) against banner wallpaper (SYNTHESIS.md:47-51, vera: "the
-warning is constant here, so I no longer treat it as a signal"). This change
+(SYNTHESIS.md:100) against banner wallpaper (SYNTHESIS.md:47-51, the QA
+notice: "the warning is constant here, so I no longer treat it as a signal"). This change
 answers it for the common case — one withheld file, quiet banner, complete
 JSON — without making a genuine stale read quieter: `added`, `modified`,
 `deleted` are decided exactly as before, and the negative controls in
@@ -298,5 +299,3 @@ record and were not re-run. I did not review `runs/` documentation edits for
 style beyond the claims they make, and I did not audit the pre-existing
 sensitive detector's own coverage (secret patterns, prefix limit) — that is
 upstream of this round.
-
-Signed-off-by: solomon <solomon@household.local>
