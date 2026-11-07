@@ -51,6 +51,7 @@ the output. All functions are pure and unit-testable without Qdrant or Ollama.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from typing import Any
 
 from . import ordering
@@ -190,7 +191,8 @@ def targets_tests(qtokens: list[str] | None) -> bool:
 
 def class_order(hits: list[dict[str, Any]],
                 qtokens: list[str] | None = None,
-                names: ordering.ClassNames = ordering.DEFAULT_CLASS_NAMES
+                names: ordering.ClassNames
+                | Callable[[str], ordering.ClassNames] | None = None
                 ) -> list[dict[str, Any]]:
     """Reorder a scored pool by file class: source, examples, tests, docs,
     then generated/artifact.
@@ -201,6 +203,16 @@ def class_order(hits: list[dict[str, Any]],
     the order the mode produced (cosine, adjusted score, fused score, RRF):
     the class decides position and only position -- every input is still in
     the output, and the same input twice gives the same order.
+
+    `names` is the LADDER the key reads, and it is the project's own table
+    (``ordering.load_class_names``), never a bare default:
+
+    * one ``ordering.ClassNames`` when every hit comes from one project;
+    * a callable taking the hit's own ``project`` when the window mixes
+      projects (``--all-projects``), so each hit is judged by the table of
+      the tree it sits in instead of by the built-in names. A name a project
+      adds under ``[tool.code-indexer.ordering]`` therefore carries the same
+      rung here that it carries on the structural surfaces.
 
     Waivers (both stated in the module docstring):
 
@@ -218,8 +230,15 @@ def class_order(hits: list[dict[str, Any]],
     source_weight = ordering.CLASS_WEIGHT[ordering.SOURCE]
     tests_weight = ordering.CLASS_WEIGHT[ordering.TESTS]
 
+    def ladder(hit: dict[str, Any]) -> ordering.ClassNames:
+        if names is None:
+            return ordering.DEFAULT_CLASS_NAMES
+        if callable(names):
+            return names(str(hit.get("project") or ""))
+        return names
+
     def weight(hit: dict[str, Any]) -> int:
-        position = ordering.class_weight(hit.get("file") or "", names)
+        position = ordering.class_weight(hit.get("file") or "", ladder(hit))
         if waived_tests and position == tests_weight:
             return source_weight
         return position

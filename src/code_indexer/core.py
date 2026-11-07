@@ -1190,8 +1190,20 @@ class Core:
         # order, never a filter (ranking.class_order).
         if merge:
             all_hits = ranking.merge_overlapping(all_hits)
+        # The ladder is each hit's own project table, never the built-in
+        # names: a name a project adds under [tool.code-indexer.ordering]
+        # must carry the same rung here that it carries on the structural
+        # surfaces (`self.class_names`). One project resolves to one value; a
+        # cross-project window resolves per hit, because --all-projects can
+        # mix trees with different tables.
+        names_by_project = {e.path: self.class_names(e.slug) for e in entries}
+
+        def names_for(project_path: str) -> ordering.ClassNames:
+            return names_by_project.get(project_path,
+                                        ordering.DEFAULT_CLASS_NAMES)
+
         all_hits = ranking.class_order(
-            all_hits, ranking.query_tokens(query))
+            all_hits, ranking.query_tokens(query), names_for)
         all_hits = ranking.cap_per_file(all_hits, per_file)
         all_hits = ranking.truncate_snippets(all_hits, max_chars, max_tokens)
         all_hits, dropped = ranking.trim_to_budget(

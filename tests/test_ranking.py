@@ -6,6 +6,7 @@ Pure functions — no Qdrant/Ollama needed.
 
 import pytest
 
+from code_indexer import ordering
 from code_indexer.ranking import (
     DATA_FILE_PENALTY,
     DEFINITION_BOOST,
@@ -232,6 +233,35 @@ def test_class_order_waiver_does_not_reach_docs():
     pool = [hit(0.9, file="tests/test_x.py"), hit(0.8, file="docs/x.md")]
     out = class_order(pool, query_tokens("fixture test helpers"))
     assert [h["file"] for h in out] == ["tests/test_x.py", "docs/x.md"]
+
+
+def test_class_order_reads_each_hits_own_project_ladder():
+    """A cross-project window resolves the ladder per hit, so a name one
+    project adds under its ordering table demotes only that project's file."""
+    declared = ordering.ClassNames(
+        tests=ordering.DEFAULT_CLASS_NAMES.tests | {"spec_e2e"})
+
+    def names_for(project: str) -> ordering.ClassNames:
+        return declared if project == "/tree/declared" else \
+            ordering.DEFAULT_CLASS_NAMES
+
+    pool = [
+        dict(hit(0.92, file="spec_e2e/a.py", symbol="beta_case"),
+             project="/tree/declared"),
+        dict(hit(0.90, file="src/app.py", symbol="beta"),
+             project="/tree/declared"),
+        dict(hit(0.94, file="spec_e2e/a.py", symbol="beta_case"),
+             project="/tree/elsewhere"),
+    ]
+    out = class_order(pool, query_tokens("where is beta implemented"),
+                      names_for)
+    # `spec_e2e` is the tests rung only where the project declared it; the
+    # other project's identical path stays source and keeps its cosine lead.
+    assert [(h["project"], h["file"]) for h in out] == [
+        ("/tree/declared", "src/app.py"),
+        ("/tree/elsewhere", "spec_e2e/a.py"),
+        ("/tree/declared", "spec_e2e/a.py"),
+    ]
 
 
 def test_data_format_waiver_keeps_the_data_hit_on_top():

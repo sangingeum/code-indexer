@@ -225,3 +225,62 @@ def test_the_same_query_twice_gives_the_same_order(rig):
                          limit=10)["hits"]
     assert [(h["file"], h["score"]) for h in first] == \
         [(h["file"], h["score"]) for h in second]
+
+
+# -- the project's own ladder, through the search seam ----------------------
+#
+# `spec_e2e/` is not a built-in tests directory. A project that declares it
+# under [tool.code-indexer.ordering] gets the tests rung for it on every
+# surface, semantic-search included; a project that does not gets `source`.
+LADDER_FILES = {
+    "src/real.py": "def beta():\n    return 2\n",
+    "spec_e2e/a.py": "def beta_case():\n    return 1\n",
+}
+
+LADDER_POOL = [
+    _Point(0.93, "spec_e2e/a.py", "beta_case"),
+    _Point(0.86, "src/real.py", "beta"),
+]
+
+
+def _project_with_a_ladder(core, reg, root, name, pyproject_text):
+    """Index one project whose root carries `pyproject_text`."""
+    project = root / name
+    for rel, text in LADDER_FILES.items():
+        path = project / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    (project / "pyproject.toml").write_text(pyproject_text)
+    entry = reg.add(str(project), name=name)
+    core.run_index(entry.slug, str(project))
+    return entry
+
+
+def test_a_project_added_class_name_is_demoted_through_search(tmp_path):
+    """The search key reads the project's table, not the built-in names."""
+    cfg = Config(ollama_url="", qdrant_url="", embed_model="stub",
+                 index_root=str(tmp_path / "state"),
+                 embed_batch=48, upsert_batch=256, max_file_bytes=1048576,
+                 watch_debounce=3, watch_sweep_interval=300)
+    core = Core(cfg)
+    core.embedder = _StubEmbedder()  # type: ignore[assignment]
+    core.store = _StubStore(LADDER_POOL)  # type: ignore[assignment]
+    core.indexer.embedder = core.embedder  # type: ignore[assignment]
+    core.indexer.store = core.store  # type: ignore[assignment]
+    reg = Registry(os.path.join(cfg.index_root, "registry.db"))
+    try:
+        plain = _project_with_a_ladder(core, reg, tmp_path, "plain", "")
+        declared = _project_with_a_ladder(
+            core, reg, tmp_path, "declared",
+            "[tool.code-indexer.ordering]\ntests = [\"spec_e2e\"]\n")
+        query = "where is beta implemented"
+        # No table: the path is source, so the cosine order stands.
+        quiet = _files(core.search(query, project=plain.path, limit=10))
+        assert quiet[0] == "spec_e2e/a.py"
+        # Declared: the same path is the tests rung, so source leads.
+        loud = _files(core.search(query, project=declared.path, limit=10))
+        assert loud[0] == "src/real.py"
+        assert loud.index("spec_e2e/a.py") > loud.index("src/real.py")
+    finally:
+        reg.close()
+        shutil.rmtree(cfg.index_root, ignore_errors=True)
