@@ -11,10 +11,12 @@ commands' own ``--help`` to the base tip so the grouping cannot reach one.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import re
 
 import pytest
+import typer.rich_utils as typer_rich_utils
 from typer.main import get_command as typer_get_command
 from typer.models import CommandInfo
 from typer.testing import CliRunner
@@ -26,9 +28,13 @@ from code_indexer import command_classes
 # description column, so they never match.
 ROW = re.compile(r"^│ ([a-z][a-z0-9-]*) ")
 
+# The width every capture is rendered at. It is pinned on the console itself
+# (see _pinned_help_console), not merely passed in the environment: typer's
+# help console decides its own width from ambient state.
+HELP_WIDTH = 100
 # Fixed width, dumped terminal: rich formats help from both, and a pinned hash
 # must be measured under the same conditions every time.
-HELP_ENV = {"COLUMNS": "100", "TERM": "dumb"}
+HELP_ENV = {"COLUMNS": str(HELP_WIDTH), "TERM": "dumb"}
 RUNNER = CliRunner()
 
 CORE_NAMES = frozenset({
@@ -59,7 +65,7 @@ def _click_commands() -> dict[str, object]:
 
 
 def _root_help() -> tuple[int, str]:
-    result = RUNNER.invoke(cli_mod.app, ["--help"], env=HELP_ENV)
+    result = _invoke(["--help"])
     return result.exit_code, result.output
 
 
@@ -73,8 +79,36 @@ def _panel_rows(output: str, panel: str) -> list[str]:
             if (match := ROW.match(line))]
 
 
-def _help_bytes(name: str) -> bytes:
-    result = RUNNER.invoke(cli_mod.app, [name, "--help"], env=HELP_ENV)
+@contextlib.contextmanager
+def _pinned_help_console():
+    """Render help at one width and one colour scheme on every machine.
+
+    typer's help console is built from module constants it reads when it is
+    imported: ``MAX_WIDTH`` from ``TERMINAL_WIDTH``, and ``FORCE_TERMINAL``
+    true whenever ``GITHUB_ACTIONS``, ``FORCE_COLOR`` or ``PY_COLORS`` is set.
+    A CI runner sets the first, so there rich is told it has a terminal and,
+    with ``TERM=dumb``, it fixes the width at 80 -- the same help wrapped
+    differently than on a developer machine. Pin both for the capture instead
+    of inheriting either.
+    """
+    saved = (typer_rich_utils.MAX_WIDTH, typer_rich_utils.FORCE_TERMINAL)
+    typer_rich_utils.MAX_WIDTH = HELP_WIDTH
+    typer_rich_utils.FORCE_TERMINAL = False
+    try:
+        yield
+    finally:
+        typer_rich_utils.MAX_WIDTH = saved[0]
+        typer_rich_utils.FORCE_TERMINAL = saved[1]
+
+
+def _invoke(argv: list[str], env: dict[str, str] = HELP_ENV):
+    """Invoke the CLI with the help console pinned (see _pinned_help_console)."""
+    with _pinned_help_console():
+        return RUNNER.invoke(cli_mod.app, argv, env=env)
+
+
+def _help_bytes(name: str, env: dict[str, str] = HELP_ENV) -> bytes:
+    result = _invoke([name, "--help"], env=env)
     assert result.exit_code == 0, (name, result.exit_code, result.output[:400])
     return result.stdout.encode()
 
@@ -136,6 +170,20 @@ def test_the_six_core_names_are_the_core_panel():
         name for name, command in _click_commands().items()
         if not command.hidden
     }
+
+
+@pytest.mark.parametrize("name", sorted(BASE_TIP_HELP_SHA256))
+def test_the_help_capture_does_not_read_the_ambient_width(name, monkeypatch):
+    """Forty columns and two hundred give one hash: the width is pinned."""
+    captured = []
+    for ambient in ("40", "200"):
+        monkeypatch.setenv("COLUMNS", ambient)
+        # No COLUMNS in the invocation environment on purpose: the ambient
+        # value is what a renderer that reads it would see.
+        captured.append(_help_bytes(name, env={"TERM": "dumb"}))
+    assert captured[0] == captured[1], (
+        f"{name} --help rendered differently under COLUMNS=40 and COLUMNS=200")
+    assert hashlib.sha256(captured[0]).hexdigest() == BASE_TIP_HELP_SHA256[name]
 
 
 @pytest.mark.parametrize("name", sorted(BASE_TIP_HELP_SHA256))

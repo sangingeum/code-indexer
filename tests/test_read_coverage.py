@@ -831,5 +831,21 @@ def test_the_pass_summary_line_and_the_payload_are_one_result(index_project):
     # the text form is the payload's result, rendered -- not a recount
     head, _, body = lines[0].partition(": ")
     assert head == entry.slug, lines[0]
-    assert json.loads(body) == result, (json.loads(body), result)
+    printed = json.loads(body)
+    # `duration_s` is a wall-clock measurement: two passes measure two
+    # different intervals, so comparing it compares the runner, not the two
+    # forms. Every other field is a recount the moment it differs.
+    assert printed.keys() == result.keys(), (printed, result)
+    assert _except_duration(printed) == _except_duration(result), (
+        printed, result)
+    # Present, numeric and non-negative in both forms -- never equal.
+    for form in (printed, result):
+        assert isinstance(form["duration_s"], (int, float)), form
+        assert not isinstance(form["duration_s"], bool), form
+        assert form["duration_s"] >= 0, form
+
+
+def _except_duration(result: dict) -> dict:
+    """Every field of a pass result except the timing."""
+    return {key: value for key, value in result.items() if key != "duration_s"}
 
