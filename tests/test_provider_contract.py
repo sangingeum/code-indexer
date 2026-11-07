@@ -159,7 +159,6 @@ def test_a_timed_out_session_does_not_poison_the_next_request():
     with pytest.raises(ProviderTimeoutError) as caught:
         sess.resolve_symbol(provider.SymbolQuery(qualified_name="greet"))
     assert caught.value.error_type == "ProviderTimeout"
-    assert "retired" in str(caught.value)
 
     started = time.monotonic()
     answer = sess.resolve_symbol(provider.SymbolQuery(qualified_name="greet"))
@@ -169,6 +168,7 @@ def test_a_timed_out_session_does_not_poison_the_next_request():
     assert len(built) == 2, "the session was not retired for the next request"
     assert built[0].closed is True
     assert sess.retired_reason is not None
+    assert "retired" in str(caught.value)
     sess.close()
 
 
