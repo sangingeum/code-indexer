@@ -103,7 +103,14 @@ LANGUAGES_WITH_AST = frozenset(
 # fan-in aggregate now reads those targets. A manifest built before it has no
 # targets at all, so the row reads must refuse (needs-reindex) instead of
 # answering a name half of zero; `reindex-project` is what resolves them.
-EXTRACTION_VERSION = 6
+# v7: the symbol and reference tables became an authority. Only AST chunks
+# produce symbol rows, prose and configuration formats produce none at all
+# (no symbols, no references, no imports), chunk ranges are counted in the
+# file's own line terminators, and an oversized window is split rather than
+# truncated. Rows built by v6 describe a different index -- prose definitions
+# that do not exist, ranges past EOF, and text that never reached a chunk --
+# so an index built by it must report needs-reindex, never answer from them.
+EXTRACTION_VERSION = 7
 
 _INDEX_EXTS = (".ts", ".tsx", ".js", ".jsx")
 

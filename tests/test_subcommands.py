@@ -20,7 +20,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import pytest  # noqa: E402
 
-from code_indexer.chunker import chunk as fallback_chunk  # noqa: E402
+from code_indexer.chunker import (chunk as fallback_chunk,  # noqa: E402
+                                  regex_signature, regex_visibility)
 from code_indexer.config import Config  # noqa: E402
 from code_indexer.core import Core  # noqa: E402
 from code_indexer.indexer import Indexer  # noqa: E402
@@ -242,12 +243,13 @@ def test_visibility_cpp_default_public():
 def test_visibility_regex_fallback_python_rule_only():
     text = "int parse_config(int a) {\n  return a;\n}\n" + "x = 1;\n" * 60
     chunks = fallback_chunk(text)
-    syms = ts_chunker.extract_symbols("weird.xyz", text, chunks)
-    assert syms and syms[0]["source"] == "regex"
-    assert syms[0]["signature"]  # first-line best-effort
-    py_private = ts_chunker.extract_symbols(
-        "w.py", "def _hidden_fn():\n    pass\n", fallback_chunk("def _hidden_fn():\n    pass\n"))
-    assert py_private[0]["visibility"] == "private"
+    # A regex chunk is a text window, not a declaration: it produces no
+    # symbol row, whatever it looks like on its first line.
+    assert ts_chunker.extract_symbols("weird.xyz", text, chunks) == []
+    # The fallback's own helpers keep the rules they always had.
+    assert regex_signature(text)  # first-line best-effort
+    assert regex_visibility("_hidden_fn") == "private"
+    assert regex_visibility("visible_fn") == "public"
 
 
 # ---------------------------------------------------------------------------

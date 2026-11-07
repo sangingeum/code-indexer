@@ -40,6 +40,7 @@ from typing import Any
 from .manifest import Manifest
 from .ordering import (TESTS, ClassNames, file_class, hotspot_key,
                        load_class_names)
+from .scanner import accounting_phrase, read_scan_accounting
 
 # Known config/build files, checked at the project root.
 _CONFIG_FILES = (
@@ -227,6 +228,10 @@ def build_overview(m: Manifest, project_path: str,
                      "unresolved": unattributed["unresolved"],
                      "ambiguous": unattributed["ambiguous"],
                      "size": hotspots_size},
+        # The last pass's reconciliation, so a reader can account for the
+        # files this overview counts without walking the tree again.
+        "scan_accounting": read_scan_accounting(m),
+        "parse_error_files": m.files_with_verdict("parse_error"),
     }
 
 
@@ -274,6 +279,12 @@ def format_overview(data: dict[str, Any], max_lines: int = 60) -> str:
             add(f"  {t}")
     if data["config_files"]:
         add("config/build: " + ", ".join(data["config_files"][:8]))
+    phrase = accounting_phrase(data.get("scan_accounting"))
+    if phrase:
+        add(phrase)
+    errors = data.get("parse_error_files") or []
+    if errors:
+        add("parse errors: " + ", ".join(errors[:6]))
     hs = data["hotspots"]
     if hs["fan_in"]:
         add("hotspots (fan-in):")

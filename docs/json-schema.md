@@ -287,7 +287,7 @@ block. It is what the answer could see, so a caller never has to run
  "files": int|null, "files_parsed": int|null,
  "files_not_parsed": int|null, "files_withheld": int|null,
  "files_unreadable": int|null,
- "languages_without_ast": [str],
+ "answer_languages_without_ast": [str],
  "freshness": "fresh|stale|unknown"|null,
  "complete": bool|null}
 ```
@@ -310,9 +310,12 @@ list, intersected with the answer's scope when the scope names paths.
 way: rowless paths the check could not open, which are neither parsed nor
 withheld. A path the scanner itself dropped never reaches that list, so this
 count is what the diff saw, not an inventory of the disk.
-`languages_without_ast` lists the languages IN SCOPE whose files yield no AST
-symbol rows -- the language-capability matrix's own runtime probe -- so a
-project whose only shell files parsed still says `["shell"]`.
+`answer_languages_without_ast` lists the languages IN SCOPE whose files yield
+no AST symbol rows -- the language-capability matrix's own runtime probe -- so
+a project whose only shell files parsed still says `["shell"]`. It answers a
+different question from `index-status`'s `registry_languages_without_ast`
+(every language the REGISTRY knows that has no AST reader), and the two never
+share a key: one field name carries one meaning in one document.
 `freshness` repeats the staleness verdict (`fresh` | `stale` | `unknown`),
 never a second estimate. `complete` is true only when every file the scan
 returned in scope parsed and none was withheld or unreadable -- nothing the
@@ -393,6 +396,8 @@ An unregistered selector answers `registered: false` with its `path` and an
  "scope"|missing, "not_indexed"|missing, "error_count"|missing,
  "last_errors"|missing,
  "parsed": int, "parse_error": int, "parse_unavailable": int,
+ "parse_error_files": [str],
+ "registry_languages_without_ast": [str], "scan_accounting"|missing,
  "fingerprint_meaning"|missing, "note"|missing, "coverage": {...},
  <staleness block>}
 ```
@@ -453,7 +458,24 @@ comparison did not run (the index records no fingerprint), and
 `parse_*` counts are the per-file parse verdicts (text:
 `parse=parsed:N,parse_error:N,parse_unavailable:N`) and are always all three,
 zero included — a verdict is the parser's own result, never the chunker's
-fallback. `index-status` answers on a `needs-reindex` project by contract.
+fallback. `parse_error_files` names the files behind the `parse_error` count,
+because a count a reader cannot act on is half an answer. `index-status`
+answers on a `needs-reindex` project by contract.
+
+`scan_accounting` is the last pass's reconciliation of the tree against the
+index: `{walked, indexed, uncommitted, skipped, skipped_total,
+skipped_directories, examples, counted_exactly}`. `walked` counts the file
+entries the walk considered, including files inside subtrees it pruned as
+ignored; every one of them is `indexed`, `uncommitted` (a chunk lost to an
+embed failure) or counted in `skipped` under a named reason — `ignored`,
+`ignored-directory`, `oversized`, `binary`, `non-utf8`, `unreadable`,
+`out-of-scope`, `sensitive` — so `walked == indexed + uncommitted +
+skipped_total` always holds. `examples` names the first few paths of each
+kind (capped), which is what lets `outline` answer why a file it cannot find
+was left out. `counted_exactly` is false only when a pruned subtree was too
+large for the counting budget, which makes `walked` a floor. The field is
+missing when no pass has recorded one, and `overview` carries the same object
+under the same name.
 
 The three vector fields are read from the manifest alone — a status read never
 dials Qdrant. `rows` is `current` only when this build's extraction wrote the

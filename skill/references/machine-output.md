@@ -143,7 +143,7 @@ running `index-status` to decide whether to trust the answer.
 
 | field | meaning |
 |---|---|
-| `coverage` | `{scope, files, files_parsed, files_not_parsed, files_withheld, files_unreadable, languages_without_ast, freshness, complete}` -- `scope` is `project` (the whole index), `answer` (the files this answer read: `outline`, `get-code-context`, `find-symbol --file`) or `none` (the command reads no index: `doctor`, `list-projects`, the eval reports, the plan readers, an unregistered `lookup-project`). A `none` block has null counts, never zeros; `complete` is null there too. `complete` is true only when nothing the scan returned is missing -- a path the scanner could not open never entered the scan, so it is not counted. It is about parsed-versus-unparsed files, not about the index holding anything: on an index that holds no files it is vacuously true, so read `files: 0` (or `empty_reason: index-empty`), not `complete`. |
+| `coverage` | `{scope, files, files_parsed, files_not_parsed, files_withheld, files_unreadable, answer_languages_without_ast, freshness, complete}` -- `scope` is `project` (the whole index), `answer` (the files this answer read: `outline`, `get-code-context`, `find-symbol --file`) or `none` (the command reads no index: `doctor`, `list-projects`, the eval reports, the plan readers, an unregistered `lookup-project`). A `none` block has null counts, never zeros; `complete` is null there too. `complete` is true only when nothing the scan returned is missing -- a path the scanner could not open never entered the scan, so it is not counted. It is about parsed-versus-unparsed files, not about the index holding anything: on an index that holds no files it is vacuously true, so read `files: 0` (or `empty_reason: index-empty`), not `complete`. |
 | `empty_reason` | one value for a read that found nothing -- `name-absent`, `files-not-parsed` (count and languages in the sentence), `language-without-ast` (language named) or `index-empty` -- in that fixed precedence, with `empty_reason_sentence` carrying the same sentence the text form prints. The VALUES are shared by the name reads and `semantic-search`; the sentence is worded per surface (a search says its query matched nothing, never that "the name is absent"). Absent on a `semantic-search --all-projects` fan-out, which has no single index. |
 
 `files_not_parsed` counts `parse_error` + `parse_unavailable` + rows with no
@@ -151,10 +151,26 @@ verdict. `files_withheld` intersects the staleness block's withheld list with
 the answer's scope. `files_unreadable` does the same with the unreadable list:
 rowless paths the check could not open (the scanner already dropped the ones it
 could not open, so only a path the scan returned is here), which are neither
-parsed nor withheld, and count against `complete`. `languages_without_ast` lists the languages in scope whose
+parsed nor withheld, and count against `complete`. `answer_languages_without_ast` lists the languages in scope whose
 files yield no AST symbol rows -- a shell-only project whose files parsed
-still says `["shell"]` -- and `freshness` repeats the staleness verdict, never
-a second estimate.
+still says `["shell"]`. It answers a different question from
+`index-status`'s `registry_languages_without_ast` (every language the registry
+knows that has no AST reader), which is why the two never share a key -- and
+`freshness` repeats the staleness verdict, never a second estimate.
+
+`index-status --json` and `overview --json` carry two more blocks under the
+same names in both documents. `parse_error_files` lists the files behind the
+`parse_error` count, because a count a reader cannot act on is half an answer.
+`scan_accounting` is the last pass's reconciliation: `walked` (file entries
+the walk considered, including the files in subtrees it pruned as ignored),
+`indexed`, `uncommitted` (a chunk lost to an embed failure), `skipped` by
+named reason (`ignored`, `ignored-directory`, `oversized`, `binary`,
+`non-utf8`, `unreadable`, `out-of-scope`, `sensitive`), `skipped_total`, and
+`examples`, the first few skipped paths of each kind. `walked == indexed +
+uncommitted + skipped_total` always holds; `counted_exactly: false` means a
+pruned subtree was too large to count and `walked` is a floor. `outline` on a
+file the index does not hold quotes the recorded reason for it, so an
+unindexed path is never answered with silence.
 
 The block does not narrow with a prefix. `overview --path-prefix` and a
 `skeleton` subtree argument narrow the FILES an answer reports; `scope` stays

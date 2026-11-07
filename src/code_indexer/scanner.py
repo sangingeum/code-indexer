@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import codecs
 import hashlib
+import json
 import logging
 import os
 import time
@@ -229,11 +230,15 @@ class ScanAccounting:
     walked: int = 0
     indexed: int = 0
     skipped: Counter = field(default_factory=Counter)
+    uncommitted: int = 0
     skipped_directories: int = 0
     exact: bool = True
+    examples: dict[str, list[str]] = field(default_factory=dict)
 
-    def skip(self, reason: str) -> None:
+    def skip(self, reason: str, path: str | None = None) -> None:
         self.skipped[reason] += 1
+        if path and len(self.examples.setdefault(reason, [])) < 50:
+            self.examples[reason].append(path)
 
     @property
     def skipped_total(self) -> int:
@@ -243,9 +248,11 @@ class ScanAccounting:
         return {
             "walked": self.walked,
             "indexed": self.indexed,
+            "uncommitted": self.uncommitted,
             "skipped": dict(sorted(self.skipped.items())),
             "skipped_total": self.skipped_total,
             "skipped_directories": self.skipped_directories,
+            "examples": {k: v for k, v in sorted(self.examples.items())},
             "counted_exactly": self.exact,
         }
 
@@ -356,32 +363,32 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
             if _ignored(rel_path, specs, root):
                 logger.debug("skip (ignored): %s", rel_path)
                 if accounting is not None:
-                    accounting.skip(SKIP_IGNORED)
+                    accounting.skip(SKIP_IGNORED, rel_path)
                 continue
             try:
                 st = os.stat(abs_path)
                 if not os.path.isfile(abs_path):
                     if accounting is not None:
-                        accounting.skip(SKIP_UNREADABLE)
+                        accounting.skip(SKIP_UNREADABLE, rel_path)
                     continue
             except OSError:
                 if accounting is not None:
-                    accounting.skip(SKIP_UNREADABLE)
+                    accounting.skip(SKIP_UNREADABLE, rel_path)
                 continue
             if st.st_size > max_file_bytes:
                 logger.debug("skip (too large): %s", rel_path)
                 if accounting is not None:
-                    accounting.skip(SKIP_OVERSIZED)
+                    accounting.skip(SKIP_OVERSIZED, rel_path)
                 continue
             if _is_binary(abs_path):
                 logger.debug("skip (binary): %s", rel_path)
                 if accounting is not None:
-                    accounting.skip(SKIP_BINARY)
+                    accounting.skip(SKIP_BINARY, rel_path)
                 continue
             if not _looks_utf8ish(abs_path):
                 logger.debug("skip (non-utf8): %s", rel_path)
                 if accounting is not None:
-                    accounting.skip(SKIP_NON_UTF8)
+                    accounting.skip(SKIP_NON_UTF8, rel_path)
                 continue
             # Stat fast-path: (size, mtime_ns, inode) unchanged since the
             # last pass -> trust the recorded hash without re-reading.
@@ -394,7 +401,7 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
             sha = _hash_file(abs_path)
             if sha is None:
                 if accounting is not None:
-                    accounting.skip(SKIP_UNREADABLE)
+                    accounting.skip(SKIP_UNREADABLE, rel_path)
                 continue
             results.append(ScannedFile(rel_path, abs_path, st.st_size, sha,
                                        st.st_mtime_ns, st.st_ino))
@@ -444,3 +451,62 @@ def _hash_file(path: str) -> str | None:
         logger.warning("Cannot hash %s: %s", path, exc)
         return None
     return "sha256:" + h.hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Scan accounting, as a pass records it and a read reports it.
+# ---------------------------------------------------------------------------
+
+SCAN_ACCOUNTING_META = "scan_accounting"
+
+
+def write_scan_accounting(manifest, accounting: ScanAccounting) -> None:
+    """Record one pass's accounting in the manifest, for the reads to report."""
+    manifest.set_meta(SCAN_ACCOUNTING_META, json.dumps(accounting.as_dict()))
+
+
+def read_scan_accounting(manifest) -> dict | None:
+    """The recorded accounting, or None when no pass recorded one."""
+    raw = manifest.get_meta(SCAN_ACCOUNTING_META)
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def skip_reason_for(path: str, accounting: dict | None) -> str | None:
+    """The recorded skip reason for ``path``, or None if it was not skipped.
+
+    A reason is recorded for the first few files of each kind (``examples``);
+    a path outside that sample still has its reason counted, it just cannot
+    be named from the record alone.
+    """
+    examples = (accounting or {}).get("examples") or {}
+    for reason, paths in examples.items():
+        if path in paths:
+            return reason
+    return None
+
+
+def accounting_phrase(accounting: dict | None) -> str | None:
+    """One clause stating what a pass took and why it took nothing else.
+
+    The same sentence on ``index-status`` and ``overview``, so the two never
+    describe one pass in two vocabularies.
+    """
+    if not accounting:
+        return None
+    skipped = accounting.get("skipped") or {}
+    why = ", ".join(f"{reason}:{n}" for reason, n in skipped.items()) or "none"
+    text = (f"scan={accounting.get('walked')} walked:"
+            f"{accounting.get('indexed')} indexed,"
+            f"{accounting.get('skipped_total')} skipped ({why})")
+    uncommitted = accounting.get("uncommitted") or 0
+    if uncommitted:
+        text += f",{uncommitted} uncommitted after embed failures"
+    if not accounting.get("counted_exactly", True):
+        text += ",walked is a floor"
+    return text

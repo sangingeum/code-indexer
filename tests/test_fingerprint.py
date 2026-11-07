@@ -152,6 +152,17 @@ def rig():
 # fingerprint unit behavior
 # ---------------------------------------------------------------------------
 
+def test_extraction_version_is_pinned():
+    # Pinned on purpose: this value decides whether an existing index is
+    # trusted or refused as stale. 7 is the pass that made the symbol table an
+    # authority (AST-only rows, prose contributes none), counted chunk ranges
+    # in the file's own lines, and split oversized windows instead of
+    # truncating them. Rows built by 6 are not derivable from these rules, so
+    # changing this constant requires a new comment block beside it -- not a
+    # silent edit to make a suite green.
+    assert EXTRACTION_VERSION == 7
+
+
 def test_fingerprint_roundtrip_and_mismatch_detection():
     # Pin the extraction version explicitly (rather than the module default)
     # so this test describes the MECHANISM and does not need an edit on every

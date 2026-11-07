@@ -21,8 +21,10 @@ trust it:
 - ``files_unreadable`` -- rowless paths the staleness check could not open
   (permission, a broken link, an I/O error): present in the scan, absent from
   the index, and not checked -- which is neither a parse result nor a skip;
-- ``languages_without_ast`` -- the languages in scope that yield no AST
-  symbol rows, so nothing in them is indexed as a symbol;
+- ``answer_languages_without_ast`` -- the languages in scope that yield no
+  AST symbol rows, so nothing in them is indexed as a symbol. (The registry's
+  own list is ``registry_languages_without_ast`` in ``index-status``: the two
+  answer different questions and never share a key.)
 - ``freshness``     -- ``fresh`` | ``stale`` | ``unknown`` (the staleness
   block's own verdict, never a second estimate);
 - ``complete``      -- true only when every file in scope parsed and none was
@@ -139,7 +141,7 @@ def block(files: Iterable[ManifestFile], *, scope: str,
         "files_not_parsed": not_parsed,
         "files_withheld": withheld_count,
         "files_unreadable": unreadable_count,
-        "languages_without_ast": languages,
+        "answer_languages_without_ast": languages,
         "freshness": freshness,
         "complete": (not_parsed == 0 and withheld_count == 0
                      and unreadable_count == 0),
@@ -159,7 +161,7 @@ def none_block(freshness_value: str | None = None) -> dict[str, Any]:
         "files_not_parsed": None,
         "files_withheld": None,
         "files_unreadable": None,
-        "languages_without_ast": [],
+        "answer_languages_without_ast": [],
         "freshness": freshness_value,
         "complete": None,
     }

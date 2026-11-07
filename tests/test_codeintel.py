@@ -118,13 +118,16 @@ def test_symbol_index_cpp_first_class(indexer, project):
 
 
 def test_confidence_rule_regex_fallback(indexer, project):
-    # A .xyz file falls back to the regex chunker -> heuristic confidence.
+    # A .xyz file is chunked by the fallback; its references are heuristic and
+    # its symbol rows are none -- a text window is not a declaration.
     with open(os.path.join(project, "src", "weird.xyz"), "w") as f:
         f.write("int parse_config(int a) {\n  return a;\n}\n" + "x = 1;\n" * 60)
     m, _ = run_index(indexer, project)
     try:
-        rows = m.find_symbols("parse_config")
-        assert rows and rows[0].source == "regex"
+        assert m.get_file("src/weird.xyz").parse_verdict == "parse_unavailable"
+        assert m.find_symbols("parse_config") == []
+        refs = m.refs_to("parse_config")
+        assert refs and {row["confidence"] for row in refs} == {"heuristic"}
     finally:
         m.close()
 

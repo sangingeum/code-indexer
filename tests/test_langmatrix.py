@@ -99,7 +99,10 @@ def test_index_status_reports_languages_without_ast(rig):
     core, reg, entry, project = rig
     result = runner.invoke(app, ["index-status", str(project)])
     assert result.exit_code == 0
-    assert "languages_without_ast" in result.output
+    # The registry's list, under its own spelling: the answer-scoped list
+    # travels inside `coverage` under a different key (see the field-name
+    # test), so this line must not be read as the answer's own languages.
+    assert "registry_languages_without_ast=[" in result.output
 
 
 # ---------------------------------------------------------------------------

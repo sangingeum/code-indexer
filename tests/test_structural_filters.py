@@ -162,10 +162,10 @@ def test_kind_filter_answers_and_keeps_its_old_aliases(structural_rig):
     by_kind = _json(project, "--kind", "class")
     by_type = _json(project, "--type", "class")
     by_symbol_type = _json(project, "--symbol-type", "class")
-    # Attributed rows sort first, then the textual ones — the documented
-    # order, so a regex hit can never outrank a declaration.
-    assert _names(by_kind) == ["OrderManager", "Report", "UserManager",
-                                "PipelineDoc", "ReportDoc", "TextWidget"]
+    # Attributed declarations only: the three .txt fixtures are prose and
+    # contribute no symbol rows at all (the symbol table takes AST rows only),
+    # so the answer is exactly the parsed source's classes.
+    assert _names(by_kind) == ["OrderManager", "Report", "UserManager"]
     assert by_kind == by_type == by_symbol_type
     assert all(row["type"] == "class" for row in by_kind["symbols"])
 
@@ -211,8 +211,13 @@ def test_language_filter_uses_the_denormalized_column(structural_rig):
     _, _, _, project = structural_rig
     python_rows = _json(project, "--language", "python")
     assert "read_all" in _names(python_rows)
+    # The .txt fixtures are still indexed (they have file rows), and they
+    # answer no symbol rows: a prose format has no reader for declarations.
+    # The filter still reads the denormalized language column -- it returns
+    # an empty answer for `text` rather than the python rows.
     text_rows = _json(project, "--language", "text")
-    assert _names(text_rows) == ["PipelineDoc", "ReportDoc", "TextWidget"]
+    assert _names(text_rows) == []
+    assert "text" in text_rows["coverage"]["answer_languages_without_ast"]
 
 
 def test_inherits_answers_from_the_attributed_base_class_row(structural_rig):
@@ -320,34 +325,36 @@ def test_every_candidate_from_an_attributed_filter_carries_evidence(
         assert {row["evidence"] for row in payload["symbols"]} == {"ast"}
 
 
-def test_a_file_without_an_ast_extractor_reports_unknown_never_absent(
+def test_a_file_without_an_ast_extractor_is_indexed_and_yields_no_symbol_rows(
         structural_rig):
     """The parse_unavailable path, on files shaped like this repo's docs.
 
     Three of the four fixture files carry no AST grammar (this repository's
-    own index is 760 of 925 such files), so their symbol rows answer
-    `unknown` — the evidence label exists precisely for them.
+    own index is 760 of 925 such files). They ARE indexed -- a file row, a
+    parse verdict, chunks that embed -- and they contribute NO symbol rows,
+    because the symbol table takes declarations parsed from source. The
+    answer says so through the coverage block instead of pretending a text
+    line is a definition.
     """
     core, _, entry, project = structural_rig
     m = core.read_manifest(entry.slug)
     try:
-        verdicts = {row.file: row.parse_verdict
-                    for row in m.find_symbols(None, limit=None)}
+        verdicts = {path: row.parse_verdict
+                    for path, row in m.all_files().items()}
     finally:
         m.close()
     assert verdicts["widgets.txt"] == "parse_unavailable"
     assert verdicts["services.py"] == "parsed"
 
     text_rows = _json(project, "--language", "text")
-    assert [row["name"] for row in text_rows["symbols"]] == [
-        "PipelineDoc", "ReportDoc", "TextWidget"]
-    assert {row["evidence"] for row in text_rows["symbols"]} == {"unknown"}
+    assert text_rows["symbols"] == []
+    assert "text" in text_rows["coverage"]["answer_languages_without_ast"]
 
-    # One answer across both kinds of file: the label travels with the row.
+    # One answer across both kinds of file: every row that exists comes from
+    # a parsed declaration, so the evidence label is uniform.
     mixed = _json(project, "--kind", "class")
     values = [row["evidence"] for row in mixed["symbols"]]
-    assert values.count("unknown") == 3
-    assert values[:3] == ["ast", "ast", "ast"]
+    assert values == ["ast", "ast", "ast"]
 
 
 def test_a_zero_from_an_attributed_filter_is_labelled_not_negated(

@@ -165,7 +165,10 @@ def test_files_that_never_parsed_are_named_by_count_and_language(index_project):
     assert "1 of 1 files were not parsed (markdown)" \
         in payload["empty_reason_sentence"]
     assert payload["coverage"]["files_parsed"] == 0
-    assert payload["coverage"]["languages_without_ast"] == ["markdown"]
+    assert payload["coverage"]["answer_languages_without_ast"] == ["markdown"]
+    # The old shared key is gone from both levels: one name, one meaning.
+    assert "languages_without_ast" not in payload
+    assert "languages_without_ast" not in payload["coverage"]
 
     text = runner.invoke(app, ["find-symbol", "zzz_missing", "--project",
                                str(project)])
@@ -184,7 +187,7 @@ def test_a_language_without_an_ast_reader_is_named(index_project):
     assert payload["empty_reason"] == "language-without-ast"
     assert "shell has no AST reader" in payload["empty_reason_sentence"]
     assert payload["coverage"]["files_parsed"] == 1
-    assert payload["coverage"]["languages_without_ast"] == ["shell"]
+    assert payload["coverage"]["answer_languages_without_ast"] == ["shell"]
 
     text = runner.invoke(app, ["find-symbol", "zzz_missing", "--project",
                                str(project)])

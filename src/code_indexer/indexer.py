@@ -25,7 +25,8 @@ from .fingerprint import (configured_values, current_fingerprint,
                           row_side_mismatches, write_fingerprint)
 from . import ts_chunker
 from .manifest import ChunkRow, Manifest, ManifestFile, SymbolRow
-from .scanner import ScannedFile, scan_project
+from .scanner import (SKIP_SENSITIVE, ScanAccounting, ScannedFile, scan_project,
+                      write_scan_accounting)
 from . import graph_extract
 from . import langmatrix
 from .sensitive import (SENSITIVE_READ_CHARS, SensitiveReport, skip_verdict)
@@ -150,10 +151,14 @@ class Indexer:
                    .splitlines() if ln.strip()]
         priority = [ln for ln in (manifest.get_meta("scope_priority") or "")
                     .splitlines() if ln.strip()]
+        # What became of every file the walk saw. Recorded at the end of the
+        # pass, so a reader can reconcile the index against the tree without
+        # walking it again.
+        accounting = ScanAccounting()
         scanned: list[ScannedFile] = scan_project(
             project_path, max_file_bytes=self.cfg.max_file_bytes,
             previous=manifest.stat_map(), include=include or None,
-            priority=priority or None,
+            priority=priority or None, accounting=accounting,
         )
         scanned_map = {f.path: f for f in scanned}
         old_files = manifest.all_files()
@@ -186,6 +191,13 @@ class Indexer:
                 else:
                     kept[path] = f
             scanned_map = kept
+
+        # A file withheld for privacy is still a file the walk saw: it lands
+        # in a named bucket instead of vanishing from the reconciliation.
+        withheld = len(scanned) - len(scanned_map)
+        accounting.skipped[SKIP_SENSITIVE] += withheld
+        accounting.examples.setdefault(SKIP_SENSITIVE, []).extend(
+            list(sensitive_report.skipped_names)[:50])
 
         # Embedding-text format guard: a stored vector is only reusable when it
         # was built by the same embed_text() construction. A manifest with no
@@ -600,6 +612,13 @@ class Indexer:
         manifest.resolve_ref_targets()
         manifest.mark_scanned(manifest.read_git_branch(project_path))
         manifest.set_meta("last_indexed", str(time.time()))
+        # The pass's accounting, counted against what the manifest now holds:
+        # walked = indexed + uncommitted + skipped, with every skip carrying a
+        # reason. Written here, after every row is in, so the numbers describe
+        # the index a reader will be given and not the walk in progress.
+        accounting.indexed = len(manifest.all_files())
+        accounting.uncommitted = max(0, len(scanned_map) - accounting.indexed)
+        write_scan_accounting(manifest, accounting)
         # One revision per committed pass: the revision a read answer was
         # read from. A counter (never a timestamp) so two passes in the same
         # second are still distinguishable.

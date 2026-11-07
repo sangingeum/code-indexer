@@ -34,7 +34,7 @@ from . import ts_chunker
 from . import vectors as vectors_policy
 from .registry import ProjectEntry, Registry
 from .scanner import (ScanBudget, ScanBudgetExceeded, ScannedFile,
-                      scan_project)
+                      read_scan_accounting, scan_project, skip_reason_for)
 
 if TYPE_CHECKING:  # annotations only: no client library is imported here
     from .embedder import Embedder
@@ -1662,6 +1662,12 @@ class Core:
         finally:
             m.close()
         if not rows and not self.registry_has_file(entry, rel):
+            reason = self._skip_reason(entry, rel)
+            if reason:
+                # A file the scan deliberately left out says so; "not
+                # indexed" alone reads like a bug or an empty index.
+                raise ValueError(f"error: file not indexed: {file} "
+                                 f"(the scan skipped it: {reason})")
             raise ValueError(f"error: file not indexed: {file}")
         src_lines: list[str] = []
         if include_docstrings:
@@ -1712,6 +1718,14 @@ class Core:
         m = self.read_manifest(entry.slug)
         try:
             return m.get_file(rel) is not None
+        finally:
+            m.close()
+
+    def _skip_reason(self, entry: ProjectEntry, rel: str) -> str | None:
+        """Why the last pass left this path out, when it recorded a reason."""
+        m = self.read_manifest(entry.slug)
+        try:
+            return skip_reason_for(rel, read_scan_accounting(m))
         finally:
             m.close()
 

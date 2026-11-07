@@ -634,6 +634,22 @@ class Manifest:
                 out[verdict] = int(n)
         return out
 
+    def files_with_verdict(self, verdict: str) -> list[str]:
+        """The paths carrying one parse verdict, ordered.
+
+        A count of parse-error files that names none of them is a fact a
+        reader cannot act on (the remedy is to open the file), so the status
+        answer carries both the count and the names. An older manifest without
+        the column answers an empty list rather than raising.
+        """
+        try:
+            rows = self._conn.execute(
+                "SELECT path FROM files WHERE parse_verdict = ? ORDER BY path",
+                (verdict,)).fetchall()
+        except sqlite3.OperationalError:
+            return []
+        return [row[0] for row in rows]
+
     # The ordering policy (``code_indexer.ordering``): file class first, so a
     # definition in a test fixture, a shipped sample or a document never
     # outranks the source it exercises; then identity quality -- a row with a

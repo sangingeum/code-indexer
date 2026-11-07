@@ -33,6 +33,7 @@ from . import plans
 from . import apply as apply_mod
 from . import keeper as keeper_mod
 from . import ts_chunker
+from .scanner import accounting_phrase, read_scan_accounting
 from .extensions import SEMANTIC_EXTENSION_MESSAGE, semantic_available
 from .core import NEEDS_REINDEX, NEVER_INDEXED, UNVERIFIED, Core
 from . import fingerprint as fingerprint_mod
@@ -1593,13 +1594,15 @@ def index_status(
     if st.get("error"):
         parts.append(f"error={st['error']}")
         fields["error"] = st["error"]
-    # Languages mapped to a grammar but without AST references queries
-    # (heuristic/textual refs only) — orientation honesty.
+    # The REGISTRY's list: languages the index knows that yield no AST
+    # references. The answer-scoped list is a different question and travels
+    # under its own key (``coverage.answer_languages_without_ast``) -- one
+    # document never carries two lists under one name.
     from .langmatrix import languages_without_ast
-    languages_without_ast_rows = languages_without_ast()
-    parts.append("languages_without_ast=[" + ", ".join(
-        languages_without_ast_rows) + "]")
-    fields["languages_without_ast"] = languages_without_ast_rows
+    registry_without_ast = languages_without_ast()
+    parts.append("registry_languages_without_ast=[" + ", ".join(
+        registry_without_ast) + "]")
+    fields["registry_languages_without_ast"] = registry_without_ast
     # Scoped-indexing coverage: per top-level dir, indexed or not.
     try:
         m = Manifest(os.path.join(core.cfg.index_root, entry.slug,
@@ -1650,6 +1653,21 @@ def index_status(
             parts.append("parse=" + ",".join(
                 f"{kind}:{n}" for kind, n in verdicts.items()))
             fields.update(verdicts)
+            # A count of unparsed files that names none of them is a fact a
+            # reader cannot act on: the remedy is to open the file.
+            parse_errors = m.files_with_verdict("parse_error")
+            fields["parse_error_files"] = parse_errors
+            if parse_errors:
+                parts.append("parse_error_files=" +
+                             ",".join(parse_errors[:6]))
+            # What the last pass took, and why it took nothing else, in the
+            # same words overview uses.
+            accounting = read_scan_accounting(m)
+            if accounting:
+                fields["scan_accounting"] = accounting
+                phrase = accounting_phrase(accounting)
+                if phrase:
+                    parts.append(phrase)
         except Exception as exc:  # noqa: BLE001 — status must never fail
             logger.debug("recorded errors skipped: %s", exc)
         finally:
