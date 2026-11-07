@@ -90,6 +90,23 @@ otherwise. The same is true of every pass command below.
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 <!-- generated:commands-indexing:end -->
 
+## What each command writes, and where
+
+These commands are not read answers, so they do not follow the read contract
+in `docs/json-schema.md` (a read writes stderr only for the staleness
+warning, the coverage line, the fingerprint sentence and the scoped-index
+note). The lines each one writes on success:
+
+| command | **stdout** | **stderr** |
+|---|---|---|
+| `add-project`, `index-more`, `reindex-project`, `remove-project` | registration/result line, pass line and any `note:` line (`vectors=off`, `--allow-sensitive`, scoped indexing, `no indexing pass has completed`) | nothing on success |
+| `sweep-orphans` | counts line and file list | `note: <n> path(s) with rows but no files row are still present on disk and were left alone: ...`; `note: dry run — nothing was deleted; pass --apply to remove these rows` |
+| `watch` | start/stop and watched-project lines | `watch: skipping project <slug> (<path>): path is missing or unreadable`; `watch: already running (pid=..., pidfile=...)`; `watch: requested project(s) are NOT covered by the live watcher ...`; the holder-undetermined note |
+| `unwatch` | the stopped pid and the projects it was serving | `unwatch: note: it did not cover every requested project` |
+
+`eval --out` is the dev harness, not one of these: `wrote <path>` goes on
+stderr beside its report on stdout.
+
 ## Building and extending
 
 ```bash
@@ -201,15 +218,31 @@ embedding identity is not the one this build would write -- plus
 (`parse=parsed:N,parse_error:N,parse_unavailable:N`).
 
 Both verdict pairs are flags a caller branches on, and the text form adds one
-stderr line saying what the pair MEANS. `fingerprint=unverified
-reason=embedding-dimension-not-compared` means every fingerprint key a read
-can compare matched -- embedding model, embedded-text format, chunker and
-extraction version -- while the embedding DIMENSION was not compared,
-because learning the configured dimension needs the service; vectors of
-another dimension recorded under the same model name would not be flagged.
-`fingerprint=needs-reindex reason=<differences>` means the
-index was built by other extraction or chunking code than this build runs, so
-the row reads refuse until a rebuild. JSON carries the same sentence as
+stderr line saying what the pair MEANS. The sentence follows the verdict it
+is printed beside, because one run compares two things -- the row keys and
+the vector identity -- and `vectors_state` is printed in the same line:
+
+- `fingerprint=unverified` with `vectors_state` NOT `stale`: every
+  fingerprint key a read can compare matched (embedding model,
+  embedded-text format, chunker and extraction version) and the recorded
+  model and format are this build's; the embedding DIMENSION is the one key
+  left uncompared, because learning the configured dimension needs the
+  service, so vectors of another dimension recorded under the same model
+  name would not be flagged.
+- `vectors_state=stale` (with `fingerprint=unverified`): the sentence names
+  the key that did not match -- `embed_model: a -> b` or
+  `embed_text_version: a -> b` -- and says a rebuild with `reindex-project`
+  clears it. It never says every key matched: stale is the state in which
+  the embedding model did not.
+- `fingerprint=needs-reindex reason=<differences>`: the named keys differ
+  (chunker and/or extraction version), so the index was built by other
+  extraction or chunking code than this build runs and the row reads refuse
+  until a rebuild; a stale vector side is named too when both are true.
+- no recorded fingerprint (no `fingerprint` field on the line): the
+  comparison did not run, and the sentence says so -- silence would read as a
+  pass.
+
+JSON carries the same sentence as
 `fingerprint_meaning`; the pair's field names are unchanged, and the one-line
 answer keeps its shape because the sentence rides stderr.
 

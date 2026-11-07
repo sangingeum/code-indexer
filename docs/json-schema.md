@@ -328,20 +328,34 @@ An unregistered selector answers `registered: false` with its `path` and an
  <staleness block>}
 ```
 
-`fingerprint_meaning` is the human half of the `fingerprint`/`reason` pair:
-the sentence saying what was NOT compared and what a reader should conclude
-(for `unverified`: every key a read can compare matched -- embedding model,
-embedded-text format, chunker and extraction version -- while the embedding
-DIMENSION was not compared, because learning the configured dimension needs
-the service, so vectors of another dimension recorded under the same model
-name would not be flagged). The text form prints it as one stderr line beside
-the one-line answer, which keeps its single-line shape. The field names of
-the pair are unchanged.
+`fingerprint_meaning` is the human half of the `fingerprint`/`reason` pair,
+and it follows the verdict printed beside it -- one run compares the ROW keys
+and the VECTOR identity, so the sentence has three shapes:
+
+* row keys matched and the vector identity matches (`unverified`,
+  `vectors_state` not `stale`): every fingerprint key a read can compare
+  matched -- embedding model, embedded-text format, chunker and extraction
+  version -- and the recorded embedding model and format are this build's;
+  the embedding DIMENSION is the one key left uncompared, because learning
+  the configured dimension needs the service, so vectors of another
+  dimension recorded under the same model name would not be flagged there;
+* a key did not match (`vectors_state: stale`, or `needs-reindex`): the
+  sentence names the key -- `embed_model: a -> b`, `embed_text_version: a ->
+  b`, or a row key such as `chunker_version: 1 -> 2` -- and says the index
+  must be rebuilt with `reindex-project`. It never says every key matched;
+* no verdict was reached (the index records no fingerprint): the sentence
+  says the comparison did not run, which is not a pass.
+
+The text form prints the sentence as one stderr line beside the one-line
+answer, which keeps its single-line shape. The field names of the pair are
+unchanged.
 
 The fields the text line prints, under the same names, plus the staleness
 block and the coverage object. `sensitive_skipped` is the exception: it is JSON-only, counts what the
 LAST pass withheld, and never rides the line -- the line carries this tree's
-count, from the staleness block. A missing `fingerprint` field still means the index matched. The three
+count, from the staleness block. A missing `fingerprint` field means the
+comparison did not run (the index records no fingerprint), and
+`fingerprint_meaning` says so. The three
 `parse_*` counts are the per-file parse verdicts (text:
 `parse=parsed:N,parse_error:N,parse_unavailable:N`) and are always all three,
 zero included — a verdict is the parser's own result, never the chunker's
@@ -658,13 +672,38 @@ ArgumentError, ConfigError, NotFoundError, BackendError,
 RebuildRequiredError, LockedError, InternalError. Exit codes: 0 success
 (including zero hits), 1 other runtime failure, 2 usage (argument) error,
 3 backend or extension unavailable, 4 the index requires a rebuild, 5 lock
-or concurrency conflict. On success, non-verbose output writes stderr in
-exactly three documented cases and nowhere else: the single-line staleness
-Warning; the ONE `coverage:` line, when a non-empty answer's coverage is
-incomplete (an empty answer prints it on stdout beside its cause, and a
-complete answer prints nothing); and the `fingerprint meaning:` line that
-`index-status` prints beside its one-line answer. Everything else an answer
-has to say goes to stdout.
+or concurrency conflict.
+
+On success, a READ command writes stderr only in these four cases, each
+with its own condition and stream:
+
+* the one-line `Warning: index is stale: ...` -- one per project whose
+  freshness verdict is `stale` (or `unknown`, which has its own line), on
+  **stderr**, text mode only, since the JSON answer carries the same verdict in
+  its staleness block;
+* the one `coverage:` line -- on **stderr** when the answer's coverage is
+  incomplete and the answer is NON-empty; an empty answer prints it on
+  **stdout** beside its cause, and a complete answer prints nothing at all;
+* the `fingerprint meaning:` line -- `index-status` only, on **stderr** in text
+  mode, whenever this build has a verdict to explain or has to say it has none;
+  the same sentence is the `fingerprint_meaning` field in JSON;
+* the `note: this index is scoped to ...` line -- `semantic-search` on a
+  project indexed with a scope, on **stderr** in text mode, beside a
+  successful answer at exit 0 (the note says out-of-scope paths are not
+  indexed and how to extend the scope).
+
+That is an enumeration, not a promise: every stderr write in the CLI is a
+literal `typer.echo(..., err=True)` -- plus the coverage writer's one dynamic
+stream -- so the four above are the only ones a read command reaches.
+Everything else a read answer has to say goes to stdout.
+
+Lifecycle and maintenance commands are not reads and do not follow that
+shape. `add-project`, `index-more`, `reindex-project` and `remove-project`
+print their result and their notes on stdout in both forms; `sweep-orphans`,
+`watch` and `unwatch` print their result on stdout and their notes on stderr;
+and `eval --out` prints `wrote <path>` on stderr beside its report on stdout.
+The reference that owns them, `skill/references/indexing.md`, lists the lines
+each one writes.
 
 A plan refusal names itself the same way and reuses those numbers: `PlanStale`
 (5), `PathEscapesProject` / `OverlappingEdits` / `AmbiguousOrder` /

@@ -36,13 +36,18 @@ nothing.
 **The fingerprint verdict says what it means.** `fingerprint=unverified
 reason=embedding-dimension-not-compared` used to be a bare pair of flags.
 `index-status` now also prints the meaning, in one stderr line beside its
-one-line answer and as `fingerprint_meaning` in JSON: every fingerprint key a
-read can compare matched (embedding model, embedded-text format, chunker and
-extraction version); the embedding dimension was not compared, because
-learning the configured dimension needs the service, so vectors of another
-dimension recorded under the same model name would not be flagged there.
-`needs-reindex` explains its own reason the same way. The field names are
-unchanged.
+one-line answer and as `fingerprint_meaning` in JSON. The sentence follows
+the verdict printed beside it, because one run compares two things: when the
+row keys matched and the vector identity matches, it says every fingerprint
+key a read can compare matched (embedding model, embedded-text format,
+chunker and extraction version) and names the embedding dimension as the one
+key left uncompared, since learning the configured dimension needs the
+service; when `vectors_state=stale`, it names the key that did not match
+(`embed_model: a -> b` or `embed_text_version: a -> b`) and says
+`reindex-project` rebuilds it; `needs-reindex` names its differing row keys
+the same way; and an index that records no fingerprint gets "the fingerprint
+comparison did not run" rather than silence, which reads as a pass. The
+field names are unchanged.
 
 Purely additive for JSON consumers: a caller that ignores `coverage`,
 `empty_reason` and `fingerprint_meaning` sees the bytes it saw before. No

@@ -843,17 +843,78 @@ def test_json_schema_does_not_call_map_answer_scoped():
         "not answer-scoped" in p for p in _paragraphs(text))
 
 
-def test_the_success_stderr_contract_names_all_three_senders():
-    """Success writes stderr for the stale warning, the coverage line, and
-    the fingerprint meaning -- and the old "only" promise is gone."""
+def _error_contract_section() -> str:
     text = JSON_SCHEMA.read_text(encoding="utf-8")
-    assert "The only non-verbose stderr output on success is" not in text
     section = text.split("## Error contract (non-JSON)", 1)[1]
-    section = section.split("\n## ", 1)[0]
-    assert "staleness" in section and "Warning" in section
-    assert "`coverage:` line" in section
-    assert "`fingerprint meaning:` line" in section
-    assert "stderr" in section
+    return section.split("\n## ", 1)[0]
+
+
+def test_the_success_stderr_contract_is_an_enumeration_not_an_exclusivity_claim():
+    """The doc names every note a READ command may write on success.
+
+    Uniqueness over all commands was never true: a scoped `semantic-search`
+    writes its own note, and the pass/lifecycle commands write their own
+    lines. The claim kept here is over reads, and it is an enumeration with
+    each case's condition and stream.
+    """
+    section = _error_contract_section()
+    flat = " ".join(section.split())
+    assert "nowhere else" not in flat
+    assert "exactly three documented cases" not in flat
+    assert "a READ command writes stderr only in these four cases" in flat
+    # every read-side writer, named with the condition it needs
+    assert "Warning: index is stale" in section
+    assert "`coverage:` line" in section and "NON-empty" in section
+    assert "`fingerprint meaning:` line" in section and "index-status" in section
+    assert "`note: this index is scoped to" in section
+    assert "`semantic-search` on a project indexed with a scope" in flat
+    # each case says which stream it lands on, in its own bullet
+    parts = section.split("* the ")[1:]
+    assert len(parts) >= 4, parts
+    for part in parts[:4]:
+        assert "**stderr**" in part or "**stdout**" in part, part
+
+
+def test_no_document_keeps_the_unconditional_fingerprint_claim():
+    """Every copy of the sentence follows the verdict now.
+
+    The old clause named the four keys as matched and only THEN mentioned the
+    dimension, so it was printed as true in the same run that reports
+    `vectors_state=stale` -- the run in which the embedding model did not
+    match. A document that keeps it would be describing a sentence the code no
+    longer prints.
+    """
+    old = "extraction version); the embedding dimension was not compared"
+    bad = [path.name for path in [JSON_SCHEMA, CHANGELOG, *_reference_paths()]
+           if old in path.read_text(encoding="utf-8")]
+    assert not bad, bad
+    # and the three shapes are named where the sentence is explained
+    for path in [JSON_SCHEMA, CHANGELOG] + [p for p in _reference_paths()
+                                            if p.name == "indexing.md"]:
+        text = " ".join(path.read_text(encoding="utf-8").split())
+        assert "did not match" in text, path.name
+        assert "did not run" in text, path.name
+
+
+def test_the_error_contract_hands_lifecycle_commands_to_the_reference():
+    """The pass/watch commands are not reads; the owning reference lists them."""
+    section = _error_contract_section()
+    flat = " ".join(section.split())
+    assert "Lifecycle and maintenance commands are not reads" in flat
+    for name in ("add-project", "index-more", "reindex-project",
+                 "remove-project", "sweep-orphans", "watch", "unwatch"):
+        assert f"`{name}`" in section, name
+    assert "skill/references/indexing.md" in section
+    # the reference the contract defers to must actually carry the lines
+    reference = _reference_text("indexing.md")
+    assert "## What each command writes, and where" in reference
+    for line in ("note: dry run",
+                 "unwatch: note: it did not cover every requested project",
+                 "watch: skipping project",
+                 "**stdout**", "**stderr**"):
+        assert line in reference, line
+    for name in ("add-project", "sweep-orphans", "watch", "unwatch"):
+        assert name in reference, name
 
 
 def test_machine_output_says_which_stream_the_coverage_line_uses():
