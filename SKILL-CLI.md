@@ -162,11 +162,11 @@ the live sources, so there is no index answer behind them to refresh.
 uv run code-indexer <cmd>   # or installed console script
 
 # registry
-code-indexer add-project /path/repo [--name myproj] [--allow-sensitive] [--include 'src/**'] [--priority 'src/main/**']   # register + initial index (foreground)
+code-indexer add-project /path/repo [--name myproj] [--allow-sensitive] [--include 'src/**'] [--priority 'src/main/**'] [--json]   # register + initial index (foreground); json carries the registration fields + the pass result + notes
 code-indexer lookup-project /path/repo [--json] [--refresh]   # registration check, no side effects
 code-indexer list-projects [--json] [--refresh]               # per-project index summary + staleness verdict
-code-indexer remove-project /path/repo                # DESTRUCTIVE: drops collection + manifest + registry entry
-code-indexer index-more /path/repo src/subtree        # extend the indexed scope with another subtree
+code-indexer remove-project /path/repo [--json]        # DESTRUCTIVE: drops collection + manifest + registry entry
+code-indexer index-more /path/repo src/subtree [--json]   # extend the indexed scope with another subtree
 
 # orientation
 code-indexer overview [--project P] [--path-prefix X] [--max-lines 60] [--json] [--refresh]
@@ -205,7 +205,7 @@ code-indexer plan-apply REF [--project P] [--plan-dir D] [--dry-run] [--refresh]
 code-indexer index-status [--project P | --name P | /path/repo] [--json] [--refresh]
 code-indexer doctor [--json]              # health check; exit 1 on any fail
 code-indexer sweep-orphans /path/repo [--apply] [--json]   # residue rows for deleted files; dry-run by default
-code-indexer reindex-project /path/repo   # full rebuild, foreground
+code-indexer reindex-project /path/repo [--json]   # full rebuild, foreground; json carries the pass result
 code-indexer watch /path/repo [--duration 300] [--background]   # optional inotify re-index daemon
 code-indexer watch --all                  # watch every registered project
 code-indexer unwatch /path/repo           # stop the watcher (reverse of watch)

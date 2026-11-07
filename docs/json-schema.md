@@ -238,6 +238,36 @@ the recorded embedding identity is not the one this build would write,
 `absent` on a project that was never vectored, `error` when the last embedding
 pass lost chunks, and `current` otherwise.
 
+## add-project / index-more / remove-project / reindex-project --json
+
+The four pass commands report their own work rather than a verdict about the
+index, so these objects carry no staleness block.
+
+```json
+add-project:      {"schema": 1, "command": "add-project", "path": str,
+                   "slug": str, "name": str|null, "registered": true,
+                   "already_registered": bool, "vectors": "auto"|"on"|"off",
+                   "index": pass|null, "notes": [str]}
+index-more:       {"schema": 1, "command": "index-more", "path": str,
+                   "slug": str, "scope_include": [str], "index": pass}
+remove-project:   {"schema": 1, "command": "remove-project", "path": str,
+                   "slug": str, "removed": true, "collections": [str],
+                   "alias": str, "alias_dropped": bool, "notes": [str]}
+reindex-project:  {"schema": 1, "command": "reindex-project", "path": str,
+                   "slug": str, "vectors": "auto"|"on"|"off",
+                   "index": pass}
+pass:             {"slug": str, "state": "idle"|"indexing"|"error",
+                   "result": {...} | "detail": str | "error": str}
+```
+
+`state: "indexing"` means another process held the project's flock and is
+performing the pass (exactly-one-pass rule); `detail` says so and `result` is
+absent. `state: "idle"` is a completed pass and carries the pass counters.
+`already_registered` is true when the registration was a no-op, and then
+`index` is `null`. A failure carries `ErrorType` and the taxonomy's exit code,
+like every other `--json` failure. Fields are additive and `schema` stays 1;
+the text renderer prints the same fields as prose lines.
+
 ## find-symbol --json
 
 ```json

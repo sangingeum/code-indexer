@@ -24,7 +24,8 @@ logger = logging.getLogger("code-indexer.cli")
 from .errors import fail
 from .errors import ArgumentError, classify, IndexerError, RebuildRequiredError
 from .errors import (AmbiguousSymbolError, ExtensionUnavailableError,
-                     LocatorMismatchError, NotFoundError, NotUtf8Error)
+                     InternalError, LocatorMismatchError, NotFoundError,
+                     NotUtf8Error)
 from . import plans
 from . import apply as apply_mod
 from . import keeper as keeper_mod
@@ -150,6 +151,46 @@ def _echo_index_result(slug: str, result: dict) -> None:
         _die(f"{slug}: indexing error: {result['error']}")
     else:
         typer.echo(f"{slug}: {json.dumps(result['result'], ensure_ascii=False)}")
+
+
+def _index_payload(slug: str, result: dict) -> dict[str, Any]:
+    """A pass outcome as data: exactly the fields the text line prints."""
+    payload: dict[str, Any] = {"slug": slug, "state": result.get("state")}
+    if result.get("state") == "indexing":
+        payload["detail"] = result.get("detail")
+    elif result.get("state") == "error":
+        payload["error"] = result.get("error")
+    else:
+        payload["result"] = result.get("result", {})
+    return payload
+
+
+def _pass_line(slug: str, result: dict) -> str:
+    """The one text line a pass prints, so text and JSON cannot disagree."""
+    payload = _index_payload(slug, result)
+    if payload["state"] == "indexing":
+        return f"{slug}: {payload['detail']}"
+    if payload["state"] == "error":
+        return f"{slug}: indexing error: {payload['error']}"
+    return f"{slug}: {json.dumps(payload['result'], ensure_ascii=False)}"
+
+
+def _emit_pass(payload: dict[str, Any], lines: list[str],
+               json_output: bool) -> None:
+    """One pass answer: the JSON object, or the lines the text renderer prints."""
+    if json_output:
+        typer.echo(json.dumps(payload, ensure_ascii=False))
+        return
+    for line in lines:
+        typer.echo(line)
+
+
+def _pass_fail(exc: IndexerError, json_output: bool) -> NoReturn:
+    """One failure path for a pass command: data with --json, one line without."""
+    if json_output:
+        _json_failure(exc, True)
+    fail(exc)
+    raise AssertionError("unreachable")  # pragma: no cover
 
 
 SkipOpt = typer.Option(
@@ -600,6 +641,7 @@ def add_project(
         help="Globs indexed FIRST within the pass (repeatable)."),
     vectors: str = VectorsOpt,
     skip_stale_check: bool = SkipOpt,
+    json_output: bool = typer.Option(False, "--json", help="JSON output."),
 ) -> None:
     """Register a project directory for semantic indexing (idempotent) and
     run the initial index pass.
@@ -615,21 +657,29 @@ def add_project(
     core = _get_core(skip_stale_check)
     path = os.path.abspath(os.path.expanduser(path))
     if not os.path.isdir(path):
-        _die(f"error: path does not exist: {path}")
+        _pass_fail(NotFoundError(f"path does not exist: {path}"), json_output)
     entry = core.registry.get_by_path(path)
     if entry is not None:
-        typer.echo(f"already registered — {core.status_summary(entry)}")
+        lines = [f"already registered — {core.status_summary(entry)}"]
+        notes: list[str] = []
         if not core.has_successful_pass(entry.slug):
-            typer.echo(
-                "note: no indexing pass has completed for this project — run "
-                f"reindex-project {path} (or remove-project and add it again) "
-                "to build the index")
+            note = ("note: no indexing pass has completed for this project — run "
+                    f"reindex-project {path} (or remove-project and add it again) "
+                    "to build the index")
+            notes.append(note)
+            lines.append(note)
+        _emit_pass({"schema": 1, "command": "add-project",
+                    "path": entry.path, "slug": entry.slug, "name": entry.name,
+                    "registered": True, "already_registered": True,
+                    "vectors": core.resolve_vectors(entry.slug, vectors),
+                    "index": None, "notes": notes}, lines, json_output)
         return
     try:
         entry = core.registry.add(path, name=name)
     except ValueError as exc:
-        _die(f"error: {exc}")
-    typer.echo(f"registered {entry.path} (slug {entry.slug})")
+        _pass_fail(ArgumentError(str(exc)), json_output)
+    lines = [f"registered {entry.path} (slug {entry.slug})"]
+    notes = []
     # A NEW project records its mode before the first pass: ``auto`` records
     # off, so a fresh install never starts embedding because nobody said no.
     resolved_vectors = "off" if vectors == "auto" else vectors
@@ -641,17 +691,21 @@ def add_project(
     if resolved_vectors == "on":
         _require_semantic()
     else:
-        typer.echo("note: vectors=off — rows, symbols, references and chunks "
-                   "are indexed with no service; run reindex-project "
-                   "--vectors on later to embed them")
+        note = ("note: vectors=off — rows, symbols, references and chunks "
+                "are indexed with no service; run reindex-project "
+                "--vectors on later to embed them")
+        notes.append(note)
+        lines.append(note)
     if allow_sensitive:
         m = core.manifest_for(entry.slug, writable=True)
         try:
             m.set_meta("allow_sensitive", "1")
         finally:
             m.close()
-        typer.echo("note: --allow-sensitive set — secret-bearing files will "
-                   "be indexed for this project")
+        note = ("note: --allow-sensitive set — secret-bearing files will "
+                "be indexed for this project")
+        notes.append(note)
+        lines.append(note)
     if include or priority:
         m = core.manifest_for(entry.slug, writable=True)
         try:
@@ -661,11 +715,21 @@ def add_project(
                 m.set_meta("scope_priority", "\n".join(priority))
         finally:
             m.close()
-        typer.echo(f"note: scoped indexing — include={', '.join(include or [])}"
-                   + (f"; priority={', '.join(priority or [])}"
-                      if priority else ""))
-    _echo_index_result(entry.slug, core.run_index(entry.slug, entry.path,
-                                                  vectors=vectors))
+        note = (f"note: scoped indexing — include={', '.join(include or [])}"
+                + (f"; priority={', '.join(priority or [])}"
+                   if priority else ""))
+        notes.append(note)
+        lines.append(note)
+    result = core.run_index(entry.slug, entry.path, vectors=vectors)
+    index = _index_payload(entry.slug, result)
+    if index["state"] == "error":
+        _pass_fail(InternalError(
+            f"{entry.slug}: indexing error: {index['error']}"), json_output)
+    lines.append(_pass_line(entry.slug, result))
+    _emit_pass({"schema": 1, "command": "add-project", "path": entry.path,
+                "slug": entry.slug, "name": entry.name, "registered": True,
+                "already_registered": False, "vectors": resolved_vectors,
+                "index": index, "notes": notes}, lines, json_output)
 
 
 @app.command()
@@ -682,6 +746,7 @@ def index_more(
              "positional selector when both are given."),
     vectors: str = VectorsOpt,
     skip_stale_check: bool = SkipOpt,
+    json_output: bool = typer.Option(False, "--json", help="JSON output."),
 ) -> None:
     """Extend a project's indexed scope with another subtree.
 
@@ -720,10 +785,16 @@ def index_more(
             m.set_meta("scope_include", "\n".join(current))
     finally:
         m.close()
-    typer.echo(f"scope extended: {', '.join(current)}")
-    _echo_index_result(entry.slug, core.run_index(entry.slug, entry.path,
-                                                  vectors=vectors,
-                                                  rescan=True))
+    scope_line = f"scope extended: {', '.join(current)}"
+    result = core.run_index(entry.slug, entry.path, vectors=vectors,
+                            rescan=True)
+    index = _index_payload(entry.slug, result)
+    if index["state"] == "error":
+        _pass_fail(InternalError(
+            f"{entry.slug}: indexing error: {index['error']}"), json_output)
+    _emit_pass({"schema": 1, "command": "index-more", "path": entry.path,
+                "slug": entry.slug, "scope_include": current, "index": index},
+               [scope_line, _pass_line(entry.slug, result)], json_output)
 
 
 @app.command()
@@ -736,6 +807,7 @@ def remove_project(
         help="Project path, slug, or name. Takes precedence over the "
              "positional PATH when both are given."),
     skip_stale_check: bool = SkipOpt,
+    json_output: bool = typer.Option(False, "--json", help="JSON output."),
 ) -> None:
     """Deregister a project and DELETE its collection + manifest + registry
     entry entirely."""
@@ -772,7 +844,7 @@ def remove_project(
         what = f"alias {alias} dropped (no physical collection)"
     else:
         what = "no vector collection to drop"
-    typer.echo(f"removed {path}: {what}, registry entry deleted")
+    line = f"removed {path}: {what}, registry entry deleted"
     for f in _glob.glob(os.path.join(core.cfg.index_root, f"{entry.slug}*")):
         try:
             os.remove(f)
@@ -781,6 +853,10 @@ def remove_project(
     manifest_dir = os.path.join(core.cfg.index_root, entry.slug)
     if os.path.isdir(manifest_dir):
         _shutil.rmtree(manifest_dir, ignore_errors=True)
+    _emit_pass({"schema": 1, "command": "remove-project", "path": path,
+                "slug": entry.slug, "removed": True, "collections": targets,
+                "alias": alias, "alias_dropped": alias_dropped,
+                "notes": [what]}, [line], json_output)
 
 
 @app.command(name="list-projects")
@@ -1252,6 +1328,7 @@ def reindex_project(
              "positional PATH when both are given."),
     vectors: str = VectorsOpt,
     skip_stale_check: bool = SkipOpt,
+    json_output: bool = typer.Option(False, "--json", help="JSON output."),
 ) -> None:
     """Force a full rebuild of a project's index (runs foreground in the CLI).
 
@@ -1266,8 +1343,15 @@ def reindex_project(
     entry = _resolve(core, selector)
     if core.resolve_vectors(entry.slug, vectors) == "on":
         _require_semantic()
-    _echo_index_result(entry.slug, core.reindex_with_swap(
-        entry.slug, entry.path, vectors=vectors))
+    result = core.reindex_with_swap(entry.slug, entry.path, vectors=vectors)
+    index = _index_payload(entry.slug, result)
+    if index["state"] == "error":
+        _pass_fail(InternalError(
+            f"{entry.slug}: indexing error: {index['error']}"), json_output)
+    _emit_pass({"schema": 1, "command": "reindex-project",
+                "path": entry.path, "slug": entry.slug,
+                "vectors": core.resolve_vectors(entry.slug, vectors),
+                "index": index}, [_pass_line(entry.slug, result)], json_output)
 
 
 @app.command()
