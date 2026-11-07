@@ -699,11 +699,13 @@ def materialize(tf: plans.TextFile,
                 raise OverlappingEditsError(
                     f"{tf.rel_path}:{line_index + 1}: two provider edits "
                     "overlap on one line; an overlap is refused, never ordered")
-        text = old_bytes.decode("utf-8")
+        text = old_bytes
         for start, end, new_text in sorted(replacements,
                                            key=lambda item: (item[0], item[1]),
                                            reverse=True):
-            text = (text[:start - line_start] + new_text
+            # Byte splicing, not string slicing: a byte offset is not a
+            # character index once the line holds an astral character.
+            text = (text[:start - line_start] + new_text.encode("utf-8")
                     + text[end - line_start:])
         edit: dict[str, Any] = {
             "kind": PROVIDER_EDIT_KIND,
@@ -716,7 +718,7 @@ def materialize(tf: plans.TextFile,
         }
         if len(old_bytes) <= plans.REGION_TEXT_CAP:
             edit["expected_old_text"] = old_bytes.decode("utf-8")
-        edit["new_text"] = text
+        edit["new_text"] = text.decode("utf-8")
         out.append(edit)
     return out
 
