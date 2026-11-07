@@ -250,7 +250,9 @@ this round's).
 
 **Deliverable.** The provider interface, a stub provider and the contract suite; a real provider
 only if the owner installs a server, with Python first; the skill split as ADR-0009 decides it --
-an entry document of at most 120 lines and 8 KiB, five reference files read on demand, the command
+an entry document of at most 120 lines and 8 KiB, six reference files read on demand (amended
+under the 2026-11-07 ruling that split the semantic surface out of the query reference: the set
+was five, is six, and the budget did not move), the command
 roster generated from the registry, and the installed copy pinned by the new drift checks; the
 README rewritten around the new behaviour and carrying the MCP parity list on its own; and
 `--json` on the four write commands that still lack it (`add-project`, `index-more`,

@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] — the reference split
+
+**The query reference is split at its concern boundary, and the budget did
+not move.** `skill/references/query.md` had reached its 400-line bound, so the
+semantic surface moved out rather than the budget growing: `semantic-search`,
+`eval`, `eval-compare` and the ordering policy every ranked answer shares now
+live in a sixth reference, `skill/references/semantic.md`; `query.md` keeps
+`overview`, `skeleton`, `outline`, `find-*`, `get-code-context`, `deps`,
+`changed-symbols`, `map` and `file-outline`, and points at the ordering policy
+with one line instead of restating it. The entry document names the sixth
+reference with its trigger, and its roster gained a `Reference` column so a
+command and the file that carries its flags sit on the same row.
+
+Four worked examples the old budget had cost are restored, each in the file
+that now owns its command and each run against the tree: `outline --docstrings`
+and `changed-symbols --base/--head --impact` in `query.md`, `eval` /
+`eval-compare` in `semantic.md`, and `get-code-context --symbol` there in its
+honest spelling -- `--symbol` matches the bare declaration name the file's
+rows carry, so the example is `--symbol search`, and the reference says why the
+dotted `--symbol Core.search` is refused (exit 1, `InternalError`) rather than
+pretending it works. `tests/test_docs.py` reads the roster's new shape; the
+index closure, budget, taxonomy and generated-block checks are unchanged and
+now cover six references.
+
 ## [Unreleased] — the indexed tree
 
 **A withheld file is a skip, not a stale reason.** The index pass drops a

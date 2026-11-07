@@ -35,6 +35,7 @@ demand, when its trigger fires.
 | [SKILL-CLI.md](SKILL-CLI.md) | always first: decision tree, the generated command roster with each command's read-or-write class, the exit table, the staleness rule, the reference index |
 | [indexing.md](skill/references/indexing.md) | the task is to build or repair an index, or to ask what state one is in |
 | [query.md](skill/references/query.md) | a query answered the wrong shape and its flags need reading |
+| [semantic.md](skill/references/semantic.md) | a question is asked in words rather than as a name, or a ranked answer's order needs reading |
 | [plans.md](skill/references/plans.md) | the task is to change code through a plan |
 | [machine-output.md](skill/references/machine-output.md) | an agent parses output instead of reading prose |
 | [failures.md](skill/references/failures.md) | a command failed and the remedy is not obvious from its line |
@@ -88,7 +89,8 @@ never guess a project from the cwd.
 
 The agent workflow (overview → skeleton → search → get-code-context) is in
 [SKILL-CLI.md](SKILL-CLI.md), and the flags behind each step are in
-[query.md](skill/references/query.md).
+[query.md](skill/references/query.md) for the structural reads and
+[semantic.md](skill/references/semantic.md) for the meaning-shaped search.
 
 ## Architecture
 
@@ -103,7 +105,7 @@ The agent workflow (overview → skeleton → search → get-code-context) is in
 - **MCP server** (`code-indexer-mcp`, `code-indexer[mcp]` only): a
   narrowed, read-only view over the same CLI subprocess; all foreground, no
   store or manifest access of its own.
-- **Agent surface**: one entry document plus five references under
+- **Agent surface**: one entry document plus six references under
   `skill/references/`, with the command sections generated from the registry.
 
 ### CLI ↔ MCP parity
@@ -314,7 +316,7 @@ GPU passthrough** (8B model, 4096-dim, batch 48) vs ~0.17 docs/s CPU-only.
 The first index of a large repo is the slow part; incremental updates
 re-embed only changed chunks. Qdrant upserts ~550 pts/s. Baseline numbers are
 2026-09 measurements on the owner's LAN host; re-measure with
-`code-indexer eval` (see [query.md](skill/references/query.md)) before
+`code-indexer eval` (see [semantic.md](skill/references/semantic.md)) before
 quoting new ones.
 
 ## MCP client config (Claude Desktop / Hermes / any stdio MCP client)
