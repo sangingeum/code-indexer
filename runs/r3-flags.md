@@ -126,6 +126,7 @@ the ten-invocation regression table.
 | `uv run pytest tests/ -q -W error` | 1049 passed, 2 deselected, exit 0 (base 1004 + 45) | `runs/r3-flags/pytest-tip.log` |
 | `uvx ruff check src tests scripts` | all checks passed | `runs/r3-flags/ruff.txt` |
 | `uv run python scripts/publishing_hygiene_lint.py` | scanned=1135, 0 violations | `runs/r3-flags/hygiene.txt` |
+| the same lint at the evidence tip, after the captures were committed | scanned=1228, 0 violations | `runs/r3-flags/hygiene-at-tip.txt` |
 
 This record does not claim warn-clean: the local `-W error` run is green,
 while the five `watcher.py:343` fork warnings under CI's own command are
