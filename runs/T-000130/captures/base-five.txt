@@ -3,7 +3,7 @@ exit=0
 stderr_bytes=222
 stdout_bytes=168
 -- stderr --
-Warning: index is stale (1 file changed since 2026-11-07T10:27:05Z: 1 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project /home/keum/.hermes/profiles/<profile>/cache/scratch/r4b/sandbox/proj
+Warning: index is stale (1 file changed since 2026-11-07T10:27:05Z: 1 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project <scratch>/proj
 -- stdout --
 project: proj — 2 files, 4 LOC
 languages:
@@ -20,7 +20,7 @@ exit=0
 stderr_bytes=222
 stdout_bytes=168
 -- stderr --
-Warning: index is stale (1 file changed since 2026-11-07T10:27:05Z: 1 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project /home/keum/.hermes/profiles/<profile>/cache/scratch/r4b/sandbox/proj
+Warning: index is stale (1 file changed since 2026-11-07T10:27:05Z: 1 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project <scratch>/proj
 -- stdout --
 project: proj — 2 files, 4 LOC
 languages:
@@ -37,7 +37,7 @@ exit=0
 stderr_bytes=222
 stdout_bytes=168
 -- stderr --
-Warning: index is stale (1 file changed since 2026-11-07T10:27:05Z: 1 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project /home/keum/.hermes/profiles/<profile>/cache/scratch/r4b/sandbox/proj
+Warning: index is stale (1 file changed since 2026-11-07T10:27:05Z: 1 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project <scratch>/proj
 -- stdout --
 project: proj — 2 files, 4 LOC
 languages:
@@ -54,7 +54,7 @@ exit=0
 stderr_bytes=222
 stdout_bytes=168
 -- stderr --
-Warning: index is stale (1 file changed since 2026-11-07T10:27:05Z: 1 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project /home/keum/.hermes/profiles/<profile>/cache/scratch/r4b/sandbox/proj
+Warning: index is stale (1 file changed since 2026-11-07T10:27:05Z: 1 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project <scratch>/proj
 -- stdout --
 project: proj — 2 files, 4 LOC
 languages:
@@ -71,7 +71,7 @@ exit=0
 stderr_bytes=222
 stdout_bytes=168
 -- stderr --
-Warning: index is stale (1 file changed since 2026-11-07T10:27:05Z: 1 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project /home/keum/.hermes/profiles/<profile>/cache/scratch/r4b/sandbox/proj
+Warning: index is stale (1 file changed since 2026-11-07T10:27:05Z: 1 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project <scratch>/proj
 -- stdout --
 project: proj — 2 files, 4 LOC
 languages:

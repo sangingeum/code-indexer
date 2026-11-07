@@ -1,10 +1,10 @@
-# Downgrade a throwaway manifest's RECORDED schema revision so the read path's
+# Set a throwaway manifest's RECORDED schema revision, so the read path's
 # rebuild refusal (exit 4, empty stdout) can be measured live.
+# Usage: python set_schema.py <manifest.db> <revision>   (7 restores it)
 import sqlite3
 import sys
 
-db = sys.argv[1]
-value = sys.argv[2]
+db, value = sys.argv[1], sys.argv[2]
 conn = sqlite3.connect(db)
 conn.execute("UPDATE meta SET value = ? WHERE key = 'schema_version'", (value,))
 conn.commit()

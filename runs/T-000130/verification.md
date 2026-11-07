@@ -1,15 +1,20 @@
-# T-000130 — gate: the staleness banner became a stateless count (card T-000098)
+# Gate: the staleness banner became a stateless count
 
-- Repo: `/home/keum/dev/athena/code-indexer`
+- Repo: `<checkout>`
 - Base `7bccc54` -> candidate tip `7704364` (pushed)
-- Gate: vera, re-measured from scratch; the leg's captures were treated as claims
+- Gate: independent QA, re-measured from scratch; the leg's captures were
+treated as claims
 - Date: 2026-11-07 · **Verdict: FAIL** (bars 6 and 7)
 
-Worktrees: `r4b/base` = 7bccc54, `r4b/tip` = 7704364, each with
-`uv sync --frozen --all-extras`. Fixtures under `r4b/sandbox`: one index root
+Worktrees: `base` = 7bccc54, `tip` = 7704364, each with
+`uv sync --frozen --all-extras`. Fixtures under `sandbox/`: one index root
 built by the tip binary and read by BOTH binaries, so base and tip answer from
 the same manifest. Every read is a true fresh process: `env -i INDEX_ROOT=...`
 with nothing else in the environment.
+
+Paths in the captures are redacted at publish time (`<scratch>` = the throwaway
+root, `<checkout>` = this repo, `<venv>` = a worktree's virtualenv); the byte
+counts quoted below were measured on the raw output before that substitution.
 
 ## Bar 1 — the repeat is gone: PASS
 
@@ -160,7 +165,7 @@ sentence block needs the same edit.
   (`captures/pytest-tip.txt`). Base for parity: 999 tests, 998 passed and the
   installed-digest test red (`captures/pytest-base.txt`); see below.
 - installed-skill digest: **GREEN at the tip, not red as the record states.**
-  `~/.hermes/skills/code-indexer` was installed/refreshed after the leg's run
+  the installed skills root was refreshed after the leg's run
   (references mtime 19:10, `SKILL.md` 19:25 today) and its `references/` is
   byte-identical to the tip's `skill/references/`; it is precisely this that
   makes the digest test red at the base worktree (the installed copy is already
@@ -194,6 +199,6 @@ sentence block needs the same edit.
 
 ## Verdict: **FAIL** — two documentation/contract rows
 
-Evidence: `runs/T-000130/` (this file, `captures/`, and the four scripts that
+Evidence: `runs/<gate card>/` (this file, `captures/`, and the four scripts that
 built the fixtures, took the captures, proved statelessness and produced the
 schema refusal).

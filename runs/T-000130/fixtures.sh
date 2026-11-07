@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# R4b gate fixtures: a genuinely stale project, a stale+withheld project,
-# a fresh project and an unknown-verdict project, built once with the tip
-# binary and read by BOTH binaries from the same index root.
+# Fixtures for the gate: a genuinely stale project, a stale+withheld project,
+# a fresh project, an unknown-verdict project and a three-kind stale project.
+# Built once with the TIP binary; read by BOTH binaries from the same index.
+# Run from a scratch directory: S, TIP and BASE are $PWD-relative.
 set -u
-S=/home/keum/.hermes/profiles/<profile>/cache/scratch/r4b/sandbox
-TIP=/home/keum/.hermes/profiles/<profile>/cache/scratch/r4b/tip/.venv/bin/code-indexer
-BASE=/home/keum/.hermes/profiles/<profile>/cache/scratch/r4b/base/.venv/bin/code-indexer
+S=${S:-$PWD/sandbox}
+TIP=${TIP:-$PWD/tip/.venv/bin/code-indexer}
+BASE=${BASE:-$PWD/base/.venv/bin/code-indexer}
 rm -rf "$S"
 mkdir -p "$S/home" "$S/index" "$S/proj" "$S/proj2" "$S/proj3" "$S/proj4"
 
@@ -39,3 +40,13 @@ printf 'def extra():\n    return 9\n' > "$S/proj2/extra.py"
 
 echo "## list-projects (slugs)"
 "$TIP" list-projects
+
+echo "## proj5: three kinds at once (modified, added, deleted)"
+mkdir -p "$S/proj5"
+printf 'def a():\n    return 1\n' > "$S/proj5/a.py"
+printf 'def b():\n    return 2\n' > "$S/proj5/b.py"
+printf 'def c():\n    return 3\n' > "$S/proj5/c.py"
+"$TIP" add-project "$S/proj5" --vectors off >/dev/null 2>&1
+printf 'def a():\n    return 11\n' > "$S/proj5/a.py"
+printf 'def d():\n    return 4\n' > "$S/proj5/d.py"
+rm "$S/proj5/b.py"

@@ -1,1 +1,1 @@
-Warning: index is stale (1 file changed since 2026-11-07T10:27:05Z: 1 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project /home/keum/.hermes/profiles/<profile>/cache/scratch/r4b/sandbox/proj2
+Warning: index is stale (1 file changed since 2026-11-07T10:27:05Z: 1 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project <scratch>/proj2
