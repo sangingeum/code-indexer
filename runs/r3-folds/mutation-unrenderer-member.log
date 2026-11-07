@@ -3,7 +3,7 @@
 =================================== FAILURES ===================================
 ___ test_compact_is_refused_where_there_is_no_compact_form[find-references] ____
 
-rig = (<code_indexer.core.Core object at 0x7fcfb2835dc0>, <code_indexer.registry.Registry object at 0x7fcfb2837320>, Project...ath('<home>/.hermes/profiles/<profile>/cache/scratch/pytest-of-keum/pytest-333/test_compact_is_refused_where_0/proj'))
+rig = (<code_indexer.core.Core object at 0x7fcfb2835dc0>, <code_indexer.registry.Registry object at 0x7fcfb2837320>, Project...ath('<scratch>/pytest-of-keum/pytest-333/test_compact_is_refused_where_0/proj'))
 argv = ['find-references', 'helper']
 
     @pytest.mark.parametrize("argv", [
@@ -16,8 +16,8 @@ argv = ['find-references', 'helper']
         result = _run(project, *argv, "--format", "compact")
 >       assert result.exit_code == 2, result.output
 E       AssertionError: references to 'helper' (confidence=how the row was extracted, receiver=the receiver expression as written, target_confidence=whether the name has a definition row):
-E         - <home>/.hermes/profiles/<profile>/cache/scratch/pytest-of-keum/pytest-333/test_compact_is_refused_where_0/proj::mod.py:7 in caller call helper (confidence=ast, target_confidence=exact)
-E         - <home>/.hermes/profiles/<profile>/cache/scratch/pytest-of-keum/pytest-333/test_compact_is_refused_where_0/proj::mod.py:12 in render call helper (confidence=ast, target_confidence=exact)
+E         - <scratch>/pytest-of-keum/pytest-333/test_compact_is_refused_where_0/proj::mod.py:7 in caller call helper (confidence=ast, target_confidence=exact)
+E         - <scratch>/pytest-of-keum/pytest-333/test_compact_is_refused_where_0/proj::mod.py:12 in render call helper (confidence=ast, target_confidence=exact)
 E         
 E       assert 0 == 2
 E        +  where 0 = <Result okay>.exit_code
