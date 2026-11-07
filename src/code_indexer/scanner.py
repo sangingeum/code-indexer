@@ -5,6 +5,11 @@ directory skip-list, size cap, binary sniff. Hash = sha256 of content —
 NEVER mtime (mtimes lie after branch switches/checkout; the content-hash
 diff is what makes incremental indexing correct and cheap).
 
+Every file the walk sees is ACCOUNTED FOR: it is returned, or it is recorded
+in ``ScanAccounting`` under a named skip reason. A file that leaves a pass
+without a reason is a defect -- an index that reports 403 files against a
+tree of 450 cannot be reconciled by a reader.
+
 A caller may pass a ``ScanBudget`` so a very large tree stops the walk and
 reports that it stopped, instead of walking for minutes: the staleness check
 uses this to degrade to ``unknown`` rather than silence.
@@ -12,11 +17,13 @@ uses this to degrade to ``unknown`` rather than silence.
 
 from __future__ import annotations
 
+import codecs
 import hashlib
 import logging
 import os
 import time
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field
 
 import pathspec
 
@@ -159,17 +166,103 @@ def _is_binary(path: str) -> bool:
         return True
 
 
+SNIFF_SAMPLE_BYTES = 4096
+
+
 def _looks_utf8ish(path: str) -> bool:
-    """Cheap textual sniff: decode a sample; binary-adjacent fails."""
+    """Cheap textual sniff over a bounded sample: is this UTF-8 text?
+
+    The sample is decoded through an INCREMENTAL decoder and is never
+    finalised. A sample that ends inside a multi-byte character therefore
+    decodes fine: the cut is an artefact of how much was read, not a property
+    of the file. Decoding the sample strictly made every file carrying a
+    multi-byte character across byte 4096 look non-text -- eight tracked C#
+    files with box-drawing characters near that offset were dropped from the
+    index this way, with only a debug log to show for it.
+
+    Only a genuinely invalid byte sequence fails, which is what the sniff is
+    for.
+    """
+    decoder = codecs.getincrementaldecoder("utf-8")("strict")
     try:
         with open(path, "rb") as f:
-            sample = f.read(4096)
+            sample = f.read(SNIFF_SAMPLE_BYTES)
         if not sample:
             return True
-        sample.decode("utf-8", errors="strict")
+        decoder.decode(sample, final=False)
         return True
     except (UnicodeDecodeError, OSError):
         return False
+
+
+SKIP_IGNORED = "ignored"
+SKIP_IGNORED_DIRECTORY = "ignored-directory"
+SKIP_OVERSIZED = "oversized"
+SKIP_BINARY = "binary"
+SKIP_NON_UTF8 = "non-utf8"
+SKIP_UNREADABLE = "unreadable"
+SKIP_OUT_OF_SCOPE = "out-of-scope"
+SKIP_SENSITIVE = "sensitive"
+
+# How many entries a pruned-subtree count may visit before it reports that the
+# count is a floor rather than an exact number.
+_PRUNE_COUNT_BUDGET = 50_000
+
+
+@dataclass
+class ScanAccounting:
+    """What became of every file the walk saw.
+
+    ``walked`` counts file entries the walk considered: the files in the
+    directories it entered, plus the files inside subtrees it pruned as
+    ignored (counted, not walked, as ``ignored-directory``). Each of them is
+    either returned by the scan (``indexed`` here) or counted in ``skipped``
+    under a named reason, so ``walked == indexed + skipped_total`` always
+    holds. ``exact`` is False only when a pruned subtree was too large for the
+    counting budget, which makes ``walked`` a floor.
+
+    Directories on the built-in skip list (.git, node_modules, .venv, build
+    output) are not the tree an indexer answers about and are never counted;
+    ``skipped_directories`` records how many were passed over.
+    """
+
+    walked: int = 0
+    indexed: int = 0
+    skipped: Counter = field(default_factory=Counter)
+    skipped_directories: int = 0
+    exact: bool = True
+
+    def skip(self, reason: str) -> None:
+        self.skipped[reason] += 1
+
+    @property
+    def skipped_total(self) -> int:
+        return sum(self.skipped.values())
+
+    def as_dict(self) -> dict:
+        return {
+            "walked": self.walked,
+            "indexed": self.indexed,
+            "skipped": dict(sorted(self.skipped.items())),
+            "skipped_total": self.skipped_total,
+            "skipped_directories": self.skipped_directories,
+            "counted_exactly": self.exact,
+        }
+
+
+def _count_files_under(path: str) -> tuple[int, bool]:
+    """Files in a pruned subtree, and whether the count is exact.
+
+    A pruned subtree still holds files a reader can see on disk; counting them
+    keeps the reconciliation honest without walking them into the index. The
+    budget bounds the cost on a huge ignored tree.
+    """
+    seen = 0
+    for _dirpath, _dirnames, filenames in os.walk(path):
+        seen += len(filenames)
+        if seen > _PRUNE_COUNT_BUDGET:
+            return seen, False
+    return seen, True
 
 
 def scan_project(root: str, max_file_bytes: int = 1_048_576,
@@ -177,6 +270,7 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
                  include: list[str] | None = None,
                  priority: list[str] | None = None,
                  budget: ScanBudget | None = None,
+                 accounting: ScanAccounting | None = None,
                  ) -> list[ScannedFile]:
     """Walk ``root`` and return ScannedFile rows.
 
@@ -234,35 +328,60 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
             dir_rel = rel_dir.replace(os.sep, "/") + "/"
             parent_specs = _ordered_specs(root, os.path.dirname(dirpath))
             if _ignored(dir_rel, parent_specs, root):
+                if accounting is not None:
+                    # The subtree is not walked, but its files are still on
+                    # disk and still part of what a reader would count: the
+                    # count keeps the reconciliation honest.
+                    files, exact = _count_files_under(dirpath)
+                    accounting.walked += files
+                    accounting.skipped[SKIP_IGNORED_DIRECTORY] += files
+                    accounting.exact = accounting.exact and exact
                 dirnames[:] = []
                 continue
 
-        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        kept_dirs = [d for d in dirnames if d not in SKIP_DIRS]
+        if accounting is not None:
+            accounting.skipped_directories += len(dirnames) - len(kept_dirs)
+        dirnames[:] = kept_dirs
         specs = _ordered_specs(root, dirpath)
 
         for fname in filenames:
             check_budget()
             abs_path = os.path.join(dirpath, fname)
             rel_path = os.path.relpath(abs_path, root).replace(os.sep, "/")
+            if accounting is not None:
+                accounting.walked += 1
             # Every ignore spec from root down to this directory, root
             # first: the last matching rule decides (design Risk 5).
             if _ignored(rel_path, specs, root):
                 logger.debug("skip (ignored): %s", rel_path)
+                if accounting is not None:
+                    accounting.skip(SKIP_IGNORED)
                 continue
             try:
                 st = os.stat(abs_path)
                 if not os.path.isfile(abs_path):
+                    if accounting is not None:
+                        accounting.skip(SKIP_UNREADABLE)
                     continue
             except OSError:
+                if accounting is not None:
+                    accounting.skip(SKIP_UNREADABLE)
                 continue
             if st.st_size > max_file_bytes:
                 logger.debug("skip (too large): %s", rel_path)
+                if accounting is not None:
+                    accounting.skip(SKIP_OVERSIZED)
                 continue
             if _is_binary(abs_path):
                 logger.debug("skip (binary): %s", rel_path)
+                if accounting is not None:
+                    accounting.skip(SKIP_BINARY)
                 continue
             if not _looks_utf8ish(abs_path):
                 logger.debug("skip (non-utf8): %s", rel_path)
+                if accounting is not None:
+                    accounting.skip(SKIP_NON_UTF8)
                 continue
             # Stat fast-path: (size, mtime_ns, inode) unchanged since the
             # last pass -> trust the recorded hash without re-reading.
@@ -274,6 +393,8 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
                 continue
             sha = _hash_file(abs_path)
             if sha is None:
+                if accounting is not None:
+                    accounting.skip(SKIP_UNREADABLE)
                 continue
             results.append(ScannedFile(rel_path, abs_path, st.st_size, sha,
                                        st.st_mtime_ns, st.st_ino))
@@ -282,8 +403,10 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
         # Scoped indexing: gitignore-style INCLUSION — only files
         # matching any pattern are kept.
         scope = pathspec.GitIgnoreSpec.from_lines(include)
-        results = [f for f in results
-                   if _matches_include(scope, f.path)]
+        kept = [f for f in results if _matches_include(scope, f.path)]
+        if accounting is not None:
+            accounting.skipped[SKIP_OUT_OF_SCOPE] += len(results) - len(kept)
+        results = kept
     if priority:
         prio = pathspec.GitIgnoreSpec.from_lines(priority)
         head = [f for f in results
@@ -291,6 +414,13 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
         tail = [f for f in results
                 if not _matches_include(prio, f.path)]
         results = head + tail
+    if accounting is not None:
+        # The one line that makes a drop visible without turning on debug
+        # logging for a whole tree.
+        accounting.indexed = len(results)
+        logger.info("scan of %s: walked=%d kept=%d skipped=%s",
+                    root, accounting.walked, accounting.indexed,
+                    dict(sorted(accounting.skipped.items())))
     return results
 
 
