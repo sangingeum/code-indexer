@@ -201,12 +201,17 @@ own value, never folded into a match.
   for files whose stat changed), and reports `fresh`, `stale` (with reasons,
   capped at five) or `unknown` (path absent, no completed pass, or the scan
   exceeded its 5 s / 200,000-entry budget). JSON answers carry `stale`,
-  `stale_known`, `stale_reasons`, `stale_reason_count`, `index_revision` and
-  `last_indexed`; text mode prints exactly one stderr line:
-  `Warning: index is stale (3 files changed since 2026-11-06T22:10:00Z: 2
-  modified, 1 deleted); answers describe the index, not the tree. Refresh:
-  code-indexer reindex-project <path>`. A fresh answer prints nothing extra;
-  an unknown verdict prints one line saying the check did not run.
+  `stale_known`, `stale_reasons`, `stale_reason_count`, `withheld_count`,
+  `withheld_files`, `withheld_summary`, `withheld_unexamined_count`,
+  `index_revision` and `last_indexed`; a withheld file is counted beside the
+  verdict, never as a stale reason. Text mode prints exactly one stderr line:
+
+  ```
+  Warning: index is stale: 3 modified files, 1 deleted file -- <path>; answers describe the index, not the tree; refresh with code-indexer reindex-project <path>
+  ```
+
+  A fresh answer prints nothing extra; an unknown verdict prints one line
+  saying the check did not run.
 - **Repair is explicit.** `--refresh` is the only flag that turns a read
   into a write: it takes the per-project flock, runs one incremental pass and
   answers from the result. A held lock is `LockedError: indexing in

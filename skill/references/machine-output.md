@@ -49,17 +49,21 @@ Every read answer that comes from the index carries these fields in JSON:
 Text mode prints exactly one stderr line and nothing extra on stdout:
 
 ```
-Warning: index is stale: 2 modified files, 1 deleted file -- <path>; refresh with code-indexer reindex-project <path>
+Warning: index is stale: 2 modified files, 1 deleted file -- <path>; answers describe the index, not the tree; refresh with code-indexer reindex-project <path>
 ```
 
-That line is a STATELESS COUNT, identical on every read while the tree stays
-stale: the kinds of change and the project, and nothing else. The per-file
-reasons, `index_revision` and `last_indexed` stay in the block above on every
-call, and `index-status` prints them on request. There is no session token and
-no state file -- a CLI cannot know it is the same reader, so it never
-suppresses a warning it cannot verify was already seen, and it never lets a
-stale read look fresh. The count is short because a repeated paragraph
-becomes wallpaper; it is not short enough to hide the verdict.
+That line is a STATELESS COUNT with its meaning and its repair, identical on
+every read while the tree stays stale: the kinds of change, the project, the
+sentence saying the answer describes the index rather than the tree, and the
+command that refreshes it -- and nothing else. The sentence is part of the
+line, not a courtesy: a bare count reads as a fact about the tree, which is
+exactly the misreading the verdict exists to prevent. The per-file reasons,
+`index_revision` and `last_indexed` stay in the block above on every call,
+and `index-status` prints them on request. There is no session token and no
+state file -- a CLI cannot know it is the same reader, so it never suppresses
+a warning it cannot verify was already seen, and it never lets a stale read
+look fresh. The line is short because a repeated paragraph becomes wallpaper;
+it is not short enough to hide the verdict.
 
 A file the sensitive layer withholds is a skip, not a stale reason, and its
 phrase rides beside the count in the same line (`1 file skipped (sensitive
@@ -67,8 +71,8 @@ content)`) unless the command already prints that state itself --
 `index-status` does, so its warning omits it and the fact appears once.
 
 A fresh answer prints nothing extra; an `unknown` answer prints one line
-saying the check did not run. Answers describe the index as of
-`last_indexed`, never the tree: answers describe the index, not the tree.
+saying the check did not run. Either way the answer describes the index as of
+`last_indexed`, never the tree.
 
 ## Which commands answer as data
 

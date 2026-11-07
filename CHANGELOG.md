@@ -8,8 +8,9 @@ project printed the same paragraph -- `index is stale (1 file changed since
 -- so a reader who saw it a few times stopped treating it as a signal. The
 line is now a count that is identical on every read while the tree stays
 stale and short enough to stay visible: `Warning: index is stale: 1 added
-file -- <path>; refresh with code-indexer reindex-project <path>`. The kinds
-and their counts are the whole text answer; the per-file reasons,
+file -- <path>; answers describe the index, not the tree; refresh with
+code-indexer reindex-project <path>`. The kinds, their counts and the
+guidance sentence are the whole text answer; the per-file reasons,
 `index_revision` and `last_indexed` stay in the `--json` block on every call,
 and `index-status` prints them on request. Nothing is stored, remembered or
 suppressed: a marker file, a manifest-mtime heuristic or a silent first
