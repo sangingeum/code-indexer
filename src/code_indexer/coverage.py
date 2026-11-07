@@ -23,7 +23,9 @@ trust it:
 - ``freshness``     -- ``fresh`` | ``stale`` | ``unknown`` (the staleness
   block's own verdict, never a second estimate);
 - ``complete``      -- true only when every file in scope parsed and none was
-  withheld.
+  withheld. On an index that holds no files the counts are 0 and it is
+  vacuously true: read ``files: 0`` (or ``empty_reason: index-empty``), not
+  ``complete``.
 
 ``empty_reason`` (the name reads, when the answer is empty) is one value from
 ``EMPTY_REASONS`` plus the sentence that states it. The precedence is the one
@@ -37,7 +39,7 @@ change.
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Literal, Sequence
 
 from .manifest import Manifest, ManifestFile
 
@@ -55,13 +57,19 @@ SURFACE_SYMBOL = "symbol"
 SURFACE_SEARCH = "search"
 SCOPES = (SCOPE_PROJECT, SCOPE_ANSWER, SCOPE_NONE)
 
-# The empty-answer vocabulary. One enum, shared by every name read.
-NAME_ABSENT = "name-absent"
-FILES_NOT_PARSED = "files-not-parsed"
-LANGUAGE_WITHOUT_AST = "language-without-ast"
-INDEX_EMPTY = "index-empty"
-EMPTY_REASONS = (NAME_ABSENT, FILES_NOT_PARSED, LANGUAGE_WITHOUT_AST,
-                 INDEX_EMPTY)
+# The empty-answer vocabulary. One enum, shared by every name read. The
+# Literal alias is what CLOSES it: a fifth value returned from
+# ``explain_empty`` is a type error, not a convention the tests have to catch,
+# and the four constants are annotated with it so the tuple cannot drift.
+EmptyReason = Literal["name-absent", "files-not-parsed",
+                      "language-without-ast", "index-empty"]
+
+NAME_ABSENT: EmptyReason = "name-absent"
+FILES_NOT_PARSED: EmptyReason = "files-not-parsed"
+LANGUAGE_WITHOUT_AST: EmptyReason = "language-without-ast"
+INDEX_EMPTY: EmptyReason = "index-empty"
+EMPTY_REASONS: tuple[EmptyReason, ...] = (NAME_ABSENT, FILES_NOT_PARSED,
+                                          LANGUAGE_WITHOUT_AST, INDEX_EMPTY)
 
 # The manifest's language spelling (``indexer._lang_from_ext``) and the
 # capability matrix's (``ts_chunker.EXT_LANG``) differ for these two; the
@@ -214,7 +222,7 @@ def text_line(coverage: dict[str, Any]) -> str | None:
 
 
 def explain_empty(files: Sequence[ManifestFile],
-                  surface: str = SURFACE_SYMBOL) -> tuple[str, str]:
+                  surface: str = SURFACE_SYMBOL) -> tuple[EmptyReason, str]:
     """``(empty_reason, sentence)`` for an empty answer over these files.
 
     Precedence, in the card's order: the subject is absent from an index that
@@ -263,7 +271,7 @@ def explain_empty(files: Sequence[ManifestFile],
 
 
 def empty_answer(lead: str, files: Sequence[ManifestFile],
-                 surface: str = SURFACE_SYMBOL) -> tuple[str, str]:
+                 surface: str = SURFACE_SYMBOL) -> tuple[EmptyReason, str]:
     """``(empty_reason, the full sentence)``, cause appended to the lead."""
     reason, detail = explain_empty(files, surface)
     return reason, f"{lead}: {detail}"

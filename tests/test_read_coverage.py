@@ -219,6 +219,21 @@ def test_the_reason_vocabulary_is_the_same_on_every_name_read(index_project):
         assert payload["empty_reason"] == "language-without-ast", argv
 
 
+def test_the_reason_vocabulary_is_closed_by_a_type_not_a_convention():
+    """The four values are one Closed set: a fifth is a type error.
+
+    ``EmptyReason`` is the annotation ``explain_empty`` returns, and the tuple
+    is built from the same four names, so the set a test cannot see cannot
+    exist either.
+    """
+    from typing import get_args
+
+    from code_indexer.coverage import EMPTY_REASONS, EmptyReason
+
+    assert get_args(EmptyReason) == EMPTY_REASONS
+    assert len(EMPTY_REASONS) == 4
+
+
 def test_the_search_surface_words_its_own_cause(index_project):
     """Same four VALUES, but a search's sentence speaks about its query.
 
