@@ -399,6 +399,7 @@ def test_the_four_flag_combinations_agree_exactly_once(rig, argv):
     by_format = _run(project, *argv, "--format", "json")
     agree = _run(project, *argv, "--json", "--format", "json")
     by_text = _run(project, *argv, "--format", "text")
+    plain = _run(project, *argv)
     assert by_json.exit_code == 0, by_json.output
     assert by_json.stdout, "the stub rig produced no payload"
     assert by_format.exit_code == 0, by_format.output
@@ -406,7 +407,8 @@ def test_the_four_flag_combinations_agree_exactly_once(rig, argv):
     assert agree.exit_code == 0, agree.output
     assert agree.stdout == by_json.stdout
     assert agree.stderr == by_json.stderr
-    assert by_text.exit_code == 0, by_text.output
+    assert by_text.exit_code == plain.exit_code == 0, by_text.output
+    assert by_text.stdout == plain.stdout
     assert by_text.stdout != by_json.stdout
     for other in ("text", "compact"):
         clash = _run(project, *argv, "--json", "--format", other)
