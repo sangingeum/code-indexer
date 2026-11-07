@@ -29,6 +29,15 @@ the alias of `--symbol`. No manifest schema change, no `EXTRACTION_VERSION`
 change, no reindex, and every invocation that worked keeps its answer except the
 one combination named above.
 
+**The publishing check now governs captures for the profile-path shape.** A
+quoted traceback carries the directory it ran under, so a capture under `runs/`
+can disclose the household profile path while every authored document is
+forbidden to. The lint reports `.hermes/profiles/<name>` in every tracked file,
+captures included; the name and card-id rules keep their authored-surface
+scope. The failure reference's exit-2 row also stopped listing the agreeing
+`--json`/`--format json` pair as a cause, matching the rule the rest of the
+surface states.
+
 ## [Unreleased] — the banner states its count
 
 **The staleness banner is a stateless one-line count.** Every read of a stale
