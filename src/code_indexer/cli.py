@@ -10,6 +10,7 @@ and it takes the per-project flock.
 
 from __future__ import annotations
 
+import importlib.metadata
 import json
 import logging
 import os
@@ -191,6 +192,21 @@ def _pass_fail(exc: IndexerError, json_output: bool) -> NoReturn:
         _json_failure(exc, True)
     fail(exc)
     raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _package_version() -> str:
+    """The installed distribution's version, the one line `--version` prints."""
+    try:
+        return importlib.metadata.version("code-indexer")
+    except importlib.metadata.PackageNotFoundError:  # pragma: no cover
+        return "0+unknown"
+
+
+def _print_version(value: bool) -> None:
+    """`--version` callback: one line on stdout, exit 0, no command run."""
+    if value:
+        typer.echo(f"code-indexer {_package_version()}")
+        raise typer.Exit()
 
 
 SkipOpt = typer.Option(
@@ -2294,6 +2310,9 @@ def find_references(
 def _main(
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Verbose diagnostics (INFO) on stderr."),
+    version: bool = typer.Option(
+        False, "--version", callback=_print_version, is_eager=True,
+        help="Print the installed package version on one line and exit 0."),
 ) -> None:
     """Global options for the code-indexer CLI."""
     from .logsetup import configure_logging
