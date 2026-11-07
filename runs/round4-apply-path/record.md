@@ -9,7 +9,8 @@ This leg consumes the plan format that landed last leg and adds the only command
 |---|---|
 | `e3cf8ee` | the filekeeper adapter, its flag probe and exit mapping, the shared pre-pass, and the stub keeper the tests run against |
 | `53a8943` | the apply loop, the per-file report, partial failure and the recovery list, `--dry-run`, the receipt and the post-apply parse verdicts |
-| the commit that carries this record | SKILL-CLI.md, json-schema.md, CHANGELOG.md and this record |
+| `62cfa65` | SKILL-CLI.md, json-schema.md, CHANGELOG.md and this record |
+| the commit that carries this line | names the docs commit's SHA in the record |
 
 Every commit is signed (`git log -1 --format='%h %G?'` → `G`).
 
@@ -100,7 +101,7 @@ over both.
 
 ```
 $ uv run pytest tests/ -q -W error
-811 passed, 2 deselected in 101.65s (0:01:41)
+811 passed, 2 deselected in 99.11s (0:01:39)
 
 $ uvx ruff check src tests scripts
 All checks passed!
