@@ -6,6 +6,12 @@ ADR-0005 (keeper's exit codes); ADR-0009 section 2 (this file's contents and
 budget). Open this reference when a command failed and the remedy is not
 obvious from its line.
 
+Every `ErrorType` the code declares has a row here: this is the whole
+taxonomy, not only the types one round added. `tests/test_docs.py` compares
+the declarations in `errors.py` with these rows in both directions, so a type
+with no row -- or a row naming a type that does not exist -- fails the docs
+check.
+
 ## The taxonomy
 
 | Code | Meaning |
@@ -45,16 +51,21 @@ stderr.
 | `PlanHashMismatch` | the document's bytes do not hash to the requested `plan_id` | re-reference the plan by its current hash, or regenerate it |
 | `OverlappingEdits` | two edits in one file overlap | one edit per region |
 | `AmbiguousOrder` | two insertions at one point | place one of them with `--position end` |
+| `PathEscapesProject` | a plan path is empty, absolute, holds `..`, or resolves outside the project root | name a path relative to the project root |
+| `CarriageReturnInPlan` | a plan or a replacement carries a carriage return; a plan speaks LF only | re-express the text with LF; the file's own convention is applied on write |
+| `SubLineEditUnsupported` | the edited node does not begin and end on line boundaries, so the range is not line-granular | plan whole lines; a sub-line range is refused rather than expanded silently |
 
 ## Exit 3 -- something is not installed or not reachable
 
 | `ErrorType` | Cause | Remedy |
 |---|---|---|
 | `BackendError` | Ollama or Qdrant unreachable, or the embed model is absent | start or install the service; `doctor` names which leg failed |
-| `ProviderUnavailable` | no refactoring provider installed, or it never became ready | install one, or use the CLI's syntax-only commands |
+| `ProviderUnavailable` | no refactoring provider is installed or selected for the language, or one that is there never became ready | install one, or use the CLI's syntax-only commands |
+| `ProviderTimeout` | the provider did not answer a request, or did not become ready, inside its deadline; the request was cancelled | the request was cancelled and nothing was answered -- ask again once the server is healthy; a retired provider is rebuilt for the next request |
 | `KeeperUnavailable` | keeper is not on `PATH` | install keeper; there is no fallback apply path |
 | `KeeperCapabilityMissing` | the installed keeper lacks `--expected-hash`, `--expected-content` or `--dry-run` | upgrade keeper; the missing flag is named |
-| `ExtensionUnavailable` | a language grammar or extension the request needs is not installed | install the extra that provides it |
+| `ConfigError` | a language grammar or extension the request needs is not installed (the extension-unavailable class, which renders as `ConfigError` and exits 3) | install the extra that provides it |
+| `SemanticProviderUnavailable` | a plan asked for a semantic promise no provider in phase 1 can keep | plan the structural operation, or wait for the phase that records a provider |
 
 A provider that times out is exit 3 and a cancelled request -- never an empty
 semantic answer.
@@ -85,14 +96,22 @@ as a fact about the code, so the tool refuses instead.
 | `LockedError` | another pass holds the per-project flock (`--refresh`, a pass command or the watcher) | wait for the holder; re-running immediately is the same outcome |
 | `PlanStale` | a file's hash differs from `files[].expected_hash` | re-read the file, regenerate the plan |
 | `PartialApply` | a mid-loop keeper failure after some edits landed | undo the operation ids in reverse with `keeper history undo` |
-| `KeeperFailure` | keeper refused an edit and nothing was written | the keeper code and message are in the report |
+| `LocatorMismatch` | the plan's locator no longer names a node in the file as the plan saw it -- the file moved under the plan | re-read the file and regenerate the plan; the edit is refused rather than re-targeted |
 
 ## Exit 1 -- everything else
 
 | `ErrorType` | Cause | Remedy |
 |---|---|---|
-| `IndexerError` | a runtime failure with no more specific class | read the message; `doctor` if it repeats |
+| `InternalError` | a runtime failure with no more specific class | read the message; `doctor` if it repeats |
 | `ConfigError` | an invalid or missing configuration value | set the variable or flag the message names |
+| `NotFoundError` | a path, a plan file or an indexed definition that is not there | check the path; `list-projects` says which projects exist |
+| `NotUtf8` | a file the plan touches does not decode as UTF-8 | there is no lossy decode: fix the file's encoding and regenerate |
+| `NewlineMismatch` | the file's observed terminator differs from the plan's declaration | the file changed under the plan -- regenerate it |
+| `MixedNewlines` | a file mixes terminators, and the convention is refused rather than guessed | normalize the file to one terminator and regenerate |
+| `ProviderRefusal` | the provider refused for its own reason; no fallback is attempted | read the provider's reason; nothing was edited |
+| `ProviderFailure` | the provider returned no answer, or an answer outside the contract | a result with no provenance is a defect -- report it; nothing was edited |
+| `PositionConversionFailed` | a provider position cannot be placed exactly in the file's bytes -- inside a surrogate pair, or outside the file | the position is refused, never rounded: re-read the file and ask again |
+| `NonLineAlignedProviderEdit` | a provider edit crosses a line terminator | phase 1 refuses it rather than approximating; ask for the edit inside one line |
 | `KeeperFailure` | keeper failed when nothing had been written | the report names the keeper code |
 
 ## Diagnosing in order

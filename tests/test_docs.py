@@ -15,7 +15,8 @@ ADR-0009 section 5 decides six checks, each of which was a defect class first:
 3. budgets          -- 120 lines and 8 KiB for the entry document, 400 lines
                        and 24 KiB per reference, measured and printed
 4. taxonomy         -- every ADR-0003 exit code appears in the entry document
-                       and in failures.md
+                       and in failures.md, and every `error_type` the code
+                       declares has a row in failures.md
 5. generated blocks -- each generated region equals the generator's output, so
                        a hand edit inside one fails here
 6. installed copy   -- when installed in the new shape (a directory holding
@@ -57,10 +58,12 @@ PYPROJECT = REPO / "pyproject.toml"
 JSON_SCHEMA = REPO / "docs" / "json-schema.md"
 CHANGELOG = REPO / "CHANGELOG.md"
 GENERATOR = REPO / "scripts" / "generate_skill_docs.py"
+ERRORS = REPO / "src" / "code_indexer" / "errors.py"
 
 ENTRY_BUDGET = (120, 8 * 1024)
 REFERENCE_BUDGET = (400, 24 * 1024)
 EXIT_CODES = (0, 1, 2, 3, 4, 5)
+ERROR_TYPE_HEADING = "ErrorType"
 
 SKILL_DESC = re.compile(r"\bdescription:\s*\"(.*)\"", re.M)
 
@@ -350,6 +353,44 @@ def test_failures_reference_expands_every_exit_code():
         f"failures.md has no section for exit codes {missing}; "
         "every code the entry document lists is expanded there"
     )
+
+
+def _declared_error_types() -> set[str]:
+    """The ``error_type`` strings the code declares: what stderr shows a caller."""
+    text = ERRORS.read_text(encoding="utf-8")
+    return {m.group(1)
+            for m in re.finditer(r'^\s+error_type = "([A-Za-z]+)"', text, re.M)}
+
+
+def _documented_error_types() -> set[str]:
+    """The `ErrorType` column of every cause-and-remedy row in failures.md."""
+    text = _reference_text("failures.md")
+    cells = {m.group(1)
+             for m in re.finditer(r"^\| `([A-Za-z]+)` \|", text, re.M)}
+    # The column heading is a backticked `ErrorType` in the same position.
+    return cells - {ERROR_TYPE_HEADING}
+
+
+def test_failures_reference_names_every_declared_error_type():
+    """The whole taxonomy, compared in both directions.
+
+    The exit-code check above reads headings, so it can only see codes and
+    cannot notice a declared ``ErrorType`` with no row -- which is how five of
+    a round's seven new types went missing. Every declared type is a line a
+    caller can meet on stderr, so every one needs a row to look up, and a row
+    naming a type that does not exist is just as wrong.
+    """
+    declared = _declared_error_types()
+    documented = _documented_error_types()
+    assert len(declared) > 20, (
+        f"errors.py declares only {sorted(declared)}: the reader is broken")
+    undocumented = sorted(declared - documented)
+    assert not undocumented, (
+        f"failures.md has no row for error types the code declares: "
+        f"{undocumented}; a caller that meets one cannot look it up")
+    invented = sorted(documented - declared)
+    assert not invented, (
+        f"failures.md names error types no code declares: {invented}")
 
 
 # ---------------------------------------------------------------------------
