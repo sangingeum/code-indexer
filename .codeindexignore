@@ -1,0 +1,14 @@
+# Trees excluded from the code index. They stay tracked in git; this file
+# only stops the scanner from reading them, so git history keeps every
+# committed record while search results point at source.
+
+# Captured round records, gate output and command logs. Indexing them made
+# captures tie with or outrank source in semantic search, find-callers and
+# hotspot rank.
+runs/
+
+# The retrieval evaluation corpus: one query per line with its labelled
+# answers. Those lines are questions shaped like the ones users type, so
+# indexing them ranks near-duplicate queries above the code they point at.
+# The harness reads the file from disk, not from the index.
+eval/
