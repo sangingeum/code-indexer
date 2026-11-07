@@ -290,11 +290,11 @@ def warning_line(verdict: StalenessVerdict, project_path: str, *,
     the verdict exists to prevent -- so it rides beside the refresh hint the
     way the ``unknown`` branch already carries it. The line is short by
     design: the per-file reasons, the revision and the pass timestamp stay in
-    the JSON block every call, and ``index-status`` prints them on request. Nothing is remembered between invocations -- a
-    CLI cannot know it is the same reader, so a marker file, a manifest mtime
-    or a suppressed first occurrence would make silence mean something the
-    process cannot verify. There is no session token: every read states the
-    verdict it just computed.
+    the JSON block every call, and ``index-status`` prints them on request.
+    Nothing is remembered between invocations -- a CLI cannot know it is the
+    same reader, so a marker file, a manifest mtime or a suppressed first
+    occurrence would make silence mean something the process cannot verify.
+    There is no session token: every read states the verdict it just computed.
 
     ``include_withheld`` appends the withheld-file state (a skip, never a
     stale reason) for callers that do not print it themselves; ``index-status``
