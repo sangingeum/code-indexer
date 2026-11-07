@@ -100,6 +100,33 @@ def probe_free_mismatches(recorded: Fingerprint | None,
             if recorded_values[key] != configured[key]]
 
 
+def recorded_row_version_gaps(
+        recorded: Mapping[str, str | None]) -> list[str]:
+    """Row-axis keys a manifest recorded that this build would not write.
+
+    The usual comparison reads a COMPLETE fingerprint, but a pass with vectors
+    off records only the row keys (``write_row_side``), so ``read_fingerprint``
+    returns None for such a manifest and no full-key comparison can run. The
+    row axis is still knowable from the keys themselves: a recorded chunker or
+    extraction version different from this build's means the stored rows were
+    produced by other code, and a row read would describe an index this build
+    would not produce.
+
+    A blank or absent value is NOT a verdict: a manifest that recorded nothing
+    keeps the old reading (ok -- the next pass backfills it). Only a value that
+    is present and different refuses.
+    """
+    configured = {"chunker_version": str(CHUNKER_VERSION),
+                  "extraction_version": str(EXTRACTION_VERSION)}
+    gaps: list[str] = []
+    for key in ROW_SIDE_KEYS:
+        value = recorded.get(key)
+        if value in (None, "") or value == configured[key]:
+            continue
+        gaps.append(f"{key}: {value} -> {configured[key]}")
+    return gaps
+
+
 def row_side_mismatches(recorded: Fingerprint | None,
                         configured: dict[str, str]) -> list[str]:
     """Differences on the ROW axis only (chunker + extraction).

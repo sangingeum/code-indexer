@@ -193,6 +193,7 @@ def test_hotspot_fan_in_counts_the_whole_store_not_a_sample(rig):
         rows = [(i + 1, f"call_{i}", "refresh_token", "call", None)
                 for i in range(5100)]
         m.replace_file_refs("generated/callers.py", rows, "ast")
+        m.resolve_ref_targets()
         assert helper_fan_in() == baseline + 5100
         # ...and the aggregate is the same one the manifest computes.
         assert dict(m.file_fan_in())["pkg/helpers.py"] == baseline + 5100
@@ -200,15 +201,15 @@ def test_hotspot_fan_in_counts_the_whole_store_not_a_sample(rig):
         m.close()
 
 
-def test_path_prefix_keeps_the_in_prefix_definition_of_a_shared_name(rig):
-    """A name defined both inside and outside the prefix belongs to its
-    in-prefix definition — the rule the old row scan used.
+def test_path_prefix_scopes_the_target_files_and_never_reattributes(rig):
+    """The name is resolved once, per definition; `--path-prefix` then only
+    scopes which TARGET files are reported.
 
-    The whole-store aggregate gave the name to `beta.py` (it sorts first), so
-    every reference to it was attributed outside the prefix and then dropped
-    by the prefix filter: up to 6,044 rows on one live prefix, 20,330 on
-    another. Scoping the ownership aggregate to the files being reported on
-    restores the count.
+    The old per-name aggregate had to re-decide ownership inside the prefix,
+    because a name defined outside it took the in-prefix references. An
+    attributed reference is now a property of the reference itself, so the
+    in-prefix definition keeps its count and the out-of-prefix one is only
+    filtered out of the answer.
     """
     core, reg, entry, project = rig
     m = core.manifest_for(entry.slug)
@@ -221,29 +222,30 @@ def test_path_prefix_keeps_the_in_prefix_definition_of_a_shared_name(rig):
                                          size=1, chunk_count=1,
                                          status="indexed", loc=5)])
 
-        # "beta.py" sorts BEFORE "docs/alpha.py", so the global first
-        # definition is the out-of-prefix one: the defect's shape exactly.
-        for path in ("beta.py", "docs/alpha.py"):
+        for path, name in (("beta.py", "beta_topic"),
+                           ("docs/alpha.py", "alpha_topic")):
             add_file(path)
             m.replace_file_symbols(path, [SymbolRow(
-                file=path, name="shared_topic", symbol_type="function",
+                file=path, name=name, symbol_type="function",
                 start_line=1, end_line=2, source="ast")])
         for i in range(5):
             path = f"users/u{i}.py"
             add_file(path)
             m.replace_file_refs(
-                path, [(1, f"caller_{i}", "shared_topic", "call", None)],
+                path, [(1, f"caller_{i}", "alpha_topic", "call", None),
+                       (2, f"caller_{i}", "beta_topic", "call", None)],
                 "ast")
+        m.resolve_ref_targets()
 
         scoped = {h["file"]: h["fan_in"] for h in
                   build_overview(m, str(project),
                                  path_prefix="docs/")["hotspots"]["fan_in"]}
         assert scoped.get("docs/alpha.py") == 5, scoped
         assert "beta.py" not in scoped, scoped
-        # Unscoped, the whole-store owner is unchanged — the fix scopes, it
-        # does not re-rank.
-        full = {h["file"]: h["fan_in"] for h in
-                build_overview(m, str(project))["hotspots"]["fan_in"]}
+        # Unscoped, both definitions keep their own count -- the scope
+        # filters, it does not re-attribute.
+        full = dict(m.file_fan_in())
+        assert full.get("docs/alpha.py") == 5, full
         assert full.get("beta.py") == 5, full
     finally:
         m.close()

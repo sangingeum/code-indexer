@@ -23,6 +23,7 @@ import code_indexer.cli as cli  # noqa: E402
 from code_indexer.cli import app  # noqa: E402
 from code_indexer.config import Config  # noqa: E402
 from code_indexer.core import Core  # noqa: E402
+from code_indexer.errors import RebuildRequiredError  # noqa: E402
 from code_indexer.graph_extract import EXTRACTION_VERSION  # noqa: E402
 from code_indexer.registry import Registry  # noqa: E402
 
@@ -113,6 +114,62 @@ def needs_reindex_rig(tmp_path, monkeypatch):
     reg.close()
     cli._core = None
     cli._core_skip = False
+
+
+def test_a_vectors_off_manifest_with_older_rows_also_refuses(tmp_path,
+                                                            monkeypatch):
+    """A vectors-off pass records only the row keys, so no COMPLETE
+    fingerprint exists and the full-key comparison cannot run.
+
+    The row verdict still has to hold: a recorded extraction version this
+    build would not reproduce means the rows (and their unresolved
+    reference targets) are obsolete, and answering from them would be a
+    silent wrong number rather than a refusal.
+    """
+    monkeypatch.setenv("INDEX_ROOT", str(tmp_path / "state"))
+    cli._core = None
+    cli._core_skip = False
+    cfg = Config(ollama_url="http://stub", qdrant_url="http://stub",
+                 embed_model="stub", index_root=str(tmp_path / "state"),
+                 embed_batch=48, upsert_batch=256,
+                 max_file_bytes=1048576, watch_debounce=1,
+                 watch_sweep_interval=3600)
+    core = Core(cfg)
+    core.embedder = StubEmbedder()  # type: ignore[assignment]
+    core.store = StubStore()  # type: ignore[assignment]
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "a.py").write_text(PROJECT_FILE)
+    reg = Registry(os.path.join(cfg.index_root, "registry.db"))
+    entry = reg.add(str(project), name="rowsonly")
+    try:
+        core.run_index(entry.slug, str(project), vectors="off")
+        m = core.manifest_for(entry.slug)
+        try:
+            # The precondition of this case: no complete fingerprint exists,
+            # because a vectors-off pass writes only the row keys.
+            assert m.get_meta("embed_model") is None
+            assert m.get_meta("extraction_version") == str(EXTRACTION_VERSION)
+            status = core.fingerprint_status(entry)
+            assert status["ok"] is True
+            m.set_meta("extraction_version", str(EXTRACTION_VERSION - 1))
+        finally:
+            m.close()
+
+        with pytest.raises(RebuildRequiredError):
+            core.assert_rows_acceptable(entry)
+        assert "extraction_version" in core.fingerprint_status(entry)["reason"]
+
+        monkeypatch.setattr(cli, "_get_core", lambda skip: core)
+        result = runner.invoke(app, ["overview", "--project", str(project)])
+        assert result.exit_code == 4
+        assert result.stdout == ""
+        assert "extraction_version" in result.stderr
+        assert "reindex-project" in result.stderr
+    finally:
+        reg.close()
+        cli._core = None
+        cli._core_skip = False
 
 
 # surface -> argv (without --project)

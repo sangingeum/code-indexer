@@ -21,8 +21,9 @@ from .config import Config, load_config
 from .errors import (BackendError, ExtensionUnavailableError, InternalError,
                      LockedError, RebuildRequiredError, VectorsDisabledError)
 from .extensions import SEMANTIC_EXTENSION_MESSAGE
-from .fingerprint import (ConfigError, EMBED_FORMAT, configured_values,
-                          read_fingerprint, row_side_mismatches,
+from .fingerprint import (ConfigError, EMBED_FORMAT, ROW_SIDE_KEYS,
+                          configured_values, read_fingerprint,
+                          recorded_row_version_gaps, row_side_mismatches,
                           vector_side_mismatches)
 from .locks import project_lock
 from .manifest import SCHEMA_VERSION, Manifest, SymbolRow
@@ -729,16 +730,31 @@ class Core:
         row key matches, and the dimension question is not one a read answers.
         A manifest with no fingerprint at all counts as ok: the next pass
         backfills it without forcing a reindex.
+
+        A manifest that recorded no COMPLETE fingerprint but did record a row
+        key that disagrees is not that case: a vectors-off pass records only
+        the row keys, so a chunker or extraction-version difference still
+        means the stored rows are obsolete and the row surfaces must refuse
+        rather than answer from them.
         """
         recorded = None
+        recorded_row_keys: dict[str, str | None] = {}
         mdir = os.path.join(self.cfg.index_root, entry.slug, "manifest.db")
         if os.path.isfile(mdir):
             m = Manifest(mdir, writable=False)
             try:
                 recorded = read_fingerprint(m)
+                recorded_row_keys = {key: m.get_meta(key)
+                                     for key in ROW_SIDE_KEYS}
             finally:
                 m.close()
         if recorded is None:
+            gaps = recorded_row_version_gaps(recorded_row_keys)
+            if gaps:
+                return {"ok": False, "state": NEEDS_REINDEX,
+                        "reason": "; ".join(gaps), "recorded": None,
+                        "embedding": None, "vectors": "absent",
+                        "vectors_reason": None}
             return {"ok": True, "state": "ok", "reason": None,
                     "recorded": None, "embedding": None,
                     "vectors": "absent", "vectors_reason": None}

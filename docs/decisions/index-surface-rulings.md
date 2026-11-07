@@ -146,12 +146,22 @@ code now agree on it.
 
 Nothing. No number moves, no reindex is needed.
 
-### Follow-up
+### Follow-up (landed)
 
-A card only if the owner wants per-definition attribution: populate
-`refs.target_symbol_id` through the resolver where a name resolves to one
-definition, aggregate the name half over target rows, and reindex -- an
-index-time change with its own manifest and reindex cost.
+Per-definition attribution is now the aggregate. Every index pass attributes
+each reference through `Manifest.resolve_ref_targets`: the referencing file's
+own definition first, else the store's only definition of the name, else the
+one definition the file-class ladder strictly prefers among several; a tie
+stays unattributed and is counted, never handed to a representative. The name
+half of `file_fan_in` reads `refs.target_symbol_id`, so `which definition did
+this reference mean` is answered by the row instead of guessed from the name,
+and `overview` reports the unattributed remainder beside the hotspots rather
+than folding it into the old first-file answer.
+
+It is an index-time change: `EXTRACTION_VERSION` moved to 6, so an existing
+index reports `needs-reindex` and its row reads refuse until `reindex-project`
+runs. Chunking, the embedded text and the vectors are untouched, so a
+vectors-off pass is enough to move the numbers.
 
 ## Three: a dotted qualified name as a locator
 

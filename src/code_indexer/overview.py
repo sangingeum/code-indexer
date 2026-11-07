@@ -24,7 +24,10 @@ Sections (each capped):
   generated/artifact, then the count. A test fixture, a shipped sample or an
   audit document that accumulates identifier mentions does not win
   orientation. The ladder is the project's own: `[tool.code-indexer.ordering]`
-  in its pyproject may add directory names to a rung."""
+  in its pyproject may add directory names to a rung. Fan-in credits each
+  reference to the definition it resolves to (never to the first file that
+  defines the name); a reference no rule may attribute is credited to no
+  file and reported as `unattributed` beside the list."""
 
 from __future__ import annotations
 
@@ -178,21 +181,21 @@ def build_overview(m: Manifest, project_path: str,
         if os.path.exists(os.path.join(project_path, c)))
 
     # -- hotspots ----------------------------------------------------------
-    # Fan-in is the store's own per-file aggregate — resolved imports into a
-    # file plus references to a name that file defines. It is complete by
-    # construction; the old version counted a 5,000-row sample of `refs`,
-    # which on a large index was under 1% of the table and unstable besides.
-    # The name half is per NAME, not per definition: a reference carries the
-    # name it observed, so the lexicographically first defining file is the
-    # representative owner and a test module that sorts before the source can
-    # hold a source name's count. The class ordering below is what keeps that
-    # file out of the list; the number itself is a property of the name.
+    # Fan-in is the store's own per-file aggregate -- resolved imports into a
+    # file plus references attributed to a definition that file holds. It is
+    # complete by construction; the old version counted a 5,000-row sample of
+    # `refs`, which on a large index was under 1% of the table and unstable
+    # besides. The name half reads the RESOLVED target of each reference, so
+    # it is per definition: a test module that sorts before the source owning
+    # the same name no longer takes the source's count, and a name whose
+    # definitions tie is credited to no file at all. That remainder is
+    # reported beside the list (`unattributed`) instead of being folded into
+    # an arbitrary definer -- the old representative-owner rule.
     # Under --path-prefix the aggregate is scoped to the files being
-    # reported: a name defined both inside and outside the prefix belongs to
-    # its in-prefix definition, or its in-prefix references are attributed
-    # outside and then filtered away.
+    # reported: only targets (and resolved imports) inside the prefix count.
     fan_in = {f: n for f, n in m.file_fan_in(path_prefix or None)
               if f in files}
+    unattributed = m.unattributed_ref_count(path_prefix or None)
     # Ordered by the policy, not by the raw count: source first, then tests,
     # docs and artifacts. A test fixture and an audit document accumulate
     # identifier mentions because they exercise or quote the code beneath
@@ -214,7 +217,9 @@ def build_overview(m: Manifest, project_path: str,
         "tests": {"files": test_files[:10], "count": len(test_files),
                   "framework_hint": frameworks},
         "config_files": config_files,
-        "hotspots": {"fan_in": hotspots_fan, "size": hotspots_size},
+        "hotspots": {"fan_in": hotspots_fan,
+                     "unattributed": unattributed,
+                     "size": hotspots_size},
     }
 
 
@@ -267,6 +272,9 @@ def format_overview(data: dict[str, Any], max_lines: int = 60) -> str:
         add("hotspots (fan-in):")
         for h in hs["fan_in"][:5]:
             add(f"  {h['file']}: {h['fan_in']}")
+    if hs["unattributed"]:
+        add(f"  unattributed: {hs['unattributed']} references credited to no "
+            "file")
     if hs["size"]:
         add("hotspots (size):")
         for h in hs["size"][:5]:

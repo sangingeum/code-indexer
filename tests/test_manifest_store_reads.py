@@ -180,7 +180,8 @@ def test_definitions_of_returns_every_definition_row(tmp_path):
 def test_file_fan_in_matches_a_manual_per_file_count(tmp_path):
     """The aggregate equals a hand count of the same store, including the
     rules: imports into a file count; a reference from the file itself does
-    not; a name defined in two files belongs to the first definition."""
+    not; a name defined twice in the SAME class is credited to neither,
+    because the resolver refuses to choose between equals."""
     m = _manifest(tmp_path)
     try:
         _add_file(m, "dup_a.py", symbols=[_definition("dup_a.py", "dup_fn")])
@@ -210,19 +211,24 @@ def test_file_fan_in_matches_a_manual_per_file_count(tmp_path):
                            ("imported", "imported.py", "python", 2)])
         _add_file(m, "self_import.py",
                   imports=[("self_import", "self_import.py", "python", 1)])
+        m.resolve_ref_targets()
 
         # Manual count, from the fixture's own declared rows.
         expected: dict[str, int] = {}
+        unattributed = 0
         for path, refs in refs_by_file.items():
             for (_line, _frm, to_name, _rel, _recv) in refs:
-                target = "dup_a.py" if to_name == "dup_fn" else \
-                    {"hot_fn": "hot.py", "cold_fn": "cold.py"}[to_name]
+                if to_name == "dup_fn":
+                    unattributed += 1  # two definitions, no local match
+                    continue
+                target = {"hot_fn": "hot.py", "cold_fn": "cold.py"}[to_name]
                 if path != target:
                     expected[target] = expected.get(target, 0) + 1
         expected["imported.py"] = 3  # two import rows + one
 
         got = dict(m.file_fan_in())
         assert got == expected, (got, expected)
+        assert m.unattributed_ref_count() == unattributed == 2
         assert got["hot.py"] == OVER_CAP
         # Sorted by count desc, then file — the overview's slice is stable.
         assert m.file_fan_in()[0] == ("hot.py", OVER_CAP)
@@ -244,8 +250,90 @@ def test_file_fan_in_does_not_stop_at_a_sample(tmp_path):
         rows = [(i + 1, f"call_{i}", "wide_fn", "call", None)
                 for i in range(5100)]
         _add_file(m, "defs/wide_user.py", refs=rows)
+        m.resolve_ref_targets()
         counts = dict(m.file_fan_in())
         assert counts["defs/wide.py"] == 5100
         assert counts["defs/narrow.py"] == 1
+    finally:
+        m.close()
+
+
+def test_fan_in_credits_the_source_not_the_test_module_that_sorts_first(
+        tmp_path):
+    """A test module that mirrors a source name no longer takes its fan-in.
+
+    `a_module_test.py` sorts before `core/refresh.py`, so the old
+    ``SELECT name, MIN(file)`` aggregate credited every reference to the name
+    to the test module. The resolver attributes each reference to the source
+    definition (the file-class ladder prefers it), and the hotspot lands on
+    the file that owns the code.
+    """
+    m = _manifest(tmp_path)
+    try:
+        _add_file(m, "a_module_test.py",
+                  symbols=[_definition("a_module_test.py", "refresh_token")])
+        _add_file(m, "core/refresh.py",
+                  symbols=[_definition("core/refresh.py", "refresh_token")])
+        for i in range(3):
+            _add_file(m, f"callers/c{i}.py",
+                      refs=[(1, f"c{i}", "refresh_token", "call", None)])
+
+        m.resolve_ref_targets()
+        counts = dict(m.file_fan_in())
+        assert counts.get("core/refresh.py") == 3, counts
+        assert "a_module_test.py" not in counts, counts
+        assert m.unattributed_ref_count() == 0
+        assert {row[0] for row in m._conn.execute(
+            "SELECT resolution FROM refs")} == {"same_project"}
+    finally:
+        m.close()
+
+
+def test_a_reference_inside_the_defining_file_resolves_same_file(tmp_path):
+    """Two definitions of one name and a reference in one of them: the local
+    definition is the target, so the count stays out of the other file."""
+    m = _manifest(tmp_path)
+    try:
+        _add_file(m, "core/a.py",
+                  symbols=[_definition("core/a.py", "shared_topic")])
+        _add_file(m, "core/b.py",
+                  symbols=[_definition("core/b.py", "shared_topic")],
+                  refs=[(1, "local_user", "shared_topic", "call", None)])
+        local_id = m._conn.execute(
+            "SELECT id FROM symbols WHERE file = 'core/b.py'").fetchone()[0]
+
+        m.resolve_ref_targets()
+        assert m._conn.execute(
+            "SELECT target_symbol_id, resolution FROM refs"
+        ).fetchall() == [(local_id, "same_file")]
+        # The reference sits in the file it resolves to: no fan-in for it.
+        assert dict(m.file_fan_in()) == {}
+        assert m.unattributed_ref_count() == 0
+    finally:
+        m.close()
+
+
+def test_a_name_with_two_definitions_and_no_local_match_is_unattributed(
+        tmp_path):
+    """Never guess between equals: two same-class definitions of one name
+    leave the reference unattributed, reported, and credited to no file."""
+    m = _manifest(tmp_path)
+    try:
+        _add_file(m, "core/left.py",
+                  symbols=[_definition("core/left.py", "ambiguous_fn")])
+        _add_file(m, "core/right.py",
+                  symbols=[_definition("core/right.py", "ambiguous_fn")])
+        _add_file(m, "callers/user.py",
+                  refs=[(1, "u", "ambiguous_fn", "call", None)])
+
+        m.resolve_ref_targets()
+        assert m._conn.execute(
+            "SELECT target_symbol_id, resolution FROM refs"
+        ).fetchall() == [(None, "none")]
+        assert dict(m.file_fan_in()) == {}
+        assert m.unattributed_ref_count() == 1
+        # Scoping counts the rows that SIT in the prefix, not their targets.
+        assert m.unattributed_ref_count("callers/") == 1
+        assert m.unattributed_ref_count("core/") == 0
     finally:
         m.close()

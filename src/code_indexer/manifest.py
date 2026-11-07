@@ -36,8 +36,11 @@ not papered over. The last basis is a total-key fallback for rows no pass
 writes (extraction always supplies a signature): two such rows of the same
 name and kind in one file share an identity and collapse to one.
 
-``refs.target_symbol_id`` and ``refs.resolution`` are created by this
-revision and left NULL: population is a later leg (ADR-0002 section 3). The
+``refs.target_symbol_id`` and ``refs.resolution`` are written by the index
+pass's resolver (``Manifest.resolve_ref_targets``): a reference is attributed
+to the definition it resolves to, and one no rule may attribute keeps a NULL
+target with ``resolution='none'`` -- the rule is stated once, on that method.
+The
 ``chunks`` table is created by this revision and populated by the same pass
 that writes the file's rows: it stores the chunk text and hash so a later
 vectors-on pass embeds straight from the manifest without re-reading a
@@ -147,8 +150,8 @@ _SCHEMA = (
     relationship TEXT NOT NULL,  -- call|type|base_class|member|includes|identifier
     confidence TEXT NOT NULL,    -- ast | heuristic
     receiver TEXT,               -- member-access receiver as written, else NULL
-    target_symbol_id INTEGER,    -- v7: resolved target, NULL until populated
-    resolution TEXT,             -- v7: none|same_file|same_project|backend
+    target_symbol_id INTEGER,    -- v7: resolved target; NULL when unattributed
+    resolution TEXT,             -- v7: same_file|same_project|none
     PRIMARY KEY (file, line, to_name, relationship)
 )""",
     "CREATE INDEX IF NOT EXISTS idx_refs_to_name ON refs(to_name)",
@@ -345,8 +348,10 @@ class Manifest:
                         f"ALTER TABLE files ADD COLUMN {col} {decl}")
             # v6/v7 reference columns: the receiver as written (v6), and the
             # nullable resolved target plus its resolution channel (v7).
-            # Both v7 columns stay NULL in this revision — population is a
-            # later leg (ADR-0002 section 3).
+            # The index pass fills the v7 pair (``resolve_ref_targets``); a
+            # manifest migrated here carries no targets until that pass runs,
+            # and the extraction-version bump is what refuses to answer from
+            # the unresolved rows in the meantime.
             ref_cols = {
                 r[1] for r in self._conn.execute("PRAGMA table_info(refs)")
             }
@@ -1041,6 +1046,104 @@ class Manifest:
              for (ln, frm, to, rel, recv) in rows])
         self._conn.commit()
 
+    def resolve_ref_targets(self, file: str | None = None) -> int:
+        """Attribute reference rows to the definitions they resolve to.
+
+        The ONE writer of ``refs.target_symbol_id`` / ``refs.resolution``, run
+        by the index pass once every file's symbol and reference rows are in
+        the store (and by any test that builds a manifest by hand). One rule,
+        applied to every row -- or to one file's rows when ``file`` is given:
+
+        1. ``same_file`` -- the referencing file defines the name exactly
+           once; that definition is the target. A local definition is what a
+           reference in the same file means, whatever else shares the name.
+        2. ``same_project`` -- the store defines the name exactly once, or
+           defines it several times with the project's own file-class ladder
+           strictly preferring one of them (source above examples, tests,
+           documents and artifacts -- the ladder ``overview`` ranks hotspots
+           by). A test module that mirrors a source name is therefore not
+           where a reference outside it points.
+        3. ``none`` -- anything still tied. The target stays NULL and the row
+           is reported as unattributed by ``unattributed_ref_count``; taking
+           one of several equals would be the old first-file guess wearing a
+           new column. Two definitions of one name in the same class, or two
+           in the same file, are a tie and stay unattributed.
+
+        Rows whose target does not change are not rewritten, so a second call
+        is a no-op. Returns the number of rows rewritten.
+        """
+        definitions: dict[str, list[tuple[str, int]]] = {}
+        for name, path, symbol_id in self._conn.execute(
+                "SELECT name, file, id FROM symbols"):
+            definitions.setdefault(name, []).append((path, symbol_id))
+
+        # The project-wide choice does not depend on which file is asking, so
+        # it is computed once per name and reused by every referencing row.
+        project_choice: dict[str, tuple[int | None, str]] = {}
+
+        def choose(name: str) -> tuple[int | None, str]:
+            cached = project_choice.get(name)
+            if cached is not None:
+                return cached
+            candidates = definitions.get(name) or []
+            if not candidates:
+                choice: tuple[int | None, str] = (None, "none")
+            elif len(candidates) == 1:
+                choice = (candidates[0][1], "same_project")
+            else:
+                best = min(ordering.class_weight(path, self.class_names)
+                           for path, _sid in candidates)
+                preferred = [sid for path, sid in candidates
+                             if ordering.class_weight(path, self.class_names)
+                             == best]
+                choice = ((preferred[0], "same_project")
+                          if len(preferred) == 1 else (None, "none"))
+            project_choice[name] = choice
+            return choice
+
+        def resolve(ref_file: str, name: str) -> tuple[int | None, str]:
+            local = [sid for path, sid in (definitions.get(name) or [])
+                     if path == ref_file]
+            if len(local) == 1:
+                return local[0], "same_file"
+            return choose(name)
+
+        sql = ("SELECT rowid, file, to_name, target_symbol_id, resolution"
+               " FROM refs")
+        args: list = []
+        if file is not None:
+            sql += " WHERE file = ?"
+            args.append(file)
+        updates = [
+            (target, resolution, rowid)
+            for rowid, ref_file, name, old_target, old_resolution
+            in self._conn.execute(sql, args)
+            for target, resolution in [resolve(ref_file, name)]
+            if (target, resolution) != (old_target, old_resolution)]
+        if updates:
+            self._conn.executemany(
+                "UPDATE refs SET target_symbol_id = ?, resolution = ?"
+                " WHERE rowid = ?", updates)
+            self._conn.commit()
+        return len(updates)
+
+    def unattributed_ref_count(self, scope_prefix: str | None = None) -> int:
+        """Reference rows the resolver could not attribute, counted in place.
+
+        A row is unattributed when ``resolution`` is ``none``: the name is
+        defined nowhere in the store, or its definitions tie. It is credited
+        to NO file's fan-in, and this count is what keeps the omission
+        visible instead of silent. ``scope_prefix`` counts the rows that SIT
+        in the prefix -- the file carrying the reference -- because the scope
+        names the files being reported on.
+        """
+        sql = "SELECT COUNT(*) FROM refs WHERE resolution = 'none'"
+        args: list = []
+        if scope_prefix:
+            sql += " AND substr(file, 1, ?) = ?"
+            args += [len(scope_prefix), scope_prefix]
+        return int(self._conn.execute(sql, args).fetchone()[0])
+
     def callers_of(self, name: str, limit: int | None = None) -> list[dict]:
         """Fan-in edges: every stored row that references ``name``.
 
@@ -1095,47 +1198,44 @@ class Manifest:
         """Reference fan-in per target FILE, computed by the store.
 
         Two complete aggregates, never a row sample: resolved imports INTO a
-        file, plus references to a name that file defines (a reference from
-        the file itself is not fan-in).
+        file, plus references attributed to a definition that file holds (a
+        reference from the file itself is not fan-in).
 
-        The name half is an aggregate per NAME, not per definition, and that
-        is the contract rather than an accident: a reference row records the
-        name it observed and which definition it meant is not knowable from
-        it, so a name defined in several files credits its whole count to the
-        lexicographically first defining file -- the first definition AMONG
-        the files being reported on. Read the row as "this file defines that
-        name and it is the representative owner", never as "the code lives
-        here": a test or spec module that sorts before the source owning the
-        same name takes the number, and the class ladder in ``ordering`` is
-        what keeps such a file out of the hotspot list. Pass ``scope_prefix``
-        (what ``overview --path-prefix`` reports) and a name defined both
-        inside and outside the prefix keeps its in-prefix owner; without that
-        scoping the ownership is decided over the whole store, and a
-        reference to an in-prefix definition is then attributed to an
-        out-of-prefix file and dropped by the caller's filter. Sorted by
-        count desc, then file.
+        The name half reads the RESOLVED target (``refs.target_symbol_id``,
+        written by ``resolve_ref_targets``), so a reference credits the
+        definition it was resolved to. A test module that sorts before the
+        source owning the same name no longer takes the source's number, and
+        a name whose definitions tie shares nothing, because no definition is
+        chosen for it. A reference no rule attributes is credited to NO file:
+        ``unattributed_ref_count`` reports that remainder beside the
+        hotspots, so the number never reads as a complete tally of such a
+        name.
+
+        Pass ``scope_prefix`` (what ``overview --path-prefix`` reports) and
+        the aggregate reports only targets in those files, imports scoped by
+        their resolved file the same way. Sorted by count desc, then file.
         """
         counts: dict[str, int] = {}
         imports_sql = ("SELECT resolved_file, COUNT(*) FROM imports"
                        " WHERE resolved_file IS NOT NULL"
                        " AND resolved_file != file")
         imports_args: list = []
-        owners_sql = ("SELECT s.file, COUNT(*) FROM refs r JOIN"
-                      " (SELECT name, MIN(file) AS file FROM symbols")
-        owners_args: list = []
+        targets_sql = ("SELECT s.file, COUNT(*) FROM refs r JOIN symbols s"
+                       " ON s.id = r.target_symbol_id"
+                       " WHERE r.file != s.file")
+        targets_args: list = []
         if scope_prefix:
             # Exact prefix match: LIKE is case-insensitive for ASCII and
             # would scope by a different rule than the caller used.
             imports_sql += " AND substr(resolved_file, 1, ?) = ?"
             imports_args += [len(scope_prefix), scope_prefix]
-            owners_sql += " WHERE substr(file, 1, ?) = ?"
-            owners_args += [len(scope_prefix), scope_prefix]
+            targets_sql += " AND substr(s.file, 1, ?) = ?"
+            targets_args += [len(scope_prefix), scope_prefix]
         imports_sql += " GROUP BY resolved_file"
-        owners_sql += (" GROUP BY name) s ON s.name = r.to_name"
-                       " WHERE r.file != s.file GROUP BY s.file")
+        targets_sql += " GROUP BY s.file"
         for target, n in self._conn.execute(imports_sql, imports_args):
             counts[target] = counts.get(target, 0) + int(n)
-        for target, n in self._conn.execute(owners_sql, owners_args):
+        for target, n in self._conn.execute(targets_sql, targets_args):
             counts[target] = counts.get(target, 0) + int(n)
         return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
 

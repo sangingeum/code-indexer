@@ -577,6 +577,12 @@ class Indexer:
             if path in by_file:
                 continue  # already committed with its vectors
             _commit_metadata(path)
+        # Attribute every reference to the definition it resolves to. Run
+        # AFTER the last symbol/ref row of this pass is written, over the whole
+        # store: a definition added, removed or renamed anywhere re-attributes
+        # the rows that point at its name, and a row no rule may attribute is
+        # left NULL and counted rather than credited to an arbitrary file.
+        manifest.resolve_ref_targets()
         manifest.mark_scanned(manifest.read_git_branch(project_path))
         manifest.set_meta("last_indexed", str(time.time()))
         # One revision per committed pass: the revision a read answer was

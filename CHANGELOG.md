@@ -1,5 +1,48 @@
 # Changelog
 
+## [Unreleased] — a reference credits the definition it resolves to
+
+**Fan-in is now per DEFINITION, not per name.** The name half of
+`Manifest.file_fan_in` was `SELECT name, MIN(file) ... GROUP BY name`, so every
+reference to a name was credited to the lexicographically first file defining
+it -- a test module that sorted before the source owning a name took that
+name's whole count. Every index pass now attributes each reference through
+`Manifest.resolve_ref_targets`, which writes `refs.target_symbol_id` and
+`refs.resolution`: the referencing file's own definition first (`same_file`,
+when that file defines the name exactly once); otherwise the store's only
+definition of the name, or the one definition the project's file-class ladder
+strictly prefers among several (`same_project` -- source above examples,
+tests, documents, artifacts, the same ladder `overview` ranks hotspots by);
+otherwise nothing (`none`). A tie is never broken by name or path: those rows
+stay unattributed, are credited to no file, and are counted in
+`overview`'s `hotspots.unattributed` (text: `unattributed: N references
+credited to no file`) with the compact tag `hotspot-unattributed`. The
+`--path-prefix` scope now filters target files and counts the unattributed
+rows that sit inside the prefix; it no longer re-decides ownership.
+
+This is index-time data: the columns existed (schema v7) but nothing wrote
+them. `EXTRACTION_VERSION` moves 5 -> 6, so an existing index reports
+`needs-reindex` and its row reads refuse until `reindex-project` runs; what is
+stored until then is the old per-name aggregate and no resolved targets, and
+one pass replaces it. Chunking, the embedded text and the vectors are
+untouched, so a vectors-off pass is enough to move the numbers, and a
+vectors-on index keeps its cached vectors.
+
+Measured on a fixture where `a_module_test.py` defines `refresh_token` before
+`core/refresh.py` does: the old aggregate put all three references on the test
+module, the resolved one puts them on `core/refresh.py` and leaves the test
+module out of the fan-in list entirely.
+
+The version gate needed one repair to make that refusal real. A vectors-off
+pass records only the row keys, so no COMPLETE fingerprint exists and the
+full-key comparison never ran: such an index answered silently from rows that
+carry no resolved targets (measured: an empty fan-in, exit 0).
+`fingerprint_status` now compares the recorded row keys on their own
+(`fingerprint.recorded_row_version_gaps`), so the same index refuses with
+`extraction_version: 5 -> 6` and exit 4 instead of answering a zero. A
+manifest that recorded no row key at all keeps its old reading -- the next
+pass backfills it.
+
 ## [Unreleased] — an anchored nested pattern anchors where it lives
 
 **A leading `/` in a nested ignore file now anchors to the directory carrying

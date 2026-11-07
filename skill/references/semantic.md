@@ -207,14 +207,19 @@ is registered closed over it.
 Why class outranks count: a fixture, sample or audit document accumulates
 identifier mentions because it exercises or quotes the code beneath it, so a
 fan-in list reports the fixture as the centre of the codebase; class is a
-property of the path and does not move with hit distribution. The fan-in
-number is an aggregate per NAME: a reference row carries the name it observed
-and never which definition it meant, so a name defined in several files
-credits its whole count to the first defining file -- the lexicographically
-first among the files being reported on. Read that row as "this file defines
-the name and is its representative owner", never as "the code lives here": a
-test or spec module that sorts before the source takes the number, and the
-class ladder, not the count, is what keeps such a file out of the ten slots.
+property of the path and does not move with hit distribution.
+
+The fan-in number is an aggregate per DEFINITION. The index pass attributes
+every reference to the definition it resolves to (`refs.target_symbol_id`):
+the referencing file's own definition first, then the store's only definition
+of the name, then the single definition the class ladder strictly prefers
+among several -- so a test module that mirrors a source name keeps none of
+that name's references. A name defined nowhere, or whose definitions tie, is
+UNATTRIBUTED: that reference is credited to no file and counted in the
+overview's `unattributed` line instead of being folded into a representative
+owner. An index built before per-definition attribution answers from the old
+per-name aggregate; its row reads report `needs-reindex` until
+`reindex-project` reruns the pass that resolves the references.
 
 The workflow that keeps context small: `semantic-search` to locate,
 `find-symbol`/`find-definition` to confirm identity, `get-code-context

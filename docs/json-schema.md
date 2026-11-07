@@ -82,14 +82,27 @@ entry_points, tests, config_files, hotspots) + `schema: 1`.
 
 `hotspots.fan_in` is `[{"file": str, "fan_in": int}]`, the top ten by a
 **complete** per-file count: resolved imports into the file plus references
-to a name that file defines, self-references excluded. The name half is an
-aggregate per NAME, so a name defined in several files credits its whole count
-to the first defining file -- a reference records the name it observed, never
-which definition it meant. It is a count, never a sample of the reference
-table, so two runs over one index agree exactly. Under `--path-prefix` the
-count is scoped to the files being reported on: a name defined both inside and
-outside the prefix belongs to its in-prefix definition, so the prefix keeps
-the references it owns.
+attributed to a definition the file holds, self-references excluded. Each
+reference credits the definition it RESOLVES to (`refs.target_symbol_id`,
+written by the index pass): a definition in the referencing file first; else
+the store's only definition of the name; else, among several definitions, the
+one the file-class ladder strictly prefers (source above examples, tests,
+documents and artifacts -- so a test module that mirrors a source name does
+not take that name's references); a remaining tie is left unattributed. It is
+a count, never a sample of the reference table, so two runs over one index
+agree exactly.
+
+`hotspots.unattributed` is `int`: how many reference rows no rule attributed
+to a definition (a name defined nowhere, or a tie). They are credited to no
+file and never folded into an arbitrary definer; the text form prints
+`unattributed: N references credited to no file` when the count is non-zero,
+and the compact form carries `hotspot-unattributed references=N`.
+
+Under `--path-prefix` the count is scoped to the files being reported on:
+only target files inside the prefix are counted, and `unattributed` counts
+the reference rows that SIT inside it. An index built before per-definition
+attribution answers from the old per-name aggregate -- the row reads report
+`needs-reindex` instead, until `reindex-project` writes the resolved targets.
 
 ## changed-symbols --json
 
@@ -392,6 +405,13 @@ identity, in that order. Each row below is one branch of
 | `vectors-off-identity-differs` | `fingerprint: unverified`, `vectors: off`, a recorded identity key differs (with vectors off the line prints `vectors_state` as recorded, so it may read `current` here) | there is no vector side -- no vectors are stored and no vector query runs -- so nothing can be stale and no rebuild is prescribed; the difference is an inert fact about the next vectors-on pass, which writes its own collection, and a recorded `stale` marker is inert too |
 | `vectors-off-identity-matched` | `fingerprint: unverified`, `vectors: off`, the identity matches | every fingerprint key a read can compare matched, and the dimension is the one key it cannot compare; there is no vector side here, so no rebuild is prescribed |
 | `no-verdict-recorded` | no `fingerprint` field: the index records no fingerprint, or an incomplete one | the comparison did not run, which is not a pass; with `vectors: off` it adds that there is no vector side either |
+
+A recorded ROW key that differs is `needs-reindex` even when no COMPLETE
+fingerprint was recorded: a vectors-off pass writes only the row keys, so the
+full-key comparison has nothing to read, and the recorded chunker/extraction
+version is compared on its own (`extraction_version: 5 -> 6`) — the rows are
+obsolete either way. A manifest that recorded no row key at all still reaches
+`no-verdict-recorded`; the next pass backfills it.
 
 `vectors_state` is the marker the manifest RECORDS, never a second
 comparison: on a vectors-on project the read derives `stale` from the

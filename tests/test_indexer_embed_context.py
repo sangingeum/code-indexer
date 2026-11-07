@@ -77,6 +77,9 @@ class _FakeManifest:
     def replace_file_symbols(self, *args: Any, **kwargs: Any) -> None:
         pass
 
+    def resolve_ref_targets(self, file: str | None = None) -> int:
+        return 0
+
     def replace_file_imports(self, *args: Any, **kwargs: Any) -> None:
         pass
 

@@ -96,7 +96,12 @@ LANGUAGES_WITH_AST = frozenset(
 # older extractor has neither and cannot be derived from it. Every existing
 # index reports needs-reindex until its ordinary pass runs; that pass is the
 # only thing that can rebuild the rows, and it is not triggered by a read.
-EXTRACTION_VERSION = 5
+# v6: references carry a resolved target (`target_symbol_id` / `resolution`),
+# written by the pass's resolver once every row is in the store, and the
+# fan-in aggregate now reads those targets. A manifest built before it has no
+# targets at all, so the row reads must refuse (needs-reindex) instead of
+# answering a name half of zero; `reindex-project` is what resolves them.
+EXTRACTION_VERSION = 6
 
 _INDEX_EXTS = (".ts", ".tsx", ".js", ".jsx")
 

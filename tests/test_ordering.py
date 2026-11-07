@@ -426,7 +426,16 @@ def test_find_references_puts_source_rows_before_more_numerous_test_rows(rig):
 
 
 def test_overview_hotspots_promote_source_over_a_larger_test_fixture(rig):
-    """The test fixture has MORE fan-in and MORE size, and still loses."""
+    """The test fixture has MORE fan-in than a source file, and still loses.
+
+    `spec/conftest.py` owns `shared_fixture`, referenced 20 times from the
+    test file, and `dist/bundle.min.js` owns another `Tick`: both are counted
+    at the file that defines the name, and both rank below the source that
+    owns `Tick`. Before per-definition attribution every `Tick` reference was
+    credited to the lexicographically first definer (`dist/bundle.min.js`)
+    and the fixture out-counted the source; the counts moved with the fix,
+    the ordering rule did not.
+    """
     core, _reg, entry, project = rig
     from code_indexer.overview import build_overview
 
@@ -436,8 +445,14 @@ def test_overview_hotspots_promote_source_over_a_larger_test_fixture(rig):
     finally:
         m.close()
     fan = {row["file"]: row["fan_in"] for row in data["hotspots"]["fan_in"]}
-    assert fan[CONFTEST_FILE] > fan[SOURCE_FILE], fan
+    order = [row["file"] for row in data["hotspots"]["fan_in"]]
+    assert fan[CONFTEST_FILE] == 20, fan
     assert data["hotspots"]["fan_in"][0]["file"] == SOURCE_FILE, fan
+    assert order.index(SOURCE_FILE) < order.index(CONFTEST_FILE), order
+    # The class ladder holds across the whole list: no test, document or
+    # artifact ranks above a source file, whatever its count.
+    weights = [ordering.class_weight(path) for path in order]
+    assert weights == sorted(weights), order
     size = {row["file"]: row["loc"] for row in data["hotspots"]["size"]}
     assert size[TEST_FILE] > size[SOURCE_FILE], size
     assert data["hotspots"]["size"][0]["file"] == SOURCE_FILE, size
