@@ -2267,7 +2267,9 @@ def find_symbol(
         help="Glob over the name, case-sensitive (`*Manager`, `get_*`)."),
     container: str = typer.Option(
         None, "--container",
-        help="Parent qualified name (exact), e.g. `UserManager`."),
+        help="Parent qualified name (exact), e.g. `UserManager`: the "
+             "disambiguator for a dotted qualified_name, while the name "
+             "argument itself stays bare."),
     visibility: str = typer.Option(
         None, "--visibility",
         help="public|private (a NULL visibility reads as public)."),
@@ -2561,7 +2563,10 @@ def get_code_context(
         help="Project path, slug, or name (--project X or --name X)."),
     start_line: int = typer.Option(None, help="Start line (with --end-line)."),
     end_line: int = typer.Option(None, help="End line."),
-    symbol: str = typer.Option(None, help="Resolve range(s) via this symbol."),
+    symbol: str = typer.Option(None, help="Resolve range(s) via this symbol: "
+                                   "the bare declaration name, never the "
+                                   "dotted qualified_name (disambiguate with "
+                                   "find-symbol --container)."),
     context_lines: int = typer.Option(0, help="Pad each range by N lines."),
     json_output: bool = typer.Option(False, "--json", help="JSON output (carries stale/re_resolved)."),
     output_format: str | None = FormatOpt,

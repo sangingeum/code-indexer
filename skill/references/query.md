@@ -283,10 +283,15 @@ candidate instead of answering one).
 
 `--symbol` matches the name the file's rows carry, which is the bare
 declaration name (`search`, `__init__`) even when the symbol's
-`qualified_name` is dotted (`Core.search`, as `find-symbol` reports it). The
-dotted spelling is not a locator here: `--symbol Core.search` answers
-`InternalError: symbol 'Core.search' not indexed in ...` and exits 1. Use
-`find-symbol <name> --container Core` to learn the row's name, then pass that.
+`qualified_name` is dotted (`Core.search`, as `find-symbol` reports it). That
+is one argument shape across `find-symbol`, `find-definition` and
+`get-code-context`: the row's `name` is the locator and the dotted
+`qualified_name` is a field a read REPORTS, never one it takes back. A dotted
+spelling therefore refuses instead of guessing -- `get-code-context --symbol
+Core.search` answers `NotFoundError: no indexed definition for 'Core.search'`
+and exits 1, because no row carries that name. Disambiguate by container
+instead: `find-symbol search --container Core` names the row, and that bare
+name is what the locator takes.
 
 `get-code-context` checks the live file hash against the manifest. In
 `--symbol` mode it re-resolves the symbol on the live file; otherwise it
