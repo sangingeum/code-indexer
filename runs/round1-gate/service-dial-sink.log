@@ -1,5 +1,0 @@
-listening ports=[34567, 34568]
-heartbeat totals={"34567": 0, "34568": 0}
-heartbeat totals={"34567": 0, "34568": 0}
-CONNECT port=34567 peer=127.0.0.1:51428 at=2026-11-06T17:27:03Z
-TOTALS {"34567": 1, "34568": 0} total=1

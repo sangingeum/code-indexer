@@ -1,3 +1,0 @@
-unwatch: stopped watcher pid=355470 (pidfile=<home>/.code-indexer/watch.pid)
-unwatch: it was watching: 
-unwatch: note: it did not cover every requested project

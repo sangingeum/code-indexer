@@ -1,6 +1,0 @@
-exit=0
-stderr_bytes=0
-stdout_bytes=658
--- stderr --
--- stdout --
-{"project": "proj", "files": 2, "loc": 4, "languages": [{"language": "python", "files": 2, "loc": 4, "share": 100.0}], "directories": [{"dir": ".", "files": 2, "symbols": 2}], "entry_points": [], "tests": {"files": [], "count": 0, "framework_hint": []}, "config_files": [], "hotspots": {"fan_in": [], "size": [{"file": "alpha.py", "loc": 2}, {"file": "beta.py", "loc": 2}]}, "stale": true, "stale_kno

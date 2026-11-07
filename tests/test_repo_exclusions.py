@@ -1,10 +1,10 @@
 """This repository's own index exclusions take effect.
 
 The root ``.codeindexignore`` names the non-source trees the scanner must
-skip: ``runs/`` (captured round records, gate output and command logs) and
-``eval/`` (the retrieval evaluation corpus). Both stay tracked in git; only
-the index skips them. The test copies the repository's own file into a
-throwaway tree shaped like this one, so it checks the patterns that ship
+skip: ``runs/`` (round captures, gate output and command logs, kept in the
+working checkout and not tracked) and ``eval/`` (the retrieval evaluation
+corpus, which is tracked and ships). The test copies the repository's own file
+into a throwaway tree shaped like this one, so it checks the patterns that ship
 rather than a fixture written to match the scanner.
 """
 

@@ -1,5 +1,0 @@
-Usage: code-indexer index-status [OPTIONS] [path]
-Try 'code-indexer index-status --help' for help.
-╭─ Error ──────────────────────────────────────────────────────────────────────╮
-│ No such option: --all-projects (Possible options: --project)                 │
-╰──────────────────────────────────────────────────────────────────────────────╯

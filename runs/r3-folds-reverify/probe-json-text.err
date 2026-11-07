@@ -1,1 +1,0 @@
-ArgumentError: --json and --format text disagree: --json is an alias of --format json; pass one of them

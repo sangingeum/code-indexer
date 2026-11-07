@@ -1,9 +1,0 @@
-project: proj5 — 3 files, 6 LOC
-languages:
-  python: 3 files, 6 LOC (100.0%)
-directories:
-  ./: 3 files, 3 symbols
-hotspots (size):
-  a.py: 2 LOC
-  b.py: 2 LOC
-  c.py: 2 LOC

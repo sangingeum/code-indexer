@@ -1,1 +1,0 @@
-f677d33d: {"files_indexed": 0, "chunks_embedded": 5, "chunks_reused": 0, "files_deleted": 0, "duration_s": 0.67, "chunks_skipped": 0, "files_committed": 3, "sensitive_skipped": 0}

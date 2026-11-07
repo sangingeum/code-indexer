@@ -1,5 +1,0 @@
-Usage: code-indexer [OPTIONS] COMMAND [ARGS]...
-Try 'code-indexer --help' for help.
-╭─ Error ──────────────────────────────────────────────────────────────────────╮
-│ No such command 'refresh'.                                                   │
-╰──────────────────────────────────────────────────────────────────────────────╯

@@ -1,9 +1,0 @@
-a22769d SCHEMA_VERSION = "6"   ddl_md5=057f35b9080dc62dfea6548efda20599 table_count= 6 chunks=NO-CHUNKS idx_schema_meta=no  parse_verdict=no  refs_target=no 
-4e5201a SCHEMA_VERSION = "7"   ddl_md5=2602492547d0b1c6383ac13e3821f7d7 table_count= 7 chunks=chunks    idx_schema_meta=no  parse_verdict=yes refs_target=yes
-96c22c9 SCHEMA_VERSION = "7"   ddl_md5=2602492547d0b1c6383ac13e3821f7d7 table_count= 7 chunks=chunks    idx_schema_meta=no  parse_verdict=yes refs_target=yes
-899a56f SCHEMA_VERSION = "7"   ddl_md5=2602492547d0b1c6383ac13e3821f7d7 table_count= 7 chunks=chunks    idx_schema_meta=no  parse_verdict=yes refs_target=yes
-52a2975 SCHEMA_VERSION = "7"   ddl_md5=2602492547d0b1c6383ac13e3821f7d7 table_count= 7 chunks=chunks    idx_schema_meta=no  parse_verdict=yes refs_target=yes
-0102410 SCHEMA_VERSION = "7"   ddl_md5=b34d1963a9299a4d161cc2776072fdd8 table_count= 7 chunks=chunks    idx_schema_meta=yes parse_verdict=yes refs_target=yes
-54a7214 SCHEMA_VERSION = "7"   ddl_md5=b34d1963a9299a4d161cc2776072fdd8 table_count= 7 chunks=chunks    idx_schema_meta=yes parse_verdict=yes refs_target=yes
-9193abe SCHEMA_VERSION = "7"   ddl_md5=b34d1963a9299a4d161cc2776072fdd8 table_count= 7 chunks=chunks    idx_schema_meta=yes parse_verdict=yes refs_target=yes
-cf6af65 SCHEMA_VERSION = "7"   ddl_md5=b34d1963a9299a4d161cc2776072fdd8 table_count= 7 chunks=chunks    idx_schema_meta=yes parse_verdict=yes refs_target=yes

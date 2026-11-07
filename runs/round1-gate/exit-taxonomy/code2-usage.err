@@ -1,5 +1,0 @@
-Usage: code-indexer deps [OPTIONS] {path}
-Try 'code-indexer deps --help' for help.
-╭─ Error ──────────────────────────────────────────────────────────────────────╮
-│ Missing argument 'path'.                                                     │
-╰──────────────────────────────────────────────────────────────────────────────╯

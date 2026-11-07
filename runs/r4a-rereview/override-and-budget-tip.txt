@@ -1,3 +1,0 @@
-B2 allow_sensitive unset : state=fresh reasons=[] withheld_count=1 withheld=[('secretive.py', 'sensitive content')]
-B2 allow_sensitive set   : state=stale reasons=[('added', 'secretive.py')] withheld_count=0 withheld=[]
-B3 12 MiB first, secret : state=stale reasons=[('added', 'aa_big.py')] withheld_count=1 withheld=[('z_secret.py', 'sensitive content')]

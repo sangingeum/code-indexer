@@ -1,8 +1,0 @@
-exit=0
-stderr_bytes=223
-stdout_bytes=394
--- stderr --
-Warning: index is stale (1 file changed since 2026-11-07T10:27:05Z: 1 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project <scratch>/proj2
--- stdout --
-project=<scratch>/proj2 state=idle rows=current vectors=off vectors_state=absent schema=7 languages_without_ast=[bash, css, html, java, json, kotlin, lua, markdown, php, ruby, rust, swift, toml, yaml] parse=parsed:1,parse_error:0,parse_unavailable:0 1 file skipped (sensitive content) — privacy; override with --allow-sensitive on add-project
-

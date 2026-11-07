@@ -1,5 +1,0 @@
-# Capture for the round-4 fold re-verification. Absolute host paths were
-# elided before this file was committed: <project-root>, <base-worktree>,
-# <scratch>, <home>. The command and its output are otherwise unmodified.
-# --------------------------------------------------------------------
-[{"conclusion":"success","databaseId":42320262255,"displayTitle":"docs(round4): the fold leg record","headSha":"1fcb1eb95375b6a876f351d77553bb3adbbbb220","status":"completed"},{"conclusion":"success","databaseId":42318527749,"displayTitle":"docs(review): round 4 two-axis review -- pass with three changes","headSha":"65c88fa8c28d48b582d0f5c8e2d276a156740118","status":"completed"},{"conclusion":"success","databaseId":42317816037,"displayTitle":"docs(gate): name the CI run the gate's own push started","headSha":"9b6f4fc986446f3dca19301f5897abd8739610fd","status":"completed"},{"conclusion":"success","databaseId":42317649083,"displayTitle":"docs(gate): round 4 verification -- verdict, 22 bars, three findings","headSha":"30b0f2f1197466dbb92b4019fe95acc1937d5ef4","status":"completed"}]

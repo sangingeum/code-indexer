@@ -1,7 +1,0 @@
-project: proj3 — 1 files, 2 LOC
-languages:
-  python: 1 files, 2 LOC (100.0%)
-directories:
-  ./: 1 files, 1 symbols
-hotspots (size):
-  solo.py: 2 LOC

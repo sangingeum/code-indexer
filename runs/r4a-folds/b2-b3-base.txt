@@ -1,3 +1,0 @@
-B2 allow_sensitive unset : state=fresh reasons=[] skipped_count=1 skipped=[('secretive.py', 'sensitive content')]
-B2 allow_sensitive set   : state=fresh reasons=[] skipped_count=1 skipped=[('secretive.py', 'sensitive content')]
-B3 12 MiB first, secret : state=stale reasons=[('added', 'aa_big.py'), ('added', 'z_secret.py')] skipped_count=0 skipped=[]

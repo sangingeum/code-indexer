@@ -1,4 +1,0 @@
-tests/test_docs.py:497: AssertionError
-=========================== short test summary info ============================
-FAILED tests/test_docs.py::test_installed_copy_digest_matches_the_tracked_copy
-1 failed, 997 passed, 2 deselected in 105.37s (0:01:45)

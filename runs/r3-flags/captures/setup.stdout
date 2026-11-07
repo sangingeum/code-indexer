@@ -1,3 +1,0 @@
-registered <scratch>/proj (slug a24d0b75)
-note: vectors=off — rows, symbols, references and chunks are indexed with no service; run reindex-project --vectors on later to embed them
-a24d0b75: {"files_indexed": 2, "chunks_embedded": 0, "chunks_reused": 0, "files_deleted": 0, "duration_s": 0.66, "chunks_skipped": 0, "files_committed": 0, "sensitive_skipped": 0}

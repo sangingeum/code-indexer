@@ -1,6 +1,0 @@
-# Gate capture (redacted). Host paths were elided: <checkout> is the
-# repository under test, <scratch> the throwaway rig directory,
-# <index-root> the store, <home> any remaining path. Nothing else was
-# changed; the unmodified capture is kept in the local evidence store
-# outside the repository.
-Warning: index is stale (1 file changed since 2026-11-07T08:58:55Z: 1 added); answers describe the index, not the tree. Refresh: code-indexer reindex-project <checkout>

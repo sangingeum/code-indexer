@@ -1,8 +1,0 @@
-project: proj — 2 files, 14 LOC
-languages:
-  python: 2 files, 14 LOC (100.0%)
-directories:
-  ./: 2 files, 5 symbols
-hotspots (size):
-  mod.py: 12 LOC
-  util.py: 2 LOC

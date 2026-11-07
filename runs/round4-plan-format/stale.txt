@@ -1,9 +1,0 @@
-plan sha256:5a7d03156b252147ce85c15c9697756dc32c2e5e5209f26bbee263520260f9a6
-identity structural (file_hash, decl_hash, region_hash)
-- plan hash: ok -- sha256:5a7d03156b252147ce85c15c9697756dc32c2e5e5209f26bbee263520260f9a6 recomputed from the document's canonical bytes
-- schema: ok -- schema_version 1, operation replace_body, 1 file(s), 1 edit(s)
-- requests: ok -- syntax_required true, semantic_required false
-- paths: ok -- 1 path(s) project-relative and inside the project root
-- file bytes: ok -- 1 file(s) decoded as UTF-8 and read as stored bytes
-- file hash and newline declaration: failed -- PlanStale: sample.py: the file's hash is sha256:7ff5fd4220e9b0db977690aa776a37e2dc0e4a14ce2df095539e5cffcc640fe7 but the plan was prepared against sha256:854d5c95c53c01074ee1a2b97babdc9cb23dd6d03098f6758a6667a27bdee848; the plan is stale and is refused whole
-structural checks only -- file bytes, the parser's verdict and region arithmetic; nothing here claims the result compiles or type-checks

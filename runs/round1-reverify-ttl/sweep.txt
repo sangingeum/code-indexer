@@ -1,8 +1,0 @@
-SKILL-CLI.md:663:  (default `~/.code-indexer`), `STALE_TTL` (RETIRED — still parsed into
-docs/subcommand-design.md:263:   `maybe_refresh` first unless skipped (same contract as search).
-docs/audit.md:85:`DATA_FILE_PENALTY` in `src/code_indexer/ranking.py` within STALE_TTL (60 s) →
-docs/audit.md:89:was returned with the SAME stale range after the edit (the STALE_TTL probe
-docs/adr/0003-read-only-and-staleness-contract.md:14:1. Nine read commands re-index silently when a flag is absent: `semantic-search`, `skeleton`, `outline`, `find-symbol`, `find-definition`, `find-references` (and `get-code-context` under `--fresh`, `index-status` under `--refresh`) via `Core.maybe_refresh` (`src/code_indexer/core.py:220-250`, veto at `:232`), plus `eval` through `core.search`. `--skip-stale-check` is the only thing that stops them, so the default query path is a write path (audit section 1).
-docs/adr/0003-read-only-and-staleness-contract.md:25:- **Read commands**: every other command. A read command opens no write transaction, calls no `maybe_refresh`, and dials no service to reach a staleness verdict. A read command invoked with `--refresh` performs one pass first and therefore writes; the guarantee below applies to every invocation without that flag.
-docs/overhaul-baseline-audit.md:82:`Core.maybe_refresh` (`core.py:232`): `if self.skip_stale_check: return
-EXIT=0

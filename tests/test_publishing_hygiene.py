@@ -15,10 +15,9 @@ roster name in this file would trip the very check it exercises. The name rule
 is pinned by injecting a synthetic digest into the loaded module's set, so
 this file never spends the secrecy the digest roster buys.
 
-One import is deliberate: the sanitiser test loads
-`runs/issue22/reverify/sanitize_capture.py`, a historical record artifact
-committed with the round that produced it. Nothing else imports it — it is
-evidence, not a library, and the test exists so the artifact keeps working.
+One helper is loaded by path rather than imported:
+`scripts/publish_sanitize_capture.py` prepares a capture for publication and is
+a command-line tool, so the test drives it the way a caller does.
 """
 
 from __future__ import annotations
@@ -33,7 +32,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 SCRIPT = REPO / "scripts" / "publishing_hygiene_lint.py"
-CAPTURE_SANITIZER = REPO / "runs" / "issue22" / "reverify" / "sanitize_capture.py"
+CAPTURE_SANITIZER = REPO / "scripts" / "publish_sanitize_capture.py"
 
 # Assembled, never written as a literal (see the module docstring).
 HOST_PATH = os.sep.join(["", "home", "hygiene" + "probe", "src", "app.py"])
@@ -229,9 +228,8 @@ def test_capture_sanitizer_rewrites_only_this_hosts_prefixes():
     """The sanitiser placeholders this checkout and this account home, and
     leaves a foreign machine's path exactly as it found it.
 
-    The sanitiser is loaded from `runs/issue22/reverify/` on purpose: it is a
-    historical record artifact kept working, not an importable utility (see the
-    module docstring).
+    The sanitiser is loaded from `scripts/` by path on purpose: it is a
+    command-line helper that writes a file, not an importable utility.
     """
     sanitize = _sanitizer().sanitize_capture
     repo_path = str(REPO / "src" / "code_indexer" / "cli.py")

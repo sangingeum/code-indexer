@@ -1,8 +1,0 @@
-project: proj — 2 files, 4 LOC
-languages:
-  python: 2 files, 4 LOC (100.0%)
-directories:
-  ./: 2 files, 2 symbols
-hotspots (size):
-  alpha.py: 2 LOC
-  beta.py: 2 LOC

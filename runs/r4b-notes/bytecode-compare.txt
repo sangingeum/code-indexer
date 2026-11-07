@@ -1,4 +1,0 @@
-code objects: base=21 tip=21
-code objects differing: none
-warning_line bytecode equal: True
-warning_line non-docstring constants equal: True
