@@ -1474,14 +1474,15 @@ def index_status(
         fields["reason"] = fp["reason"]
     # The flag pair says WHICH check failed; it does not say what a reader
     # should conclude. The sentence below carries that half, and it takes the
-    # VECTOR verdict as well: the run that prints `vectors_state=stale` is the
-    # run in which the embedding model did not match, so a sentence claiming
-    # every comparable key matched would be false in the state it is printed
-    # in. The field names stay exactly as they were for a machine caller.
+    # ONE vector verdict object `vs` -- the same one the line above printed
+    # `vectors=` and `vectors_state=` from. The identity comparison is part of
+    # that object (`identity_reason`), never a source of its own: with vectors
+    # off there is no vector side, so an identity difference is an inert fact,
+    # not the stale verdict the fields beside it would have to deny. The field
+    # names stay exactly as they were for a machine caller.
     fp_meaning = fingerprint_mod.meaning(fields.get("fingerprint"),
                                          fp["reason"],
-                                         vectors_state=fp["vectors"],
-                                         vectors_reason=fp["vectors_reason"])
+                                         vectors=vs)
     if st.get("last_result"):
         parts.append(f"last_pass={st['last_result']}")
         fields["last_pass"] = st["last_result"]

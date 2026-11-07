@@ -464,6 +464,164 @@ def test_the_fingerprint_sentence_names_the_keys_the_read_path_compares():
 
 
 # ---------------------------------------------------------------------------
+# the fingerprint sentence over the WHOLE vector state space
+# ---------------------------------------------------------------------------
+#
+# The sentence used to take its vector verdict from the fingerprint side (the
+# identity comparison alone) while the line beside it printed the mode- and
+# marker-aware verdict. Two sources, one sentence: with vectors off the line
+# said `vectors=off vectors_state=current` and the sentence said the vector
+# side was stale. Every row below fixes mode x identity x marker x row keys,
+# reads the SAME command, and asserts the sentence agrees with the fields
+# printed beside it -- so a sentence fed any other source fails a row.
+
+_VECTORS_OFF_WITH_A_DIFFERENT_MODEL = "reproducer-vectors-off-other-model"
+
+
+@pytest.mark.parametrize("mode, identity, marker, row_key", [
+    # vectors on, everything current: the ordinary read.
+    pytest.param("on", "match", "current", "match", id="on-current"),
+    # vectors on, identity differs: the run in which the model did NOT match.
+    pytest.param("on", "differ", "current", "match", id="on-stale"),
+    # vectors on, no marker recorded (legacy manifest).
+    pytest.param("on", "match", "absent", "match", id="on-absent"),
+    # vectors on, a recorded marker nothing in this build writes.
+    pytest.param("on", "match", "stale", "match", id="on-recorded-stale"),
+    pytest.param("on", "match", "error", "match", id="on-error"),
+    # vectors on, a row key differs: the row surfaces refuse.
+    pytest.param("on", "match", "current", "differ", id="on-needs-reindex"),
+    pytest.param("on", "differ", "current", "differ",
+                 id="on-needs-reindex-and-stale"),
+    # vectors OFF: no vector side exists, whatever the identity or marker says.
+    pytest.param("off", "differ", "current", "match",
+                 id="off-different-model"),
+    pytest.param("off", "match", "current", "match", id="off-current"),
+    pytest.param("off", "match", "current", "differ",
+                 id="off-needs-reindex"),
+    pytest.param("off", "differ", "stale", "match",
+                 id="off-recorded-stale"),
+    # vectors off, marker still `current` from an earlier vectors-on build.
+    pytest.param("off", "differ", "current", "differ",
+                 id="off-everything-else-differs"),
+])
+def test_the_sentence_and_the_line_cannot_contradict(
+        index_project, mode, identity, marker, row_key):
+    core, entry, project = index_project({"mod.py": PY})
+    meta: dict[str, str] = {"vectors": mode, "vectors_state": marker}
+    if identity == "differ":
+        meta["embed_model"] = _VECTORS_OFF_WITH_A_DIFFERENT_MODEL
+    if row_key == "differ":
+        meta["chunker_version"] = "999"
+    _set_meta(core, entry, **meta)
+
+    payload = _status_json(project)
+    meaning = payload["fingerprint_meaning"]
+    vectors, vectors_state = payload["vectors"], payload["vectors_state"]
+
+    # ---- the two fields the sentence is printed beside ------------------
+    assert payload["fingerprint"] in ("unverified", "needs-reindex")
+    assert (payload["fingerprint"] == "needs-reindex") == (row_key == "differ")
+    assert vectors == mode
+    if mode == "on":
+        assert vectors_state == ("stale" if identity == "differ" else marker)
+    else:
+        # Pre-existing: a vectors-off read prints the recorded marker as-is.
+        assert vectors_state == marker
+
+    # ---- the sentence, against those fields ----------------------------
+    if row_key == "differ":
+        assert "chunker_version: 999 ->" in meaning, meaning
+        assert "reindex-project" in meaning, meaning
+        assert "every fingerprint key a read can compare matched" not in meaning
+        if vectors == "off":
+            assert "no vectors are stored" in meaning, meaning
+            assert "vector rebuild is what clears this" not in meaning, meaning
+        elif identity == "differ":
+            assert "its vectors are stale too" in meaning, meaning
+            assert _VECTORS_OFF_WITH_A_DIFFERENT_MODEL in meaning, meaning
+        return
+    if vectors == "off":
+        # There is no vector side: say so, and never prescribe a rebuild.
+        assert "no vectors are stored" in meaning, meaning
+        assert "vector rebuild is what clears this" not in meaning, meaning
+        assert "--vectors on" not in meaning, meaning
+        assert "reindex-project" not in meaning, meaning
+        if identity == "differ":
+            assert _VECTORS_OFF_WITH_A_DIFFERENT_MODEL in meaning, meaning
+            assert "inert" in meaning, meaning
+            assert "no vector side to be stale" in meaning, meaning
+    elif identity == "differ":
+        assert "did not match" in meaning, meaning
+        assert _VECTORS_OFF_WITH_A_DIFFERENT_MODEL in meaning, meaning
+        assert "vector rebuild is what clears this" in meaning, meaning
+        assert "every fingerprint key a read can compare matched" not in meaning
+    elif marker == "stale":
+        # Identity matches, so no key is named -- but the printed verdict
+        # says stale, and the sentence cannot claim otherwise.
+        assert "records the vector collection" in meaning, meaning
+        assert "stale" in meaning, meaning
+    else:
+        assert "every fingerprint key a read can compare matched" in meaning
+        assert "did not match" not in meaning, meaning
+        assert "stale" not in meaning, meaning
+
+    # ---- one line out, one line of explanation, both from the same run --
+    text = runner.invoke(app, ["index-status", "--project", str(project)])
+    assert text.exit_code == 0, text.output
+    assert len(text.stdout.splitlines()) == 1
+    stderr_lines = [ln for ln in text.stderr.splitlines()
+                    if ln.startswith("fingerprint meaning:")]
+    assert len(stderr_lines) == 1, text.stderr
+    assert stderr_lines[0] == f"fingerprint meaning: {meaning}"
+
+
+@pytest.mark.parametrize("mode", ["on", "off"])
+def test_the_sentence_reports_no_comparison_when_none_was_recorded(
+        index_project, mode):
+    """No recorded fingerprint is no comparison -- in both vector modes."""
+    core, entry, project = index_project({"mod.py": PY})
+    _set_meta(core, entry, vectors=mode, embed_model="", embed_dim="",
+              embed_text_version="", chunker_version="",
+              extraction_version="")
+    payload = _status_json(project)
+    assert "fingerprint" not in payload
+    meaning = payload["fingerprint_meaning"]
+    assert "did not run" in meaning, meaning
+    assert "matched" not in meaning, meaning
+    if mode == "off":
+        assert "no vector side here either" in meaning, meaning
+
+
+def test_the_sentence_takes_its_vector_verdict_from_the_line_not_the_rows(
+        index_project, monkeypatch):
+    """The seam pin: two sources that disagree, and only one may be read.
+
+    The row-side report is made to claim a stale vector identity while the
+    mode is off, which is exactly the disagreement the old sentence read
+    itself into. The line prints the mode-aware verdict, so the sentence must
+    follow it; a sentence fed the fingerprint side instead says `stale` here
+    and fails.
+    """
+    core, entry, project = index_project({"mod.py": PY})
+    _set_meta(core, entry, vectors="off")
+    row_side = core.fingerprint_status
+
+    def disagreeing(entry_):
+        status = row_side(entry_)
+        return {**status, "vectors": "stale",
+                "vectors_reason": "embed_model: elsewhere -> stub"}
+
+    monkeypatch.setattr(core, "fingerprint_status", disagreeing)
+    payload = _status_json(project)
+    assert payload["vectors"] == "off"
+    assert payload["vectors_state"] == "current"
+    meaning = payload["fingerprint_meaning"]
+    assert "no vectors are stored" in meaning, meaning
+    assert "did not match" not in meaning, meaning
+    assert "elsewhere -> stub" not in meaning, meaning
+
+
+# ---------------------------------------------------------------------------
 # the roster: a new read command cannot ship without coverage
 # ---------------------------------------------------------------------------
 

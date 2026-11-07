@@ -312,8 +312,8 @@ class Core:
             return NEVER_INDEXED
         return state or "idle"
 
-    def vectors_status(self, entry: ProjectEntry) -> dict[str, str]:
-        """The two vector facts a read can state without a service.
+    def vectors_status(self, entry: ProjectEntry) -> dict[str, Any]:
+        """The ONE vector verdict a read can state without a service.
 
         ``vectors`` is the project's mode (on|off), ``vectors_state`` is the
         last recorded state of the collection relative to the rows
@@ -321,25 +321,33 @@ class Core:
         embedding identity is not the one this build would write, which a
         read can see from configuration alone. ``rows`` is the row-side
         verdict: current only when this build's extraction wrote them.
+
+        ``identity_reason`` is the identity comparison ITSELF, named by key,
+        and it is reported in BOTH modes: with vectors on it is why
+        ``vectors_state`` reads ``stale``; with vectors off it is the inert
+        recorded fact about the collection a future vectors-on pass would
+        write. Keeping it in the same object as the mode and the marker is
+        what stops a reader — and the sentence that explains this verdict —
+        from taking the identity comparison for the whole vector verdict.
         """
         mdir = os.path.join(self.cfg.index_root, entry.slug, "manifest.db")
         if not os.path.isfile(mdir):
             return {"vectors": vectors_policy.MODE_OFF,
                     "vectors_state": vectors_policy.STATE_ABSENT,
-                    "rows": "absent"}
+                    "rows": "absent", "identity_reason": None}
         m = Manifest(mdir, writable=False)
         try:
             mode = vectors_policy.recorded_mode(m) or vectors_policy.MODE_ON
             state = vectors_policy.vectors_state(m)
-            if mode == vectors_policy.MODE_ON:
-                recorded = read_fingerprint(m)
-                if vector_side_mismatches(recorded, self.cfg.embed_model,
-                                          EMBED_FORMAT):
-                    state = vectors_policy.STATE_STALE
+            diffs = vector_side_mismatches(
+                read_fingerprint(m), self.cfg.embed_model, EMBED_FORMAT)
+            if mode == vectors_policy.MODE_ON and diffs:
+                state = vectors_policy.STATE_STALE
             return {
                 "vectors": mode,
                 "vectors_state": state,
                 "rows": vectors_policy.rows_state(m),
+                "identity_reason": "; ".join(diffs) or None,
             }
         finally:
             m.close()
