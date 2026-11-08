@@ -165,8 +165,10 @@ def test_extraction_version_is_pinned():
     # requires a new comment block beside it -- not a silent edit to make a
     # suite green. 14 is the pass where the two `.h` grammar trees are compared
     # by named declaration (not by count) and a `type_use` row only becomes a
-    # `type` when it binds a type-kind definition.
-    assert EXTRACTION_VERSION == 14
+    # `type` when it binds a type-kind definition. 15 is the pass where a C++
+    # call through a qualified name writes its `call` row and the scan set
+    # honours the repository-local `.git/info/exclude`.
+    assert EXTRACTION_VERSION == 15
 
 
 def test_chunker_version_is_pinned():

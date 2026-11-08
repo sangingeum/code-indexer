@@ -46,6 +46,7 @@ BINARY_EXTENSIONS = {
 }
 
 _GITIGNORE_CACHE: dict[str, pathspec.PathSpec] = {}
+_REPO_EXCLUDE_CACHE: dict[str, tuple[str, pathspec.PathSpec] | None] = {}
 
 # Built-in ignore defaults: lockfiles, minified bundles, generated code.
 # Deliberately conservative — anything that is reviewable source stays
@@ -110,6 +111,87 @@ def _load_ignore_spec(dirpath: str) -> pathspec.PathSpec:
     return spec
 
 
+def _repo_git(directory: str) -> tuple[str, str] | None:
+    """(repository root, git directory) for ``directory``, or None in no repo.
+
+    The search is the one git does: the nearest ancestor carrying ``.git``.
+    A ``.git`` DIRECTORY is the git directory itself; a ``.git`` FILE (a
+    linked worktree or a submodule) points elsewhere with a ``gitdir:`` line
+    and the directory holding that file is still the repository root.
+    """
+    cur = os.path.abspath(directory)
+    while True:
+        dot_git = os.path.join(cur, ".git")
+        if os.path.isdir(dot_git):
+            return cur, dot_git
+        if os.path.isfile(dot_git):
+            try:
+                with open(dot_git, encoding="utf-8", errors="replace") as f:
+                    first = f.readline().strip()
+            except OSError:
+                return None
+            if not first.startswith("gitdir:"):
+                return None
+            target = first[len("gitdir:"):].strip()
+            if not os.path.isabs(target):
+                target = os.path.normpath(
+                    os.path.join(os.path.dirname(dot_git), target))
+            return cur, target
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            return None
+        cur = parent
+
+
+def _repo_local_exclude(root: str
+                        ) -> tuple[str, pathspec.PathSpec] | None:
+    """The repository-local ``info/exclude`` and the directory it anchors at.
+
+    Git reads this file from the repository, never from a user-global
+    location: ``$GIT_COMMON_DIR/info/exclude`` (a linked worktree's git dir
+    carries a ``commondir`` file naming it, and a plain repository's git dir
+    IS its common dir), and its patterns are spelled relative to the
+    REPOSITORY root -- which is not necessarily the directory being scanned.
+    So the spec travels with the repository root as its anchor and
+    :func:`_spec_path` re-expresses a scanned path from there. When no
+    repository covers ``root`` the answer is None: the scan set of a tree
+    outside version control does not depend on some other repository.
+
+    Precedence: lower than every ``.gitignore``, exactly as in git, which
+    reads this file before the per-directory ignore files.
+    """
+    if root in _REPO_EXCLUDE_CACHE:
+        return _REPO_EXCLUDE_CACHE[root]
+    answer: tuple[str, pathspec.PathSpec] | None = None
+    found = _repo_git(root)
+    if found is not None:
+        repo_root, git_dir = found
+        if os.path.isfile(os.path.join(git_dir, "commondir")):
+            # A linked worktree: info/exclude lives in the common dir.
+            try:
+                with open(os.path.join(git_dir, "commondir"),
+                          encoding="utf-8", errors="replace") as f:
+                    common = f.readline().strip()
+            except OSError:
+                common = ""
+            if common:
+                common = os.path.normpath(os.path.join(git_dir, common))
+                git_dir = common
+        exclude = os.path.join(git_dir, "info", "exclude")
+        if os.path.isfile(exclude):
+            try:
+                with open(exclude, encoding="utf-8", errors="replace") as f:
+                    lines = f.read().splitlines()
+            except OSError as exc:
+                logger.warning("Cannot read %s: %s", exclude, exc)
+                lines = []
+            if lines:
+                answer = (repo_root,
+                          pathspec.GitIgnoreSpec.from_lines(lines))
+    _REPO_EXCLUDE_CACHE[root] = answer
+    return answer
+
+
 def _ordered_specs(root: str, dirpath: str
                    ) -> list[tuple[str, pathspec.PathSpec]]:
     """The ignore specs governing ``dirpath``, with their directories, root first.
@@ -125,15 +207,29 @@ def _ordered_specs(root: str, dirpath: str
         if cur == root:
             break
         cur = os.path.dirname(cur)
-    return [(path, _load_ignore_spec(path)) for path in reversed(chain)]
+    specs = [(path, _load_ignore_spec(path)) for path in reversed(chain)]
+    exclude = _repo_local_exclude(root)
+    if exclude is not None:
+        # First, so every .gitignore rule below it is the later match and
+        # therefore the winner -- git's precedence for info/exclude.
+        specs.insert(0, exclude)
+    return specs
 
 
 def _spec_path(directory: str, root: str, rel_path: str) -> str:
     """``rel_path`` (root-relative) as seen from the directory carrying a spec."""
     if directory == root:
         return rel_path
-    prefix = os.path.relpath(directory, root).replace(os.sep, "/") + "/"
-    return rel_path[len(prefix):] if rel_path.startswith(prefix) else rel_path
+    if directory.startswith(root + os.sep):
+        prefix = os.path.relpath(directory, root).replace(os.sep, "/") + "/"
+        if rel_path.startswith(prefix):
+            return rel_path[len(prefix):]
+        return rel_path
+    # A spec anchored ABOVE the scanned tree -- the repository-local
+    # ``info/exclude``: its patterns are spelled relative to the repository
+    # root, so the path is re-expressed from there.
+    return os.path.relpath(os.path.join(root, rel_path),
+                           directory).replace(os.sep, "/")
 
 
 def _ignored(rel_path: str, specs: list[tuple[str, pathspec.PathSpec]],
@@ -317,12 +413,18 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
     ignores is pruned, which also carries git's rule that nothing inside an
     excluded directory can be re-included: there is no walk left to
     re-include in.
+
+    The repository-local ``.git/info/exclude`` of the repository covering
+    ``root`` composes too, anchored at the REPOSITORY root and read before
+    every ``.gitignore`` -- git's own precedence, and never a user-global
+    exclude file. A tree outside version control has no such spec.
     """
     previous = previous if previous is not None and \
         os.environ.get("PARANOID_HASH") not in ("1", "true") else {}
     root = os.path.abspath(root)
     results: list[ScannedFile] = []
     _GITIGNORE_CACHE.clear()
+    _REPO_EXCLUDE_CACHE.clear()
     walked = 0
     started = time.monotonic()
 

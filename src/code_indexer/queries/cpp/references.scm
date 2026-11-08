@@ -31,6 +31,22 @@
   function: (template_function
     (identifier) @ref.call))
 
+; A call through a qualified name -- `geo::place()`, `Type::make()` -- puts the
+; callee one node deeper: the FUNCTION is a qualified_identifier whose `name`
+; field is the callee. The scope half stays a namespace_identifier and is
+; captured below as a type use; without these two patterns the call half of
+; `geo::place()` was invisible, so a project that calls through namespaces
+; lost its caller edges. The pattern is anchored on the call's FUNCTION field,
+; so a qualified TYPE use (`geo::Point p;`) never reaches it.
+(call_expression
+  function: (qualified_identifier
+    name: (identifier) @ref.call))
+
+(call_expression
+  function: (qualified_identifier
+    name: (template_function
+      (identifier) @ref.call)))
+
 (base_class_clause
   (type_identifier) @ref.base_class)
 
@@ -42,7 +58,8 @@
 ; index pass keeps it as a `type` reference only when the name binds a
 ; definition of a TYPE KIND, so `std::` (no definition in the store) and a
 ; project namespace (`namespace geo`, which is a scope and not a type) both
-; add no row. The qualifier's CALL half (`geo::place()`) is still invisible:
-; no call pattern matches a qualified_identifier.
+; add no row. The qualifier's call half is captured above, on the call's
+; function field, so `geo::place()` is a `call` row and `geo::Point` stays a
+; type use.
 (qualified_identifier
   scope: (namespace_identifier) @ref.type_use)

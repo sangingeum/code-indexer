@@ -152,13 +152,19 @@ LANGUAGES_WITH_AST = frozenset(
 # become `type` when the definition they bind is a TYPE KIND, so a
 # project-defined namespace in a qualifier no longer reads as a type. Rows
 # built by v13 carry the old symbol kinds and the namespace rows.
+# v15: a C++ call through a qualified name (`geo::place()`, `Type::make()`)
+# writes a `call` row naming the callee (v14 dropped it, so a project that
+# calls through namespaces lost its caller edges), and the scan set honours
+# the repository-local `.git/info/exclude` the way git does -- v14 indexed
+# files git reports ignored. Rows built by v14 hold neither the qualified
+# calls nor a scan set that stops at the repository's own excludes.
 # -- and the parse-verdict change rode in on `b3275ae` without an axis of its
 # own: the verdict stopped being the chunk yield's and became the parser's
 # (an empty-AST file is `parsed`). It is carried here only because v13 and v14
 # rebuild everything; anyone who cherry-picks `b3275ae` alone leaves every
 # import-only file stored `parse_unavailable` with nothing to trigger the
 # rebuild. Do not split the set.
-EXTRACTION_VERSION = 14
+EXTRACTION_VERSION = 15
 
 _INDEX_EXTS = (".ts", ".tsx", ".js", ".jsx")
 

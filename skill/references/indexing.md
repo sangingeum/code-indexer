@@ -355,46 +355,46 @@ for `OLLAMA_URL` and `QDRANT_URL` are LAN placeholders and must be set.
 | `VERBOSE` | off | verbose diagnostics on stderr |
 | `STALE_TTL` | -- | retired: accepted and ignored -- setting it neither raises nor changes behaviour, because a read reports its verdict from the stat scan |
 
-`.gitignore` and nested `.codeindexignore` files are honoured; `--include`
-scope globs narrow a project at registration, spelled relative to its root;
-secret-bearing files (filename globs plus high-confidence content patterns) are
-skipped unless `--allow-sensitive`; files larger than `MAX_FILE_BYTES` (1 MB
-default) and binaries are skipped. The skip counts are reported by `index-status`.
+`.gitignore`, nested `.codeindexignore` files and the repository-local
+`.git/info/exclude` (per repository, never a user-global file) are honoured;
+`--include` scope globs narrow a project at registration, spelled relative to
+its root; secret-bearing files are skipped unless `--allow-sensitive`; files
+larger than `MAX_FILE_BYTES` (1 MB default) and binaries are skipped, and
+`index-status` reports the skip counts.
 
 `.gitignore` and `.codeindexignore` answer different questions -- git decides
 what is committed, the index what is searchable. This repository excludes two
 non-source trees in the root `.codeindexignore`: `runs/` (round captures, gate
 output and command logs, kept in the working checkout, no longer tracked) and
-`eval/` (the retrieval corpus, whose lines are questions shaped like the ones
-users type, so indexing them ranks near-duplicate queries above the code they
-point at; this one stays tracked). Anchored to the repository root (`/runs/`,
-`/eval/`), they leave a same-named directory under `src/` indexed. Nested
-ignore files compose as git does: each spec is read root-outwards against the
-path relative to its own directory, and the last matching rule decides -- a
+`eval/` (the retrieval corpus -- questions shaped like the ones users type, so
+indexing them ranks near-duplicate queries above the code they point at; this
+one stays tracked). Anchored to the repository root (`/runs/`, `/eval/`), they
+leave a same-named directory under `src/` indexed. Nested ignore files compose
+as git does: each spec is read root-outwards relative to its own directory,
+and the last matching rule decides -- a
 deeper `!pattern` re-includes what a shallower file excluded, and an anchored
-pattern (`/secret.txt`) anchors to the directory of the file carrying it; rows already in a manifest leave on a reindex, not on the edit.
+pattern (`/secret.txt`) anchors to the directory carrying it. The repo-local
+`.git/info/exclude` joins there -- anchored at the repository root even when
+only a subdirectory is scanned, read before every `.gitignore`, per repository
+only -- so the scan keeps what `git check-ignore` does not ignore. Rows
+already in a manifest leave on a reindex, not on the edit.
 
-A file the sensitive scan withholds sits in the gap between the scan set and
-the manifest: it is scanned, it deliberately has no row, and it is **not** a
-staleness reason. The diff re-applies the pass's own decision function
-(`sensitive.skip_verdict`, over the same 256 KiB prefix) and reports such a
-path with the layer that fired -- `1 file skipped (sensitive content)` on the
-`index-status` line, and `withheld_count` / `withheld_files` /
-`withheld_summary` in `--json` -- while the verdict stays `fresh`. Two layers
-firing carry a per-reason numeral; one does not. A genuinely new
-non-sensitive file still reports `added`, and a withheld file that changes
-stays withheld, because the decision is re-applied rather than remembered;
-under `--allow-sensitive` nothing is withheld, so every rowless path is
-`added` -- exactly the row the next pass writes.
+A file the sensitive scan withholds sits in the gap between scan set and
+manifest: scanned, deliberately rowless, and **not** a staleness reason. The
+diff re-applies the pass's own decision function (`sensitive.skip_verdict`,
+over the same 256 KiB prefix) and reports such a path with the layer that
+fired -- `1 file skipped (sensitive content)` on the `index-status` line, and
+`withheld_count` / `withheld_files` / `withheld_summary` in `--json` -- while
+the verdict stays `fresh`. A genuinely new non-sensitive file still reports
+`added`, and a withheld file that changes stays withheld; under
+`--allow-sensitive` nothing is withheld, so every rowless path is `added`,
+exactly the row the next pass writes.
 
 The check reads no more than the pass does: only rowless scanned paths are
 opened, up to the same 256 KiB prefix, inside an 8 MiB budget per check
 charged in bytes actually read (an approximation, not a measured threshold).
 A path past the budget stays `added` and rides `withheld_unexamined_count`.
 
-A rowless path the check cannot OPEN is a third state: scan and diff are two
-moments (a permission change, a broken symlink, an I/O error lands between
-them), so it reports `unreadable_count` / `unreadable_files` with `1 file
-could not be read (permission or I/O error)` -- never `added` or withheld.
-The scanner drops paths it cannot open, so this reports only what the diff
-saw: a path the scan never returned is not counted.
+A rowless path the check cannot OPEN is a third state -- scan and diff are two
+moments, so it reports `unreadable_count` / `unreadable_files` with `1 file
+could not be read (permission or I/O error)`, never `added` or withheld.

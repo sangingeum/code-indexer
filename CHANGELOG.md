@@ -1,5 +1,35 @@
 # Changelog
 
+## [Unreleased] — a qualified C++ call, and the repository's own excludes
+
+**A call through a qualified name writes a caller edge.** `geo::place()`
+parses as a `call_expression` whose function is a `qualified_identifier`, and
+the C++ query had call patterns for a plain identifier, a field access and a
+template call but none for a qualified one. The call half of every namespace-
+or class-qualified call was therefore invisible: the scope half was captured
+and `find-callers place` answered nothing. The query now captures the callee
+from the call's function field (plain and template form), so a qualified call
+records a `call` row naming the callee. The pattern is anchored on the call's
+function field, so a qualified TYPE use (`geo::Point p;`) keeps its `type` row
+and never becomes a call; both directions are pinned by test.
+
+**The scanner reads the repository-local exclude file.** `.git/info/exclude`
+is part of what git ignores, and the scan read only `.gitignore` and
+`.codeindexignore`: on a copy of a tree, twelve `.artifacts/*.log` files that
+`git check-ignore` reports ignored were indexed, because only the local
+exclude named them. The scan now finds the repository covering the project
+root (`$GIT_COMMON_DIR/info/exclude` for a linked worktree, never a user-global
+exclude file), anchors its patterns at the repository root even when only a
+subdirectory is scanned, and reads it BEFORE every `.gitignore` so a tracked
+negation still wins -- git's own precedence. Against real git the scan set now
+reconciles: indexed files == `git ls-files` minus `git check-ignore` hits.
+
+**`EXTRACTION_VERSION` 14 -> 15** for both, in one bump because both change
+what the index holds: rows built by 14 carry no qualified-call rows and a scan
+set that includes files git ignores, so every registered project answers
+`needs-reindex` and reads refuse (exit 4) until the fleet rebuild runs.
+`CHUNKER_VERSION` is unchanged -- the chunker is untouched.
+
 ## [Unreleased] — a phrase matches across the chunks of one file
 
 **A multi-word lexical query is evidence, not a requirement.** `--mode
