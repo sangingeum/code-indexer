@@ -18,7 +18,9 @@ Protocol (also stated in ``--help``):
 * per trial and per form, in this order: embed the text once (load-first when
   the trial crosses a boundary), embed it AGAIN IMMEDIATELY (the repeat),
   embed a DIFFERENT text, then embed the first text again (the repeat after a
-  different request);
+  different request); the third call is counted against the RUN's load-first
+  digest, so a warm trial is measured against the load-first form and not
+  against its own first call;
 * the instructed form is built by ``Embedder.query_instruction_text``, the
   function the query path applies before ``embed_query_once``, and the embed
   format is the ``EMBED_FORMAT`` constant imported from the package -- neither
@@ -84,6 +86,11 @@ def probe_form(embedder: Embedder, form: str, text: str, other: str,
     returned = 0
     kept = 0
     boundaries = 0
+    # The digest of the first call after a load in THIS RUN. Every trial
+    # compares its third call against it, so a warm trial's third call is
+    # measured against the run's load-first form, not against the trial's
+    # own (warm) first call.
+    load_first_digest: str | None = None
     if reload == "once":
         # One unload for this form's run: trial 1 crosses the load boundary
         # and every later trial measures the warm model.
@@ -100,8 +107,11 @@ def probe_form(embedder: Embedder, form: str, text: str, other: str,
         first_digest = vector_digest(first)
         repeat_digest = vector_digest(repeat)
         again_digest = vector_digest(again)
+        if boundary and load_first_digest is None:
+            load_first_digest = first_digest
         delta = largest_delta(first, repeat)
-        came_back = again_digest == first_digest
+        came_back = (load_first_digest is not None
+                     and again_digest == load_first_digest)
         kept_repeat = again_digest == repeat_digest
         deltas.append(delta)
         differing += 1 if delta != 0.0 else 0
@@ -119,7 +129,7 @@ def probe_form(embedder: Embedder, form: str, text: str, other: str,
         print(f"  digests: first={first_digest} repeat={repeat_digest} "
               f"again={again_digest}")
         print("  repeat after a different request: "
-              f"first form returned = {'yes' if came_back else 'no'}; "
+              f"load-first form returned = {'yes' if came_back else 'no'}; "
               f"repeat form kept = {'yes' if kept_repeat else 'no'}")
     low = min(deltas) if deltas else 0.0
     high = max(deltas) if deltas else 0.0
@@ -130,7 +140,7 @@ def probe_form(embedder: Embedder, form: str, text: str, other: str,
         "warm trials": warm,
         "immediate repeats differing": differing,
         "warm repeats differing": warm_differing,
-        "first-form returns": returned,
+        "load-first-form returns": returned,
         "repeat-form kept": kept,
         "low": low,
         "high": high,
@@ -139,7 +149,7 @@ def probe_form(embedder: Embedder, form: str, text: str, other: str,
           f"load-boundaries={boundaries} warm-trials={warm} "
           f"immediate-repeats-differing={differing} "
           f"warm-repeats-differing={warm_differing} "
-          f"first-form-returns={returned} repeat-form-kept={kept} "
+          f"load-first-form-returns={returned} repeat-form-kept={kept} "
           f"delta-range={low:.3e}..{high:.3e}")
     return summary
 
@@ -162,12 +172,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "rather than retyped. Output: per trial the reload mode, whether "
             "the trial crossed a load boundary, the immediate repeat's "
             "largest per-component delta, the digests and whether the repeat "
-            "after a different request returned the first form or kept the "
+            "after a different request returned the form of the first call "
+            "after the load (the run's load-first digest) or kept the "
             "repeat form; then one summary per mode and per form (how many "
             "trials crossed a load boundary, how many were warm, how many "
             "immediate repeats differed, how many of those were warm repeats, "
-            "how many first-form returns, the delta range) and the model name "
-            "and embed format used. Nothing host-specific is printed."),
+            "how many load-first-form returns, the delta range) and the model "
+            "name and embed format used. Nothing host-specific is printed."),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=("Note: --reload once measures a WARM model after the first "
                 "trial of each form's run; the default --reload each-trial "
