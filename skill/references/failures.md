@@ -44,7 +44,7 @@ stderr.
 
 | `ErrorType` | Cause | Remedy |
 |---|---|---|
-| `ArgumentError` | a bad flag value, a `get-code-context` selector that names no range or two at once (a lone `--end-line`, an end below its start, a range past the file's last line, a `--symbol` beside a range), an ambiguous name, `--exactly-one` against several definitions, `plan-apply --skip-stale-check`, `add-project` on an already registered path, `--json` together with a `--format` naming another format, `--format compact` on a command with no compact form, or two disagreeing spellings of one symbol | fix the invocation; for an ambiguous name the candidates are listed, and a refused format names the formats that command accepts |
+| `ArgumentError` | a bad flag value -- an unknown value of an enumerated flag (`--mode`, `--ranking`, `--rerank`, `--relationship`, `--format`, `--vectors`), refused at the boundary before anything is read, with the accepted values named in the line -- a `get-code-context` selector that names no range or two at once (a lone `--end-line`, an end below its start, a range past the file's last line, a `--symbol` beside a range), an ambiguous name, `--exactly-one` against several definitions, `plan-apply --skip-stale-check`, `add-project` on an already registered path, `--json` together with a `--format` naming another format, `--format compact` on a command with no compact form, or two disagreeing spellings of one symbol | fix the invocation; for an ambiguous name the candidates are listed, and a refused format names the formats that command accepts |
 | `UnsupportedOperation` | a working provider or the plan format does not implement the requested operation (`rename_symbol`) | do the work another way; nothing was edited |
 | `AmbiguousNode` | two nodes in one file share name, kind and declaration hash | disambiguate by file and kind, or edit by hand |
 | `PlanFormatError` | a malformed plan, a duplicated path, or an unknown member that changes meaning | regenerate the plan; reading never rewrites one |
@@ -104,7 +104,7 @@ as a fact about the code, so the tool refuses instead.
 |---|---|---|
 | `InternalError` | a runtime failure with no more specific class | read the message; `doctor` if it repeats |
 | `ConfigError` | an invalid or missing configuration value | set the variable or flag the message names |
-| `NotFoundError` | a path, a plan file or an indexed definition that is not there (`get-code-context` on a file that does not exist is this class, not a usage error) | check the path; `list-projects` says which projects exist |
+| `NotFoundError` | a path, a plan file, an indexed definition that is not there, or a file the index does not hold (`outline` on a file the index skipped or never read; `get-code-context` on a file that does not exist is this class too, not a usage error) | check the path; `list-projects` says which projects exist, and `index-status` says what a project's index covers |
 | `NotUtf8` | a file the plan touches does not decode as UTF-8 | there is no lossy decode: fix the file's encoding and regenerate |
 | `NewlineMismatch` | the file's observed terminator differs from the plan's declaration | the file changed under the plan -- regenerate it |
 | `MixedNewlines` | a file mixes terminators, and the convention is refused rather than guessed | normalize the file to one terminator and regenerate |
@@ -119,7 +119,11 @@ as a fact about the code, so the tool refuses instead.
 No error type: both reads succeed, and their answers differ. The query
 embedding service is not a function of (text, model) -- a reloaded model
 returns one vector for a text's first call and another for an immediately
-repeated call, and the first form comes back after any other request. A read
+repeated call by a few times 1e-3 per component (measured on this service at
+3.280e-3, 3.491e-3 and 8.438e-3 across three runs: the size moves between
+runs, so this page quotes the order of magnitude, not one figure), and a
+text's earlier form comes back after any other request (measured: text A,
+text B, text A returns A's first form). A read
 fixes the bytes instead of the service: the first read stores the query vector
 in the embedding cache (float16 form, written on a miss and on a failed
 dimension probe alike) and every later read searches those bytes, so a second

@@ -128,8 +128,10 @@ class Embedder:
         text is not a function of (text, model) alone: after a model reload
         the first call for a text returns one vector and an immediately
         repeated call returns another, and the same text interleaved with a
-        different text returns the first one again (measured here: up to 8.4e-3
-        per component, every component moving). A warm-up cannot cover that,
+        different text returns the first one again (measured here: a few
+        times 1e-3 per component -- 3.280e-3, 3.491e-3 and 8.438e-3 across
+        three runs on one service, so no single figure is a constant -- every
+        component moving). A warm-up cannot cover that,
         because the odd value comes back after any other request -- measured,
         a probe call immediately before the query does not change which form
         the query receives, and two probe calls do not either. So this path

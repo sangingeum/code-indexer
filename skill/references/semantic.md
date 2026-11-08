@@ -168,9 +168,14 @@ vector received), so a failed probe is not a hole in the guarantee.
 
 The limit, measured rather than assumed: the service's vector for one text is
 not a function of the text and the model. After a reload the first call for a
-text differs from an immediately repeated call (8.4e-3 per component, every
-component moving), and the same text returns the first form again after any
-other request -- so no warm-up settles it, and a probe call immediately before
+text differs from an immediately repeated call by a few times 1e-3 per
+component, every component moving -- the size is not a constant of the tool,
+so no single figure is quoted: three measurements on this service gave
+8.438e-3, 3.491e-3 and 3.280e-3, a range of roughly 3e-3 to 8e-3. The turn
+belongs to the sequence, not to the load state: a text's earlier form comes
+back after any other request (measured: text A, text B, text A returns A's
+first form -- 5 of 5 fresh-model loads and 5 of 5 rounds with the model
+already loaded) -- so no warm-up settles it, and a probe call immediately before
 the query does not change which form the query receives. What that leaves,
 stated as the limit: a text keeps the form of its FIRST embedding until that
 cache row is evicted or the model, embed format or dimension changes;
