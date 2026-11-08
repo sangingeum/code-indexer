@@ -1,8 +1,8 @@
 # ADR-0010: the parse verdict describes the parser
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-08
-- Deciders: architecture review (ruling), owner ratification pending
+- Deciders: architecture review (ruling), owner ratification 2026-11-08
 - Supersedes / Superseded by: supersedes ADR-0004 section 7's closing example and its "in the index as well" sentence; not the section's rule
 
 ## Decision in one paragraph
