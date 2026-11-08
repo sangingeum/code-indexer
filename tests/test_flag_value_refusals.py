@@ -386,8 +386,12 @@ def test_the_lists_the_cli_refuses_are_the_lists_the_pipeline_runs():
         "the reranker must declare the values it accepts")
     assert getattr(cli, "SEARCH_MODES", None) is core_mod.SEARCH_MODES, (
         "the CLI must read the search mode list, not carry a copy of it")
+    assert SEARCH_MODE_VALUES == core_mod.SEARCH_MODES, (
+        "the list this file refuses is the list the pipeline declares")
     assert getattr(cli, "RANKING_MODES", None) is core_mod.RANKING_MODES, (
         "the CLI must read the ranking list, not carry a copy of it")
+    assert RANKING_VALUES == core_mod.RANKING_MODES, (
+        "the list this file refuses is the list the pipeline declares")
     assert getattr(cli, "RERANK_MODES", None) is rerank_modes, (
         "the CLI must read the rerank list, not carry a copy of it")
     assert evalharness.EVAL_MODES is core_mod.SEARCH_MODES, (
