@@ -39,10 +39,30 @@ def test_the_emitted_chunks_cover_the_whole_text():
     assert chunks[-1].end_line == len(lines)
 
 
-def test_chunks_stay_within_the_character_cap():
+def test_a_window_of_ordinary_lines_splits_at_the_cap():
+    """A window of ordinary lines is divided at the cap, never truncated.
+
+    This is what the corpus can observe. It is NOT a global invariant: a
+    single line longer than the cap is emitted whole (the next test), and
+    the shipped index has 136 chunks over 1,000 characters for exactly that
+    reason. A name promising a global cap would still pass if the cap were
+    removed from the split branch, so it names the property it pins.
+    """
     text = "\n".join(_long_line_corpus()) + "\n"
-    for c in chunk(text):
+    chunks = chunk(text)
+    assert len(chunks) > 1
+    for c in chunks:
         assert len(c.text) <= CHUNK_CHAR_CAP, (c.chunk_index, len(c.text))
+
+
+def test_a_single_long_line_stays_whole():
+    """A boundary is never cut through a line: a minified one-line file is
+    one chunk over the cap, not several chunks with lines cut mid-way."""
+    line = "x" * (CHUNK_CHAR_CAP * 4)
+    chunks = chunk(line + "\n")
+    assert len(chunks) == 1, [len(c.text) for c in chunks]
+    assert chunks[0].text == line
+    assert len(chunks[0].text) > CHUNK_CHAR_CAP
 
 
 def test_overlap_between_windows_is_kept():
