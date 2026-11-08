@@ -133,7 +133,12 @@ LANGUAGES_WITH_AST = frozenset(
 # stored no symbol or reference rows at all while its file row said `parsed`,
 # so a name the tree declares read as absent from a complete index. Rows built
 # by v10 describe an index that cannot see those headers.
-EXTRACTION_VERSION = 11
+# v12: a name written where a TYPE belongs (a parameter, a declaration, a
+# generic argument, an `is`/`as` pattern, a cast, a C++ qualified scope) is a
+# reference row, as a member access's receiver already was; both are written
+# as the interim `type_use` relationship and resolved, or deleted when the
+# store defines the name nowhere. Rows built by v11 have no such rows.
+EXTRACTION_VERSION = 12
 
 _INDEX_EXTS = (".ts", ".tsx", ".js", ".jsx")
 
@@ -234,6 +239,8 @@ def extract_graph(path: str, text: str, lang: str
         elif capture == "ref.member":
             member_rows = _member_ref(node, data, row, frm, local_names)
             refs.extend(member_rows)
+        elif capture == "ref.type_use":
+            refs.append((row + 1, frm, text_val, "type_use", None))
         elif capture == "ref.type":
             refs.append((row + 1, frm, text_val, "type", None))
         elif capture == "ref.base_class":
@@ -258,11 +265,11 @@ def _member_ref(node, data: bytes, row: int, frm: str | None,
     The access ALSO produces a row for the receiver itself, because
     ``NeedBand.Critical`` reaches a TYPE and a member row alone leaves that
     type invisible to ``find-references``. The row is written with the
-    interim relationship ``member_receiver`` and no confidence of its own:
-    the index pass's resolver (:meth:`Manifest.resolve_ref_targets`) keeps it
-    only when the name binds a definition, converting it to ``type``, and
-    drops it otherwise. So a receiver that is a plain local variable or a
-    parameter -- a name the file binds as a VALUE -- never becomes a type
+    interim relationship ``type_use`` and no confidence of its own: the index
+    pass's resolver (:meth:`Manifest.resolve_ref_targets`) keeps it when the
+    name binds a definition, converting it to ``type``, and drops it otherwise
+    -- no definition, no row. So a receiver that is a plain local variable or
+    a parameter -- a name the file binds as a VALUE -- never becomes a type
     reference, by name (``local_names``) or by resolution (it binds no
     definition). The known limit is stated rather than hidden: a value bound
     under the EXACT name of a type in the same file is indistinguishable from
@@ -292,7 +299,7 @@ def _member_ref(node, data: bytes, row: int, frm: str | None,
     rows = [(row + 1, frm, member, "call" if is_call else "member", receiver)]
     if (receiver and receiver != member
             and receiver not in (local_names or frozenset())):
-        rows.append((row + 1, frm, receiver, "member_receiver", None))
+        rows.append((row + 1, frm, receiver, "type_use", None))
     return rows
 
 

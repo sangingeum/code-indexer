@@ -49,6 +49,22 @@ unknown language, and a C++ template call (`obj.method<T>(...)`,
 `free<T>(...)`) is a call row -- the name sits one node deeper, so the plain
 identifier pattern never saw it.
 
+**A type named where a TYPE belongs is a reference.** Round 2 recorded a
+member access's receiver; the other type positions stayed invisible -- a
+parameter type, a field or property type, a return type, a generic argument,
+an `is`/`as` pattern and a cast produced no row at all (9 lines and 10 tokens
+on the vivarium tree). The C# query now captures those positions and the C++
+query captures the qualifier of `Type::Member`, all written as the interim
+`type_use` relationship the receiver rows already used. The resolver turns one
+into a `type` reference when the name binds a definition (this file first,
+then the store's unique definition), keeps it unattributed and counted when
+the name is defined more than once and no file-class choice breaks the tie,
+and deletes it when the store defines the name nowhere -- a local variable, a
+property name or an external library's type never becomes a type row.
+
+`EXTRACTION_VERSION` moves 11 -> 12: the extraction axis moved (new reference
+rows); rows built by 11 hold none of them.
+
 **A header is read as the language it is written in, not the one its name
 suggests.** `.h` mapped to C, so a C++ project that spells its headers `.h`
 had every declaration in them invisible while the file row said `parsed` — no

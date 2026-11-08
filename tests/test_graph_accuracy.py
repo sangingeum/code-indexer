@@ -263,6 +263,121 @@ def test_a_fully_parsed_tree_may_say_the_name_is_absent(tmp_path,
 
 
 # ---------------------------------------------------------------------------
+# a type named where a TYPE belongs is a reference
+# ---------------------------------------------------------------------------
+
+TYPE_USE_SOURCE = """\
+namespace Vivarium.Sim
+{
+    public class NeedBand { }
+
+    public class Needs
+    {
+        private NeedBand _held;
+        public NeedBand Held { get; set; }
+
+        public NeedBand Resolve(NeedBand level)
+        {
+            var byName = new Dictionary<string, NeedBand>();
+            var cast = (NeedBand)level;
+            var shaped = level as NeedBand;
+            if (level is NeedBand typed) { }
+            return level;
+        }
+    }
+}
+"""
+
+# A name with no definition at all, and two VALUE bindings: none of them is a
+# type, and no row may be invented for them.
+NO_DEFINITION_SOURCE = """\
+namespace Vivarium.Sim
+{
+    public class Holder
+    {
+        public void Run(Mystery ghost, int count)
+        {
+            var level = count;
+        }
+    }
+}
+"""
+
+
+@pytest.fixture()
+def type_use_project(tmp_path, monkeypatch):
+    core, entry, project, reg = _rig(
+        tmp_path, monkeypatch, {"Vivarium.Sim/Needs.cs": TYPE_USE_SOURCE},
+        name="typeuse")
+    yield core, entry, project
+    reg.close()
+
+
+def test_a_type_named_in_a_type_position_is_a_reference(type_use_project):
+    """A field, a property, a parameter, a generic argument, a cast, an `as`
+    and an `is` pattern all name the type, and the receiver rule saw none."""
+    core, entry, _project = type_use_project
+    m = core.read_manifest(entry.slug)
+    try:
+        rows = m._conn.execute(
+            "SELECT line, relationship, confidence, resolution,"
+            " target_symbol_id FROM refs WHERE to_name = 'NeedBand'"
+            " ORDER BY line").fetchall()
+    finally:
+        m.close()
+    assert rows, "a type in a type position is invisible to find-references"
+    assert {r[1] for r in rows} == {"type"}, rows
+    assert {r[2] for r in rows} == {"ast"}, rows
+    assert {r[3] for r in rows} == {"same_file"}, rows
+    assert all(r[4] is not None for r in rows), rows
+    # field, property, parameter/return (one row: same line and name), generic
+    # argument, cast, `as`, `is` -- one row per site.
+    assert sorted({r[0] for r in rows}) == [7, 8, 10, 12, 13, 14, 15], rows
+
+
+def test_a_name_that_resolves_to_nothing_is_no_type_row(tmp_path, monkeypatch):
+    """No definition, no row: a type position is not licence to invent one."""
+    core, entry, _project, reg = _rig(
+        tmp_path, monkeypatch, {"Vivarium.Sim/Holder.cs": NO_DEFINITION_SOURCE},
+        name="nores")
+    try:
+        m = core.read_manifest(entry.slug)
+        try:
+            assert m.refs_to("Mystery") == []
+            # A parameter and a local are value bindings, never type rows.
+            assert m.refs_to("count") == []
+            assert m.refs_to("level") == []
+        finally:
+            m.close()
+    finally:
+        reg.close()
+
+
+def test_an_ambiguous_type_use_stays_unattributed_and_counted(
+        tmp_path, monkeypatch):
+    """Two definitions, no file-class tie-breaker: the row is a type use whose
+    target is unknown -- kept and counted, never guessed and never dropped."""
+    core, entry, _project, reg = _rig(tmp_path, monkeypatch, {
+        "alpha/Shared.cs": "namespace Alpha { public class Shared { } }\n",
+        "beta/Shared.cs": "namespace Beta { public class Shared { } }\n",
+        "Use.cs": ("namespace Uses { public class User {"
+                   " public void Run(Shared s) { } } }\n"),
+    }, name="ambiguous")
+    try:
+        m = core.read_manifest(entry.slug)
+        try:
+            rows = m._conn.execute(
+                "SELECT relationship, resolution, target_symbol_id"
+                " FROM refs WHERE file = 'Use.cs' AND to_name = 'Shared'"
+            ).fetchall()
+        finally:
+            m.close()
+    finally:
+        reg.close()
+    assert rows == [("type", "none", None)], rows
+
+
+# ---------------------------------------------------------------------------
 # an include is an importer, not a caller
 # ---------------------------------------------------------------------------
 

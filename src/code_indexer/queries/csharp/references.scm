@@ -35,3 +35,31 @@
 ; Base classes / interfaces in an inheritance list.
 (base_list
   (identifier) @ref.base_class)
+
+; A type named OUTSIDE a member access. A parameter type, a declaration's
+; type, a generic argument, an `is` pattern, an `as` expression or a cast
+; names a TYPE, and the receiver rule never sees any of them: a type used this
+; way produced no row at all. These captures are written as the interim
+; `type_use` relationship, exactly like a member-access receiver: the index
+; pass turns one into a `type` reference when the name binds a definition by
+; the same precedence (this file first, then the store's unique definition),
+; keeps it unattributed when the name is ambiguous, and deletes it when the
+; store defines the name nowhere -- so a local variable or a property is never
+; turned into a type it is not.
+(parameter type: (identifier) @ref.type_use)
+
+(variable_declaration type: (identifier) @ref.type_use)
+
+(property_declaration type: (identifier) @ref.type_use)
+
+(method_declaration returns: (identifier) @ref.type_use)
+
+(cast_expression type: (identifier) @ref.type_use)
+
+(as_expression right: (identifier) @ref.type_use)
+
+(declaration_pattern type: (identifier) @ref.type_use)
+
+; `Dictionary<string, NeedBand>`: the argument list is where the project's own
+; types sit inside an otherwise external generic.
+(type_argument_list (identifier) @ref.type_use)

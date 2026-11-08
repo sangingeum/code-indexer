@@ -1124,25 +1124,34 @@ class Manifest:
                 return local[0], "same_file"
             return choose(name)
 
-        # Receiver-derived type references (relationship `member_receiver`,
-        # written by the extractor for `Type.Member`): the receiver becomes a
-        # `type` row when it binds a definition by the SAME precedence, and is
-        # deleted when it binds none -- a receiver that is a local variable or
-        # a parameter is not a type and must not gain a row.
-        converted: list[tuple[int, str, int]] = []
+        # Type-position rows (relationship `type_use`, written by the
+        # extractor): the receiver of a `Type.Member` access, and every name
+        # written where a TYPE belongs (a parameter, a declaration, a generic
+        # argument, an `is`/`as` pattern, a cast, a C++ qualified scope).
+        # Each one is resolved by the SAME precedence as any other reference
+        # target, with three outcomes:
+        #
+        # * a definition binds -- it becomes a `type` row pointing at it;
+        # * the store defines the name NOWHERE -- the row is deleted, never
+        #   invented as a reference to a type that does not exist;
+        # * the name is defined more than once and no file-class choice breaks
+        #   the tie -- it becomes `type` with no target: an unambiguous fact
+        #   (the file names a type) with an unknown target, counted as
+        #   unattributed rather than dropped or guessed.
+        converted: list[tuple[int | None, str, int]] = []
         dropped = 0
         for rowid, ref_file, name in self._conn.execute(
                 "SELECT rowid, file, to_name FROM refs"
-                " WHERE relationship = 'member_receiver'"
+                " WHERE relationship = 'type_use'"
                 + (" AND file = ?" if file is not None else ""),
                 ([file] if file is not None else [])):
-            target, resolution = resolve(ref_file, name)
-            if target is None:
+            if name not in definitions:
                 dropped += 1
                 self._conn.execute("DELETE FROM refs WHERE rowid = ?",
                                    (rowid,))
-            else:
-                converted.append((target, resolution, rowid))
+                continue
+            target, resolution = resolve(ref_file, name)
+            converted.append((target, resolution, rowid))
         if converted:
             self._conn.executemany(
                 "UPDATE refs SET target_symbol_id = ?, resolution = ?,"
