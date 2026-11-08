@@ -28,7 +28,9 @@ def split_lines(text: str) -> list[str]:
     """Split on real line terminators only (CRLF, LF, a lone CR).
 
     A trailing terminator does not produce an empty final line, so the count
-    matches what an editor and ``wc -l`` say about the same file.
+    is the number of lines an editor shows for the same file. ``wc -l``
+    counts terminators and therefore differs on the last line: the file
+    ``printf 'a\\nb'`` writes is two lines here and one to ``wc -l``.
     """
     if not text:
         return []
