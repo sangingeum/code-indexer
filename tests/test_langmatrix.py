@@ -222,5 +222,66 @@ def test_polyglot_fixture_symbol_snapshots(rig):
         m.close()
 
 
+def _every_known_language() -> list[str]:
+    from code_indexer.graph_extract import LANGUAGES_WITH_AST
+    return sorted(set(languages_without_ast()) | set(LANGUAGES_WITH_AST))
+
+
+def test_the_writer_and_the_matrix_publish_the_same_rule():
+    """One rule, read by both: what the writer stamps is what the matrix says.
+
+    A property over the language set, not two hand-written expectations: a
+    rule re-encoded in one consumer only is exactly how the matrix came to
+    say `none` for languages whose files stored heuristic rows.
+    """
+    from code_indexer.indexer import reference_rows
+    from code_indexer.langmatrix import _FIXTURES, _LANG_EXT
+
+    for lang in _every_known_language():
+        ext = _LANG_EXT.get(lang, "txt")
+        text = _FIXTURES.get(lang, "a note about a function\n")
+        imports, refs, confidence = reference_rows(f"fixture.{ext}", text, lang)
+        assert confidence in {"none", "ast", "heuristic"}, lang
+        assert confidence == capabilities(lang)["references"], lang
+        if confidence == "none":
+            assert imports == [] and refs == [], lang
+
+
+def test_every_stored_reference_row_carries_the_columns_confidence(tmp_path):
+    """The store itself, not just the rule: rows exist under the stated
+    confidence, and a `none` language stores none at all."""
+    from code_indexer.langmatrix import _FIXTURES, _LANG_EXT
+    from pass_rig import index_project, stub_core
+
+    project = tmp_path / "langs"
+    project.mkdir()
+    written = {}
+    for lang, text in _FIXTURES.items():
+        ext = _LANG_EXT.get(lang)
+        if not ext:
+            continue
+        name = f"fixture_{lang}.{ext}"
+        (project / name).write_text(text)
+        written[name] = lang
+    core = stub_core(tmp_path)
+    reg, entry = index_project(core, project)
+    m = core.manifest_for(entry.slug)
+    try:
+        rows = m._conn.execute(
+            "SELECT file, confidence, COUNT(*) FROM refs GROUP BY file,"
+            " confidence").fetchall()
+        stored: dict[str, dict[str, int]] = {}
+        for file, confidence, n in rows:
+            stored.setdefault(file, {})[confidence] = n
+    finally:
+        m.close()
+    for name, lang in written.items():
+        column = capabilities(lang)["references"]
+        got = stored.get(name, {})
+        assert set(got) <= {column}, (lang, column, got)
+        if column == "none":
+            assert got == {}, (lang, got)
+
+
 if __name__ == "__main__":  # pragma: no cover
     sys.exit(pytest.main([__file__, "-v"]))

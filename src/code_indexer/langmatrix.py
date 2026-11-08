@@ -124,7 +124,7 @@ def capabilities(lang: str) -> dict:
     caps = {
         "language": lang, "ext": ext, "ast_chunking": False,
         "symbols": False, "signatures": False, "visibility": False,
-        "references": _reference_column(lang),
+        "references": reference_reader(lang),
         "imports_resolution": _resolution_note(lang),
         "notes": "",
     }
@@ -156,18 +156,25 @@ def capabilities(lang: str) -> dict:
     return caps
 
 
-def _reference_column(lang: str) -> str:
-    """The `references` cell: the rows this language's files actually store.
+def reference_reader(language: str | None) -> str:
+    """How the reference writer treats a language: ``none``, ``ast`` or
+    ``heuristic``.
 
-    Three outcomes, matching the one reference writer in ``indexer``:
-    prose/configuration stores nothing (``none``), an AST-reference language
-    stores query rows (``ast``), and every other indexed language takes the
-    textual scan (``heuristic``). There is no fourth value and no path that
-    silently falls back to ``none``.
+    THIS is the rule, stated once and read by both consumers: the indexer's
+    reference writer and the matrix's `references` column. They used to
+    encode it separately, and that is exactly how the matrix came to say
+    "none" for a language whose files store heuristic rows.
+
+    Three outcomes and no fourth: prose/configuration stores no rows at all
+    (``none``), a language with AST reference queries stores query rows
+    (``ast``), and every other indexed language takes the textual scan
+    (``heuristic``). An unknown or absent language is NOT prose, so it keeps
+    its heuristic rows -- the default is on the side that does not silently
+    drop data.
     """
-    if is_prose_or_config(lang):
+    if is_prose_or_config(language):
         return "none"
-    return "ast" if lang in LANGUAGES_WITH_AST else "heuristic"
+    return "ast" if language in LANGUAGES_WITH_AST else "heuristic"
 
 
 def _resolution_note(lang: str) -> str:

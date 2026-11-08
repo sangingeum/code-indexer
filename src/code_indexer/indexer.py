@@ -41,6 +41,28 @@ def _chunk_dispatch(path: str, text: str) -> list[Chunk]:
     return ts_chunker.chunk_text(path, text)
 
 
+def reference_rows(path: str, text: str, lang: str
+                   ) -> tuple[list, list, str]:
+    """The reference writer's decision for one file: rows, and confidence.
+
+    The outcome is ``none``, ``ast`` or ``heuristic`` and it comes from
+    ``langmatrix.reference_reader`` -- the same function the published
+    language matrix reads its `references` column from. One rule, two
+    consumers: they were encoded separately once, and the matrix then said
+    "none" for languages whose files stored heuristic rows.
+    """
+    reader = langmatrix.reference_reader(lang)
+    if reader == "none":
+        # A sentence naming a name is not a reference to it, and the file keeps
+        # its chunks for search regardless.
+        return [], [], "none"
+    if reader == "ast":
+        imports, refs = graph_extract.extract_graph(path, text, lang)
+        return imports, refs, "ast"
+    imports, refs = graph_extract.extract_graph_textual(path, text)
+    return imports, refs, "heuristic"
+
+
 def _parse_dispatch(path: str, text: str) -> tuple[list[Chunk], str]:
     """Chunker seam + the file's parse verdict, from ONE parse.
 
@@ -393,24 +415,13 @@ class Indexer:
                          syms, verdict: str) -> None:
             """Apply one parsed file's bookkeeping (main thread only)."""
             nonlocal reused
-            # ONE reference writer (v6): tree-sitter queries give confidence
-            # 'ast'; every other language takes the textual scan, stamped
-            # 'heuristic'. Rows are held until the commit phase so a crash
+            # ONE reference writer (v6), reading the SAME rule the language
+            # matrix publishes: tree-sitter queries give confidence 'ast',
+            # the textual scan stamps 'heuristic', and prose/configuration
+            # stores nothing. Rows are held until the commit phase so a crash
             # never claims references for a file whose vectors are absent.
             lang = _lang_from_ext(path)
-            if langmatrix.is_prose_or_config(lang):
-                # No reference reader for prose or configuration: a sentence
-                # mentioning a name is not a reference to it, and the file
-                # keeps its chunks for search regardless.
-                imports, refs, confidence = [], [], "none"
-            elif lang in graph_extract.LANGUAGES_WITH_AST:
-                imports, refs = graph_extract.extract_graph(
-                    path, file_text, lang)
-                confidence = "ast"
-            else:
-                imports, refs = graph_extract.extract_graph_textual(
-                    path, file_text)
-                confidence = "heuristic"
+            imports, refs, confidence = reference_rows(path, file_text, lang)
             resolutions = graph_extract.resolve_imports(
                 project_path, path, lang, [i[0] for i in imports])
             import_rows = [(rt, resolutions.get(rt), kind, ln)
