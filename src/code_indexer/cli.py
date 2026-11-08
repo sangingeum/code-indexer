@@ -36,7 +36,7 @@ from . import ts_chunker
 from .scanner import accounting_phrase, read_scan_accounting
 from .extensions import SEMANTIC_EXTENSION_MESSAGE, semantic_available
 from .core import (NEEDS_REINDEX, NEVER_INDEXED, RANKING_MODES,
-                   SEARCH_MODES, UNVERIFIED, Core)
+                   SEARCH_MODES, UNVERIFIED, Core, validate_context_selector)
 from . import fingerprint as fingerprint_mod
 from . import staleness
 from . import coverage as coverage_mod
@@ -190,6 +190,27 @@ def _require_selector(core: Core, project: str | None, path: str | None,
     listing = ", ".join(e.path for e in entries) or "none"
     _usage_die(f"{command} needs an explicit project — pass a path, slug, or "
                f"name (positional or --project/--name); registered projects: {listing}")
+
+
+def _refuse_bad_context_selector(file: str | None, symbol: str | None,
+                                start_line: int | None,
+                                end_line: int | None) -> None:
+    """Refuse a get-code-context request shape before the first read.
+
+    The selector is a request shape, not index state: a caller who names no
+    selector, half a range, a reversed range or two selectors has made a
+    wrong request, so the verdict is ArgumentError (exit 2) even when the
+    project it names is not registered. The shape rules themselves live in
+    core.validate_context_selector, the function the read also raises, so the
+    boundary cannot drift from the read's own defence.
+    """
+    if file is None and symbol is None:
+        _usage_die("get-code-context needs a FILE positional, or --symbol "
+                   "<name> to resolve the symbol project-wide")
+    try:
+        validate_context_selector(symbol, start_line, end_line)
+    except ArgumentError as exc:
+        _usage_die(str(exc))
 
 
 def _echo_index_result(slug: str, result: dict) -> None:
@@ -2815,6 +2836,10 @@ def get_code_context(
     fmt = _output_format(output_format, json_output,
                          command="get-code-context")
     json_output = fmt == "json"
+    # The request shape is checked BEFORE the core is built and before any
+    # index read: a bad selector on an unregistered project must answer
+    # ArgumentError (exit 2), not the read's NotFoundError.
+    _refuse_bad_context_selector(file, symbol, start_line, end_line)
     core = _get_core(skip_stale_check)
     entry = _resolve(core, project)
     _refuse_obsolete_rows(core, entry, refresh=refresh)
@@ -2822,10 +2847,6 @@ def get_code_context(
                                        json_output=True)
     try:
         if file is None:
-            if not symbol:
-                _usage_die("get-code-context needs a FILE positional, or "
-                           "--symbol <name> to resolve the symbol "
-                           "project-wide")
             file = _resolve_symbol_file(core, entry, symbol)
         data = core.code_context(
             entry, file, start_line=start_line, end_line=end_line,
@@ -3539,12 +3560,18 @@ def plan_apply(
 # ---------------------------------------------------------------------------
 
 def _parse_ks(raw: str) -> list[int]:
+    """The --k list, refused as a usage error (ArgumentError, exit 2).
+
+    A malformed list is a wrong request, not a tool fault, and it is parsed
+    before the core is built so an unregistered project cannot answer for it.
+    """
     try:
         ks = sorted({int(part) for part in raw.split(",") if part.strip()})
     except ValueError:
-        _die("error: --k must be a comma-separated list of integers, e.g. 1,3,5,10")
+        _usage_die("--k must be a comma-separated list of integers, e.g. "
+                   "1,3,5,10")
     if not ks or any(k < 1 for k in ks):
-        _die("error: --k values must be positive integers")
+        _usage_die("--k values must be positive integers")
     return ks
 
 
@@ -3575,13 +3602,13 @@ def eval_command(
     # never write the index first and fail afterwards.
     _refuse_unknown_value("--mode", mode, EVAL_MODES)
     _refuse_unknown_value("--rerank", rerank, RERANK_MODES)
+    ks = _parse_ks(k)
     core = _get_core(skip_stale_check)
     if refresh:
         entry, _err = core.resolve_entry(project)
         if entry is None:
             _die(f"error: project not registered: {project}")
         core.refresh(entry)
-    ks = _parse_ks(k)
     try:
         report = run_eval(core, project, queries, ks=ks, mode=mode, rerank=rerank)
     except ValueError as exc:

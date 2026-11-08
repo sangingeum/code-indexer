@@ -124,23 +124,20 @@ class Embedder:
         backoff.
 
         The cache is CANONICAL for the read path, and that is the whole of
-        the determinism this path can offer. The vector depends on the
-        request sequence, not on the text alone: an immediately repeated call
-        for the same text returns a different vector (measured 14 of 14 cold
-        trials on the instructed text this path sends, 13 of 14 on the bare
-        text), and the size depends on the text and the form -- on the
-        measured query text the largest per-component change was 6.780e-3 for
-        the instructed form this path sends and 1.900e-3 for the bare text,
-        and across fourteen sample texts it ran from 0.0 (a one-character
-        bare text) to 9.717e-3 (the same character, instructed). These are
-        samples, not bounds. Whether a text's FIRST form comes back after a
-        different request is form-dependent too: the bare text returned its
-        first form in 18 of 18 measured calls, the instructed text in 0 of
-        18 -- after its load-first call it settles into a second pair of
-        forms. So the turn belongs to the request sequence and a warm-up
-        cannot cover it -- measured, a probe call immediately before the
-        query does not change which form the query receives, and two probe
-        calls do not either. So this path fixes the BYTES instead: the vector is rounded to the stored
+        the determinism this path can offer. The property it protects is that
+        the service can answer the SAME text with a different vector on an
+        immediate repeat -- that is the exchange the cache absorbs. The size
+        is an observation, not a constant: a few times 1e-3 per component,
+        observed from 0.0 to 9.717e-3 across the samples measured in one
+        round, and it depends on the text, on the form and on the run.
+        Whether a text's earlier form comes back after a different request is
+        NOT dependable: it has been seen to differ between forms and between
+        runs, so no count is claimed here. The measurement of record is
+        `uv run python scripts/probe_embed_drift.py`,
+        which prints what the service does on the host where it runs. A
+        warm-up cannot cover the turn either: measured, a probe call
+        immediately before the query does not change which form the query
+        receives. So this path fixes the BYTES instead: the vector is rounded to the stored
         representation (float16) and written on a MISS as well as served on a
         HIT, and the caller searches the stored bytes, so the second read of a
         text searches byte-identical values whatever the service is doing.
@@ -149,8 +146,9 @@ class Embedder:
         dimension is taken from the vector just received, so the row is still
         written and the read is still stable; without that a failed probe left
         the vector raw and unstored, and the next read re-embedded it and
-        answered with a different vector (measured with the cache disabled: 2
-        members in and 2 out of a 400-hit answer). A read with the cache
+        answered with a different vector (one run's measurement with the
+        cache disabled: 2 members in and 2 out of a 400-hit answer). A read
+        with the cache
         disabled has nowhere to fix the bytes: that is the residual limit, and
         it is documented rather than hidden.
         """

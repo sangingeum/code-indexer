@@ -167,30 +167,33 @@ written even when the dimension probe fails (the dimension is taken from the
 vector received), so a failed probe is not a hole in the guarantee.
 
 The rule, measured rather than assumed: the vector depends on the request
-sequence, not on the text alone. An immediately repeated call for the same
-text returns a different vector (measured 14 of 14 cold trials on the
-instructed text the query path sends, 13 of 14 on the bare text), and the
-size of that difference depends on the text and the form: 1.900e-3 on the
-bare form of the measured query text and 6.780e-3 on the instructed form the
-query path sends, as the largest per-component change; across fourteen sample
-texts it ran from 0.0 (a one-character bare text) to 9.717e-3 (the same
-character, instructed). These are samples, not bounds.
+sequence, not on the text alone. The property the guarantee above rests on is
+exactly that -- the service can answer the SAME text with a different vector
+on an immediate repeat. That is the exchange the cache protects against, and
+it is what makes a stored byte form worth writing.
 
-Whether a text's FIRST form comes back after a DIFFERENT request is also
-form-dependent: the bare text returned its first form in every measured case
-(18 of 18 such calls, one of them a seven-call `A A B A A B A` sequence that
-reproduces the same two forms), while the instructed text did not return its
-first form at all (0 of 18): after its load-first call it settles into a
-second pair of forms that a different request returns. The turn therefore
-belongs to the request sequence, not to the load state: no warm-up settles
-it, and a probe call immediately before the query does not change which form
-the query receives. What that leaves,
-stated as the limit: a text keeps the form of its FIRST embedding until that
-cache row is evicted or the model, embed format or dimension changes;
-`EMBED_CACHE=0` leaves nowhere to store the bytes, so two reads can search two
-different vectors and at a deep `--limit` report a different member set
-(measured with the cache disabled: 2 in and 2 out of 400 hits); and two
-machines with different caches can hold different forms of the same text. Two reads taken across a reindex
+The size is an observation, not a constant: a few times 1e-3 per component,
+observed from 0.0 to 9.717e-3 across the samples measured in one round, and it
+depends on the text, on the form (bare or instructed) and on the run. Whether
+a text's earlier form comes back after a different request is NOT dependable:
+it has been seen to differ between forms and between runs, so no count is
+claimed here. The measurement of record is
+`uv run python scripts/probe_embed_drift.py` (six trials per form by
+default): it unloads
+the model first, never touches the embedding cache, then per trial embeds the
+text, repeats it immediately, embeds a different text and repeats the first
+one again -- printing per form the immediate repeat's largest per-component
+delta, the two digests, whether the first form returned, and a summary. Run it
+on the host in question; the figures above are samples it can produce, not
+bounds and not a promise.
+
+What that leaves, stated as the limit: a text keeps the form of its FIRST
+embedding until that cache row is evicted or the model, embed format or
+dimension changes; `EMBED_CACHE=0` leaves nowhere to store the bytes, so two
+reads can search two different vectors and at a deep `--limit` report a
+different member set (one run's measurement with the cache disabled: 2 members
+in and 2 out of a 400-hit answer); and two machines with different caches can
+hold different forms of the same text. Two reads taken across a reindex
 are two indexes, not one. The same-file merge is the line-ordered union of the
 chunk ranges, so which ranges an answer reports is a function of the chunks the
 store returned and not of their scores.

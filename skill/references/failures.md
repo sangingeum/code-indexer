@@ -117,20 +117,23 @@ as a fact about the code, so the tool refuses instead.
 ## Two reads of one query that disagree
 
 No error type: both reads succeed, and their answers differ. The vector
-depends on the request sequence, not on the text alone. An immediately
-repeated call for the same text returns a different vector (measured 14 of 14
-cold trials on the instructed text the query path sends, 13 of 14 on the bare
-text), and the size of that difference depends on the text and the form:
-1.900e-3 on the bare form of the measured query text and 6.780e-3 on the
-instructed form, as the largest per-component change; across fourteen sample
-texts it ran from 0.0 (a one-character bare text) to 9.717e-3 (the same
-character, instructed). These are samples, not bounds.
+depends on the request sequence, not on the text alone. The property the
+tool's guarantee rests on is that the service can answer the SAME text with a
+different vector on an immediate repeat -- that is the exchange the cache
+protects against.
 
-Whether a text's earlier form comes back after a different request is also
-form-dependent: the bare text returned its first form in every measured case
-(18 of 18 such calls), while the instructed text did not (0 of 18) -- after
-its load-first call it settles into a second pair of forms that a different
-request returns. A read
+The size is an observation, not a constant: a few times 1e-3 per component,
+observed from 0.0 to 9.717e-3 across the samples measured in one round, and it
+depends on the text, on the form (bare or instructed) and on the run. Whether
+a text's earlier form comes back after a different request is NOT dependable:
+it has been seen to differ between forms and between runs, so no count is
+claimed here. The measurement of record is
+`uv run python scripts/probe_embed_drift.py`, which
+unloads the model, touches no cache, and prints per trial and per form the
+immediate repeat's largest per-component delta, the two digests, whether the
+first form returned, and a summary per form. Run it on the host in question.
+
+A read
 fixes the bytes instead of the service: the first read stores the query vector
 in the embedding cache (float16 form, written on a miss and on a failed
 dimension probe alike) and every later read searches those bytes, so a second
@@ -139,8 +142,9 @@ read of the same text is identical while the row survives.
 The residual is stated, not hidden: a text keeps the form of its FIRST
 embedding until the row is evicted or the model, embed format or dimension
 changes; with `EMBED_CACHE=0` there is nowhere to store the bytes, so at a deep
-`--limit` a second read can report a different member set (measured with the
-cache disabled: 2 in and 2 out of 400 hits); and two machines with separate
+`--limit` a second read can report a different member set (one run's
+measurement with the cache disabled: 2 members in and 2 out of a 400-hit
+answer); and two machines with separate
 caches can hold different forms of the same text. Remedy: leave the cache on (`EMBED_CACHE` unset), and
 treat a cache-disabled deep answer as one sample, not as a fixed list.
 

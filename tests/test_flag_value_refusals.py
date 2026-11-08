@@ -25,6 +25,13 @@ line naming the values the flag accepts, empty stdout -- and, for the flags
 whose accepted list also lives in the core, that the CLI is reading that one
 list rather than a second copy of it.
 
+Two later arrivals are tested here for the same property. `get-code-context`'s
+selector and `eval`'s `--k` used to be refused only after the index read, so an
+unregistered project answered the read's class (``NotFoundError``, exit 1; and
+for `--k` an ``InternalError`` from the old refusal helper) for an invocation
+that was merely wrong. Both are now refused before the core is built, and both
+have a test that passes an UNREGISTERED project.
+
 Offline: stub embedder and store, a real SQLite manifest and FTS index.
 """
 
@@ -182,6 +189,25 @@ def entry_path(rig) -> str:
     return rig[1].path
 
 
+@pytest.fixture()
+def unregistered_project(tmp_path, monkeypatch):
+    """A core over an empty root and a directory no registry knows.
+
+    Nothing is registered, so resolving the project fails -- which is exactly
+    the point: a value refused at the boundary must answer before the read
+    that would fail, and the rig must not hide that by registering one.
+    """
+    cfg = Config(ollama_url="", qdrant_url="", embed_model="stub",
+                 index_root=str(tmp_path / "state"),
+                 embed_batch=48, upsert_batch=256, max_file_bytes=1048576,
+                 watch_debounce=3, watch_sweep_interval=300)
+    core = Core(cfg)
+    monkeypatch.setattr(cli, "_get_core", lambda skip: core)
+    project = tmp_path / "unregistered"
+    project.mkdir()
+    return str(project)
+
+
 def _refusal(args: list[str]):
     """Invoke the CLI and return the result, having asserted the one shape.
 
@@ -256,6 +282,36 @@ def test_a_bad_visibility_is_refused_before_an_unregistered_project(rig,
     result = _refusal(["find-symbol", "maybe_refresh", "--project",
                        str(unregistered), "--visibility", "bogus"])
     assert "--visibility must be 'public' or 'private'" in result.stderr
+
+
+def test_a_bad_context_selector_is_refused_before_an_unregistered_project(
+        unregistered_project):
+    """The selector is a request shape, not index state.
+
+    Measured at the previous tip: exit 1, ``NotFoundError: project not
+    registered`` -- the read's answer to an invocation that never named a
+    usable range, because the shape was validated after ``_get_core``,
+    ``_resolve``, ``_refuse_obsolete_rows`` and ``_read_staleness``.
+    """
+    result = _refusal(["get-code-context", "mod.py", "--project",
+                       unregistered_project, "--start-line", "9",
+                       "--end-line", "3"])
+    assert "--end-line 3 is below --start-line 9" in result.stderr
+
+
+def test_a_bad_eval_k_is_refused_before_an_unregistered_project(
+        unregistered_project, tmp_path):
+    """A malformed --k is the caller's mistake, refused before the core.
+
+    Measured at the previous tip: exit 1 (``InternalError`` from the old
+    helper, or ``NotFoundError`` once the project came first), and the
+    parsing ran after ``_get_core`` and after a ``--refresh`` pass could run.
+    """
+    queries = tmp_path / "queries.jsonl"
+    queries.write_text(QUERIES)
+    result = _refusal(["eval", "--project", unregistered_project,
+                       "--queries", str(queries), "--k", "zero"])
+    assert "--k must be a comma-separated list of integers" in result.stderr
 
 
 def test_a_bad_relationship_filter_is_a_usage_error(rig):

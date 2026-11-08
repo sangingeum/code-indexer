@@ -105,6 +105,32 @@ UNVERIFIED = "unverified"
 UNVERIFIED_REASON = "embedding-dimension-not-compared"
 
 
+def validate_context_selector(symbol: str | None, start_line: int | None,
+                             end_line: int | None) -> None:
+    """Refuse a `get-code-context` request shape that names no single range.
+
+    One function, raised from the read AND called by the CLI boundary before
+    the first index read, so a wrong invocation is one verdict (ArgumentError,
+    exit 2) whichever side answers it first. The messages are the taxonomy's:
+    each names the two shapes the caller may pass instead.
+    """
+    if symbol is not None and (start_line is not None
+                               or end_line is not None):
+        raise ArgumentError(
+            "--symbol and --start-line/--end-line are two ways to name "
+            "one range; pass one selector")
+    if end_line is not None and start_line is None:
+        raise ArgumentError(
+            "--end-line needs --start-line: a range with no start")
+    if (start_line is not None and end_line is not None
+            and end_line < start_line):
+        raise ArgumentError(
+            f"--end-line {end_line} is below --start-line {start_line}")
+    if symbol is None and start_line is None:
+        raise ArgumentError(
+            "provide --start-line/--end-line or --symbol")
+
+
 def _merge_symbol_ranges(
         ranges: list[tuple[int, int]]) -> list[tuple[int, int, int]]:
     """One contiguous span per run of ranges that overlap or touch.
@@ -1887,27 +1913,12 @@ class Core:
         same name is absorbed by the outer span. It is part of the answer,
         never a silent normalisation. Spans are returned in start-line order.
         """
-        # Request shape first, before any path or index state is consulted:
-        # a selector that cannot name a range is a usage error (exit 2), and
-        # ordering it first keeps one bad invocation on one answer class. A
-        # bare ValueError here used to fall through classify()'s
-        # "everything else" branch and render InternalError, which told a
-        # caller its tool had faulted when its own request was wrong.
-        if symbol is not None and (start_line is not None
-                                   or end_line is not None):
-            raise ArgumentError(
-                "--symbol and --start-line/--end-line are two ways to name "
-                "one range; pass one selector")
-        if end_line is not None and start_line is None:
-            raise ArgumentError(
-                "--end-line needs --start-line: a range with no start")
-        if (start_line is not None and end_line is not None
-                and end_line < start_line):
-            raise ArgumentError(
-                f"--end-line {end_line} is below --start-line {start_line}")
-        if symbol is None and start_line is None:
-            raise ArgumentError(
-                "provide --start-line/--end-line or --symbol")
+        # Request shape first, before any path or index state is consulted.
+        # The CLI calls the SAME function at its own boundary before the
+        # first read, so a wrong invocation answers ArgumentError (exit 2)
+        # whoever answers first -- never the read's NotFoundError for a
+        # project that merely happens not to be registered.
+        validate_context_selector(symbol, start_line, end_line)
 
         rel = file.lstrip("/")
         abs_path = os.path.normpath(os.path.join(entry.path, rel))

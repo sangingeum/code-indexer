@@ -3,19 +3,18 @@
 What a cache cannot cover is a state, not a text: a read whose dimension
 probe fails used to return the raw vector and store nothing, so the next read
 re-embedded the same text and searched whatever the service answered then --
-and the service's vector depends on the request sequence, not on the text
-alone. Measured on this machine: an immediately repeated call for the same
-text returns a different vector (14 of 14 cold trials on the instructed text
-the query path sends, 13 of 14 on the bare text), and the size of that
-difference depends on the text and the form -- the largest per-component
-change was 6.780e-3 on the instructed form and 1.900e-3 on the bare form of
-the measured query text, and across fourteen sample texts it ran from 0.0 (a
-one-character bare text) to 9.717e-3 (the same character, instructed). These
-are samples, not bounds. Whether a text's first form comes back after a
-different request is form-dependent too: the bare text returned its first
-form in 18 of 18 measured calls, the instructed text in 0 of 18 -- after its
-load-first call it settles into a second pair of forms. With the cache
-disabled, a deep read is 2 members in and 2 out of a 400-hit answer.
+and the service can answer the same text with a different vector on an
+immediate repeat. That repeat is the exchange the cache absorbs. The size is
+an observation, not a constant: a few times 1e-3 per component, observed from
+0.0 to 9.717e-3 across the samples measured in one round, and it depends on
+the text, on the form and on the run. Whether a text's earlier form comes back
+after a different request is not dependable -- it has been seen to differ
+between forms and between runs, so no count is asserted here; the measurement
+of record is `uv run python scripts/probe_embed_drift.py` (six trials per
+form by default), which prints what the service does on the host where it
+runs. With the
+cache disabled, one run measured a deep read as 2 members in and 2 out of a
+400-hit answer.
 
 The fix is at the tool's end and it is not a warm-up: the warm-up was
 measured and does not settle it (a probe call before the query does not

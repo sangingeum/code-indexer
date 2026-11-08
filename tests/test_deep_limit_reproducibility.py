@@ -8,11 +8,15 @@ something other than the index:
    the merge below it walked a same-file group in SCORE order, so which
    ranges collapsed into one union depended on that arrival order;
 2. the query embedding was recomputed whenever the dimension was unknown,
-   and the service answers the same text differently on an immediately
-   repeated call (measured: a per-component change of 1.900e-3 on the bare
-   form and 6.780e-3 on the instructed form of the measured query text;
-   sample figures, not bounds), so the second read searched a different
-   vector than the first.
+   and the service can answer the same text with a different vector on an
+   immediately repeated call -- the exchange the cache absorbs. The size is
+   an observation, not a constant: a few times 1e-3 per component, observed
+   from 0.0 to 9.717e-3 across the samples measured in one round, and it
+   depends on the text, on the form and on the run; whether the earlier form
+   comes back after a different request is not dependable, which is why
+   `uv run python scripts/probe_embed_drift.py` exists
+   and prints what the service does on the host where it runs. So the second
+   read searched a different vector than the first.
 
 The tests here pin the shape the user sees: the second invocation equals the
 first, and the member set does not move.
@@ -92,10 +96,12 @@ def test_deep_limit_order_does_not_depend_on_arrival_order():
 def test_membership_survives_a_tiny_score_perturbation():
     """The member set is a function of the hits, not of their scores.
 
-    The QUERY VECTOR moves per component from one read to the next (measured
-    1.900e-3 on the bare form and 6.780e-3 on the instructed form of the
-    measured query text; samples, not bounds), and the scores shift as a
-    consequence. That must not change WHICH ranges the answer reports: only
+    The QUERY VECTOR can move per component from one read to the next -- a few
+    times 1e-3 per component, observed from 0.0 to 9.717e-3 across the samples
+    measured in one round (one round's observation, not a bound; re-measure it
+    with `uv run python scripts/probe_embed_drift.py`)
+    -- and the scores shift as a consequence. That must not change WHICH ranges
+    the answer reports: only
     where they sit in the order.
     """
     pool = _deep_pool()
