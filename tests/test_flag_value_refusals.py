@@ -9,7 +9,9 @@ search mode as ``InternalError`` (exit 1), a bad search ``--ranking`` or
 every project"), a bad eval ``--mode`` as ``InternalError`` (exit 1) and a
 bad eval ``--rerank`` the same wrapped way (exit 3), and an unknown
 ``--relationship`` value as ``InternalError`` (exit 1). ``--format`` and
-``--vectors`` WERE already refused at the boundary with exit 2. ``--visibility``
+``--vectors`` WERE already refused at the boundary with exit 2 -- on
+``semantic-search`` the format is resolved before the extension check too, so
+a wrong format answers exit 2 even on a bare install. ``--visibility``
 was refused with the right code but only AFTER the index read, so an
 unregistered project answered ``NotFoundError`` (exit 1) for an invocation
 that was merely wrong.
@@ -245,6 +247,20 @@ def test_a_bad_rerank_value_is_a_usage_error(rig):
                        "--rerank", "bogus"])
     assert "unknown --rerank value: 'bogus'" in result.stderr
     assert "expected heuristic|none" in result.stderr
+
+
+def test_a_bad_format_is_refused_before_the_semantic_extension(monkeypatch):
+    """The format is a request shape, not a fact about the install.
+
+    Measured at the previous tip: exit 3 with the install message -- the
+    extension line told the caller to install the extra for an invocation
+    that only named a format the command does not have. The format is
+    resolved before ``_require_semantic`` and ``_get_core``, so the answer
+    is about the request.
+    """
+    monkeypatch.setattr(cli, "semantic_available", lambda: False)
+    result = _refusal(["semantic-search", "x", "--format", "bogus"])
+    assert "unknown --format value: 'bogus'" in result.stderr
 
 
 def test_a_bad_eval_mode_is_a_usage_error_not_an_internal_error(rig, tmp_path):

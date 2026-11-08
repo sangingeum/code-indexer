@@ -1484,6 +1484,13 @@ def semantic_search(
     # index read keeps the verdict about the invocation, not about the install
     # or the tree. The core keeps its own raises as defence; no caller can
     # reach them with a bad value (see tests/test_flag_value_refusals.py).
+    # The format is resolved first, with the other boundary checks: a wrong
+    # --format is about the invocation, so it answers exit 2 ArgumentError
+    # even when the semantic extension is absent (otherwise the caller is
+    # told to install the extra for a request that was merely wrong).
+    fmt = _output_format(output_format, json_output,
+                         command="semantic-search")
+    json_output = fmt == "json"
     _refuse_unknown_value("--ranking", ranking, RANKING_MODES)
     _refuse_unknown_value("--mode", search_mode, SEARCH_MODES)
     _refuse_unknown_value("--rerank", rerank, RERANK_MODES)
@@ -1492,9 +1499,6 @@ def semantic_search(
     if all_projects and project:
         _usage_die("--all-projects and --project are mutually exclusive; "
                    "omit --project to fan out, or pass one project")
-    fmt = _output_format(output_format, json_output,
-                         command="semantic-search")
-    json_output = fmt == "json"
     if all_projects:
         entries = core.registry.list_projects()
         if not entries:
