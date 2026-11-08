@@ -91,6 +91,14 @@ logger = logging.getLogger("code-indexer.manifest")
 
 SCHEMA_VERSION = "7"
 
+# The symbol kinds a name can be written under and still be a TYPE: what the
+# interim `type_use` rows are allowed to become. A namespace resolves like any
+# other symbol and is deliberately absent -- `geo::Point` scopes into `geo`,
+# which is not a type. Listed as one fact so a new kind is added once.
+_TYPE_DEFINITION_KINDS = frozenset({
+    "class", "struct", "enum", "interface", "record", "record struct",
+})
+
 # The statements are executed one at a time inside the migration transaction
 # (executescript would commit the transaction it is handed).
 _SCHEMA = (
@@ -1089,9 +1097,19 @@ class Manifest:
         is a no-op. Returns the number of rows rewritten.
         """
         definitions: dict[str, list[tuple[str, int]]] = {}
-        for name, path, symbol_id in self._conn.execute(
-                "SELECT name, file, id FROM symbols"):
+        # Names that bind a TYPE definition somewhere in the store. The
+        # interim `type_use` rows assert that a name is written where a type
+        # belongs, and a resolved definition only makes that true when the
+        # definition IS a type: a project-defined namespace resolves like any
+        # other symbol, so converting on "some definition binds" recorded
+        # `geo` -- a namespace -- as a type reference. Read in the same query
+        # as the definitions, so the guard costs no second pass.
+        type_names: set[str] = set()
+        for name, path, symbol_id, symbol_type in self._conn.execute(
+                "SELECT name, file, id, symbol_type FROM symbols"):
             definitions.setdefault(name, []).append((path, symbol_id))
+            if symbol_type in _TYPE_DEFINITION_KINDS:
+                type_names.add(name)
 
         # The project-wide choice does not depend on which file is asking, so
         # it is computed once per name and reused by every referencing row.
@@ -1131,9 +1149,12 @@ class Manifest:
         # Each one is resolved by the SAME precedence as any other reference
         # target, with three outcomes:
         #
-        # * a definition binds -- it becomes a `type` row pointing at it;
-        # * the store defines the name NOWHERE -- the row is deleted, never
-        #   invented as a reference to a type that does not exist;
+        # * a definition binds AND it is a type -- it becomes a `type` row
+        #   pointing at it;
+        # * the store defines the name NOWHERE, or defines it only as
+        #   something that is not a type (a namespace a qualified name scopes
+        #   into) -- the row is deleted, never invented as a reference to a
+        #   type that does not exist;
         # * the name is defined more than once and no file-class choice breaks
         #   the tie -- it becomes `type` with no target: an unambiguous fact
         #   (the file names a type) with an unknown target, counted as
@@ -1145,7 +1166,7 @@ class Manifest:
                 " WHERE relationship = 'type_use'"
                 + (" AND file = ?" if file is not None else ""),
                 ([file] if file is not None else [])):
-            if name not in definitions:
+            if name not in type_names:
                 dropped += 1
                 self._conn.execute("DELETE FROM refs WHERE rowid = ?",
                                    (rowid,))

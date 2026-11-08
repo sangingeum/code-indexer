@@ -2,9 +2,11 @@
 
 A header's name does not say what it declares: C++ projects spell their
 headers `.h` as often as `.hpp`, and C projects spell them `.h` always. So the
-grammar is decided per file, from the file (C first; cpp when C's tree carries
-an error or a missing node), and the index STORES the language that parse
-used. The properties pinned here are the two false absences that decision
+grammar is decided per file, from the file: the two trees' named
+declarations are compared, and cpp wins when it names a declaration the C tree
+does not (the C grammar misreads or drops it); when C names everything cpp
+names, the header is C-compatible and stays `c`. The index STORES the language
+that parse used. The properties pinned here are the two false absences that decision
 buys: a C-only header (a K&R definition) keeps every symbol and stays
 `parsed`, and `--language c` finds a symbol that lives in a C header; a C++
 header answers under cpp; and a name that really is nowhere is still called
@@ -91,6 +93,37 @@ C_SOURCE = """\
 int twice(int n) { return add(n, n); }
 """
 
+# One class, nothing else: the commonest C++ header shape, and the one the
+# C grammar reads as a FUNCTION named `Widget` without reporting an error.
+CLASS_ONLY_HEADER = """\
+class Widget {
+public:
+    void run();
+};
+"""
+
+# C-only construct plus C++ declarations in one header. cpp errors on the K&R
+# half, so a decision that lets a clean tree beat an informative one files this
+# as C and hides the class.
+MIXED_HEADER = """\
+namespace geometry {
+class Widget { };
+}
+
+int old_style(a)
+int a;
+{
+    return a;
+}
+"""
+
+# A header both grammars read the same way: C-compatible, so it stays `c`.
+STRUCT_ONLY_HEADER = """\
+struct Point {
+    int x;
+};
+"""
+
 
 @pytest.fixture()
 def header_project(tmp_path, monkeypatch):
@@ -102,6 +135,34 @@ def header_project(tmp_path, monkeypatch):
         (project / name).write_text(text, encoding="utf-8")
     core = stub_core(tmp_path)
     reg, entry = index_project(core, project, name="headers")
+    monkeypatch.setattr(cli, "_get_core", lambda skip: core)
+    yield core, entry, project
+    reg.close()
+
+
+@pytest.fixture()
+def decided_project(tmp_path, monkeypatch):
+    """Headers whose grammar the shape of their contents has to decide."""
+    project = tmp_path / "decided"
+    project.mkdir()
+    for name, text in (("class_only.h", CLASS_ONLY_HEADER),
+                       ("struct_only.h", STRUCT_ONLY_HEADER)):
+        (project / name).write_text(text, encoding="utf-8")
+    core = stub_core(tmp_path)
+    reg, entry = index_project(core, project, name="decided")
+    monkeypatch.setattr(cli, "_get_core", lambda skip: core)
+    yield core, entry, project
+    reg.close()
+
+
+@pytest.fixture()
+def mixed_header_project(tmp_path, monkeypatch):
+    """One header that holds a C-only construct and C++ declarations."""
+    project = tmp_path / "mixed"
+    project.mkdir()
+    (project / "mixed.h").write_text(MIXED_HEADER, encoding="utf-8")
+    core = stub_core(tmp_path)
+    reg, entry = index_project(core, project, name="mixed")
     monkeypatch.setattr(cli, "_get_core", lambda skip: core)
     yield core, entry, project
     reg.close()
@@ -212,11 +273,61 @@ def test_a_cpp_header_is_stored_as_cpp_and_parsed(header_project):
     assert payload["coverage"]["complete"] is True, payload["coverage"]
 
 
-def test_a_header_spelling_that_is_unambiguous_stays_cpp(tmp_path):
+def test_a_header_that_is_one_class_is_read_as_cpp(decided_project):
+    """A class-only `.h` is C++. The C grammar does not error on
+    `class Widget { ... };` -- it reads a FUNCTION named `Widget` -- so the
+    declaration counts tied 1-1 and the tie rule filed the file as C: the file
+    row said `c`, the symbol said `function`, and `--language cpp` printed the
+    absence sentence over an index that called itself complete."""
+    core, entry, project = decided_project
+    assert _files(core, entry)["class_only.h"] == ("cpp", "parsed")
+    m = core.manifest_for(entry.slug)
+    try:
+        kinds = {s.name: s.symbol_type for s in m.symbols_for_file("class_only.h")}
+    finally:
+        m.close()
+    assert kinds.get("Widget") == "class", kinds
+
+    found = runner.invoke(app, ["find-symbol", "Widget", "--project",
+                                str(project), "--language", "cpp", "--json"])
+    assert found.exit_code == 0, found.output
+    payload = json.loads(found.stdout)
+    assert {row["file"] for row in payload["symbols"]} >= {"class_only.h"}, payload
+    assert payload["coverage"]["complete"] is True, payload["coverage"]
+
+
+def test_a_header_mixing_a_namespace_and_a_knr_definition_is_read_as_cpp(
+        mixed_header_project):
+    """The cpp tree is defective here and the C tree is clean, and the C tree
+    still declares a function where the file has a class: a clean tree that
+    explains less must not beat a defective tree that explains more."""
+    core, entry, _project = mixed_header_project
+    files = _files(core, entry)
+    assert files["mixed.h"][0] == "cpp", files
+    m = core.manifest_for(entry.slug)
+    try:
+        kinds = {s.name: s.symbol_type for s in m.symbols_for_file("mixed.h")}
+    finally:
+        m.close()
+    assert kinds.get("Widget") == "class", kinds
+
+
+def test_a_header_both_grammars_read_the_same_way_stays_c(decided_project):
+    """`struct Point` names one declaration in both grammars: the header is
+    C-compatible, so the C project that ships it keeps reading `c`."""
+    core, entry, _project = decided_project
+    assert _files(core, entry)["struct_only.h"] == ("c", "parsed")
+    m = core.manifest_for(entry.slug)
+    try:
+        kinds = {s.name: s.symbol_type for s in m.symbols_for_file("struct_only.h")}
+    finally:
+        m.close()
+    assert kinds.get("Point") == "struct", kinds
+
+
+def test_a_header_spelling_that_is_unambiguous_stays_cpp():
     """`.hpp/.hxx/.hh` name one language; only `.h` is decided from contents."""
-    assert ts_chunker.AMBIGUOUS_HEADER_EXTENSIONS == {"h"}
     for ext in ("hpp", "hxx", "hh"):
-        assert ts_chunker.EXT_LANG[ext] == "cpp", ext
         lang, _tree, verdict = ts_chunker.parse_tree_with_language(
             f"classy.{ext}", CPP_HEADER)
         assert (lang, verdict) == ("cpp", ts_chunker.PARSE_PARSED), (lang, verdict)

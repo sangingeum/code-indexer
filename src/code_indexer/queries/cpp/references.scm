@@ -40,6 +40,9 @@
 ; namespace_identifier, which the plain type_identifier pattern never sees --
 ; so the type half of `Type::Member` was invisible. Interim `type_use`: the
 ; index pass keeps it as a `type` reference only when the name binds a
-; definition, so `std::` and other unresolvable scopes add no row.
+; definition of a TYPE KIND, so `std::` (no definition in the store) and a
+; project namespace (`namespace geo`, which is a scope and not a type) both
+; add no row. The qualifier's CALL half (`geo::place()`) is still invisible:
+; no call pattern matches a qualified_identifier.
 (qualified_identifier
   scope: (namespace_identifier) @ref.type_use)

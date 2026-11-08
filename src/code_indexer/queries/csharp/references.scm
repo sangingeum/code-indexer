@@ -41,11 +41,20 @@
 ; names a TYPE, and the receiver rule never sees any of them: a type used this
 ; way produced no row at all. These captures are written as the interim
 ; `type_use` relationship, exactly like a member-access receiver: the index
-; pass turns one into a `type` reference when the name binds a definition by
-; the same precedence (this file first, then the store's unique definition),
-; keeps it unattributed when the name is ambiguous, and deletes it when the
-; store defines the name nowhere -- so a local variable or a property is never
-; turned into a type it is not.
+; pass turns one into a `type` reference when the name binds a definition of a
+; TYPE KIND by the same precedence (this file first, then the store's unique
+; definition), keeps it unattributed when the name is ambiguous, and deletes
+; it when the store defines the name nowhere or defines it as something that
+; is not a type. A VALUE binding is excluded only where the extractor can see
+; the binding: a parameter, local, foreach or catch name, a field, a property
+; and a generic type parameter are all read off the tree, so a value spelled
+; like a type does not become one. A value bound in a form the walk does not
+; cover can still look like the type by name alone -- that is the limit, and
+; it is stated rather than hidden.
+;
+; Known limit: only a BARE identifier is captured. `Vivarium.Sim.NeedBand b`
+; writes a qualified_name, which none of the patterns below match, so a type
+; spelled with its namespace produces no row at all.
 (parameter type: (identifier) @ref.type_use)
 
 (variable_declaration type: (identifier) @ref.type_use)

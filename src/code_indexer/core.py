@@ -26,7 +26,7 @@ from .fingerprint import (ConfigError, EMBED_FORMAT, ROW_SIDE_KEYS,
                           recorded_row_version_gaps, row_side_mismatches,
                           vector_side_mismatches)
 from .locks import project_lock
-from .manifest import SCHEMA_VERSION, Manifest, SymbolRow
+from .manifest import SCHEMA_VERSION, Manifest, ManifestFile, SymbolRow
 from . import ordering
 from . import ranking
 from . import staleness
@@ -1261,6 +1261,11 @@ class Core:
         m = self.read_manifest(entry.slug)
         try:
             fts_rows = m.fts_search(query, limit * 3)
+            # The hit's language is the one the file's ROW stores -- the
+            # grammar that actually parsed it -- not the one its extension
+            # suggests: a `.h` header the index read as C is stored `c`, and
+            # the name-only map calls it cpp.
+            file_rows = m.all_files()
             out: list[dict[str, Any]] = []
             for rank, row in enumerate(fts_rows, 1):
                 file = row["file"]
@@ -1285,7 +1290,9 @@ class Core:
                     "score": round(1.0 / (60 + rank), 6),  # RRF-style score
                     "symbol": symbol,
                     "symbol_type": symbol_type,
-                    "lang": _lang_from_path(file),
+                    "lang": ((file_rows.get(file).language
+                              if file_rows.get(file) else None)
+                             or _lang_from_path(file)),
                     "start_line": start,
                     "end_line": end,
                     "snippet": (f"lexical match: {file}"
@@ -1607,7 +1614,7 @@ class Core:
         for s in symbols:
             by_file.setdefault(s.file, []).append(s)
         if tree_mode:
-            return self._tree_projection(entry, sorted(files), by_file)
+            return self._tree_projection(entry, files, by_file)
         out_files: list[dict[str, Any]] = []
         for path in sorted(files):
             f = files[path]
@@ -1631,16 +1638,21 @@ class Core:
     @staticmethod
     def _tree_projection(
             entry: ProjectEntry,
-            file_paths: list[str],
+            files: dict[str, ManifestFile],
             by_file: dict[str, list[SymbolRow]]) -> dict[str, Any]:
         """`--tree` mode (design §2.1): directory tree with per-dir symbol
-        count and dominant language. No symbols listed; --limit ignored."""
+        count and dominant language. No symbols listed; --limit ignored.
+
+        The language counted is the one each file's ROW stores, so a `.h`
+        header the index read as C counts `c` -- the name-only map would make
+        a C project whose headers are all `.h` report cpp as dominant.
+        """
         dirs: dict[str, dict[str, Any]] = {}
-        for path in file_paths:
+        for path in sorted(files):
             parent = os.path.dirname(path).replace(os.sep, "/") or "."
             d = dirs.setdefault(parent, {"symbols": 0, "langs": {}})
             d["symbols"] += len(by_file.get(path, []))
-            lang = _lang_from_path(path)
+            lang = files[path].language or _lang_from_path(path)
             d["langs"][lang] = d["langs"].get(lang, 0) + 1
         out_dirs = [
             {"dir": path, "symbols": d["symbols"],

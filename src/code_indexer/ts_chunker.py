@@ -35,7 +35,12 @@ logger = logging.getLogger("code-indexer.tschunker")
 # v4: a `.h` header's grammar is decided from the file itself (C first, cpp
 # when C cannot read it), so a C-only header's chunks again come from the C
 # grammar -- v3 read every `.h` as cpp and lost a K&R definition.
-CHUNKER_VERSION = 4
+# v5: the choice between the two `.h` grammars is made on the NAMED
+# declarations each tree produces (name plus kind), not on a count: a
+# class-only header is cpp now, so its class is a `class` row where v4 stored
+# a `function` row and filed the file as `c`. Same text, different rows: v4
+# chunks describe an index this build would not produce.
+CHUNKER_VERSION = 5
 
 try:
     import tree_sitter_language_pack
@@ -51,8 +56,8 @@ except Exception:  # noqa: BLE001
 AMBIGUOUS_HEADER_EXTENSIONS = {"h"}
 
 EXT_LANG = {
-    # `.h` keeps the cpp default here; the per-file decision (C first, cpp
-    # when C's tree carries an error or a missing node) lives in
+    # `.h` keeps the cpp default here; the per-file decision (cpp when its
+    # tree names a declaration the C tree does not, `c` otherwise) lives in
     # `_choose_grammar`, and the index stores the language that parse used.
     "py": "python", "js": "javascript", "jsx": "javascript", "ts": "typescript",
     "tsx": "typescript", "rs": "rust", "go": "go", "java": "java", "c": "c",
@@ -201,20 +206,24 @@ def _choose_grammar(path: str, data: bytes):
     and C is not a strict subset of what the cpp grammar reads (a K&R
     definition is legal C and an error in cpp). So both grammar trees are
     built -- this is the one extension where a second parse is spent -- and
-    the evidence picks between them, in this order:
+    the two trees' named declarations are compared, name plus kind:
 
-    1. a tree with no error or missing node beats one that carries a defect;
-    2. between two clean trees, the one that DECLARES MORE wins: the C
-       grammar reads a C++ header as a legal-looking function body whose name
-       it cannot recover (`namespace geometry { ... }`), so it declares
-       nothing from it, while the cpp grammar declares the names the project
-       uses;
-    3. a tie stays `c`: a header both grammars read into the same named
-       declarations is C-compatible, and calling it C is what the C project
-       that ships it expects -- no symbol is lost either way.
+    1. cpp wins when it names a declaration the C tree does not. Either C
+       read that text as something else -- `class Widget { ... };` is a
+       FUNCTION named `Widget` to the C grammar, with no error -- or it
+       dropped it; both mean cpp understood more of the file. This is why a
+       defect in the cpp tree does not hand the file to C: `namespace
+       geometry { class Widget { }; }` beside a K&R definition parses cleanly
+       as C while hiding the class, so the cleaner tree is the emptier one.
+    2. otherwise every declaration the cpp tree names is one the C tree also
+       names, so calling the header C loses no symbol. A clean C tree wins
+       (the C project that ships the header expects `c`); a defective C tree
+       loses to a clean cpp tree, and two defective trees keep cpp, the
+       family default that recovers the most of a broken header.
 
-    Two trees that both carry a defect keep the cpp one: it is the family
-    default and recovers the most of a broken header.
+    A declaration COUNT is never the evidence: the C grammar's misreading of
+    a C++ class still yields one named unit, so a 1-1 tie says nothing about
+    which grammar read the file.
     """
     c_tree, c_verdict = _parse_with("c", path, data)
     cpp_tree, cpp_verdict = _parse_with("cpp", path, data)
@@ -224,37 +233,35 @@ def _choose_grammar(path: str, data: bytes):
         return "c", c_tree, c_verdict
     if c_tree is None:
         return "cpp", cpp_tree, cpp_verdict
-    c_clean = c_verdict == PARSE_PARSED
-    cpp_clean = cpp_verdict == PARSE_PARSED
-    if c_clean and not cpp_clean:
+    c_shapes = set(_declaration_shapes(c_tree.root_node, data))
+    cpp_shapes = set(_declaration_shapes(cpp_tree.root_node, data))
+    if cpp_shapes - c_shapes:
+        return "cpp", cpp_tree, cpp_verdict
+    if c_verdict == PARSE_PARSED:
         return "c", c_tree, c_verdict
-    if cpp_clean and not c_clean:
-        return "cpp", cpp_tree, cpp_verdict
-    if not c_clean:
-        return "cpp", cpp_tree, cpp_verdict
-    if (_declaration_count(cpp_tree.root_node, data)
-            > _declaration_count(c_tree.root_node, data)):
-        return "cpp", cpp_tree, cpp_verdict
-    return "c", c_tree, c_verdict
+    return "cpp", cpp_tree, cpp_verdict
 
 
-def _declaration_count(root, data: bytes) -> int:
-    """How many NAMED declaration units a tree holds, at any depth.
+def _declaration_shapes(root, data: bytes) -> list[tuple[str, str]]:
+    """What a tree says the file DECLARES: ``(name, kind)`` per named unit.
 
-    The same node types the chunk walk honours, counted without building
-    chunks. The name is part of the count because a misread C++ header parses
-    as a nameless function body: a node that declares nothing particular is
-    not evidence that this grammar read the file.
+    The node types the chunk walk honours, read for the name it would store
+    and the kind it would label it with, at any depth. The pair is the
+    evidence two grammars are compared on: `struct Point { ... };` yields
+    ``(Point, struct)`` from both, while `class Widget { ... };` yields
+    ``(Widget, function)`` from C and ``(Widget, class)`` from cpp. The list
+    is in walk order; callers compare it as a set.
     """
-    total = 0
+    shapes: list[tuple[str, str]] = []
     stack = [root]
     while stack:
         node = stack.pop()
         if node.type in _UNIT_TYPES or node.type in _UNIT_TYPES_EXTRACT_ONLY:
-            if _symbol_from_node(node, data) is not None:
-                total += 1
+            name = _symbol_from_node(node, data)
+            if name is not None:
+                shapes.append((name, _TYPE_BY_NODE.get(node.type, node.type)))
         stack.extend(node.children)
-    return total
+    return shapes
 
 
 def parse_file(path: str, text: str) -> tuple[list[Chunk], str]:

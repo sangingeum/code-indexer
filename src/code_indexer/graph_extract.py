@@ -144,7 +144,21 @@ LANGUAGES_WITH_AST = frozenset(
 # built by v12 came from the cpp grammar and its file row said `cpp`, so
 # rows and language labels built by v12 describe an index this build would
 # not produce (a K&R definition was lost; `--language c` answered absent).
-EXTRACTION_VERSION = 13
+# v14: the two `.h` trees are compared by the named declarations they produce
+# (name plus kind), not by a count, so a class-only header is read as cpp and
+# its class is a symbol of kind `class` where v13 stored a `function` -- and a
+# header mixing C++ declarations with a K&R definition goes to cpp instead of
+# a cleanly-parsed C tree that hides the class. The `type_use` rows also only
+# become `type` when the definition they bind is a TYPE KIND, so a
+# project-defined namespace in a qualifier no longer reads as a type. Rows
+# built by v13 carry the old symbol kinds and the namespace rows.
+# -- and the parse-verdict change rode in on `b3275ae` without an axis of its
+# own: the verdict stopped being the chunk yield's and became the parser's
+# (an empty-AST file is `parsed`). It is carried here only because v13 and v14
+# rebuild everything; anyone who cherry-picks `b3275ae` alone leaves every
+# import-only file stored `parse_unavailable` with nothing to trigger the
+# rebuild. Do not split the set.
+EXTRACTION_VERSION = 14
 
 _INDEX_EXTS = (".ts", ".tsx", ".js", ".jsx")
 
@@ -225,6 +239,7 @@ def extract_graph(path: str, text: str, lang: str
 
     # QueryCursor.captures: normalize across binding shapes.
     local_names = _local_binding_names(tree.root_node, data)
+    type_parameters = _type_parameter_names(tree.root_node, data)
     raw = cursor.captures(tree.root_node)
     if isinstance(raw, dict):
         pairs: list[tuple[object, str]] = [
@@ -246,7 +261,11 @@ def extract_graph(path: str, text: str, lang: str
             member_rows = _member_ref(node, data, row, frm, local_names)
             refs.extend(member_rows)
         elif capture == "ref.type_use":
-            refs.append((row + 1, frm, text_val, "type_use", None))
+            # A generic parameter shadows a type of the same name across the
+            # whole type it is declared on, so the capture names the
+            # parameter, not the type.
+            if text_val not in type_parameters:
+                refs.append((row + 1, frm, text_val, "type_use", None))
         elif capture == "ref.type":
             refs.append((row + 1, frm, text_val, "type", None))
         elif capture == "ref.base_class":
@@ -273,13 +292,13 @@ def _member_ref(node, data: bytes, row: int, frm: str | None,
     type invisible to ``find-references``. The row is written with the
     interim relationship ``type_use`` and no confidence of its own: the index
     pass's resolver (:meth:`Manifest.resolve_ref_targets`) keeps it when the
-    name binds a definition, converting it to ``type``, and drops it otherwise
-    -- no definition, no row. So a receiver that is a plain local variable or
-    a parameter -- a name the file binds as a VALUE -- never becomes a type
-    reference, by name (``local_names``) or by resolution (it binds no
-    definition). The known limit is stated rather than hidden: a value bound
-    under the EXACT name of a type in the same file is indistinguishable from
-    the type by name alone and binds to it.
+    name binds a definition of a TYPE KIND, converting it to ``type``, and
+    drops it otherwise -- no type definition, no row. So a receiver that is a
+    plain local variable or a parameter -- a name the file binds as a VALUE --
+    never becomes a type reference, by name (``local_names``) or by
+    resolution. The known limit is stated rather than hidden: a value bound
+    under the exact name of a type, in a form the walk does not recognise, is
+    indistinguishable from the type by name alone and binds to it.
 
     Returns an empty list for an INTERMEDIATE segment of a longer chain: in
     ``System.Console.WriteLine(x)`` the inner ``System.Console`` access is the
@@ -310,22 +329,28 @@ def _member_ref(node, data: bytes, row: int, frm: str | None,
 
 
 # Node types that BIND a value name in C#: a parameter, a local variable, a
-# foreach left-hand side, a catch variable, an out-parameter declaration.
+# foreach left-hand side, a catch variable, an out-parameter declaration, a
+# generic type parameter, a property. A field's name arrives through its
+# `variable_declarator`, which is already here.
 _LOCAL_BINDING_TYPES = frozenset({
     "parameter", "variable_declarator", "foreach_statement",
-    "catch_declaration", "declaration_expression",
+    "catch_declaration", "declaration_expression", "type_parameter",
+    "property_declaration",
 })
 
 
 def _local_binding_names(root, data: bytes) -> set[str]:
-    """Every name the file binds as a VALUE (parameter, local, foreach, out).
+    """Every name the file binds as a VALUE (parameter, local, foreach, out,
+    type parameter, property, field).
 
-    Used to keep a member access through a local variable from being read as
-    an access through a type: ``other.Critical`` names a parameter, and no
-    type reference may be invented for it. Best effort by design -- the tree
-    walk covers the binding node types C# writes, and anything it misses is
-    caught by the resolver (a name with no definition binds nothing and its
-    row is dropped).
+    Used by the member-access rule: a receiver that names one of these is a
+    value being read, never a type, so ``other.Critical`` produces the member
+    row and no type row. A name in this set is still a plausible TYPE USE in
+    type position -- `public NeedBand NeedBand { get; set; }` names both --
+    which is why the type-position captures are filtered by
+    ``_type_parameter_names`` and not by this set. Best effort by design: a
+    value binding the walk cannot see is stated as the limit, because it is
+    indistinguishable from the type by name alone.
     """
     names: set[str] = set()
     stack = [root]
@@ -339,6 +364,28 @@ def _local_binding_names(root, data: bytes) -> set[str]:
                 left = node.child_by_field_name("left")
                 if left is not None and left.type == "identifier":
                     names.add(_node_text(left, data))
+        stack.extend(node.children)
+    return names
+
+
+def _type_parameter_names(root, data: bytes) -> set[str]:
+    """Every generic type parameter the file declares (``class Box<T>``).
+
+    A type parameter shadows a type of the same name across the whole type it
+    is declared on: inside ``Box<T>``, ``T`` IS the parameter, so a name
+    written where a type belongs is not a use of the project's ``T``. This is
+    the one binding that suppresses the type-position captures by name; a
+    property, field or local spelled like a type does not -- it shadows only
+    where it is READ, which the member-access rule handles per site.
+    """
+    names: set[str] = set()
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if node.type == "type_parameter":
+            name_node = node.child_by_field_name("name")
+            if name_node is not None:
+                names.add(_node_text(name_node, data))
         stack.extend(node.children)
     return names
 
