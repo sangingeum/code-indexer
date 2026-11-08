@@ -49,6 +49,20 @@ unknown language, and a C++ template call (`obj.method<T>(...)`,
 `free<T>(...)`) is a call row -- the name sits one node deeper, so the plain
 identifier pattern never saw it.
 
+**A file the parser read is `parsed`, even when its AST declares nothing.**
+An import-only module parses cleanly and yields no chunk, and the verdict was
+taken from the chunk yield: the file was stored `parse_unavailable` beside
+`status=ok` and `chunk_count=1`. Coverage then said "1 of 2 files parsed" with
+`parse_error 0` and `parse_error_files` empty, so no reader could learn which
+file it was or why, and every absence claim in the project carried a caveat
+about a reader that exists. The verdict is the parser's own again:
+`parse_unavailable` means only that no AST exists at all (no grammar pack, no
+grammar for the extension, or a parser exception). An empty AST still stores
+one fallback chunk so the text stays searchable. Markdown and the other prose
+formats are `parsed` for the same reason, so an empty answer on a prose-only
+project names the reader it lacks (`language-without-ast`) instead of a parse
+that ran.
+
 `EXTRACTION_VERSION` moves 9 -> 10: the extraction axis moved (new reference
 rows, new include rows, a wider scanned language map). An existing index
 reports `needs-reindex` and its row reads refuse until the next pass; chunking,

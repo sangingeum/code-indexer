@@ -37,6 +37,11 @@ runner = CliRunner()
 PY = "def helper(x):\n    return x + 1\n"
 SH = "#!/bin/sh\nmain() {\n  echo run\n}\nmain\n"
 MD = "# notes\n\nthe documentation\n"
+# A file with no grammar mapping at all: the ONLY shape that still reports
+# `parse_unavailable`. A declaration-free file in a mapped language is parsed
+# (the parser read it; the AST simply declares nothing) and a prose format is
+# parsed too -- those were the fixtures this file used to call "never parsed".
+ZIG = "fn main() void {\n    return;\n}\n"
 
 
 class StubEmbedder:
@@ -154,25 +159,41 @@ def test_a_name_absent_from_a_parsed_index(index_project):
 
 
 def test_files_that_never_parsed_are_named_by_count_and_language(index_project):
-    core, entry, project = index_project({"notes.md": MD}, name="docs")
-    assert _files(core, entry) == {"notes.md": ("markdown",
-                                               "parse_unavailable")}
+    core, entry, project = index_project({"notes.zig": ZIG}, name="docs")
+    assert _files(core, entry) == {"notes.zig": ("zig", "parse_unavailable")}
 
     payload = _json(runner.invoke(
         app, ["find-symbol", "zzz_missing", "--project", str(project),
               "--json"]))
     assert payload["empty_reason"] == "files-not-parsed"
-    assert "1 of 1 files were not parsed (markdown)" \
+    assert "1 of 1 files were not parsed (zig)" \
         in payload["empty_reason_sentence"]
     assert payload["coverage"]["files_parsed"] == 0
-    assert payload["coverage"]["answer_languages_without_ast"] == ["markdown"]
+    # A prose format is no longer the "not parsed" shape: markdown parses, so
+    # it is named for what it lacks (a symbol reader), never for a reader
+    # that ran. Zig (an unknown language) is not on that list either.
+    assert payload["coverage"]["answer_languages_without_ast"] == []
     # The old shared key is gone from both levels: one name, one meaning.
     assert "languages_without_ast" not in payload
     assert "languages_without_ast" not in payload["coverage"]
 
     text = runner.invoke(app, ["find-symbol", "zzz_missing", "--project",
                                str(project)])
-    assert "1 of 1 files were not parsed (markdown)" in text.stdout
+    assert "1 of 1 files were not parsed (zig)" in text.stdout
+
+
+def test_a_prose_file_is_parsed_and_named_for_the_reader_it_lacks(
+        index_project):
+    """Markdown is read and chunked; what it lacks is a symbol reader."""
+    core, entry, project = index_project({"notes.md": MD}, name="docs")
+    assert _files(core, entry) == {"notes.md": ("markdown", "parsed")}
+
+    payload = _json(runner.invoke(
+        app, ["find-symbol", "zzz_missing", "--project", str(project),
+              "--json"]))
+    assert payload["coverage"]["files_parsed"] == 1
+    assert payload["empty_reason"] == "language-without-ast"
+    assert payload["coverage"]["answer_languages_without_ast"] == ["markdown"]
 
 
 def test_a_language_without_an_ast_reader_is_named(index_project):
@@ -281,7 +302,7 @@ def test_the_search_surface_words_its_own_cause(index_project):
 
 def test_the_search_surface_names_unparsed_files_without_speaking_of_a_name(
         index_project):
-    core, entry, project = index_project({"notes.md": MD}, name="docs")
+    core, entry, project = index_project({"notes.zig": ZIG}, name="docs")
     payload = _json(runner.invoke(
         app, ["semantic-search", "zzz_absent_query", "--project",
               str(project), "--json"]))
@@ -296,7 +317,7 @@ def test_the_search_surface_names_unparsed_files_without_speaking_of_a_name(
 # ---------------------------------------------------------------------------
 
 def test_coverage_rides_the_json_answer_and_is_scoped(index_project):
-    core, entry, project = index_project({"mod.py": PY, "notes.md": MD})
+    core, entry, project = index_project({"mod.py": PY, "notes.zig": ZIG})
     payload = _json(runner.invoke(
         app, ["find-symbol", "helper", "--project", str(project), "--json"]))
     coverage = payload["coverage"]
@@ -323,7 +344,7 @@ def test_a_prefix_narrows_the_answer_not_the_coverage_scope(index_project):
     more, so the scope does not narrow with the question and the counts stay
     comparable with `index-status`.
     """
-    core, entry, project = index_project({"src/mod.py": PY, "notes.md": MD})
+    core, entry, project = index_project({"src/mod.py": PY, "notes.zig": ZIG})
     overview = _json(runner.invoke(
         app, ["overview", "--path-prefix", "src", "--project", str(project),
               "--json"]))
@@ -347,7 +368,7 @@ def test_the_text_line_is_suppressed_on_a_clean_answer(index_project):
 
 
 def test_the_text_line_appears_only_when_coverage_is_incomplete(index_project):
-    core, entry, project = index_project({"mod.py": PY, "notes.md": MD})
+    core, entry, project = index_project({"mod.py": PY, "notes.zig": ZIG})
     result = runner.invoke(app, ["find-symbol", "helper", "--project",
                                  str(project)])
     assert result.exit_code == 0, result.output
@@ -801,7 +822,7 @@ def test_the_staleness_banner_is_derived_from_the_block_it_ships_with(
 def test_the_coverage_line_is_derived_from_the_block_it_ships_with(
         index_project):
     """The one text line and the coverage object are the same dict."""
-    core, entry, project = index_project({"mod.py": PY, "notes.md": MD})
+    core, entry, project = index_project({"mod.py": PY, "notes.zig": ZIG})
     payload = _json(runner.invoke(
         app, ["find-symbol", "helper", "--project", str(project), "--json"]))
     block = payload["coverage"]

@@ -164,11 +164,13 @@ def parse_file(path: str, text: str) -> tuple[list[Chunk], str]:
 
     The verdict is the parser's own result (ADR-0004 section 7), never the
     chunker's: ``parse_error`` when the tree carries an error or a missing
-    node, ``parsed`` otherwise, and ``parse_unavailable`` whenever this
-    function cannot stand behind an AST — no grammar pack, no grammar for the
-    extension, a parser exception, or an AST walk that produced no chunks.
-    Every one of those paths takes the regex fallback, and a file that went
-    through it reports ``parse_unavailable``: a failed claim, not a pass.
+    node, ``parsed`` otherwise, and ``parse_unavailable`` when no AST exists
+    at all — no grammar pack, no grammar for the extension, or a parser
+    exception. An AST that declares nothing is not one of those: an
+    import-only module parses cleanly and yields no chunk, so its text takes
+    one fallback chunk for search while the verdict stays ``parsed`` — the
+    parser read the file and said so. Only a file with no AST at all reports
+    ``parse_unavailable``: a failed claim, not a pass.
     """
     tree, verdict = parse_tree(path, text)
     if tree is None:
@@ -184,7 +186,12 @@ def parse_file(path: str, text: str) -> tuple[list[Chunk], str]:
     # Decode each slice from the bytes buffer instead.
     _walk(root, data, chunks)
     if not chunks:
-        return fallback_chunk(text), PARSE_UNAVAILABLE
+        # The parser read the file and its AST declares no unit -- an
+        # import-only module is the shape. The text still needs one chunk to
+        # be searchable, but the verdict describes the PARSE, not the chunk
+        # yield: blaming a missing reader for a file the parser read is the
+        # false fact this branch used to store.
+        return fallback_chunk(text), verdict
     for i, c in enumerate(chunks):
         c.chunk_index = i
         c.source = "ast"

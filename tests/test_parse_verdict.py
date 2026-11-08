@@ -4,7 +4,9 @@ The verdict is the parser's own result, never the chunker's: the chunker
 cannot fail, so a clean chunk list says nothing about whether the file parsed.
 These tests pin the three values and their source, including the two cases a
 chunker-derived verdict would get wrong: a file with a syntax error still
-chunks, and a file the regex fallback handled is NOT "parsed".
+chunks, and a file with no AST at all is NOT "parsed". A file whose AST simply
+declares nothing is the third case -- read successfully, so `parsed`, never
+blamed on a reader that exists.
 """
 
 from __future__ import annotations
@@ -34,7 +36,8 @@ BROKEN = "def good():\n    return 1\n\n\ndef broken(:\n    return 2\n"
 # No grammar for .zig in the language map: the regex fallback runs.
 NO_GRAMMAR = "fn main() void {\n    return;\n}\n"
 # A syntactically clean Python file with no declaration units: the AST walk
-# finds nothing, so the chunker falls back to the regex chunker.
+# finds nothing. The parser read it, so the verdict is `parsed`; the text takes
+# one fallback chunk so the file is still searchable.
 DECLARATION_FREE = "# a note, no declarations\n"
 
 
@@ -141,10 +144,28 @@ def test_a_language_without_a_grammar_is_parse_unavailable(verdict_rig):
     assert _verdicts(core, entry)["notes.zig"] == "parse_unavailable"
 
 
-def test_the_regex_fallback_is_never_parsed(verdict_rig):
-    """A clean file the AST walk produced no chunks for took the fallback."""
+def test_a_file_with_no_declarations_is_parsed_not_unavailable(verdict_rig):
+    """The parser read the file; an empty AST is not a missing reader.
+
+    An import-only module is the real shape: status ok, one chunk stored, no
+    symbol rows -- and `parsed`. Counting it as `parse_unavailable` made a
+    file the indexer read look like one it could not, withheld the absence
+    claim for every name in the project, and left `parse_error_files` empty
+    while the count asked which file it was.
+    """
     core, entry, project = verdict_rig
-    assert _verdicts(core, entry)["decls_free.py"] == "parse_unavailable"
+    chunks, verdict = ts_chunker.parse_file("decls_free.py", DECLARATION_FREE)
+    assert len(chunks) == 1, "the text still needs one searchable chunk"
+    assert verdict == "parsed"
+    assert _verdicts(core, entry)["decls_free.py"] == "parsed"
+    m = core.manifest_for(entry.slug)
+    try:
+        row = m._conn.execute(
+            "SELECT status, chunk_count FROM files WHERE path = ?",
+            ("decls_free.py",)).fetchone()
+        assert row == ("ok", 1), row
+    finally:
+        m.close()
 
 
 def test_every_indexed_file_carries_exactly_one_verdict(verdict_rig):
@@ -165,13 +186,13 @@ def test_index_status_counts_the_verdicts(verdict_rig):
     assert result.exit_code == 0, result.output
     payload = json.loads(result.stdout)
     assert payload["schema"] == 1
-    assert payload["parsed"] == 1
+    assert payload["parsed"] == 2
     assert payload["parse_error"] == 1
-    assert payload["parse_unavailable"] == 2
+    assert payload["parse_unavailable"] == 1
 
     text = runner.invoke(app, ["index-status", str(project)])
     assert text.exit_code == 0, text.output
-    assert "parse=parsed:1,parse_error:1,parse_unavailable:2" in text.stdout
+    assert "parse=parsed:2,parse_error:1,parse_unavailable:1" in text.stdout
 
 
 def test_the_counts_are_always_all_three_keys(verdict_rig):
@@ -182,6 +203,29 @@ def test_the_counts_are_always_all_three_keys(verdict_rig):
         counts = m.parse_verdict_counts()
     finally:
         m.close()
-    assert counts == {"parsed": 1, "parse_error": 1,
-                      "parse_unavailable": 2}
+    assert counts == {"parsed": 2, "parse_error": 1,
+                      "parse_unavailable": 1}
     assert list(counts) == ["parsed", "parse_error", "parse_unavailable"]
+
+
+def test_coverage_counts_a_read_file_as_parsed(verdict_rig):
+    """The coverage block counts readers, not declaration density.
+
+    Pinned here because the false fact lived on this surface: with an
+    import-only module in the tree, coverage said one of two files parsed and
+    `parse_error_files` was empty, so a reader could not learn which file it
+    was or why.
+    """
+    core, entry, project = verdict_rig
+    result = runner.invoke(app, ["find-symbol", "ghostname", "--project",
+                                 str(project), "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    cov = payload["coverage"]
+    assert cov["files_parsed"] == 2, cov
+    assert cov["files_not_parsed"] == 2, cov
+    assert cov["complete"] is False, cov
+    status = json.loads(runner.invoke(
+        app, ["index-status", str(project), "--json"]).stdout)
+    assert status["parse_error"] == 1
+    assert status["parse_error_files"] == ["broken.py"]

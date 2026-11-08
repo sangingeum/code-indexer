@@ -67,7 +67,8 @@ def _parse_dispatch(path: str, text: str) -> tuple[list[Chunk], str]:
     """Chunker seam + the file's parse verdict, from ONE parse.
 
     The verdict is the parser's own (``parsed``/``parse_error``) or
-    ``parse_unavailable`` when the regex fallback ran; it is never inferred
+    ``parse_unavailable`` when no AST exists at all -- no grammar pack, no
+    grammar for the extension, or a parser exception; it is never inferred
     from the chunks themselves (ADR-0004 section 7).
     """
     return ts_chunker.parse_file(path, text)
