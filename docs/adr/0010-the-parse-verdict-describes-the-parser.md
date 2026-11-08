@@ -27,7 +27,7 @@ The parse verdict reports what the parser did, and only the absence of an AST is
 
 ## Requirements this record resolves
 
-- The round-2 requirement that a read file with nothing to declare stops being reported as a file the tool could not read (`T-000187`), and the follow-up record that requirement falsified. The falsified sentences are named in the header; the rule they were attached to survives.
+- The requirement that a file the reader read, with nothing in it to declare, stops being reported as a file the tool could not read, and the follow-up record that requirement falsified. The falsified sentences are named in the header; the rule they were attached to survives.
 - The JSON contract for the counts: `docs/json-schema.md` states beside the `parse_*` counts that `parsed` also covers a file whose AST declares nothing, and that such a file carries one fallback chunk for lexical search.
 
 ## Alternatives considered, and why rejected
