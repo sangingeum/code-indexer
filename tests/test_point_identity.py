@@ -22,22 +22,32 @@ no embedding, and a second run changes nothing.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import pytest  # noqa: E402
+from typer.testing import CliRunner  # noqa: E402
 
+import code_indexer.cli as cli_mod  # noqa: E402
+from code_indexer.cli import app  # noqa: E402
 from code_indexer.config import Config  # noqa: E402
 from code_indexer.core import Core  # noqa: E402
 from code_indexer.embed_text import embed_text  # noqa: E402
+from code_indexer.embedder import Embedder  # noqa: E402
 from code_indexer.indexer import Indexer, _chunk_from_row  # noqa: E402
 from code_indexer.manifest import Manifest  # noqa: E402
 from code_indexer.registry import Registry  # noqa: E402
 from code_indexer.store import point_id  # noqa: E402
 
 PROJECT = "/projects/identity"
+# A port nothing listens on: an embedding service that is down, not slow.
+DEAD_EMBEDDING_HOST = "http://127.0.0.1:9"
+RUNNER = CliRunner()
 
 
 class _Embedder:
@@ -148,8 +158,14 @@ def _indexer(tmp_path) -> tuple[Indexer, _Embedder, _Store]:
 
 
 def _assert_rows_own_their_points(manifest: Manifest, store: _Store,
-                                project: str) -> None:
-    """Every row's point carries that row, and no other point stands in."""
+                                project: str, vector_of=None) -> None:
+    """Every row's point carries that row, and no other point stands in.
+
+    ``vector_of`` is the embedder's own vector for an embedding input; the
+    stub embedder's is the default, and a test that indexed through a real
+    (loopback) service passes that service's vector.
+    """
+    vector_of = vector_of or _Embedder.vector
     rows = manifest.all_chunks()
     assert rows, "the manifest must hold chunk rows for this property"
     per_file: dict[str, int] = {}
@@ -167,7 +183,7 @@ def _assert_rows_own_their_points(manifest: Manifest, store: _Store,
         assert payload["chunk_hash"] == row.chunk_hash
         assert payload["start_line"] == row.start_line
         assert payload["end_line"] == row.end_line
-        expected = _Embedder.vector(
+        expected = vector_of(
             embed_text(row.file, _chunk_from_row(row)))
         assert point["vector"] == expected, (
             f"{row.file} chunk {row.chunk_index} holds another chunk's vector")
@@ -294,5 +310,224 @@ def test_the_repair_refuses_a_row_whose_vector_is_gone(tmp_path):
         assert len(core.embedder.texts) == embedded_before
         assert point_id(str(tmp_path), victim.file,
                         victim.chunk_index) not in store.points
+    finally:
+        manifest.close()
+
+
+# ---------------------------------------------------------------------------
+# the repair needs no embedding service
+# ---------------------------------------------------------------------------
+
+class _EmbeddingLedger:
+    """A loopback embedding service that records every request it answers.
+
+    The repair carries vectors that are already stored, so it has no reason to
+    dial an embedder at all. This ledger makes \"dialled nothing\" observable:
+    every POST lands in ``requests``, the dimension probe included.
+    """
+
+    def __init__(self, dim: int = 8) -> None:
+        self.dim = dim
+        self.requests: list[dict] = []
+        ledger = self
+
+        class _Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:  # noqa: N802 - http.server's spelling
+                length = int(self.headers.get("Content-Length") or 0)
+                raw = self.rfile.read(length) if length else b"{}"
+                try:
+                    payload = json.loads(raw)
+                except ValueError:
+                    payload = {}
+                ledger.requests.append({"path": self.path,
+                                        "payload": payload})
+                texts = payload.get("input") or []
+                if isinstance(texts, str):
+                    texts = [texts]
+                body = json.dumps(
+                    {"embeddings": [[0.25] * ledger.dim for _ in texts]}
+                ).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args) -> None:
+                pass
+
+        self._server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+        self._thread = threading.Thread(target=self._server.serve_forever,
+                                        daemon=True)
+
+    def __enter__(self) -> _EmbeddingLedger:
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self._server.shutdown()
+        self._server.server_close()
+        self._thread.join(timeout=5)
+
+    @property
+    def url(self) -> str:
+        return f"http://127.0.0.1:{self._server.server_port}"
+
+    def reset(self) -> None:
+        self.requests.clear()
+
+
+def _service_core(tmp_path, host: str) -> tuple[Core, object]:
+    """A core whose embedder is the REAL one, pointed at ``host``."""
+    cfg = Config(ollama_url=host, qdrant_url="", embed_model="ledgermodel",
+                 index_root=str(tmp_path / "root"), embed_batch=48,
+                 upsert_batch=256, max_file_bytes=1048576, watch_debounce=3,
+                 watch_sweep_interval=300)
+    core = Core(cfg)
+    embedder = Embedder(host=host, model="ledgermodel")
+    store = _Store()
+    core.embedder = embedder  # type: ignore[assignment]
+    core.store = store  # type: ignore[assignment]
+    core.indexer.embedder = embedder  # type: ignore[assignment]
+    core.indexer.store = store  # type: ignore[assignment]
+    registry = Registry(os.path.join(cfg.index_root, "registry.db"))
+    return core, registry.add(str(tmp_path), name="ledgerproj")
+
+
+def test_the_repair_dials_no_embedding_service(tmp_path):
+    """A repair issues no request at all -- not even the dimension probe.
+
+    The dimension it needs is a fact the index already records, so a repair
+    that re-addresses stored vectors never asks the service for one. The
+    second half proves it the other way round: with the embedding host
+    pointed at a dead endpoint the SAME repair still succeeds and reports the
+    same counts.
+    """
+    src = tmp_path / "mod.py"
+    src.write_text(ORIGINAL)
+    with _EmbeddingLedger() as ledger:
+        core, entry = _service_core(tmp_path, ledger.url)
+        core.run_index(entry.slug, str(tmp_path), vectors="on")
+        assert ledger.requests, "the indexing pass must use the service"
+        store = core.store
+        manifest = core.manifest_for(entry.slug)
+        try:
+            # A fresh client is what a fresh CLI process has: no
+            # remembered dimension, so a repair that wanted a probe would
+            # have to ask for one now.
+            core.embedder = Embedder(  # type: ignore[assignment]
+                host=ledger.url, model="ledgermodel")
+            core.indexer.embedder = core.embedder  # type: ignore[assignment]
+            _permute(store, "mod.py")
+            ledger.reset()
+            repaired = core.repair_points(entry.slug, str(tmp_path))
+            assert ledger.requests == [], (
+                "the repair must not dial the embedding service: "
+                f"{ledger.requests}")
+            assert repaired["state"] == "idle", repaired
+            assert repaired["result"]["chunks_unrepairable"] == 0
+            counts = {k: v for k, v in repaired["result"].items()
+                      if k != "duration_s"}
+            _assert_rows_own_their_points(manifest, store, str(tmp_path),
+                                   vector_of=lambda _text: [0.25] * 8)
+
+            # Same work, embedding host dead: the repair still succeeds.
+            _permute(store, "mod.py")
+            core.embedder = Embedder(  # type: ignore[assignment]
+                host=DEAD_EMBEDDING_HOST, model="ledgermodel")
+            core.indexer.embedder = core.embedder  # type: ignore[assignment]
+            offline = core.repair_points(entry.slug, str(tmp_path))
+            assert offline["state"] == "idle", offline
+            assert offline["result"]["chunks_unrepairable"] == 0
+            assert {k: v for k, v in offline["result"].items()
+                    if k != "duration_s"} == counts
+            _assert_rows_own_their_points(manifest, store, str(tmp_path),
+                                   vector_of=lambda _text: [0.25] * 8)
+        finally:
+            manifest.close()
+
+
+# ---------------------------------------------------------------------------
+# a refusal keeps the class that names the caller's next move
+# ---------------------------------------------------------------------------
+
+def _cli_rig(tmp_path, monkeypatch, *, collection_present: bool = True):
+    """A core behind the CLI, with a real manifest and a stubbed collection."""
+    src = tmp_path / "mod.py"
+    src.write_text(ORIGINAL)
+    cfg = _cfg(tmp_path)
+    core = Core(cfg)
+    embedder = _Embedder()
+    store = _Store()
+    if not collection_present:
+        store.collection_exists = lambda name: False  # type: ignore[method-assign]
+    core.embedder = embedder  # type: ignore[assignment]
+    core.store = store  # type: ignore[assignment]
+    core.indexer.embedder = embedder  # type: ignore[assignment]
+    core.indexer.store = store  # type: ignore[assignment]
+    registry = Registry(os.path.join(cfg.index_root, "registry.db"))
+    entry = registry.add(str(tmp_path), name="refusalproj")
+    core.run_index(entry.slug, str(tmp_path), vectors="on")
+    monkeypatch.setattr(cli_mod, "_get_core", lambda skip: core)
+    return core, entry, registry
+
+
+def test_rows_not_current_is_a_rebuild_refusal_exit_four(tmp_path, monkeypatch):
+    """The rebuild the repair demands is exit 4, not a generic failure (1)."""
+    core, entry, registry = _cli_rig(tmp_path, monkeypatch)
+    manifest = core.manifest_for(entry.slug)
+    try:
+        manifest.set_meta("extraction_version", "0")
+    finally:
+        manifest.close()
+    result = RUNNER.invoke(app, ["reindex-project", str(tmp_path),
+                                 "--repair-points"])
+    registry.close()
+    assert result.exit_code == 4, (result.exit_code, result.output)
+    assert result.stdout == "", result.stdout
+    assert result.stderr.count("RebuildRequiredError:") == 1, result.stderr
+    assert "not current" in result.stderr, result.stderr
+
+
+def test_a_missing_collection_is_a_rebuild_refusal_exit_four(tmp_path,
+                                                             monkeypatch):
+    """A collection that is gone is a rebuild too: exit 4, one stderr line."""
+    core, entry, registry = _cli_rig(tmp_path, monkeypatch,
+                                     collection_present=False)
+    result = RUNNER.invoke(app, ["reindex-project", str(tmp_path),
+                                 "--repair-points"])
+    registry.close()
+    assert result.exit_code == 4, (result.exit_code, result.output)
+    assert result.stdout == "", result.stdout
+    assert result.stderr.count("RebuildRequiredError:") == 1, result.stderr
+    assert "collection is gone" in result.stderr, result.stderr
+
+
+# ---------------------------------------------------------------------------
+# a repair that writes no point is not a change
+# ---------------------------------------------------------------------------
+
+def test_a_repair_that_writes_no_point_does_not_advance_the_revision(tmp_path):
+    """Nothing written means nothing recorded: no revision, no as-of stamp.
+
+    A revision that moves on every pass makes a command that changed nothing
+    look like a change to every later audit, so a no-op repair writes no
+    manifest at all.
+    """
+    src = tmp_path / "mod.py"
+    src.write_text(ORIGINAL)
+    core, entry = _core(tmp_path)
+    store = core.store
+    manifest = core.manifest_for(entry.slug)
+    try:
+        before = manifest.get_meta("index_revision")
+        stamped = manifest.get_meta("last_indexed")
+        store.writes = 0
+        result = core.repair_points(entry.slug, str(tmp_path))
+        assert result["state"] == "idle", result
+        assert store.writes == 0, "this repair has nothing to write"
+        assert manifest.get_meta("index_revision") == before, (
+            "a no-op repair advanced index_revision")
+        assert manifest.get_meta("last_indexed") == stamped
     finally:
         manifest.close()

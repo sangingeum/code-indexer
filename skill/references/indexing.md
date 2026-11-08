@@ -210,10 +210,9 @@ parse-verdict counts (`parse=parsed:N,parse_error:N,parse_unavailable:N`),
 and, when chunk errors are recorded, `error_count=N` (the total) beside `last_errors=` (at most three examples; neither field with no errors).
 
 Both verdict pairs are flags a caller branches on, and the text form adds one
-stderr line saying what the pair MEANS. It is handed the same verdict object
-the `vectors=`/`vectors_state=` fields come from -- mode, marker and
-identity -- so the two cannot disagree; the ids below are `MEANING_BRANCHES`
-and json-schema.md carries each row's field values.
+stderr line saying what the pair MEANS, from the same verdict object the
+`vectors=`/`vectors_state=` fields come from; the ids below are
+`MEANING_BRANCHES` and json-schema.md carries each row's field values.
 
 - `row-keys-differ` (`fingerprint=needs-reindex`): the named row keys differ,
   so the row reads refuse until a rebuild; a stale vector side is named too,
@@ -236,43 +235,36 @@ and json-schema.md carries each row's field values.
   and the sentence says so -- silence would read as a pass.
 
 `vectors_state` is the RECORDED marker; `stale` is written by no pass in this
-build, and with vectors off the marker is printed as-is -- "not `stale`" never
-means every key matched.
+build, and with vectors off it prints as-is -- "not `stale`" is not "matched".
 
-JSON carries the same sentence as `fingerprint_meaning`; the field names are
-unchanged and the one-line answer keeps its shape because the sentence rides
-stderr.
+JSON carries the same sentence as `fingerprint_meaning`; the field names and
+the one-line shape are unchanged because the sentence rides stderr.
 
 Every read answer's JSON, `index-status` included, carries the `coverage`
 block: files in scope, parsed and unparsed counts, withheld files, languages
 with no AST reader, freshness -- fields in [machine-output.md](machine-output.md).
 
-`index-status` takes `--format text|json` (`--json` is the exact alias) and
-`--format compact`, which is the SAME one line the text form prints: this
-answer is already one line of `key=value` fields. `doctor` and `list-projects`
-take the same two formats and refuse `compact` with exit 2, like every other
-read without a one-line-per-record form (see
-[machine-output.md](machine-output.md)).
+`index-status` takes `--format text|json` (`--json` is the alias) and
+`--format compact`, the SAME line the text form prints -- it is already
+`key=value`. `doctor` and `list-projects` refuse `compact` with exit 2 like
+every other read without a one-line-per-record form ([machine-output.md](machine-output.md)).
 
 It also names what the sensitive layer withheld: a suffixed
-`1 file skipped (sensitive content)` (or `sensitive filename`), followed by
-the `--allow-sensitive` hint, and in `--json` the `withheld_count` /
-`withheld_files` / `withheld_summary` / `withheld_unexamined_count` fields.
-Those files have no rows and are not stale reasons -- see the note under
-"Indexing scope and environment" below. The count on the line is this tree's;
-the last pass's own number rides only in the JSON field `sensitive_skipped`.
+`1 file skipped (sensitive content)` (or `sensitive filename`), followed by the
+`--allow-sensitive` hint, and in `--json` the `withheld_count` / `withheld_files`
+/ `withheld_summary` / `withheld_unexamined_count` fields. Those files have no
+rows and are not stale reasons (see "Indexing scope and environment"); the count
+on the line is this tree's, the last pass's own only in `sensitive_skipped`.
 
-**Consumer rule:** `stale: false` with a non-zero withheld count is not
-"nothing was withheld". A consumer that branches on `stale` alone learns
-nothing about withheld files: they are not stale, and they are not in the
-index. Branch on the withheld count.
+**Consumer rule:** `stale: false` beside a non-zero withheld count is not
+"nothing was withheld": those files are neither stale nor indexed, so branch
+on the withheld count.
 
-`list-projects` gives the same summary for every registered project.
+`list-projects` gives the same summary for every registered project;
 `lookup-project` answers only whether a path, slug or name is registered, and
-indexes nothing. `doctor` runs the installation health checks (runtime
-versions, Ollama, Qdrant, `INDEX_ROOT` writability and disk, SQLite
-integrity, the watcher pidfile and locks, per-project fingerprint status) and
-exits 1 when any check fails.
+indexes nothing. `doctor` runs the installation health checks (versions,
+Ollama, Qdrant, `INDEX_ROOT` and disk, SQLite integrity, the watcher pidfile
+and locks, per-project fingerprint status) and exits 1 when one fails.
 
 ## Project selection
 
@@ -299,20 +291,29 @@ exits 1 when any check fails.
 
 `auto` never silently enables embedding on a fresh install, and an existing
 vectors-on project stays on across the upgrade. `watch` follows the recorded
-mode and never turns vectors on by itself. Turning vectors on for a current
+mode and never turns vectors on itself. Turning vectors on for a current
 project reparses nothing and reads no source file: it embeds the stored chunk
 text. A changed embedding identity is a NEW physical collection
-(`idx_<slug>__<identity digest>`), and every vector-writing pass binds the
-stable `idx_<slug>` alias to it; writes name the physical collection, reads
-resolve the alias.
+(`idx_<slug>__<identity digest>`) that every vector-writing pass binds the
+`idx_<slug>` alias to; writes name it, reads resolve the alias.
 
 **Point identity.** A point id is positional (`uuid5(project|file|chunk_index)`),
 so every pass re-addresses by content: a chunk whose text and symbol the file's
 points already carry keeps its vector but is written at the id its CURRENT
 `chunk_index` names, with the current payload; a chunk found nowhere is
 embedded; points past the new count are purged. `reindex-project
---repair-points` runs that over every stored row, embeds nothing, is idempotent,
-and counts and refuses (exit 4) the rows whose vector is nowhere.
+--repair-points` runs that over every stored row, is idempotent, and refuses
+(exit 4) rows whose vector is nowhere.
+
+**A repair embeds no chunk and needs no embedding service.** What it needs is
+the dimension, and the index already records it: `meta.embed_dim` from the
+last vector-writing pass, else the length of a vector the collection holds.
+So a repair issues no embedder request at all -- not even the dimension probe
+-- and succeeds with the service down, reporting the same counts; with
+neither recorded it refuses (exit 4) naming `reindex-project` instead of
+asking the service to guess. A repair that writes no point writes no
+manifest, so `index_revision` and `last_indexed` stay put; a row left
+unrepairable is not a no-op -- the vector state is recorded, then exit 4.
 
 The three version axes:
 
@@ -323,9 +324,8 @@ The three version axes:
 | `index_schema_version` | `meta` | the manifest migrates on the next WRITE open; the collection is untouched |
 
 **A read never migrates the manifest.** Reads open it read-only -- no
-journal-mode write, no DDL -- so a read cannot destroy anything. An older
-manifest is reported as `schema=<n>` and its row surfaces refuse with exit 4
-until a pass runs.
+journal-mode write, no DDL. An older manifest is reported as `schema=<n>` and
+its row surfaces refuse with exit 4 until a pass runs.
 
 ## Configuration
 

@@ -74,7 +74,7 @@ semantic answer.
 
 | `ErrorType` | Cause | Remedy |
 |---|---|---|
-| `RebuildRequiredError` | the index was built by different extraction code, a different embed model or dimension, or a different embed-text format, or its manifest is at an older schema | `code-indexer reindex-project <path>`; report to the owner rather than running it unasked |
+| `RebuildRequiredError` | the index was built by different extraction code, a different embed model or dimension, or a different embed-text format, or its manifest is at an older schema; or `reindex-project --repair-points` was asked to re-address rows that are not current, a collection that is gone, or an index that records no embedding dimension and holds no vector to read one from | `code-indexer reindex-project <path>`; report to the owner rather than running it unasked |
 | `ConfigError` | `semantic-search` on a `vectors=off` project | `reindex-project <path> --vectors on`, or `--mode lexical` if text is enough |
 
 Every surface that answers from stored rows refuses this way -- `find-symbol`,

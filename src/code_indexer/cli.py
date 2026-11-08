@@ -1896,8 +1896,10 @@ def reindex_project(
     repair_points: bool = typer.Option(
         False, "--repair-points",
         help="Re-address the stored vectors at the point ids the rows name, "
-             "without embedding anything. A row whose vector cannot be found "
-             "is left untouched and counted; the command then exits 4."),
+             "without embedding any chunk and without an embedding service: "
+             "the dimension comes from what the index already records. A row "
+             "whose vector cannot be found is left untouched and counted; "
+             "the command then exits 4."),
     skip_stale_check: bool = SkipOpt,
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
 ) -> None:
@@ -1910,8 +1912,12 @@ def reindex_project(
 
     ``--repair-points`` is the collection repair, not a rebuild: every stored
     row's vector is found by content and written at the point id the row's
-    current chunk_index names, and nothing is embedded. It is idempotent and
-    refuses (exit 4) the rows whose vector is found nowhere.
+    current chunk_index names, and no chunk is embedded -- the embedding
+    service is never dialled, because the dimension comes from what the index
+    already records. It is idempotent, writes no manifest revision when it
+    writes no point, and refuses (exit 4) the rows whose vector is found
+    nowhere, as it does when the rows are no longer current or the collection
+    is gone.
     """
     _check_vectors_flag(vectors)
     core = _get_core(skip_stale_check)
@@ -1924,7 +1930,12 @@ def reindex_project(
                 f"stored vectors and embeds nothing (got --vectors {vectors})"),
                 json_output)
         _require_semantic()
-        result = core.repair_points(entry.slug, entry.path)
+        try:
+            result = core.repair_points(entry.slug, entry.path)
+        except IndexerError as exc:
+            # A refusal keeps its own class, so its exit code is the
+            # documented one (a rebuild refusal is 4, not a generic 1).
+            _pass_fail(exc, json_output)
         index = _index_payload(entry.slug, result)
         if index["state"] == "error":
             _pass_fail(InternalError(

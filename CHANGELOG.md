@@ -2,6 +2,34 @@
 
 ## [Unreleased] — the graph says what it can see
 
+**A point repair needs no embedding service.** `reindex-project --repair-points`
+re-addresses vectors that are already in the collection, so it has no reason to
+ask the embedder anything -- yet it dialled the dimension probe, one request
+with nothing to embed, and failed outright with the service down. The
+dimension now comes from what the index already records: `meta.embed_dim` from
+the last vector-writing pass, or, for a manifest that recorded none, the length
+of a vector the collection already holds. A repair issues no request at all
+and reports the same counts with the embedding host pointed at a dead endpoint.
+When neither recorded source exists it refuses with exit 4 naming
+`reindex-project`, rather than dialling the service to guess a dimension the
+index never recorded.
+
+**A rebuild refusal from the repair exits 4, not 1.** The two refusals
+`--repair-points` can make -- the stored rows are not current, the vector
+collection is gone -- were raised from inside the pass and folded into the
+generic error state, so the CLI re-wrapped them as `InternalError` and exited
+1 while the documented code for "the index must be rebuilt" is 4 (ADR-0003
+section 5). `RebuildRequiredError` now keeps its class and reaches the caller
+unchanged; both refusals exit 4 with empty stdout and one stderr line.
+
+**A repair that writes no point advances no revision.** `index_revision` moves
+once per committed pass, and the repair bumped it even when it found every
+point already agreeing with its row -- so a command that changed nothing
+looked like a change to every later audit. A repair that writes no point now
+writes no manifest at all (no revision, no `last_indexed`). A row left
+unrepairable is not that case: the vector state is recorded and the command
+refuses with exit 4.
+
 **A type reached through its member is a reference.** `NeedBand.Critical`
 recorded only the member row, with `NeedBand` as its receiver, and never a row
 targeting `NeedBand` — so `find-references NeedBand` reported a type that 27

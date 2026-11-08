@@ -198,7 +198,7 @@ class Indexer:
         #  'docs_per_s', 'eta_s'} for index-status live progress.
         self.progress_cb = progress_cb
 
-    def physical_collection(self, slug: str) -> str:
+    def physical_collection(self, slug: str, dim: int | None = None) -> str:
         """The collection a vector-writing pass fills for ``slug``.
 
         ONE place decides the physical name: it comes from
@@ -206,10 +206,16 @@ class Indexer:
         embedding identity, so a pass can never append vectors of one model
         to a collection built by another (ADR-0001 section 2). The caller
         swaps the result in under the slug's alias once the pass succeeds.
+
+        ``dim`` is the dimension to name the collection with. A caller that
+        already knows the stored vectors' dimension (the repair reads it from
+        the manifest) passes it, so naming a collection never dials the
+        service for a probe.
         """
         from . import vectors as vectors_mod
+        dimension = self.embedder.dimension() if dim is None else dim
         identity = vectors_mod.embedding_identity(
-            self.cfg.embed_model, self.embedder.dimension())
+            self.cfg.embed_model, dimension)
         return vectors_mod.collection_for(slug, identity)
 
     def _embed_with_errors_compat(
@@ -259,17 +265,22 @@ class Indexer:
         return len(points)
 
     def _purge_beyond(self, collection: str, project_path: str, path: str,
-                      row_count: int, stored: list[dict[str, Any]]) -> None:
+                       row_count: int, stored: list[dict[str, Any]]) -> bool:
         """Drop points past the file's current chunk count.
 
         A file that shrank leaves its old tail at indices no row owns. The
         row count is the authority, not the previous manifest count, so a
         collection that already disagrees with the rows is cleaned too.
+
+        Returns whether a purge was issued, so a caller can tell a pass that
+        changed the collection from one that found it already correct.
         """
         if any(int((p.get("payload") or {}).get("chunk_index", -1)) >= row_count
                for p in stored):
             self.store.purge_file_points(
                 collection, project_path, path, min_chunk_index=row_count)
+            return True
+        return False
 
     def index_project(self, project_path: str, slug: str, manifest: Manifest,
                       force_full: bool = False,
@@ -881,7 +892,8 @@ class Indexer:
 
     def embed_index(self, project_path: str, slug: str, manifest: Manifest,
                     collection: str | None = None,
-                    repair: bool = False) -> IndexResult:
+                    repair: bool = False,
+                    dim: int | None = None) -> IndexResult:
         """Embed the stored chunk rows; read no source file, reparse nothing.
 
         This is the vectors-on pass of ADR-0001 section 3: every input comes
@@ -903,13 +915,18 @@ class Indexer:
         ``collection`` names a NEW physical collection when the embedding
         identity changed; the caller swaps the alias afterwards and drops the
         old collection.
+
+        ``dim`` is the dimension to record and to name a collection with. The
+        repair passes the dimension the index already records, so a repair
+        never dials the service for a probe (it embeds nothing and needs no
+        embedding service at all).
         """
         if self.embedder is None or self.store is None:
             raise ValueError("embedding from the manifest needs the semantic "
                              "clients")
         t0 = time.time()
-        collection = collection or self.physical_collection(slug)
-        dim = self.embedder.dimension()
+        collection = collection or self.physical_collection(slug, dim)
+        dim = self.embedder.dimension() if dim is None else dim
         if not self.store.collection_exists(collection):
             self.store.create_collection(collection, dim)
 
@@ -955,9 +972,11 @@ class Indexer:
             self._write_points(collection, carried)
         # AFTER the carry: a point past the row count may be a row's only copy
         # of its vector, and the read above already holds what it needs.
+        purged = 0
         for file, rows in rows_by_file.items():
-            self._purge_beyond(collection, project_path, file, len(rows),
-                               stored_by_file[file])
+            if self._purge_beyond(collection, project_path, file, len(rows),
+                                  stored_by_file[file]):
+                purged += 1
 
         embedded = 0
         skipped = 0
@@ -993,15 +1012,25 @@ class Indexer:
         # Record the construction that produced these vectors, on the vector
         # side only: the rows were not touched and their axes are already
         # recorded (ADR-0001 section 2).
-        from .fingerprint import write_embedding_side
-        write_embedding_side(manifest, self.cfg.embed_model, dim)
-        manifest.set_meta("embed_format", EMBED_FORMAT)
-        manifest.set_meta("last_indexed", str(time.time()))
-        manifest.set_meta("index_revision", _next_revision(manifest))
-        manifest.set_meta("vectors", vectors_mod.MODE_ON)
-        manifest.set_meta("vectors_state",
-                          vectors_mod.STATE_ERROR if (skipped or unrepairable)
-                          else vectors_mod.STATE_CURRENT)
+        #
+        # A REPAIR that wrote no point is not a pass that changed anything:
+        # writing the manifest would advance ``index_revision`` (one per
+        # committed pass) and stamp a new ``last_indexed``, so a command that
+        # changed nothing would read as a change to every later audit. Only a
+        # pure no-op repair skips the write -- a row left unrepairable is a
+        # fact the vector state must still record.
+        no_op = repair and not carried and not embedded and not purged \
+            and not unrepairable
+        if not no_op:
+            from .fingerprint import write_embedding_side
+            write_embedding_side(manifest, self.cfg.embed_model, dim)
+            manifest.set_meta("embed_format", EMBED_FORMAT)
+            manifest.set_meta("last_indexed", str(time.time()))
+            manifest.set_meta("index_revision", _next_revision(manifest))
+            manifest.set_meta("vectors", vectors_mod.MODE_ON)
+            manifest.set_meta("vectors_state",
+                              vectors_mod.STATE_ERROR if (skipped or unrepairable)
+                              else vectors_mod.STATE_CURRENT)
         return IndexResult(
             files_indexed=0, chunks_embedded=embedded, chunks_reused=reused,
             files_deleted=0, duration_s=round(time.time() - t0, 2),

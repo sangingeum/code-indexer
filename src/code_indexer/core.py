@@ -980,6 +980,46 @@ class Core:
             finally:
                 manifest.close()
 
+    def recorded_embedding_dimension(self, manifest: Manifest, slug: str,
+                                     project_path: str) -> int:
+        """The dimension the stored vectors already have, read never probed.
+
+        A repair re-addresses vectors that are already in the collection, so
+        it needs the dimension only to NAME that collection and to record the
+        identity it belongs to -- it never embeds, and it must work with the
+        embedding service down. Two recorded sources answer, in order:
+
+        * ``meta.embed_dim``, written by every vector-writing pass;
+        * the length of a vector the collection already holds, sampled from
+          the collection the project's alias resolves to, for a manifest that
+          recorded no dimension.
+
+        When neither exists there is nothing to fake from: this raises
+        ``RebuildRequiredError`` (exit 4) naming the remedy rather than
+        dialling the service to guess a dimension the index never recorded.
+        """
+        raw = manifest.get_meta("embed_dim")
+        try:
+            recorded = int(raw) if raw not in (None, "") else 0
+        except (TypeError, ValueError):
+            recorded = 0
+        if recorded > 0:
+            return recorded
+        physical = getattr(self.store, "physical_name", lambda _n: None)(
+            vectors_policy.alias_for(slug))
+        if physical is not None:
+            for file in sorted(manifest.all_files()):
+                for point in self.store.points_for_file(
+                        physical, project_path, file):
+                    vector = point.get("vector")
+                    if vector:
+                        return len(vector)
+        raise RebuildRequiredError(
+            f"error: {slug}: the index records no embedding dimension and the "
+            f"collection holds no vector to read one from, so no stored "
+            f"vector can be re-addressed; run: code-indexer reindex-project "
+            f"{project_path}")
+
     def repair_points(self, slug: str, project_path: str) -> dict[str, Any]:
         """Re-address every stored row's vector at its current point id.
 
@@ -993,7 +1033,18 @@ class Core:
         invent a vector it does not have, and the caller names the count.
 
         Idempotent: a second run finds every point already agreeing with its
-        row and writes nothing. Returns the same shape as ``run_index``.
+        row and writes nothing -- and, writing nothing, does not advance
+        ``index_revision`` or ``last_indexed`` either, so a repair that
+        changed nothing does not read as a change to a later audit. Returns
+        the same shape as ``run_index``.
+
+        No embedding service is needed: the dimension comes from what the
+        index already records (see ``recorded_embedding_dimension``), so the
+        repair runs with the service down.
+
+        A refusal that the index must be rebuilt raises
+        ``RebuildRequiredError`` (exit 4) rather than being folded into the
+        generic error state, which would surface as ``InternalError``.
         """
         with project_lock(self._lock_path(slug)) as acquired:
             if not acquired:
@@ -1007,7 +1058,11 @@ class Core:
                         f"there is no stable numbering to re-address; run: "
                         f"code-indexer reindex-project {project_path}")
                 indexer = self._build_indexer(vectors=True)
-                collection = self._vector_target(slug, indexer)
+                # The dimension the stored vectors have, never a probe: the
+                # repair carries vectors that are already in the collection.
+                dim = self.recorded_embedding_dimension(
+                    manifest, slug, project_path)
+                collection = indexer.physical_collection(slug, dim)
                 if not self.store.collection_exists(collection):
                     raise RebuildRequiredError(
                         f"error: {slug}: the vector collection is gone, so no "
@@ -1015,9 +1070,15 @@ class Core:
                         f"code-indexer reindex-project {project_path}")
                 result = indexer.embed_index(
                     project_path, slug, manifest, collection=collection,
-                    repair=True)
+                    repair=True, dim=dim)
                 self._set_state(slug, state="idle", last_result=vars(result))
                 return {"state": "idle", "result": vars(result)}
+            except RebuildRequiredError as exc:
+                # Exit 4 is the caller's next move (rebuild), not a generic
+                # runtime failure: record the state, then let the taxonomy
+                # class reach the caller unchanged.
+                self._set_state(slug, state="error", error=str(exc))
+                raise
             except Exception as exc:  # noqa: BLE001
                 logger.exception("point repair failed for %s", project_path)
                 self._set_state(slug, state="error", error=str(exc))
