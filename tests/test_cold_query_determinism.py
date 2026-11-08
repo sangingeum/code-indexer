@@ -3,14 +3,19 @@
 What a cache cannot cover is a state, not a text: a read whose dimension
 probe fails used to return the raw vector and store nothing, so the next read
 re-embedded the same text and searched whatever the service answered then --
-and the service does not answer the same vector twice. Measured on this
-machine: the first call for a text after a model reload and an immediately
-repeated call differ by a per-component delta that depends on the text form
-(the instructed form the query path sends moved by 6.237e-3, the bare text by
-3.317e-3), and across the texts measured the figure runs from 1.575e-3 to
-8.438e-3 -- the size is not a constant, so the range is the honest form:
-1.5e-3 to 8.5e-3, on the texts measured. At a deep limit that is 2 members in
-and 2 out of a 400-hit answer.
+and the service's vector depends on the request sequence, not on the text
+alone. Measured on this machine: an immediately repeated call for the same
+text returns a different vector (14 of 14 cold trials on the instructed text
+the query path sends, 13 of 14 on the bare text), and the size of that
+difference depends on the text and the form -- the largest per-component
+change was 6.780e-3 on the instructed form and 1.900e-3 on the bare form of
+the measured query text, and across fourteen sample texts it ran from 0.0 (a
+one-character bare text) to 9.717e-3 (the same character, instructed). These
+are samples, not bounds. Whether a text's first form comes back after a
+different request is form-dependent too: the bare text returned its first
+form in 18 of 18 measured calls, the instructed text in 0 of 18 -- after its
+load-first call it settles into a second pair of forms. With the cache
+disabled, a deep read is 2 members in and 2 out of a 400-hit answer.
 
 The fix is at the tool's end and it is not a warm-up: the warm-up was
 measured and does not settle it (a probe call before the query does not

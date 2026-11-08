@@ -166,18 +166,22 @@ bytes, so every later read of that text searches identical bytes. That row is
 written even when the dimension probe fails (the dimension is taken from the
 vector received), so a failed probe is not a hole in the guarantee.
 
-The limit, measured rather than assumed: the service's vector for one text is
-not a function of the text and the model. After a reload the first call for a
-text differs from an immediately repeated call, and the size of that delta
-depends on the text form the read path sends: on the measured query text the
-instructed form (the one `semantic-search` embeds) moved by 6.237e-3 per
-component and the bare text by 3.317e-3. Across the texts measured on this
-service the figure runs from 1.575e-3 to 8.438e-3, so no single figure is a
-constant of the tool; this page quotes the range 1.5e-3 to 8.5e-3, on the
-texts measured. Whether a text's earlier form comes back after another
-request is not dependable either: the bare text returned its first form 10
-times out of 10, while the instructed form returned it 0 times out of 6 in
-one measurement and 10 times out of 10 in a later one. The turn therefore
+The rule, measured rather than assumed: the vector depends on the request
+sequence, not on the text alone. An immediately repeated call for the same
+text returns a different vector (measured 14 of 14 cold trials on the
+instructed text the query path sends, 13 of 14 on the bare text), and the
+size of that difference depends on the text and the form: 1.900e-3 on the
+bare form of the measured query text and 6.780e-3 on the instructed form the
+query path sends, as the largest per-component change; across fourteen sample
+texts it ran from 0.0 (a one-character bare text) to 9.717e-3 (the same
+character, instructed). These are samples, not bounds.
+
+Whether a text's FIRST form comes back after a DIFFERENT request is also
+form-dependent: the bare text returned its first form in every measured case
+(18 of 18 such calls, one of them a seven-call `A A B A A B A` sequence that
+reproduces the same two forms), while the instructed text did not return its
+first form at all (0 of 18): after its load-first call it settles into a
+second pair of forms that a different request returns. The turn therefore
 belongs to the request sequence, not to the load state: no warm-up settles
 it, and a probe call immediately before the query does not change which form
 the query receives. What that leaves,
@@ -185,8 +189,8 @@ stated as the limit: a text keeps the form of its FIRST embedding until that
 cache row is evicted or the model, embed format or dimension changes;
 `EMBED_CACHE=0` leaves nowhere to store the bytes, so two reads can search two
 different vectors and at a deep `--limit` report a different member set
-(measured: 2 in and 2 out of 400 hits); and two machines with different caches
-can hold different forms of the same text. Two reads taken across a reindex
+(measured with the cache disabled: 2 in and 2 out of 400 hits); and two
+machines with different caches can hold different forms of the same text. Two reads taken across a reindex
 are two indexes, not one. The same-file merge is the line-ordered union of the
 chunk ranges, so which ranges an answer reports is a function of the chunks the
 store returned and not of their scores.

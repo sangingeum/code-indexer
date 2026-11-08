@@ -8,10 +8,11 @@ something other than the index:
    the merge below it walked a same-file group in SCORE order, so which
    ranges collapsed into one union depended on that arrival order;
 2. the query embedding was recomputed whenever the dimension was unknown,
-   and the service's cold-loaded run returns a materially different vector
-   than its warm one (measured: 1.5e-3 to 8.5e-3 per component on the texts
-   measured), so the first call after idle searched a different vector than
-   the second.
+   and the service answers the same text differently on an immediately
+   repeated call (measured: a per-component change of 1.900e-3 on the bare
+   form and 6.780e-3 on the instructed form of the measured query text;
+   sample figures, not bounds), so the second read searched a different
+   vector than the first.
 
 The tests here pin the shape the user sees: the second invocation equals the
 first, and the member set does not move.
@@ -91,9 +92,11 @@ def test_deep_limit_order_does_not_depend_on_arrival_order():
 def test_membership_survives_a_tiny_score_perturbation():
     """The member set is a function of the hits, not of their scores.
 
-    A vector search's scores move by 1.5e-3 to 8.5e-3 per component between
-    a cold and a warm model load (on the texts measured). That must not
-    change WHICH ranges the answer reports: only where they sit in the order.
+    The QUERY VECTOR moves per component from one read to the next (measured
+    1.900e-3 on the bare form and 6.780e-3 on the instructed form of the
+    measured query text; samples, not bounds), and the scores shift as a
+    consequence. That must not change WHICH ranges the answer reports: only
+    where they sit in the order.
     """
     pool = _deep_pool()
     jittered = []

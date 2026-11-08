@@ -116,17 +116,21 @@ as a fact about the code, so the tool refuses instead.
 
 ## Two reads of one query that disagree
 
-No error type: both reads succeed, and their answers differ. The query
-embedding service is not a function of (text, model) -- a reloaded model
-returns one vector for a text's first call and another for an immediately
-repeated call, and the delta depends on the text form: on the measured query
-text the instructed form the query path sends moved by 6.237e-3 per component
-and the bare text by 3.317e-3, and across the texts measured on this service
-the figure runs from 1.575e-3 to 8.438e-3. This page therefore quotes the
-range 1.5e-3 to 8.5e-3, on the texts measured, not one figure. Whether an
-earlier form comes back after another request is not dependable: the bare
-text returned its first form 10 of 10, the instructed form 0 of 6 in one
-measurement and 10 of 10 in another. A read
+No error type: both reads succeed, and their answers differ. The vector
+depends on the request sequence, not on the text alone. An immediately
+repeated call for the same text returns a different vector (measured 14 of 14
+cold trials on the instructed text the query path sends, 13 of 14 on the bare
+text), and the size of that difference depends on the text and the form:
+1.900e-3 on the bare form of the measured query text and 6.780e-3 on the
+instructed form, as the largest per-component change; across fourteen sample
+texts it ran from 0.0 (a one-character bare text) to 9.717e-3 (the same
+character, instructed). These are samples, not bounds.
+
+Whether a text's earlier form comes back after a different request is also
+form-dependent: the bare text returned its first form in every measured case
+(18 of 18 such calls), while the instructed text did not (0 of 18) -- after
+its load-first call it settles into a second pair of forms that a different
+request returns. A read
 fixes the bytes instead of the service: the first read stores the query vector
 in the embedding cache (float16 form, written on a miss and on a failed
 dimension probe alike) and every later read searches those bytes, so a second
@@ -135,9 +139,9 @@ read of the same text is identical while the row survives.
 The residual is stated, not hidden: a text keeps the form of its FIRST
 embedding until the row is evicted or the model, embed format or dimension
 changes; with `EMBED_CACHE=0` there is nowhere to store the bytes, so at a deep
-`--limit` a second read can report a different member set (measured: 2 in and
-2 out of 400 hits); and two machines with separate caches can hold different
-forms of the same text. Remedy: leave the cache on (`EMBED_CACHE` unset), and
+`--limit` a second read can report a different member set (measured with the
+cache disabled: 2 in and 2 out of 400 hits); and two machines with separate
+caches can hold different forms of the same text. Remedy: leave the cache on (`EMBED_CACHE` unset), and
 treat a cache-disabled deep answer as one sample, not as a fixed list.
 
 ## Diagnosing in order
