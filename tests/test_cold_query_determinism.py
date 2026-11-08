@@ -143,8 +143,9 @@ def test_a_cache_disabled_read_is_not_deterministic(tmp_path, monkeypatch):
 
     This is what the reference documents promise, and all they promise. It is
     not a defect to fix here: with the cache off the tool has nowhere to keep
-    the bytes, and a warm-up does not help (the service answers the odd form
-    again after any other request).
+    the bytes, and a warm-up does not help: the differing call is whichever
+    one is first after a load, and a fresh CLI process makes its query that
+    call.
     """
     embedder = _embedder(monkeypatch, None)
     embedder._dim = len(COLD)  # the dimension is known; there is no cache
