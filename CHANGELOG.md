@@ -108,10 +108,12 @@ recorded only the member row, with `NeedBand` as its receiver, and never a row
 targeting `NeedBand` — so `find-references NeedBand` reported a type that 27
 lines of the tree name as invisible. The extractor now writes the receiver as
 a `type_use` row; the index pass's resolver turns it into a `type`
-reference when the name binds a definition (the file's own first, then the
-store's unique definition, then its file-class choice — the precedence
-introduced for reference targets) and deletes it when the name binds nothing.
-a C# local-binding walk keeps parameters, locals, foreach and catch names out
+reference when the name binds a definition of a type kind — the file's own
+first, then the store's unique definition, then its file-class choice, the
+precedence introduced for reference targets — and deletes it when the store
+defines the name nowhere or defines it only as something that is not a type,
+such as a namespace a qualified name scopes into or a function. A C#
+local-binding walk keeps parameters, locals, foreach and catch names out
 before the resolver is asked, so a member read through a variable never
 becomes a type reference. The documented limit: a value bound under the exact
 name of a type in the same file is indistinguishable from the type by name
