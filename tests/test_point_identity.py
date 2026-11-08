@@ -291,6 +291,60 @@ def test_the_repair_readdresses_a_permuted_collection_and_is_idempotent(tmp_path
         manifest.close()
 
 
+# A file whose two declarations are byte-identical: the same chunk_hash AND
+# the same symbol, at two different chunk_index values. The live index holds
+# 112 such duplicate groups (237 rows), and the repair used to re-address one
+# row of every pair on every run -- most of the 33 files it reported as
+# committed on a fully agreeing index.
+DUPLICATE = (
+    "def repeated():\n"
+    "    return 1\n"
+    "\n"
+    "\n"
+    "def repeated():\n"
+    "    return 1\n"
+)
+
+
+def test_duplicate_chunk_rows_each_hold_their_own_point(tmp_path):
+    """Two rows with one embedding input still own two points.
+
+    Content addressing gives both rows the same vector; identity does not.
+    The point lookup therefore consumes a point per row and prefers the one
+    already at the row's own id, so a repeated declaration is not re-written
+    on every repair.
+    """
+    src = tmp_path / "dup.py"
+    src.write_text(DUPLICATE)
+    core, entry = _core(tmp_path)
+    store = core.store
+    manifest = core.manifest_for(entry.slug)
+    try:
+        rows = manifest.all_chunks()
+        keys = [(r.chunk_hash, r.symbol) for r in rows]
+        assert len(rows) == 2, [r.chunk_index for r in rows]
+        assert keys[0] == keys[1], keys
+        _assert_rows_own_their_points(manifest, store, str(tmp_path))
+
+        store.writes = 0
+        revision = manifest.get_meta("index_revision")
+        first = core.repair_points(entry.slug, str(tmp_path))
+        assert first["state"] == "idle", first
+        assert first["result"]["chunks_reused"] == 2, first["result"]
+        assert store.writes == 0, (
+            "a repeated declaration was re-addressed by an agreeing repair")
+        assert first["result"]["files_committed"] == 0, first["result"]
+        assert manifest.get_meta("index_revision") == revision
+        _assert_rows_own_their_points(manifest, store, str(tmp_path))
+
+        second = core.repair_points(entry.slug, str(tmp_path))
+        assert second["state"] == "idle", second
+        assert store.writes == 0, "the second repair must write nothing either"
+        assert manifest.get_meta("index_revision") == revision
+    finally:
+        manifest.close()
+
+
 def test_the_repair_refuses_a_row_whose_vector_is_gone(tmp_path):
     """No vector anywhere means no point written -- counted, never guessed."""
     src = tmp_path / "mod.py"

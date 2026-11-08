@@ -109,25 +109,50 @@ def _embed_key(chunk_hash: str, symbol: str | None) -> tuple[str, str | None]:
     return (chunk_hash, symbol)
 
 
-def _by_embed_key(points: list[dict[str, Any]]) -> dict[
+def _points_by_embed_key(points: list[dict[str, Any]]) -> dict[
         tuple[str, str | None],
-        tuple[list[float], dict[str, Any], str]]:
-    """Index a file's stored points by embedding input (first point wins).
+        list[tuple[list[float], dict[str, Any], str]]]:
+    """Index a file's stored points by embedding input, ALL points per key.
+
+    A file may hold two chunks with the same text and symbol (a repeated
+    declaration), so a key maps to a LIST: content addressing says the two
+    rows share one embedding input, not that they share one point. Collapsing
+    the list to its first point made the second row's id permanently
+    disagree, so every repair re-wrote a point it had just written.
 
     The point id rides along: a payload can describe the right row and still
     sit at the wrong id (a store permuted under an older pass), and identity
     is the pair -- this row, at the id its chunk_index names.
     """
     out: dict[tuple[str, str | None],
-              tuple[list[float], dict[str, Any], str]] = {}
+              list[tuple[list[float], dict[str, Any], str]]] = {}
     for p in points:
         payload = p.get("payload") or {}
         vector = p.get("vector")
         if vector is None or not payload.get("chunk_hash"):
             continue
         out.setdefault(_embed_key(payload["chunk_hash"], payload.get("symbol")),
-                       (vector, payload, str(p.get("id"))))
+                       []).append((vector, payload, str(p.get("id"))))
     return out
+
+
+def _take_point(entries: list[tuple[list[float], dict[str, Any], str]] | None,
+                expected_pid: str
+                ) -> tuple[list[float], dict[str, Any], str] | None:
+    """Take the stored point that best describes the row at ``expected_pid``.
+
+    A point already at the row's own id wins, so an agreeing row costs no
+    write; otherwise the first point still unconsumed for this embedding
+    input is the donor whose vector the row carries to its own id, and the
+    entry is removed so a repeated declaration cannot take it twice. ``None``
+    means no point is left to carry from, and the caller embeds the chunk.
+    """
+    if not entries:
+        return None
+    for index, entry in enumerate(entries):
+        if entry[2] == expected_pid:
+            return entries.pop(index)
+    return entries.pop(0)
 
 
 def _payload_agrees(payload: dict[str, Any], path: str, row: Any,
@@ -604,10 +629,12 @@ class Indexer:
                          chunk_hash=c.chunk_hash, text=c.text)
                 for c in chunks])
             content_hash = scanned_map[path].content_hash
-            by_key = _by_embed_key(stored)
+            by_key = _points_by_embed_key(stored)
             refreshed: list[dict[str, Any]] = []
             for chunk_ in chunks:
-                entry = by_key.get(_embed_key(chunk_.chunk_hash, chunk_.symbol))
+                entry = _take_point(
+                    by_key.get(_embed_key(chunk_.chunk_hash, chunk_.symbol)),
+                    _pid(project_path, path, chunk_.chunk_index))
                 if entry is None:
                     if vectors:
                         to_embed.append((path, chunk_))
@@ -953,9 +980,11 @@ class Indexer:
             stored = (self._stored_points(collection, project_path, file)
                       if same_identity else [])
             stored_by_file[file] = stored
-            by_key = _by_embed_key(stored)
+            by_key = _points_by_embed_key(stored)
             for row in rows:
-                entry = by_key.get(_embed_key(row.chunk_hash, row.symbol))
+                entry = _take_point(
+                    by_key.get(_embed_key(row.chunk_hash, row.symbol)),
+                    _pid(project_path, file, row.chunk_index))
                 if entry is None:
                     pending.append((file, row))
                     continue

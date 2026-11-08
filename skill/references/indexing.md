@@ -301,9 +301,14 @@ text. A changed embedding identity is a NEW physical collection
 so every pass re-addresses by content: a chunk whose text and symbol the file's
 points already carry keeps its vector but is written at the id its CURRENT
 `chunk_index` names, with the current payload; a chunk found nowhere is
-embedded; points past the new count are purged. `reindex-project
---repair-points` runs that over every stored row, is idempotent, and refuses
-(exit 4) rows whose vector is nowhere.
+embedded; points past the new count are purged. Two rows with the same text and
+symbol (a declaration repeated in one file) share an embedding input but never a
+point: the lookup consumes one stored point per row and prefers the point already
+at that row's own id, so a repeated declaration is carried, not rewritten.
+`reindex-project --repair-points` runs that over every stored row, is idempotent
+-- a second run on an agreeing index writes no point, reports
+`files_committed 0`, and leaves `index_revision` alone -- and refuses (exit 4)
+rows whose vector is nowhere.
 
 **A repair embeds no chunk and needs no embedding service.** What it needs is
 the dimension, and the index already records it: `meta.embed_dim` from the
