@@ -44,7 +44,7 @@ stderr.
 
 | `ErrorType` | Cause | Remedy |
 |---|---|---|
-| `ArgumentError` | a bad flag value -- an unknown value of an enumerated flag (`--mode`, `--ranking`, `--rerank`, `--relationship`, `--format`, `--visibility`, `--vectors`), refused at the boundary before anything is read, with the accepted values named in the line -- a `get-code-context` selector that names no range or two at once (a lone `--end-line`, an end below its start, a range past the file's last line, a `--symbol` beside a range), an ambiguous name, `--exactly-one` against several definitions, `plan-apply --skip-stale-check`, `add-project` on an already registered path, `--json` together with a `--format` naming another format, `--format compact` on a command with no compact form, or two disagreeing spellings of one symbol | fix the invocation; for an ambiguous name the candidates are listed, and a refused format names the formats that command accepts |
+| `ArgumentError` | a bad flag value -- an unknown value of an enumerated flag (`--mode`, `--ranking`, `--rerank`, `--relationship`, `--format`, `--visibility`, `--vectors`), refused at the boundary before anything is read, with the accepted values named in the line -- a `get-code-context` selector that names no range or two at once (a lone `--end-line`, an end below its start, a range past the file's last line, a `--symbol` beside a range), a malformed eval `--k` list (not integers, or not positive), an ambiguous name, `--exactly-one` against several definitions, `plan-apply --skip-stale-check`, `add-project` on an already registered path, `--json` together with a `--format` naming another format, `--format compact` on a command with no compact form, or two disagreeing spellings of one symbol | fix the invocation; for an ambiguous name the candidates are listed, and a refused format names the formats that command accepts |
 | `UnsupportedOperation` | a working provider or the plan format does not implement the requested operation (`rename_symbol`) | do the work another way; nothing was edited |
 | `AmbiguousNode` | two nodes in one file share name, kind and declaration hash | disambiguate by file and kind, or edit by hand |
 | `PlanFormatError` | a malformed plan, a duplicated path, or an unknown member that changes meaning | regenerate the plan; reading never rewrites one |
@@ -123,7 +123,9 @@ with another. One run of
 `uv run python scripts/probe_embed_drift.py --form both --trials 6` -- which
 unloads the model before every trial, so every trial crosses a load boundary
 -- saw that pair differ in all 6 load-boundary trials of each form: 1.592e-03
-per component for the bare form and 3.990e-03 for the instructed one. The same
+per component for the bare form and 3.990e-03 for the instructed one. The text
+is the probe's default (`--text` omitted); a different text measures a
+different size. The same
 command with `--reload once`, where only the first trial of each form crosses
 a load, saw every warm immediate repeat return the SAME vector -- delta
 0.000e+00 in all 10 warm trials of that run (5 bare, 5 instructed). Those are
