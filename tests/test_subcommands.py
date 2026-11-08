@@ -24,6 +24,7 @@ from code_indexer.chunker import (chunk as fallback_chunk,  # noqa: E402
                                   regex_signature, regex_visibility)
 from code_indexer.config import Config  # noqa: E402
 from code_indexer.core import Core  # noqa: E402
+from code_indexer.errors import NotFoundError  # noqa: E402
 from code_indexer.indexer import Indexer  # noqa: E402
 from code_indexer.manifest import Manifest, SCHEMA_VERSION  # noqa: E402
 from code_indexer import ts_chunker  # noqa: E402
@@ -388,7 +389,7 @@ def test_outline_absolute_path_normalized(core):
 
 def test_outline_file_not_in_manifest_errors(core):
     c, entry = core
-    with pytest.raises(ValueError, match="error:"):
+    with pytest.raises(NotFoundError, match="file not indexed"):
         c.outline(entry, "src/nope.py")
 
 

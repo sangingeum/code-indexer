@@ -35,11 +35,13 @@ from . import keeper as keeper_mod
 from . import ts_chunker
 from .scanner import accounting_phrase, read_scan_accounting
 from .extensions import SEMANTIC_EXTENSION_MESSAGE, semantic_available
-from .core import NEEDS_REINDEX, NEVER_INDEXED, UNVERIFIED, Core
+from .core import (NEEDS_REINDEX, NEVER_INDEXED, RANKING_MODES,
+                   SEARCH_MODES, UNVERIFIED, Core)
 from . import fingerprint as fingerprint_mod
 from . import staleness
 from . import coverage as coverage_mod
 from . import vectors
+from .vectors import MODES as VECTORS_MODES
 from . import identity
 from .doctor import run_doctor
 from . import graph
@@ -47,6 +49,7 @@ from . import overview as overview_mod
 from . import changed as changed_mod
 from .evalharness import (EVAL_MODES, compare_reports, format_eval_report,
                           load_report, run_eval)
+from .reranker import RERANK_MODES
 from .manifest import Manifest
 from .registry import ProjectEntry
 
@@ -129,9 +132,27 @@ def _resolve(core: Core, project: str | None,
 
 def _check_vectors_flag(vectors: str) -> None:
     """Reject an unknown --vectors value as a usage error (exit 2)."""
-    if vectors not in ("auto", "on", "off"):
-        _usage_die(f"unknown --vectors value: {vectors} "
-                   "(expected auto|on|off)")
+    _refuse_unknown_value("--vectors", vectors, VECTORS_MODES)
+
+
+def _refuse_unknown_value(flag: str, value: str | None,
+                          accepted: tuple[str, ...]) -> None:
+    """Refuse a flag value outside its enumeration as a usage error (exit 2).
+
+    A bad flag VALUE is a wrong request, not a fault in the tool: ADR-0003
+    section 5 puts it at ArgumentError and exit 2, so it is refused at this
+    boundary -- before any index read, any embedding call and before the
+    freshness pass -- as ONE stderr line naming the accepted values and an
+    empty stdout.
+
+    The accepted list is the one the consuming module declares
+    (``SEARCH_MODES`` and ``RANKING_MODES`` in core, ``RERANK_MODES`` in the
+    reranker, ``MODES`` in the vectors policy), never a second copy here, so
+    the CLI cannot accept a value the pipeline would reject.
+    """
+    if value is not None and value not in accepted:
+        _usage_die(f"unknown {flag} value: {value!r} "
+                   f"(expected {'|'.join(accepted)})")
 
 
 def _require_semantic() -> None:
@@ -1436,6 +1457,15 @@ def semantic_search(
     dropped-count line in text/compact output). A --all-projects answer fuses
     per-collection lists with Reciprocal Rank Fusion instead of comparing raw
     cross-collection cosine."""
+    # A bad flag VALUE is a wrong request, so it is refused HERE, at the
+    # boundary: ArgumentError, exit 2, empty stdout, one stderr line naming the
+    # accepted values. Validating before the extension check and before any
+    # index read keeps the verdict about the invocation, not about the install
+    # or the tree. The core keeps its own raises as defence; no caller can
+    # reach them with a bad value (see tests/test_flag_value_refusals.py).
+    _refuse_unknown_value("--ranking", ranking, RANKING_MODES)
+    _refuse_unknown_value("--mode", search_mode, SEARCH_MODES)
+    _refuse_unknown_value("--rerank", rerank, RERANK_MODES)
     _require_semantic()
     core = _get_core(skip_stale_check)
     if all_projects and project:
@@ -2406,7 +2436,11 @@ def outline(
                                json_output=json_output)
     try:
         data = core.outline(entry, file, include_docstrings=docstrings)
-    except ValueError as exc:
+    except (ValueError, IndexerError) as exc:
+        # A file the index does not hold is NotFoundError (exit 1, one line),
+        # the same class as any other "what you asked for is not there"; it
+        # arrives as the taxonomy's own type now, so both spellings of a
+        # failure take this one path.
         _json_failure(exc, json_output)
     cov = _coverage(core, entry, block, paths=[file],
                     scope=coverage_mod.SCOPE_ANSWER)
@@ -2850,6 +2884,9 @@ def find_references(
     This answers a DIFFERENT question than `find-callers`, which walks fan-in
     edges from the same store. The reference graph is textual and unbound by
     design: there is no compiler resolution, names are matched as text."""
+    # The filter is an enumeration; a value outside it is a wrong request
+    # (exit 2), not an empty answer and not an internal fault.
+    _refuse_unknown_value("--relationship", relationship, Core.REFERENCE_FILTERS)
     fmt = _output_format(output_format, json_output, command="find-references")
     json_output = fmt == "json"
     core = _get_core(skip_stale_check)
@@ -3528,6 +3565,11 @@ def eval_command(
     fused with the lexical ranking (plus the exact-symbol pin for an
     identifier-shaped query). Three distinct pipelines -- 'hybrid' is not an
     alias of 'dense'."""
+    # A bad flag value is a usage error, refused before the core reads
+    # anything -- and BEFORE --refresh can run a pass, so a wrong request can
+    # never write the index first and fail afterwards.
+    _refuse_unknown_value("--mode", mode, EVAL_MODES)
+    _refuse_unknown_value("--rerank", rerank, RERANK_MODES)
     core = _get_core(skip_stale_check)
     if refresh:
         entry, _err = core.resolve_entry(project)
@@ -3535,8 +3577,6 @@ def eval_command(
             _die(f"error: project not registered: {project}")
         core.refresh(entry)
     ks = _parse_ks(k)
-    if mode not in EVAL_MODES:
-        _die(f"error: unknown eval mode {mode!r} (expected one of {EVAL_MODES})")
     try:
         report = run_eval(core, project, queries, ks=ks, mode=mode, rerank=rerank)
     except ValueError as exc:

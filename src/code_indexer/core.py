@@ -72,6 +72,15 @@ logger = logging.getLogger("code-indexer.core")
 # with reason=budget instead of running for minutes.
 QUERY_BUDGET_DEFAULT_S = 30.0
 
+# The accepted values of the two query-time enumerations. They live HERE, in
+# the module that runs the search, because three readers need the same list:
+# the CLI validates its flags against them, the eval harness forwards its own
+# mode into Core.search, and the search itself refuses anything else. One
+# source of truth means a value a caller accepts is a value this module
+# understands, and a refusal can print the list it read.
+SEARCH_MODES = ("dense", "lexical", "hybrid")
+RANKING_MODES = ("vector", "metadata", "hybrid")
+
 # State reported for a registered project whose manifest records no completed
 # indexing pass (interrupted/killed initial add-project, or a pass that never
 # ran). Registry registration alone is not evidence of an indexed project, so
@@ -1035,6 +1044,12 @@ class Core:
         and share-capped in the top-k window) so data files cannot crowd code
         out of the window. The pool is over-fetched so the mitigation has
         candidates to promote."""
+        # Defence only: the CLI refuses a bad ranking value at its own
+        # boundary as a usage error (exit 2), so no caller reaches this line
+        # with one. Kept because this method is also the seam the eval
+        # harness and the MCP relay call directly.
+        if ranking_mode not in RANKING_MODES:
+            raise ValueError(f"error: unknown ranking mode: {ranking_mode}")
         collection = vectors_policy.alias_for(entry.slug)
         # Query-side embedding: the instruction prefix applies ONLY
         # here; document embeddings stay raw. The cache key is the exact
@@ -1078,8 +1093,6 @@ class Core:
             out = ranking.metadata_rerank(out, qtokens)
         elif ranking_mode == "hybrid":
             out = ranking.hybrid_fuse(out, qtokens)
-        elif ranking_mode != "vector":
-            raise ValueError(f"error: unknown ranking mode: {ranking_mode}")
         out = ranking.downweight_data_files(out, qtokens)
         out = ranking.cap_data_file_share(out, limit, qtokens)
         if rerank:
@@ -1126,7 +1139,7 @@ class Core:
         hits. Returns {'hits': [...], 'dropped': int, 'skipped': [...],
         'partial': bool} so adapters can report trimming and a partial answer.
         """
-        if mode not in ("dense", "lexical", "hybrid"):
+        if mode not in SEARCH_MODES:
             raise ValueError(f"error: unknown search mode: {mode}")
         if all_projects:
             entries = self.registry.list_projects()
@@ -1488,6 +1501,10 @@ class Core:
         "inherits": ("base_class",),
         "references": ("type", "member", "identifier"),
     }
+    # The same names in the same order, derived from the mapping above: the
+    # CLI's accepted list for --relationship and this refusal message both
+    # read it, so neither can drift from the words the filter understands.
+    REFERENCE_FILTERS: tuple[str, ...] = tuple(_REFERENCE_FILTERS)
 
     # The relationships that ANSWER "what references this": a reference row.
     # `includes` is deliberately absent -- an include directive names a file,
@@ -1524,10 +1541,10 @@ class Core:
         the answer is its prefix.
         """
         if (relationship is not None
-                and relationship not in self._REFERENCE_FILTERS):
+                and relationship not in self.REFERENCE_FILTERS):
             raise ValueError(
                 f"error: unknown relationship: {relationship} "
-                "(expected calls|includes|inherits|references)")
+                f"(expected {'|'.join(self.REFERENCE_FILTERS)})")
         stored = (self._REFERENCE_FILTERS[relationship]
                   if relationship is not None
                   else self._REFERENCE_RELATIONSHIPS)
@@ -1714,19 +1731,24 @@ class Core:
         finally:
             m.close()
         if not rows and not self.registry_has_file(entry, rel):
+            # NotFoundError, not InternalError: the request named a file the
+            # index does not hold, which is the Exit 1 table's own definition
+            # of this class ("a path ... or an indexed definition that is not
+            # there"). The exit code is 1 either way; the type is what tells a
+            # caller the file is absent rather than the tool broken.
             reason = self._skip_reason(entry, rel)
             if reason:
                 # A file the scan deliberately left out says so; "not
                 # indexed" alone reads like a bug or an empty index.
-                raise ValueError(f"error: file not indexed: {file} "
-                                 f"(the scan skipped it: {reason})")
+                raise NotFoundError(f"file not indexed: {file} "
+                                    f"(the scan skipped it: {reason})")
             counts = self._skip_counts(entry, rel)
             if counts:
                 # Past the named examples the path is still counted: name the
                 # classes rather than leave a 51st file answered with silence.
-                raise ValueError(f"error: file not indexed: {file} "
-                                 f"({counts})")
-            raise ValueError(f"error: file not indexed: {file}")
+                raise NotFoundError(f"file not indexed: {file} "
+                                    f"({counts})")
+            raise NotFoundError(f"file not indexed: {file}")
         src_lines: list[str] = []
         if include_docstrings:
             abs_path = os.path.join(entry.path, rel)
@@ -1942,7 +1964,12 @@ class Core:
             ranges.append((max(1, start_line - context_lines),
                            end + context_lines, None))
         else:
-            raise AssertionError("unreachable: selectors were validated")
+            # A real raise, not an assert: `python -O` strips an assert, and
+            # the guard is the only thing standing between a selector-less
+            # call and an empty `ranges` rendered as an empty answer. The CLI
+            # refuses this shape before the core is reached (exit 2), so this
+            # line is defence -- but defence that survives optimisation.
+            raise InternalError("unreachable: selectors were validated")
 
         with open(abs_path, encoding="utf-8", errors="replace") as f:
             lines = f.readlines()

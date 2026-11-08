@@ -20,6 +20,7 @@ from typer.testing import CliRunner  # noqa: E402
 
 import code_indexer.cli as cli  # noqa: E402
 from code_indexer.cli import app  # noqa: E402
+from code_indexer.errors import NotFoundError  # noqa: E402
 from code_indexer.registry import Registry  # noqa: E402
 from pass_rig import index_project, stub_core  # noqa: E402
 
@@ -109,7 +110,7 @@ def test_overview_carries_the_same_reconciliation(tmp_path, monkeypatch):
 
 def test_outline_names_the_reason_a_file_is_absent(payload):
     core, entry, _, _ = payload
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(NotFoundError) as excinfo:
         core.outline(entry, "blob.bin")
     message = str(excinfo.value)
     assert "blob.bin" in message
@@ -167,7 +168,7 @@ def test_outline_names_the_class_of_a_skip_past_the_named_examples(
     named = set(data["scan_accounting"]["examples"]["binary"])
     unnamed = sorted({f"blob{i:02d}.bin" for i in range(51)} - named)
     assert unnamed, "the example sample is capped below the 51 skipped files"
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(NotFoundError) as excinfo:
         core.outline(entry, unnamed[0])
     message = str(excinfo.value)
     assert "binary" in message, message
@@ -258,7 +259,7 @@ def test_a_file_that_cannot_be_read_is_a_named_skip(tmp_path, monkeypatch):
     assert (acc["walked"]
             == acc["indexed"] + acc["uncommitted"] + acc["skipped_total"]), acc
     assert "late.py" in acc["examples"]["unreadable"]
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(NotFoundError) as excinfo:
         core.outline(entry, "late.py")
     assert "unreadable" in str(excinfo.value)
 

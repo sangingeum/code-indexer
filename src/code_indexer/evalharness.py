@@ -36,10 +36,13 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .core import Core
 
-# Ranking modes accepted by ``eval``. ``hybrid`` here names the retrieval
-# pipeline (dense + lexical); the lexical index landed, so the values map
- # to distinct pipelines now.
-EVAL_MODES = ("dense", "lexical", "hybrid")
+from .core import SEARCH_MODES
+
+# The modes ``eval`` accepts are the search modes, not a second list of the
+# same words: the harness forwards its mode straight into ``Core.search``, so
+# a value this module accepted and the search did not would be a refusal at
+# the wrong layer. The names live in core and are imported from there.
+EVAL_MODES = SEARCH_MODES
 
 DEFAULT_KS = (1, 3, 5, 10)
 

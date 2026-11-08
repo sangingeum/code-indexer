@@ -25,6 +25,10 @@ from typing import Any, Protocol
 
 from . import ranking
 
+# Accepted --rerank values. The CLI refuses anything else as a usage error
+# (exit 2) before a search runs; select_reranker keeps its raise as defence.
+RERANK_MODES = ("heuristic", "none")
+
 # Candidate pool the reranker sees (over-fetch already covers this).
 RERANK_POOL = 30
 
@@ -105,8 +109,11 @@ def select_reranker(mode: str) -> Reranker:
     """Resolve the reranker from the mode string (CLI/MCP seam).
 
     'heuristic' -> HeuristicReranker; 'none' -> NoReranker; anything else
-    raises ValueError (adapters surface it).
+    raises ValueError (adapters surface it). The caller refuses an unknown
+    value first, so this raise is defence.
     """
+    if mode not in RERANK_MODES:
+        raise ValueError(f"error: unknown rerank mode: {mode}")
     if mode == "heuristic":
         return HeuristicReranker()
     if mode == "none":
