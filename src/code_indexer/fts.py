@@ -9,9 +9,10 @@ from FTS in the same statement batch.
 Pre-tokenization: identifiers are split into sub-tokens (camelCase,
 snake_case, digit runs, ``::``/``.`` separators) and the ORIGINAL token is
 kept alongside — a query for ``refreshToken`` matches ``refresh_token`` and
-vice versa. Query side builds an FTS5 MATCH string with quoted phrase tokens
-and a ``*`` prefix on the last token; bm25() ranks with column weights
-symbol > path > content.
+vice versa. Query side builds an FTS5 MATCH string of quoted tokens joined by
+OR (a phrase is evidence, not a requirement) with a ``*`` prefix on the last
+token; bm25() ranks with column weights symbol > path > content, so a chunk
+carrying more of the query's words ranks above one carrying fewer.
 """
 
 from __future__ import annotations
@@ -53,8 +54,12 @@ def tokenize_fts(text: str) -> str:
 def build_match_query(query: str, max_terms: int = 12) -> str | None:
     """Sanitize a user query into an FTS5 MATCH expression.
 
-    Every token is double-quoted (phrases, no syntax injection); the LAST
-    token gets a ``*`` prefix match. Returns None when nothing remains.
+    Every token is double-quoted, so no caller-supplied FTS5 operator can
+    reach the query string; the tokens are joined with OR, so a multi-word
+    query is EVIDENCE rather than a requirement -- a phrase matches a chunk
+    that carries any of its words, and bm25 treats chunks carrying more of
+    them as better matches. The LAST token also gets a ``*`` prefix match.
+    Returns None when nothing remains.
     """
     tokens = re.findall(fts_token, query or "")
     if not tokens:
@@ -62,7 +67,7 @@ def build_match_query(query: str, max_terms: int = 12) -> str | None:
     tokens = tokens[-max_terms:]
     quoted = [f'"{t}"' for t in tokens[:-1]]
     quoted.append(f'"{tokens[-1]}"*')
-    return " ".join(quoted)
+    return " OR ".join(quoted)
 
 
 # bm25 column weights: symbol > path > content.

@@ -45,7 +45,10 @@ code-indexer semantic-search "where does the token refresh happen" --project /pa
 
 - `--mode` is `hybrid` (default), `dense` or `lexical`; `--ranking` is
   `vector` (default), `metadata` or `hybrid`; `--mode lexical` answers from
-  the FTS table with no vector and no service. `--max-chars`/`--max-tokens`
+  the FTS table with no vector and no service. A multi-word query is matched
+  as the OR of its quoted tokens -- a phrase is evidence, not a requirement --
+  so a chunk carrying any of its words is a hit, and bm25 ranks a chunk
+  carrying more of them higher. `--max-chars`/`--max-tokens`
   cap the returned context, `--per-file` spreads hits across files, and
   `--context-lines` widens each snippet.
 - One embedding attempt per query, with a short timeout. A search resolves
@@ -111,9 +114,9 @@ code-indexer eval-compare /tmp/eval-dense.json /tmp/eval-rerank.json
 - The harness runs with overlap merging off, so its numbers describe the
   unmerged path: a shipped read merges the overlapping and adjacent hits of
   one file before the class key, and the repeat-coverage pass is an identity
-  there (see Repeat coverage). A follow-up card ("the eval harness measures
-  an unshipped shaping configuration") owns adding a merged arm or
-  documenting the gap, so this caveat is not permanent.
+  there (see Repeat coverage). The eval harness section above is where a
+  merged arm -- or a documented note of the unmerged gap -- would land, so
+  this caveat is not permanent.
 
 ## Ordering: source, then samples, tests, docs, artifacts
 

@@ -65,6 +65,19 @@ def test_a_repeated_span_yields_its_slot_to_a_new_region():
     assert out[2] is declaration
 
 
+def test_the_repeat_pass_reorders_nothing_after_the_merge():
+    """The merge already frees the slot, so over its result the documented
+    repeat-coverage pass is an identity."""
+    from code_indexer.ranking import demote_repeated_spans, merge_overlapping
+
+    pool = [hit(0.90, "src/region.py", 10, 30),
+            hit(0.89, "src/region.py", 10, 40, symbol="region"),
+            hit(0.70, "src/elsewhere.py", 5, 12, symbol="other")]
+    qtokens = query_tokens("where is the region handled")
+    ordered = class_order(merge_overlapping(pool), qtokens)
+    assert demote_repeated_spans(ordered, qtokens) == ordered
+
+
 def test_a_partial_overlap_counts_as_the_same_region():
     """One line of overlap is enough: the shifted window shows lines the
     earlier hit already showed."""

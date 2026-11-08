@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased] — a phrase matches across the chunks of one file
+
+**A multi-word lexical query is evidence, not a requirement.** `--mode
+lexical` built its FTS5 MATCH string as quoted tokens joined by the implicit
+AND, so every word had to sit inside ONE chunk: "vector database" matched
+nothing on this repository while "hashing" and "point_id" matched. The
+query is now the OR of its quoted tokens (the last one still prefix-matched),
+so a chunk carrying any of the words is a hit and bm25 ranks a chunk carrying
+more of them higher. FTS5 syntax stays out of reach: every token is quoted,
+so no caller-supplied operator reaches the query string.
+
+Measured on the forty-two labeled queries at one index revision (3138), one
+runner, one warm-up discarded, both arms from source: lexical MRR 0.3333 ->
+0.7258 and recall@5 0.3333 -> 0.8333; hybrid recall@10 0.8810 -> 0.8571,
+MRR 0.6959 -> 0.6919 and nDCG@10 0.7421 -> 0.7336, with one labeled query
+(q-concept-01) falling from rank 6 to a miss because the widened lexical arm
+fills the fused top ten. Reported as a measured trade, not tuned back.
+
 ## [Unreleased] — the graph says what it can see
 
 **A repeated chunk span yields its slot to a distinct region.** The chunker
