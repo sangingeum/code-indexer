@@ -1,6 +1,6 @@
 """The documented flag contract: every command accepts --skip-stale-check.
 
-SKILL-CLI.md states the flag is accepted by every command. This pins that
+skill/SKILL.md states the flag is accepted by every command. This pins that
 promise against the real click parameters, and pins that commands route the
 flag into the Core even where NO staleness probe runs on their path (a flag
 that parses but is ignored is the drift the contract exists to prevent).
@@ -51,7 +51,7 @@ def test_every_command_accepts_skip_stale_check():
     missing = [name for name, cmd in sorted(_commands().items())
                if "--skip-stale-check" not in _long_flags(cmd)]
     assert not missing, (
-        "SKILL-CLI.md says every command accepts --skip-stale-check, but "
+        "skill/SKILL.md says every command accepts --skip-stale-check, but "
         f"these do not: {missing}")
 
 

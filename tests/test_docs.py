@@ -1,7 +1,8 @@
 """Documentation-drift tests (offline; part of `pytest -m "not live"`).
 
-The agent surface is one entry document (``SKILL-CLI.md``) and six reference
-files under ``skill/references/``, split and budgeted by ADR-0009. The command
+The agent surface is one entry document, ``skill/SKILL.md``, and six reference
+files in the ``references/`` directory beside it, split and budgeted by
+ADR-0009; that pairing is the shape an installed skill directory holds. The command
 blocks and the entry document's roster are generated from the CLI registry by
 ``scripts/generate_skill_docs.py``; prose is written by hand.
 
@@ -52,7 +53,7 @@ from typer.main import get_command as typer_get_command
 
 REPO = Path(__file__).resolve().parent.parent
 README = REPO / "README.md"
-ENTRY = REPO / "SKILL-CLI.md"
+ENTRY = REPO / "skill" / "SKILL.md"
 REFERENCES_DIR = REPO / "skill" / "references"
 PYPROJECT = REPO / "pyproject.toml"
 JSON_SCHEMA = REPO / "docs" / "json-schema.md"
@@ -281,7 +282,7 @@ def test_roster_names_the_reference_that_carries_the_command():
 
 def test_every_named_reference_exists():
     """Every reference the entry document names is a file that exists."""
-    named = set(re.findall(r"skill/references/([a-z-]+\.md)", _entry_text()))
+    named = set(re.findall(r"\]\(references/([a-z-]+\.md)\)", _entry_text()))
     assert named, "the entry document names no reference"
     missing = sorted(n for n in named if not (REFERENCES_DIR / n).is_file())
     assert not missing, f"the entry document names references that do not exist: {missing}"
@@ -289,10 +290,36 @@ def test_every_named_reference_exists():
 
 def test_every_reference_file_is_named():
     """Every file under skill/references/ is named by the entry document."""
-    named = set(re.findall(r"skill/references/([a-z-]+\.md)", _entry_text()))
+    named = set(re.findall(r"\]\(references/([a-z-]+\.md)\)", _entry_text()))
     on_disk = {p.name for p in _reference_paths()}
     orphan = sorted(on_disk - named)
     assert not orphan, f"reference files the entry document never names: {orphan}"
+
+
+def test_the_entry_document_sits_beside_the_references_it_names():
+    """The entry document is ``skill/SKILL.md`` and its references are in
+    ``skill/references/`` -- the shape the installer copies.
+
+    This is the guarantee the move into ``skill/`` exists for. A reference
+    link in the entry document is relative to that document, so it resolves
+    in the checkout and in ``~/.hermes/skills/code-indexer/`` only while both
+    copies keep the same pairing: SKILL.md in a directory whose
+    ``references/`` holds the six files. A drift on either side (the entry
+    back at the repository root, or a reference filed elsewhere) fails here
+    rather than at install time.
+    """
+    assert ENTRY.parent == REFERENCES_DIR.parent, (
+        f"the entry document is at {ENTRY} and the references at "
+        f"{REFERENCES_DIR}: they must share one directory")
+    assert ENTRY == REFERENCES_DIR.parent / "SKILL.md", (
+        f"the entry document must be named SKILL.md so the installed copy is "
+        f"SKILL.md + references/; found {ENTRY.name}")
+    named = set(re.findall(r"\]\(references/([a-z-]+\.md)\)", _entry_text()))
+    assert named, "the entry document links no reference"
+    beside = sorted(n for n in named if not (ENTRY.parent / "references" / n).is_file())
+    assert not beside, (
+        f"the entry document links references that do not sit beside it in "
+        f"{ENTRY.parent / 'references'}: {beside}")
 
 
 def test_every_command_is_covered_by_exactly_one_reference():
@@ -315,7 +342,7 @@ def test_entry_document_budget():
     lines, size = _size(ENTRY)
     max_lines, max_bytes = ENTRY_BUDGET
     assert lines <= max_lines and size <= max_bytes, (
-        f"SKILL-CLI.md is {lines} lines / {size} bytes; "
+        f"skill/SKILL.md is {lines} lines / {size} bytes; "
         f"the budget is {max_lines} lines / {max_bytes} bytes"
     )
 
@@ -345,7 +372,7 @@ def test_every_reference_opens_with_its_governing_records():
 def test_entry_document_carries_every_exit_code():
     text = _entry_text()
     section = re.search(r"^## Exit codes$(.*?)(?=\n## )", text, re.M | re.S)
-    assert section, "SKILL-CLI.md lost its exit-code table"
+    assert section, "skill/SKILL.md lost its exit-code table"
     found = {int(m) for m in re.findall(r"^\| (\d) \|", section.group(1), re.M)}
     missing = sorted(set(EXIT_CODES) - found)
     assert not missing, f"exit codes missing from the entry table: {missing}"
@@ -430,7 +457,7 @@ def test_generated_markers_are_balanced():
 
 def test_a_drift_path_outside_the_checkout_is_an_assertion_not_a_crash():
     """The failure message must be buildable, or the check reports a crash."""
-    outside = REPO.parent / "elsewhere" / "SKILL-CLI.md"
+    outside = REPO.parent / "elsewhere" / "SKILL.md"
     with pytest.raises(AssertionError) as caught:
         _under_checkout(outside)
     assert "outside the checkout" in str(caught.value)

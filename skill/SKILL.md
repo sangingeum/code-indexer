@@ -112,9 +112,9 @@ A read command never writes the manifest, the vector store or the sources.
 
 | Reference | Open it when |
 |---|---|
-| [indexing.md](skill/references/indexing.md) | the task is to build or repair an index, or to ask what state one is in |
-| [query.md](skill/references/query.md) | a query answered the wrong shape and its flags need reading |
-| [semantic.md](skill/references/semantic.md) | a question is asked in words rather than as a name, or a ranked answer's order needs reading |
-| [plans.md](skill/references/plans.md) | the task is to change code through a plan |
-| [machine-output.md](skill/references/machine-output.md) | an agent parses output instead of reading prose |
-| [failures.md](skill/references/failures.md) | a command failed and the remedy is not obvious from its line |
+| [indexing.md](references/indexing.md) | the task is to build or repair an index, or to ask what state one is in |
+| [query.md](references/query.md) | a query answered the wrong shape and its flags need reading |
+| [semantic.md](references/semantic.md) | a question is asked in words rather than as a name, or a ranked answer's order needs reading |
+| [plans.md](references/plans.md) | the task is to change code through a plan |
+| [machine-output.md](references/machine-output.md) | an agent parses output instead of reading prose |
+| [failures.md](references/failures.md) | a command failed and the remedy is not obvious from its line |

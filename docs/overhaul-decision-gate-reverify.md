@@ -6,6 +6,8 @@
   tip `413fb76` (four commits: `6e4129c`, `af09d53`, `1bbcb20`, `413fb76`)
 - Range: `8d841ac..413fb76`, eleven paths, all under `docs/`
 - Does not repeat and does not overwrite `docs/overhaul-decision-gate.md`
+- Paths and sizes are as measured at `413fb76`; where a path below names the
+  entry document, it names it where the file sits today (`skill/SKILL.md`)
 
 ## How this was checked
 
@@ -189,7 +191,7 @@ measurable premises check out too:
 
 ```
 rg -c '^def test_' tests/test_docs.py       # 13  ("carries thirteen tests today")
-wc -lc SKILL-CLI.md                        # 613 39797  (its quoted figure, exactly)
+wc -lc skill/SKILL.md                        # 613 39797  (its quoted figure, exactly)
 code-indexer watch --help | wc -lc         # 84 7376    (against AGENT.md: 73 4283)
 ```
 
@@ -210,13 +212,14 @@ would pass.
 **The digest check names no directory.** Section 5 check 6 pins the installed copy's
 digest "when the installed skill directory exists on the machine", but the record never
 says where that directory is, and the tree has no `skill/` path at all
-(`ls skill` -> no such file; the tracked entry document is `SKILL-CLI.md` at the
-repository root, and `skill/references/` is yet to be created). A test cannot pin the
+(`ls skill` -> no such file at this revision; the tracked entry document was at the
+repository root then and now sits at `skill/SKILL.md`, and `skill/references/` was
+yet to be created). A test cannot pin the
 digest of a directory the record does not name, and a clean checkout versus an installed
 one is exactly the distinction the check turns on.
 
 A related risk, recorded rather than counted: the existing module finds the documented
-commands by scanning a fenced block in `SKILL-CLI.md` for lines beginning
+commands by scanning a fenced block in `skill/SKILL.md` for lines beginning
 `code-indexer `, so the first three of its thirteen tests key on that block. ADR-0009
 says the six checks extend the module but does not say what happens to that parser when
 flags leave the entry document. A roster rendered as a table outside a fence would make
@@ -328,11 +331,11 @@ citation as printed:
   -- identifier heuristic 101197 0 | call ast 8698 7575 | type ast 1600 1584 |
   -- call heuristic 1331 0 | includes ast 902 133 | base_class ast 15 15 | includes heuristic 8 0
   ```
-- **ADR-0009 context 1 and 2**: `SKILL-CLI.md` at `613` lines and `39,797` bytes;
+- **ADR-0009 context 1 and 2**: `skill/SKILL.md` at `613` lines and `39,797` bytes;
   `code-indexer watch --help` at `84` lines and `7,376` bytes against `AGENT.md` at `73`
   lines and `4,283` bytes.
   ```
-  wc -lc SKILL-CLI.md                 # 613 39797
+  wc -lc skill/SKILL.md                 # 613 39797
   code-indexer watch --help | wc -lc  # 84 7376
   wc -lc AGENT.md                     # 73 4283
   ```
@@ -365,7 +368,7 @@ parse per project"), so label and count agree with the record they describe.
   third bullet (`rg -c` -> 1, and the fold diff shows the bullet deleted).
 - **The `parse_unavailable` vocabulary.** ADR-0004 section 7, ADR-0005 section 7 and the
   plan all use the three-verdict vocabulary, and the older `no_parser` token is gone from
-  the whole tree (`rg -n no_parser docs SKILL-CLI.md tests` -> nothing).
+  the whole tree (`rg -n no_parser docs skill/SKILL.md tests` -> nothing).
 - **ADR-0007 naming the decider.** Section 4 ends: "The decider is the owner: this record
   supplies the numbers the decision reads, and no second review cycle is needed to make
   it."

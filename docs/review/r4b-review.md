@@ -124,7 +124,7 @@ The only behavioural delta anywhere is the text of the stale line.
 ### Scope of the round
 
 `git diff --name-only 7704364..0993311`, excluding `runs/`:
-`CHANGELOG.md`, `README.md`, `SKILL-CLI.md`, `skill/references/machine-output.md`,
+`CHANGELOG.md`, `README.md`, `skill/SKILL.md`, `skill/references/machine-output.md`,
 `src/code_indexer/staleness.py`, `tests/test_read_contract.py`. The diff carries
 no `schema` and no `EXTRACTION_VERSION` hunk, and
 `git diff --name-only 7704364..0993311 -- docs/adr/` returns zero files. All
@@ -141,7 +141,7 @@ three commits verify `%G? = G`.
 mentions:
 
 - `README.md:210` — the shipped line verbatim, in a fenced block.
-- `SKILL-CLI.md:94` — the shipped line verbatim, one example count.
+- `skill/SKILL.md:94` — the shipped line verbatim, one example count.
 - `skill/references/machine-output.md:52` — the shipped line verbatim.
 - `CHANGELOG.md:10-11` — the shipped line, split across a source wrap that
   renders as one line.
@@ -168,7 +168,7 @@ was withheld'") is intact.
   fields, and states in the same sentence block: "a withheld file is counted
   beside the verdict, never as a stale reason". A reader cannot come away
   thinking a withheld file makes the index stale.
-- `SKILL-CLI.md:97-98`: "A file the sensitive layer withholds is not a
+- `skill/SKILL.md:97-98`: "A file the sensitive layer withholds is not a
   staleness reason ... (JSON: `withheld_count`) on a fresh verdict."
 - `skill/references/machine-output.md:65-69` says the same thing in words
   ("a skip, not a stale reason") but names no field, and its field table at
@@ -179,7 +179,7 @@ was withheld'") is intact.
 ### 7. The prose/source boundary — **pass, with the duplication noted**
 
 One document describes the banner in prose (`skill/references/machine-output.md`);
-`SKILL-CLI.md` and `README.md` now quote it and add only what the example
+`skill/SKILL.md` and `README.md` now quote it and add only what the example
 cannot show (fresh prints nothing, unknown prints one line; README keeps the
 field list). The entry document lost its two-sentence prose description of the
 line in this round, which is the right direction — the prose had already
@@ -202,7 +202,7 @@ below.
    read. Four table rows close it.
 2. **The documentation drift test cannot catch the defect this round fixed.**
    `tests/test_docs.py:738-745` asserts two loose substrings over
-   `SKILL-CLI.md` plus `skill/references/*.md`; `README.md` is not in that
+   `skill/SKILL.md` plus `skill/references/*.md`; `README.md` is not in that
    surface at all, and the assertion passes if a document quotes the count
    prefix while the sentence appears only in surrounding prose. That is
    precisely how the README quote stayed stale through the previous gate. A

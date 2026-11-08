@@ -106,7 +106,7 @@ a per-language tree-sitter query for python/typescript/tsx/javascript/c/cpp/
 go/csharp (`confidence=ast`) and the textual scan for every other language
 (`confidence=heuristic`). The "references" column below therefore reads
 "ast" for those eight languages and "heuristic" elsewhere. See CHANGELOG and
-SKILL-CLI.md.)*
+skill/SKILL.md.)*
 
 | lang | AST chunking | symbols | signature | visibility | references |
 |---|---|---|---|---|---|

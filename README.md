@@ -32,7 +32,7 @@ demand, when its trigger fires.
 
 | Document | Open it when |
 |---|---|
-| [SKILL-CLI.md](SKILL-CLI.md) | always first: decision tree, the generated command roster with each command's read-or-write class, the exit table, the staleness rule, the reference index |
+| [SKILL.md](skill/SKILL.md) | always first: decision tree, the generated command roster with each command's read-or-write class, the exit table, the staleness rule, the reference index |
 | [indexing.md](skill/references/indexing.md) | the task is to build or repair an index, or to ask what state one is in |
 | [query.md](skill/references/query.md) | a query answered the wrong shape and its flags need reading |
 | [semantic.md](skill/references/semantic.md) | a question is asked in words rather than as a name, or a ranked answer's order needs reading |
@@ -46,7 +46,11 @@ cannot exist undocumented and a flag cannot be documented that does not
 exist; the prose around them is written by hand. `tests/test_docs.py` fails
 when the roster and the registry disagree, when a reference grows past its
 budget, when a generated block was hand-edited, or when the installed copy of
-the skill differs from the tracked one.
+the skill differs from the tracked one. The tracked `skill/` directory is
+already the shape the installer wants: `skill/SKILL.md` and `skill/references/`
+are copied into the profile's skills root as `code-indexer/SKILL.md` and
+`code-indexer/references/`, which is why the reference links inside the entry
+document are relative to it and resolve in both places.
 
 This README is the overview for the human who installs the tool; each fact
 lives in exactly one place.
@@ -88,7 +92,7 @@ and rejects the flag plus two positionals as ambiguous. The mutating commands
 never guess a project from the cwd.
 
 The agent workflow (overview → skeleton → search → get-code-context) is in
-[SKILL-CLI.md](SKILL-CLI.md), and the flags behind each step are in
+[SKILL.md](skill/SKILL.md), and the flags behind each step are in
 [query.md](skill/references/query.md) for the structural reads and
 [semantic.md](skill/references/semantic.md) for the meaning-shaped search.
 
@@ -105,8 +109,9 @@ The agent workflow (overview → skeleton → search → get-code-context) is in
 - **MCP server** (`code-indexer-mcp`, `code-indexer[mcp]` only): a
   narrowed, read-only view over the same CLI subprocess; all foreground, no
   store or manifest access of its own.
-- **Agent surface**: one entry document plus six references under
-  `skill/references/`, with the command sections generated from the registry.
+- **Agent surface**: one entry document, `skill/SKILL.md`, plus six references
+  under `skill/references/` beside it, with the command sections generated from
+  the registry.
 
 ### CLI ↔ MCP parity
 

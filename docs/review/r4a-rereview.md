@@ -70,7 +70,7 @@ fix and not a cosmetic one.
 
 The new names are documented in `docs/json-schema.md:11-21` (the two facts
 never share a key), `:185-217` (block shape and semantics),
-`skill/references/indexing.md:203-206` and `:319-323`, `SKILL-CLI.md:103-104`,
+`skill/references/indexing.md:203-206` and `:319-323`, `skill/SKILL.md:103-104`,
 and `CHANGELOG.md:14-16` and `:26`. The tests name `withheld_count` and
 `withheld_summary`; `withheld_files` is the one new key no test names — see
 F1.

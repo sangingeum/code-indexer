@@ -699,7 +699,7 @@ fixture that built a `Config` with it is cleaned up.
 ## [Unreleased] — the agent surface
 
 **The documentation an agent loads before it acts is now 118 lines, and the
-detail is read on demand.** `SKILL-CLI.md` was one 1090-line page (39,797
+detail is read on demand.** `skill/SKILL.md` was one 1090-line page (39,797
 bytes) carrying every flag, example and remedy; it is now the entry document
 of ADR-0009 -- decision tree, command roster, exit table, staleness rule, the
 read-only guarantee, the reference index -- and the detail moved into five
@@ -901,12 +901,12 @@ No schema change, no new index, no reindex: this release is query-only.
   query change; the docs say what a hit means today.
 - **`heuristic` is reserved, not reachable.** No extractor produces it — a
   parsed file's rows are `ast`, the regex fallback's are `unknown` — and the
-  identity docstring, SKILL-CLI.md and docs/json-schema.md now say so.
+  identity docstring, skill/SKILL.md and docs/json-schema.md now say so.
 - **`--exactly-one`'s empty answer is documented.** A name with no definition
   is `NotFoundError`, exit 1, where the same query without the flag answers
   `definitions: []` with exit 0 — the flag asked for exactly one, so it
   refuses rather than hand back an empty set.
-- **Documented:** SKILL-CLI.md and docs/json-schema.md describe the filters,
+- **Documented:** skill/SKILL.md and docs/json-schema.md describe the filters,
   the evidence label, the ambiguity envelope and the truncation signal.
 
 ## [Unreleased] — a read can destroy nothing
@@ -1162,7 +1162,7 @@ identity is unchanged and unchanged chunk text re-embeds from the cache.
   name that overlap or touch are now merged into one contiguous span per run
   before segments are built: the decorator pair collapses to one span, while
   genuinely disjoint ranges stay separate. The rule is stated in the
-  `code_context` docstring and in `SKILL-CLI.md`, and pinned by a test using
+  `code_context` docstring and in `skill/SKILL.md`, and pinned by a test using
   a decorated definition (one segment, one honest range). Each symbol-mode
   segment now carries `symbol_rows`, the number of stored rows it merged, so
   the merge is visible in the answer instead of implicit in the range. The
@@ -1183,7 +1183,7 @@ identity is unchanged and unchanged chunk text re-embeds from the cache.
   definitions four lines apart answer as six padded spans, two disjoint
   definitions answer as two padded spans, and the changed-file re-resolve
   path keeps every definition under padding. The rule is stated in the
-  `code_context` and `_merge_symbol_ranges` docstrings and in SKILL-CLI.md.
+  `code_context` and `_merge_symbol_ranges` docstrings and in skill/SKILL.md.
   No reindex is owed: no stored row changes.
 
 ## [Unreleased] — get-code-context symbol resolution
@@ -1380,7 +1380,7 @@ identity is unchanged and unchanged chunk text re-embeds from the cache.
   `find-callees` deliberately keeps TARGET-set identity `(file, to_name)` — its
   question is "what does this symbol reach", so a caller calling one target
   twice is one callee — and that asymmetry with `find-callers` is now written
-  down in the module docstring, the command docstrings and `SKILL-CLI.md`.
+  down in the module docstring, the command docstrings and `skill/SKILL.md`.
   **Expect more rows, and more truncation.** Every import statement is now its
   own site, so a heavily referenced symbol lists more nodes per answer and
   reaches the default `--max-nodes 40` sooner: expect more nodes per answer,
@@ -1410,7 +1410,7 @@ identity is unchanged and unchanged chunk text re-embeds from the cache.
   mismatch. Nothing else moves: a merely unverifiable index is not made a
   refusal (`ok` keeps its meaning of "no known mismatch"), so which surfaces
   refuse is unchanged and no emitted fingerprint state is re-stamped. The
-  command's help text and `SKILL-CLI.md` state the behaviour.
+  command's help text and `skill/SKILL.md` state the behaviour.
 
 ## [Unreleased] — the fingerprint refusal renders as one line (issue #16)
 
@@ -1443,7 +1443,7 @@ identity is unchanged and unchanged chunk text re-embeds from the cache.
   reports the *fingerprint* state: `fingerprint=needs-reindex reason=<diff>` is
   printed whenever the recorded fingerprint does not match the running
   configuration, the same verdict the other lifecycle surfaces give. The
-  `index-status` docstring and `SKILL-CLI.md` describe both vocabularies (pass
+  `index-status` docstring and `skill/SKILL.md` describe both vocabularies (pass
   state vs fingerprint state) so they are no longer confusable.
 - **the manifest-only surfaces warn once instead of answering silently
   (issue #13).** `find-references`, `find-callers`, `find-callees`, `deps`,
@@ -1561,7 +1561,7 @@ already needed.
   `unwatch --all` -> `reindex-project <path>` -> `watch --all --background`.
   A watcher left running across a bump silently reverts the fingerprint
   every sweep. Recorded in the `watch --help` text and this repo's
-  `SKILL-CLI.md` watch details; `doctor`'s fingerprint check names the live
+  `skill/SKILL.md` watch details; `doctor`'s fingerprint check names the live
   watcher when a mismatch is present.
 
 ## [Unreleased] — reference-store coverage and precision (#9)
@@ -1616,7 +1616,7 @@ new rows.
   chain deeper than one hop now carries `receiver=NULL`, because its receiver
   expression is itself a member access. The same-line receiver collapse
   (one row per `(file, line, to_name, relationship)`) is documented in
-  `graph_extract`, `manifest` and SKILL-CLI.md rather than fixed: keeping both
+  `graph_extract`, `manifest` and skill/SKILL.md rather than fixed: keeping both
   rows would require a `refs` table rebuild to change the primary key, which
   was measured as unclean against the gain for a rare shape. Both routes are
   pinned by test.
@@ -1663,10 +1663,10 @@ unified rows.
   lines and `receiver=` appears on a direct hit only, and only when the store
   holds one for that row. (2) `semantic-search --format json` carries
   `skipped`/`skipped_count` (plus a trailing line in text/compact), so a
-  consumer can tell the result is partial. (3) SKILL-CLI.md names the exact
+  consumer can tell the result is partial. (3) skill/SKILL.md names the exact
   `--fresh` command set. (4) `tests/test_flag_contract.py`'s description now
   matches its parametrisation and covers `changed-symbols`. (5) the two-store
-  union note is gone from SKILL-CLI.md. (6) the textual scan's comment rule is
+  union note is gone from skill/SKILL.md. (6) the textual scan's comment rule is
   stated precisely: lines BEGINNING with `#`/`//`/`*`/`--` are skipped, while
   trailing comments and strings match.
 - **`read_fingerprint` dropped `extraction_version` (found while running this
@@ -1697,10 +1697,10 @@ needed (all three are query-time or listing-time changes).
   (it leaked one registration per live run).
 - **`--skip-stale-check` is accepted everywhere, as documented** (efebc91,
   issue #7 second defect). `find-callers`, `find-callees`, `deps`,
-  `overview` and `changed-symbols` did not accept it while SKILL-CLI.md
+  `overview` and `changed-symbols` did not accept it while skill/SKILL.md
   claimed every command does; all five now take it and route it into the
   Core, and `eval-compare` accepts it as a no-op so the claim is literally
-  true. SKILL-CLI.md states exactly where the flag changes behavior.
+  true. skill/SKILL.md states exactly where the flag changes behavior.
 - **`find-references` and `find-callers` stop under-reporting** (issues #5,
   #7 main claim). `find-references` now reads the UNION of both reference
   stores (`symbol_refs`: invocation targets `calls`/`includes`;
@@ -1712,7 +1712,7 @@ needed (all three are query-time or listing-time changes).
   matched on the trailing member name, receiver reported per hit), and when
   the subject has no definition row (properties/fields are not extracted as
   symbols) it seeds from the `refs` rows and says so on `note:` lines instead
-  of printing a bare `no results`. SKILL-CLI.md and the command docstrings
+  of printing a bare `no results`. skill/SKILL.md and the command docstrings
   document which store answers what and that the graph is textual/unbound.
   Follow-up recommended but NOT done here: a tree-sitter C# references query
   and/or unifying the two reference tables (see the round report).
@@ -1720,7 +1720,7 @@ needed (all three are query-time or listing-time changes).
 Documentation-only corrections (no behavior changes); docs drift now guarded
 by `tests/test_docs.py` (runs in CI via `pytest -m "not live"`).
 
-- **SKILL-CLI.md** (agent-facing, 720d39c):
+- **skill/SKILL.md** (agent-facing, 720d39c):
   - decision tree stated the wrong default ranking; the real default is
     `--ranking vector` (pure cosine); added a one-line recommendation to pass
     `--ranking hybrid` for exact-identifier queries; removed the
@@ -1746,7 +1746,7 @@ by `tests/test_docs.py` (runs in CI via `pytest -m "not live"`).
   - front matter: trigger-oriented description; version aligned with
     pyproject (0.1.0); unsourced "855 B vs 2.2 KB measured" claim removed.
 - **README.md** (5690f46): rewritten as a short overview linked to
-  SKILL-CLI.md; CLI↔MCP parity table (replacing a false 1:1 claim;
+  skill/SKILL.md; CLI↔MCP parity table (replacing a false 1:1 claim;
   overview/index-more/doctor/watch/unwatch/eval* labeled CLI-only);
   canonical state table; schema history (current schema v5); updated
   staleness/fingerprint/filtering text; new troubleshooting, platform

@@ -1,6 +1,11 @@
 # ADR-0009: the agent surface -- skill layout and command documentation
 
 - Status: accepted (owner ratification 2026-11-07)
+- Amended: 2026-11-08 (owner directive) -- the entry document moved from the
+  repository root into `skill/SKILL.md`, in the directory that already holds
+  `skill/references/`, so the checkout layout is exactly what the installer
+  copies (SKILL.md plus references/ beside it). Nothing else in this record
+  changes.
 - Date: 2026-11-07
 - Deciders: owner (ratification), architecture review
 - Supersedes / Superseded by: --
@@ -11,18 +16,18 @@ The documentation an agent loads is split into one small entry document and refe
 
 ## Context
 
-1. The entry document is the largest thing an agent loads before it does anything. `SKILL-CLI.md` is 613 lines and 39,797 bytes (`wc -lc SKILL-CLI.md`), and the installed skill directory holds a copy of it.
+1. The entry document is the largest thing an agent loads before it does anything. At the repository root it was 613 lines and 39,797 bytes (`wc -lc`), and the installed skill directory held a copy of it.
 2. A single help page is already larger than the project's whole instruction file: `code-indexer watch --help` is 7,376 bytes over 84 lines, against `AGENT.md`'s 4,283 bytes over 73 lines. Flags are accurate in `--help` and are hand-copied into the document afterwards, which is where they drift.
-3. Nothing compares the two copies. The installed skill is a copy of `SKILL-CLI.md`, and no test in the suite reads the installed directory: the copy is correct on the day it is made and unverified on every day after.
+3. Nothing compares the two copies. The installed skill was a copy of the entry document, and no test in the suite reads the installed directory: the copy is correct on the day it is made and unverified on every day after.
 4. The proposal's section 8.2 asks for a small entry document with on-demand references and gives the reason -- an agent's context is the resource being spent -- but no record in the set decides what the entry document contains, what a reference contains, who refreshes the installed copy, or how drift is caught. The plan's round 5 carries the split as a deliverable, so the deliverable has no grant until this record exists.
-5. `README.md` points at `SKILL-CLI.md` five times, and the parity table ADR-0007 shortens lives in both documents. One fact in two homes is the shape that produced the "all 14 tools" drift ADR-0007 section 5 closes with a test.
+5. `README.md` points at the entry document five times, and the parity table ADR-0007 shortens lives in both documents. One fact in two homes is the shape that produced the "all 14 tools" drift ADR-0007 section 5 closes with a test.
 6. What an agent needs before it can choose a command is small and stable: the question-to-command mapping, which commands write, what an exit code means, and whether the answer it is about to trust describes the index or the tree. Everything else -- a flag's default, one operation's example, the plan workflow's four steps, a provider's failure modes -- is needed after that choice, if at all.
 
 ## Decision
 
 ### 1. The entry document
 
-`SKILL-CLI.md` stays where it is and keeps its name, so the README's five links to it keep working and the installed copy has one place to come from. It carries, and carries nothing else:
+The entry document stays where it is and keeps its name for this round, so the README's five links to it keep working and the installed copy has one place to come from; the 2026-11-08 amendment moves it to `skill/SKILL.md`, which changes the location and not this list. It carries, and carries nothing else:
 
 - the decision tree: one row per question shape, question to command;
 - the command roster: every registered command with its read-or-write class (ADR-0003 section 1) and one line on when to reach for it -- the twenty-seven commands that exist plus the six plan commands the plan adds;
@@ -60,7 +65,7 @@ Budget per reference: 400 lines and 24 KiB. Each reference opens with the record
 
 ### 4. Who owns the installed copy
 
-The tracked `SKILL-CLI.md` and `skill/references/` are the only source. The installed skill directory is a copy, refreshed by whoever cuts a release from the checkout: the release step installs the skill after the documentation test has passed, so the copy is never ahead of the tree it was made from and never behind it by more than one release.
+The tracked entry document (`skill/SKILL.md`) and `skill/references/` are the only source. The installed skill directory is a copy, refreshed by whoever cuts a release from the checkout: the release step installs the skill after the documentation test has passed, so the copy is never ahead of the tree it was made from and never behind it by more than one release.
 
 - An agent that finds the installed copy out of date reports it; it does not edit the installed copy, because an edit there is a fork the next install silently deletes.
 - The copy lives in one directory tree with its references, so the entry document's trigger lines resolve inside the installed skill and not only inside the checkout. Its location is `<skills-root>/code-indexer/`, where `<skills-root>` is the profile's skills directory and is passed to the release step as an argument -- the record names a shape, because a machine path in a published document is a defect (the publishing check). The skill is installed today as a symlink from that directory into the tracked file, and the release step replaces that symlink with a copy of the directory once `skill/references/` exists.
@@ -78,7 +83,7 @@ The tracked `SKILL-CLI.md` and `skill/references/` are the only source. The inst
 
 The MCP tool list stays a separate check (ADR-0007 section 5), in the same module, because it is a different document with a different owner of truth.
 
-The module as it stands finds the documented commands by scanning a fenced block in `SKILL-CLI.md` for lines beginning `code-indexer `, and three of its thirteen tests key on that block. The round that renders the roster from the registry replaces that parser with the registry comparison in the same commit, so the gate cannot fail for a parser the record did not anticipate.
+The module as it stands finds the documented commands by scanning a fenced block in the entry document for lines beginning `code-indexer `, and three of its thirteen tests key on that block. The round that renders the roster from the registry replaces that parser with the registry comparison in the same commit, so the gate cannot fail for a parser the record did not anticipate.
 
 ## Requirements this record resolves
 
@@ -100,7 +105,7 @@ The module as it stands finds the documented commands by scanning a fenced block
 
 - The entry document drops from 613 lines and 39,797 bytes to at most 120 lines and 8 KiB; the detail survives in five references, at the cost of one extra read when it is actually needed.
 - Two copies of the documentation exist (tracked and installed), and a test now pins them instead of a release note promising that they agree.
-- `README.md`'s five links to `SKILL-CLI.md` keep working, and the parity table moves to `README.md` alone.
+- `README.md`'s links to the entry document keep working, and the parity table moves to `README.md` alone.
 - A command added to the registry without a roster line fails the suite, so the entry document cannot lag the CLI by a release again.
 - Tests that must exist: roster equality, index closure, both budgets, taxonomy coverage, generated-block equality, and the installed-copy digest with its skip case. `tests/test_docs.py` carries thirteen tests today; the six checks extend it rather than starting a second module.
 - A reference that grows past 400 lines is split at its next concern boundary, not exempted.

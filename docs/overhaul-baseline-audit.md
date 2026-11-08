@@ -5,7 +5,9 @@ evidence for every claim. This document decides nothing and changes nothing.
 Contested choices are collected in "Questions for the decision leg".
 
 Base revision: tip `ef2be78` (`main`). The working tree carried untracked
-`runs/` evidence only; no tracked file was modified by this audit.
+`runs/` evidence only; no tracked file was modified by this audit. Paths and
+sizes are as measured at that revision; where a path below names the entry
+document, it names it where the file sits today (`skill/SKILL.md`).
 
 Terminology: "manifest" is the per-project SQLite file under the index root;
 "index root" is `INDEX_ROOT` (default `~/.code-indexer`, written here as
@@ -403,7 +405,7 @@ Ollama request, `embedder.py:87-100`) before a single file is scanned. No
 configuration key, flag or environment variable disables embedding: the
 config surface carries `EMBED_MODEL`, `EMBED_BATCH`, `EMBED_CACHE`,
 `EMBED_CONCURRENCY`, `EMBED_CACHE_MAX_GB`, `QUERY_INSTRUCTION`, and nothing
-resembling "vectors off" (`config.py`; `SKILL-CLI.md` Key rules).
+resembling "vectors off" (`config.py`; `skill/SKILL.md` Key rules).
 
 Measured, on a throwaway index root and a two-file throwaway project (nothing
 touched the live index): `code-indexer add-project` with `QDRANT_URL` and
@@ -507,21 +509,21 @@ real, and `tests/test_mcp_server.py:132`
 Do household agents get told to call the MCP tools rather than the CLI?
 Evidence only: the installed household skill at
 `~/.hermes/skills/code-indexer/SKILL.md` is byte-identical to the repo's
-`SKILL-CLI.md` (sha256 `7158c0a2e17376a77c0cb41ff3c9d3e99d72cef36feec6cccb33e87f805ec3da`,
+`skill/SKILL.md` (sha256 `7158c0a2e17376a77c0cb41ff3c9d3e99d72cef36feec6cccb33e87f805ec3da`,
 613 lines each) and mentions MCP four times, every one of them a "this
-command has no MCP tool" note (`SKILL-CLI.md:429, 442, 518, 520`). Its
-decision tree (`SKILL-CLI.md:14-45`) is entirely CLI. `README.md` mentions MCP
+command has no MCP tool" note (`skill/SKILL.md:429, 442, 518, 520`). Its
+decision tree (`skill/SKILL.md:14-45`) is entirely CLI. `README.md` mentions MCP
 19 times, including the parity table and the client-config block.
 
 ## 7. Skill / help surface
 
 | Surface | Lines | Bytes | Est. tokens (/4) | Headings |
 |---|---|---|---|---|
-| `SKILL-CLI.md` (installed as the household skill, byte-identical) | 613 | 39,797 | 9,949 | 20 |
+| `skill/SKILL.md` (installed as the household skill, byte-identical) | 613 | 39,797 | 9,949 | 20 |
 | `README.md` | 270 | 13,372 | 3,343 | 17 |
 | `AGENT.md` | 73 | 4,283 | 1,070 | 5 |
 
-`SKILL-CLI.md` section headings: When to use; Decision tree (agent workflow);
+`skill/SKILL.md` section headings: When to use; Decision tree (agent workflow);
 Automatic indexing (watch daemon); Commands; Subcommand reference; Token
 reduction (schema v3); watch details; Project selection; Store reads (no
 silent caps); Key rules; Gotchas — the "Commands" section also carries nine
@@ -573,7 +575,7 @@ measurement contradicts.
 | Preview-before-mutation, stale refusal, overlap detection, optimistic concurrency at the code layer | **absent** here; **present** in filekeeper | `keeper 0.1.8`: `--expected-hash`, `--dry-run`, `file apply-patch`, `replace-lines`, `insert-lines`, `delete-lines` (section 9) | §6.6 items 2, 4, 9, 11, 12 presuppose a mutation path in this tool; the mutation path belongs to filekeeper, which this tool never calls |
 | CLI-first with JSON output | partial | 14 of 27 registered commands accept `--json` or `--format` (12 distinct commands plus the `map` and `file-outline` aliases). The 13 that do not: `add-project`, `index-more`, `remove-project`, `reindex-project`, `list-projects`, `lookup-project`, `index-status`, `find-definition`, `find-references`, `watch`, `unwatch`, `eval`, `eval-compare` | §8.1's "`--json` output for machine consumption" is not universal |
 | Predictable exit codes | partial | `errors.py` taxonomy, but a failed `semantic-search` exits 0 (measured) and the MCP layer discards the exit code | §8.1 |
-| Small SKILL plus on-demand references | **absent** | one 613-line, 39,797-byte `SKILL-CLI.md`; the installed skill directory holds exactly one file, no `references/` | §8.2's reference layout does not exist |
+| Small SKILL plus on-demand references | **absent** | one 613-line, 39,797-byte `skill/SKILL.md`; the installed skill directory holds exactly one file, no `references/` | §8.2's reference layout does not exist |
 | MCP as a thin adapter (§8.3) | present | 18 tools, argv and relay only, no store access (section 6) | §8.3 asks whether it earns its cost; the measurable costs are 22,491 B of schema, 284 ms on every CLI start, and 42 tests |
 | Optional MCP and optional semantics | **absent** | `mcp`, `ollama`, `qdrant-client` are hard dependencies (`pyproject.toml:19-22`); `mcp` is imported at package import (`__init__.py:8`) | §4.2's "the default core install must not import, start, configure, or probe optional services" is false today |
 | Core install without semantic extras | **absent** | same, plus indexing is impossible without both services (section 4) | §4.3 and Milestone 1's "a clean core installation can index and query a supported repository" cannot hold today |

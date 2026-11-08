@@ -90,7 +90,7 @@ COMMAND_REFERENCE: dict[str, str] = {
 
 # key -> file that carries the block
 GENERATED: dict[str, Path] = {
-    "roster": REPO / "SKILL-CLI.md",
+    "roster": REPO / "skill" / "SKILL.md",
     "json-commands": REPO / "skill" / "references" / "machine-output.md",
     **{
         f"commands-{name[: -len('.md')]}": REPO / "skill" / "references" / name

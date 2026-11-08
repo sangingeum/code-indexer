@@ -486,7 +486,7 @@ def test_the_only_reads_that_answer_compact_unlisted_are_the_two_aliases(rig):
 
 def test_the_documented_compact_roster_matches_the_frozenset():
     """The entry document's seven names are the frozenset's seven names."""
-    entry = (pathlib.Path(__file__).parent.parent / "SKILL-CLI.md").read_text(
+    entry = (pathlib.Path(__file__).parent.parent / "skill" / "SKILL.md").read_text(
         encoding="utf-8")
     rows = [line for line in entry.splitlines()
             if line.startswith("| `--format compact` |")]

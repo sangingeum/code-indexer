@@ -267,7 +267,7 @@ Files touched, in order:
    phase 2. Shared project-resolution helper `_resolve` already exists.
 7. `server.py` — MCP tools `skeleton`, `outline` (+2 later), same
    parameter names as CLI flags per the 1:1 rule.
-8. `README.md`, `SKILL-CLI.md` — new subcommand lines + tools table rows.
+8. `README.md`, `skill/SKILL.md` — new subcommand lines + tools table rows.
 
 Test strategy (`tests/`, pytest, following `test_codeintel.py`):
 
