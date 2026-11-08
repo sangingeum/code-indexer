@@ -89,8 +89,9 @@ code-indexer eval-compare /tmp/eval-dense.json /tmp/eval-rerank.json
 - `eval` needs both required arguments: `--project` (path, slug or name) and
   `--queries` (a `queries.jsonl`, one `{id, query, relevant[]}` object per
   line). `--k` takes a comma-separated list (default `1,3,5,10`), `--mode`
-  takes `dense` (default), `lexical` or `hybrid`, and `--rerank` takes
-  `heuristic` or `none` (default off).
+  takes `dense` (default), `lexical` or `hybrid` -- the same three pipelines
+  `semantic-search` runs -- and `--rerank` takes `heuristic` or `none`
+  (default off).
 - Without `--out` the report is printed; with it the JSON report is written
   and stdout carries the progress lines. The report has `project`, `mode`,
   `queries`, `metrics` (`recall@k` per requested k, `mrr`, `ndcg@10`,
@@ -172,7 +173,9 @@ with another. One run of
 `uv run python scripts/probe_embed_drift.py --form both --trials 6` -- which
 unloads the model before every trial, so every trial crosses a load boundary
 -- saw that pair differ in all 6 load-boundary trials of each form: 1.592e-03
-per component for the bare form and 3.990e-03 for the instructed one. The same
+per component for the bare form and 3.990e-03 for the instructed one. The text
+is the probe's default (`--text` omitted); a different text measures a
+different size. The same
 command with `--reload once`, where only the first trial of each form crosses
 a load, saw every warm immediate repeat return the SAME vector: delta
 0.000e+00 in all 10 warm trials of that run (5 bare, 5 instructed).
@@ -181,8 +184,9 @@ So a read's answer depended on whether it happened to be the first call after
 a load -- which a fresh CLI process can be, and which the embedding cache now
 removes by fixing the bytes: the first read embeds the query once, rounds it
 to float16, writes it to the embedding cache and searches the stored bytes, so
-every later read of that text searches identical bytes whatever the service is
-doing.
+every later read of that text searches identical bytes with the cache on
+(the default; the `EMBED_CACHE=0` limit is stated below) whatever the service
+is doing.
 
 What a later request does to that form is a per-form observation, not a
 guarantee. In that same run the bare form's call after a different request
