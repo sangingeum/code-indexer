@@ -25,10 +25,11 @@ logger = logging.getLogger("code-indexer.tschunker")
 # indexes are flagged for reindex instead of silently mixing old and new
 # chunks. Cosmetic changes that never alter output do not need a bump.
 # v2: an oversized unit's split pieces carry the file lines they came from.
-# v1 counted the unit's start twice and drifted by each piece's length, so a
-# split declaration reported a range past EOF (392 of 823 files on the
-# vivarium tree). Same text, different ranges: rows built by v1 describe an
-# index this build would not produce.
+# A split piece's line inside the unit is already 1-based, so its file line is
+# `unit_start + piece_start - 1` -- there is no running offset to add. v1
+# counted the unit's start twice and drifted by each piece's length, so a
+# split declaration reported a range past EOF. Same text, different ranges:
+# rows built by v1 describe an index this build would not produce.
 CHUNKER_VERSION = 2
 
 try:

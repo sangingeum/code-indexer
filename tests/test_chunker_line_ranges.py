@@ -85,9 +85,8 @@ def test_only_real_line_terminators_split_a_line(separator):
 # added the piece's own start line (relative to the unit text, so 1-based),
 # and advanced the offset by each piece's LENGTH -- so the unit's start was
 # counted twice and every later piece drifted further. The reported range of
-# a split declaration was then a range the file does not have: 392 of 823
-# real files and 5053 chunk rows ran past EOF. A split piece's start_line is
-# already relative to the unit text, so the file line is
+# a split declaration was then a range the file does not have. A split
+# piece's start_line is already relative to the unit text, so the file line is
 # ``unit_start + piece_start - 1`` -- no running offset.
 # ---------------------------------------------------------------------------
 
