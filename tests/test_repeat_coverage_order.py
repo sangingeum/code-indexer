@@ -24,11 +24,7 @@ import pytest  # noqa: E402
 from code_indexer import ordering  # noqa: E402
 from code_indexer.config import Config  # noqa: E402
 from code_indexer.core import Core  # noqa: E402
-from code_indexer.ranking import (  # noqa: E402
-    class_order,
-    demote_repeated_spans,
-    query_tokens,
-)
+from code_indexer.ranking import class_order, query_tokens  # noqa: E402
 from code_indexer.registry import Registry  # noqa: E402
 
 FILES = {
@@ -54,6 +50,8 @@ def hit(score: float, file: str, start: int, end: int,
 def test_a_repeated_span_yields_its_slot_to_a_new_region():
     """A window and a declaration over the same lines are one region shown
     twice: the second one moves behind a span no hit has shown."""
+    from code_indexer.ranking import demote_repeated_spans
+
     window = hit(0.90, "src/region.py", 10, 30)
     declaration = hit(0.89, "src/region.py", 10, 40, symbol="region")
     elsewhere = hit(0.70, "src/elsewhere.py", 5, 12, symbol="other")
@@ -70,6 +68,8 @@ def test_a_repeated_span_yields_its_slot_to_a_new_region():
 def test_a_partial_overlap_counts_as_the_same_region():
     """One line of overlap is enough: the shifted window shows lines the
     earlier hit already showed."""
+    from code_indexer.ranking import demote_repeated_spans
+
     first = hit(0.80, "src/region.py", 40, 60)
     shifted = hit(0.79, "src/region.py", 59, 70)
     fresh = hit(0.60, "src/region.py", 1, 20)
@@ -80,6 +80,8 @@ def test_a_partial_overlap_counts_as_the_same_region():
 
 
 def test_distinct_spans_of_one_file_keep_the_modes_order():
+    from code_indexer.ranking import demote_repeated_spans
+
     a = hit(0.9, "src/region.py", 1, 10)
     b = hit(0.8, "src/region.py", 30, 40)
     c = hit(0.7, "src/region.py", 60, 70)
@@ -90,6 +92,8 @@ def test_the_demotion_stays_inside_the_hits_own_rung():
     """A source duplicate never falls behind a document: the class order is
     the outer key, and this pass only decides which member of a rung takes
     which slot."""
+    from code_indexer.ranking import demote_repeated_spans
+
     source_first = hit(0.95, "src/region.py", 10, 30)
     source_repeat = hit(0.94, "src/region.py", 10, 40, symbol="region")
     document = hit(0.40, "docs/guide.md", 1, 3)
@@ -105,6 +109,8 @@ def test_the_demotion_stays_inside_the_hits_own_rung():
 def test_the_answer_is_a_permutation_of_the_pool():
     """An order, never a filter and never a merge: nothing is dropped, and
     no two hits become one."""
+    from code_indexer.ranking import demote_repeated_spans
+
     pool = [hit(0.9, "src/region.py", 10, 30),
             hit(0.89, "src/region.py", 10, 40, symbol="region"),
             hit(0.7, "src/elsewhere.py", 5, 12, symbol="other"),
@@ -115,6 +121,8 @@ def test_the_answer_is_a_permutation_of_the_pool():
 
 
 def test_applying_the_pass_twice_is_the_identity():
+    from code_indexer.ranking import demote_repeated_spans
+
     pool = [hit(0.9, "src/region.py", 10, 30),
             hit(0.89, "src/region.py", 10, 40, symbol="region"),
             hit(0.7, "src/elsewhere.py", 5, 12, symbol="other")]
@@ -124,6 +132,8 @@ def test_applying_the_pass_twice_is_the_identity():
 
 def test_a_hit_without_a_range_keeps_its_place():
     """A lexical hit with no line range has no span to repeat."""
+    from code_indexer.ranking import demote_repeated_spans
+
     first = hit(0.9, "src/region.py", 10, 30)
     rangeless = hit(0.85, "src/region.py", 0, 0, symbol="region")
     rangeless.pop("start_line")
@@ -140,6 +150,8 @@ def test_a_hit_without_a_range_keeps_its_place():
 def test_the_rung_reads_each_hits_own_project_ladder():
     """The same file is tests in a project that declares `spec_e2e`, source
     elsewhere -- so the demotion groups them exactly as the class order did."""
+    from code_indexer.ranking import demote_repeated_spans
+
     declared = ordering.ClassNames(
         tests=ordering.DEFAULT_CLASS_NAMES.tests | {"spec_e2e"})
 

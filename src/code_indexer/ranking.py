@@ -22,6 +22,9 @@ retrieval mode (`--mode dense`, `hybrid`, `lexical`):
   overlaps a span an earlier hit of the same file already shows moves behind
   the distinct spans of its own rung, so a region no hit has shown yet
   outranks a re-shown one. Still an ORDER: never a filter, never a merge.
+  `merge_overlapping` runs before it on a shipped read, where it has already
+  collapsed the same-file siblings, so the pass acts on the unmerged (eval)
+  answer.
 - **two waivers**, stated here because a waiver nobody wrote down is folklore:
   1. a query that targets tests — a token in `TEST_QUERY_MARKERS` (`test`,
      `tests`, `testing`, `spec`, `specs`, `fixture`, `fixtures`, `unittest`,
@@ -270,6 +273,9 @@ def demote_repeated_spans(hits: list[dict[str, Any]],
                           | None = None) -> list[dict[str, Any]]:
     """A chunk whose lines an earlier hit of the same file already shows does
     not take an answer slot ahead of a region no hit has shown yet.
+
+    Expects the hits already grouped by rung, as `class_order` returns them:
+    the span memory resets at each rung change.
 
     The chunker emits several vectors for one code region -- a declaration and
     an anonymous line window over the same lines, a class and its methods, a

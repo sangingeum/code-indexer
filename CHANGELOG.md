@@ -2,6 +2,19 @@
 
 ## [Unreleased] — the graph says what it can see
 
+**A repeated chunk span yields its slot to a distinct region.** The chunker
+emits several vectors for one code region -- a declaration and an anonymous
+line window over the same lines, a class and its methods -- so two slots of one
+answer could show the same source twice while a different region never
+appeared. After the class key the ranking moves a hit whose span overlaps one
+an earlier hit of the same file already shows behind the distinct spans of its
+own rung. The rule is rung-scoped, so it can never put a source duplicate below
+a document; it is an order, never a filter, and a hit with no line range keeps
+its place. On a shipped read the earlier merge has already collapsed one
+file's overlapping and adjacent chunks into a single union hit before the
+class key, so the rule is an identity there: it acts on the unmerged answer
+`code-indexer eval` scores, which is the surface where its measured win lives.
+
 **A point repair needs no embedding service.** `reindex-project --repair-points`
 re-addresses vectors that are already in the collection, so it has no reason to
 ask the embedder anything -- yet it dialled the dimension probe, one request
