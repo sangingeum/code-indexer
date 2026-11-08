@@ -2738,8 +2738,10 @@ def get_code_context(
     project: str = typer.Option(
         None, "--project", "--name",
         help="Project path, slug, or name (--project X or --name X)."),
-    start_line: int = typer.Option(None, help="Start line (with --end-line)."),
-    end_line: int = typer.Option(None, help="End line."),
+    start_line: int = typer.Option(None, help="First line of the range; a "
+                                   "lone --start-line reads that one line."),
+    end_line: int = typer.Option(None, help="Last line of the range (needs "
+                                 "--start-line)."),
     symbol: str = typer.Option(None, help="Resolve range(s) via this symbol: "
                                    "the bare declaration name, never the "
                                    "dotted qualified_name (disambiguate with "
@@ -2763,7 +2765,14 @@ def get_code_context(
     A read: --fresh means "read the live file, ignore cached symbol rows" and
     writes nothing; --refresh runs one incremental pass first (the only flag
     that makes this read write). The JSON answer carries the index staleness
-    block, while its `stale` field keeps its file-level meaning."""
+    block, while its `stale` field keeps its file-level meaning.
+
+    The selector is required and is exactly one of the two shapes: a line
+    range or a --symbol. No selector, a --end-line with no --start-line, an
+    --end-line below its start, a --symbol beside a range, a range that
+    starts past the file's end, and a path outside the project are all
+    ArgumentError, exit 2 -- the request was wrong, not the tool. A file
+    that does not exist is NotFoundError, exit 1."""
     fmt = _output_format(output_format, json_output,
                          command="get-code-context")
     json_output = fmt == "json"

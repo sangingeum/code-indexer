@@ -324,6 +324,19 @@ contiguous run, `--context-lines` padding applied to each merged span after.
 Line-range mode on a changed file returns the requested lines plus one
 `Warning: ...` line on stderr and `stale: true` in JSON, exit 0.
 
+The selector is required and has exactly two shapes: a line range or a
+`--symbol`. Everything that cannot name a range is `ArgumentError`, exit 2,
+with nothing on stdout: no selector at all, `--end-line` without
+`--start-line`, an `--end-line` below its start, a `--symbol` given beside a
+range, and a `--start-line` past the file's last line. The one accepted
+shorthand is a lone `--start-line`, which reads that single line -- a
+complete request, so it answers. A path outside the project is the same
+usage error; a file that is not there is `NotFoundError`, exit 1, because the
+command's request was well formed and the file is simply absent. In symbol
+mode a span stored past the end of the file stays an in-band per-segment
+`error` field with exit 0: the caller named a symbol, so the stale range is
+a fact about the index, not a malformed request.
+
 ## What changed
 
 ```bash

@@ -18,8 +18,10 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from .config import Config, load_config
-from .errors import (BackendError, ExtensionUnavailableError, InternalError,
-                     LockedError, RebuildRequiredError, VectorsDisabledError)
+from .errors import (ArgumentError, BackendError,
+                     ExtensionUnavailableError, InternalError, LockedError,
+                     NotFoundError, RebuildRequiredError,
+                     VectorsDisabledError)
 from .extensions import SEMANTIC_EXTENSION_MESSAGE
 from .fingerprint import (ConfigError, EMBED_FORMAT, ROW_SIDE_KEYS,
                           configured_values, read_fingerprint,
@@ -1863,12 +1865,34 @@ class Core:
         same name is absorbed by the outer span. It is part of the answer,
         never a silent normalisation. Spans are returned in start-line order.
         """
+        # Request shape first, before any path or index state is consulted:
+        # a selector that cannot name a range is a usage error (exit 2), and
+        # ordering it first keeps one bad invocation on one answer class. A
+        # bare ValueError here used to fall through classify()'s
+        # "everything else" branch and render InternalError, which told a
+        # caller its tool had faulted when its own request was wrong.
+        if symbol is not None and (start_line is not None
+                                   or end_line is not None):
+            raise ArgumentError(
+                "--symbol and --start-line/--end-line are two ways to name "
+                "one range; pass one selector")
+        if end_line is not None and start_line is None:
+            raise ArgumentError(
+                "--end-line needs --start-line: a range with no start")
+        if (start_line is not None and end_line is not None
+                and end_line < start_line):
+            raise ArgumentError(
+                f"--end-line {end_line} is below --start-line {start_line}")
+        if symbol is None and start_line is None:
+            raise ArgumentError(
+                "provide --start-line/--end-line or --symbol")
+
         rel = file.lstrip("/")
         abs_path = os.path.normpath(os.path.join(entry.path, rel))
         if not abs_path.startswith(os.path.normpath(entry.path) + os.sep):
-            raise ValueError(f"error: path outside registered project: {file}")
+            raise ArgumentError(f"path outside registered project: {file}")
         if not os.path.isfile(abs_path):
-            raise ValueError(f"error: file not found: {abs_path}")
+            raise NotFoundError(f"file not found: {abs_path}")
 
         changed = self.file_changed_since_index(entry, rel)
         # (start, end, symbol_rows): symbol_rows is the number of stored rows
@@ -1918,12 +1942,19 @@ class Core:
             ranges.append((max(1, start_line - context_lines),
                            end + context_lines, None))
         else:
-            raise ValueError(
-                "error: provide --start-line/--end-line or --symbol")
+            raise AssertionError("unreachable: selectors were validated")
 
         with open(abs_path, encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
         total = len(lines)
+        if start_line is not None and start_line > total:
+            # LINE mode: the caller named lines the file does not have, so
+            # the range is wrong and says so as a usage error. Symbol mode
+            # keeps its per-segment ``error`` field, because the range there
+            # came from an index row rather than from the request.
+            raise ArgumentError(
+                f"--start-line {start_line} is past the end of {rel} "
+                f"({total} lines)")
         segments = []
         for s, e, symbol_rows in ranges:
             segment: dict[str, Any] = {"start_line": s, "end_line": e}

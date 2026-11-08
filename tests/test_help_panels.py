@@ -67,7 +67,7 @@ HELP_SHA256 = {
     "find-definition": "942d1b25ff86c60190b6a746964b45de7ed3007cef8949986ade85d2d313b507",
     "find-references": "5c9f6d3ad0ad64a3c9fd61a5a6868620f68214efd75bfcb8d4aa1195bfe2d80b",
     "find-symbol": "18c1f1871ec4170e7b9f9bad259216f3192168af6b26ce07d7b2120951933c9a",
-    "get-code-context": "a92b17bc85aec3447844f186ecdd22945d214d15762a33af7df8f29d85146bd9",
+    "get-code-context": "4dd9e032d6bcb8219681fd63388b4735072eddd0b664057d8b9976afe5cbb4e3",
     "index-more": "1fe062648cb4bf63c16cc5e5393f6e4f5cb8d384a18e0ed949a0e932683f5ca8",
     "index-status": "cb1c55293291b32c4522baa4258323be4bba9db223abbfec50c8970ba02ca3ca",
     "list-projects": "b5f210cdca0c74f18eb5853a67cdc9627db653b7a6c8198dc83f852959b92b92",

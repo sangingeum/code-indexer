@@ -44,7 +44,7 @@ stderr.
 
 | `ErrorType` | Cause | Remedy |
 |---|---|---|
-| `ArgumentError` | a bad flag value, an ambiguous name, `--exactly-one` against several definitions, `plan-apply --skip-stale-check`, `add-project` on an already registered path, `--json` together with a `--format` naming another format, `--format compact` on a command with no compact form, or two disagreeing spellings of one symbol | fix the invocation; for an ambiguous name the candidates are listed, and a refused format names the formats that command accepts |
+| `ArgumentError` | a bad flag value, a `get-code-context` selector that names no range or two at once (a lone `--end-line`, an end below its start, a range past the file's last line, a `--symbol` beside a range), an ambiguous name, `--exactly-one` against several definitions, `plan-apply --skip-stale-check`, `add-project` on an already registered path, `--json` together with a `--format` naming another format, `--format compact` on a command with no compact form, or two disagreeing spellings of one symbol | fix the invocation; for an ambiguous name the candidates are listed, and a refused format names the formats that command accepts |
 | `UnsupportedOperation` | a working provider or the plan format does not implement the requested operation (`rename_symbol`) | do the work another way; nothing was edited |
 | `AmbiguousNode` | two nodes in one file share name, kind and declaration hash | disambiguate by file and kind, or edit by hand |
 | `PlanFormatError` | a malformed plan, a duplicated path, or an unknown member that changes meaning | regenerate the plan; reading never rewrites one |
@@ -104,7 +104,7 @@ as a fact about the code, so the tool refuses instead.
 |---|---|---|
 | `InternalError` | a runtime failure with no more specific class | read the message; `doctor` if it repeats |
 | `ConfigError` | an invalid or missing configuration value | set the variable or flag the message names |
-| `NotFoundError` | a path, a plan file or an indexed definition that is not there | check the path; `list-projects` says which projects exist |
+| `NotFoundError` | a path, a plan file or an indexed definition that is not there (`get-code-context` on a file that does not exist is this class, not a usage error) | check the path; `list-projects` says which projects exist |
 | `NotUtf8` | a file the plan touches does not decode as UTF-8 | there is no lossy decode: fix the file's encoding and regenerate |
 | `NewlineMismatch` | the file's observed terminator differs from the plan's declaration | the file changed under the plan -- regenerate it |
 | `MixedNewlines` | a file mixes terminators, and the convention is refused rather than guessed | normalize the file to one terminator and regenerate |
