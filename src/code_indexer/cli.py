@@ -47,8 +47,8 @@ from .doctor import run_doctor
 from . import graph
 from . import overview as overview_mod
 from . import changed as changed_mod
-from .evalharness import (EVAL_MODES, compare_reports, format_eval_report,
-                          load_report, run_eval)
+from .evalharness import (EVAL_ARMS, EVAL_MODES, compare_reports,
+                          format_eval_report, load_report, run_eval)
 from .reranker import RERANK_MODES
 from .manifest import VISIBILITY_MODES, Manifest
 from .registry import ProjectEntry
@@ -3697,6 +3697,13 @@ def eval_command(
     k: str = typer.Option("1,3,5,10", "--k",
         help="Comma-separated k values for recall@k."),
     mode: str = typer.Option("dense", help=f"Eval mode: {EVAL_MODES}."),
+    arm: str = typer.Option("unmerged", "--arm",
+        help="Eval arm: unmerged (default -- the shaping configuration the "
+             "older tables were measured on) | merged (the shipped answer: "
+             "overlapping/adjacent same-file hits merge into one union hit "
+             "before the class key) | both (report the two side by side; one "
+             "retrieval per query, so it costs a second shaping pass, not a "
+             "second search)."),
     rerank: str = typer.Option(
         None, "--rerank", help="Rerank mode: heuristic | none (default off)."),
     out: str = typer.Option(None, "--out", help="Write the JSON report to this path."),
@@ -3711,11 +3718,20 @@ def eval_command(
     with no embedding call, and 'hybrid' is the dense ranking reciprocal-rank
     fused with the lexical ranking (plus the exact-symbol pin for an
     identifier-shaped query). Three distinct pipelines -- 'hybrid' is not an
-    alias of 'dense'."""
+    alias of 'dense'.
+
+    The arm names which shaping the numbers describe: 'merged' is the shipped
+    answer (overlapping and adjacent same-file hits collapse into one union hit
+    before the class key), 'unmerged' is the same retrieval with that pass
+    skipped and is what the older tables were measured on, and 'both' reports
+    the two side by side. A two-arm run retrieves each query once -- one
+    embedding and one vector search -- and shapes the pool twice, so it costs
+    one retrieval plus a second shaping pass, not two searches."""
     # A bad flag value is a usage error, refused before the core reads
     # anything -- and BEFORE --refresh can run a pass, so a wrong request can
     # never write the index first and fail afterwards.
     _refuse_unknown_value("--mode", mode, EVAL_MODES)
+    _refuse_unknown_value("--arm", arm, EVAL_ARMS)
     _refuse_unknown_value("--rerank", rerank, RERANK_MODES)
     ks = _parse_ks(k)
     core = _get_core(skip_stale_check)
@@ -3725,7 +3741,8 @@ def eval_command(
             _die(f"error: project not registered: {project}")
         core.refresh(entry)
     try:
-        report = run_eval(core, project, queries, ks=ks, mode=mode, rerank=rerank)
+        report = run_eval(core, project, queries, ks=ks, mode=mode, rerank=rerank,
+                          arm=arm)
     except ValueError as exc:
         _die(str(exc))
     if out:
@@ -3755,7 +3772,10 @@ def eval_compare(
         ra, rb = load_report(a), load_report(b)
     except json.JSONDecodeError as exc:
         _die(f"error: bad report JSON: {exc}")
-    typer.echo(compare_reports(ra, rb))
+    try:
+        typer.echo(compare_reports(ra, rb))
+    except ValueError as exc:
+        _die(str(exc))
 
 
 # The listing is grouped here, after every command is registered; the command

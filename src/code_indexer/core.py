@@ -10,12 +10,13 @@ last when the check cannot run. Only an explicit refresh writes.
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
 import re
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from .config import Config, load_config
 from .errors import (ArgumentError, BackendError,
@@ -160,6 +161,19 @@ def _merge_symbol_ranges(
         else:
             merged.append((start, end, 1))
     return merged
+
+
+class ShapedAnswers(NamedTuple):
+    """One retrieval's answers under both shapings, with their wall times.
+
+    ``answers`` maps ``merged`` to what a shipped read returns and
+    ``unmerged`` to the same pool with the merge pass skipped. The two share
+    one ``retrieval_s``; ``shaping_s`` is what each pass cost alone.
+    """
+
+    answers: dict[str, dict[str, Any]]
+    retrieval_s: float
+    shaping_s: dict[str, float]
 
 
 class Core:
@@ -1256,42 +1270,21 @@ class Core:
             out = head + out[RERANK_POOL:]
         return out
 
-    def search(self, query: str, project: str | None = None, limit: int = 8,
-               file_filter: str | None = None,
-               symbol_type: str | None = None,
-               language: str | None = None,
-               ranking_mode: str = "vector",
-               skip_refresh: bool = False,
-               mode: str = "dense",
-               per_file: int = 0,
-               max_chars: int | None = None,
-               max_tokens: int | None = None,
-               merge: bool = True,
-               rerank: str | None = None,
-               all_projects: bool = False,
-               budget_s: float | None = None) -> dict[str, Any]:
-        """Semantic search across one project, or (``all_projects``) all.
+    def _retrieval_pool(self, query: str, project: str | None, limit: int,
+                        file_filter: str | None, symbol_type: str | None,
+                        language: str | None, ranking_mode: str, mode: str,
+                        rerank: str | None, all_projects: bool,
+                        budget_s: float | None) -> tuple[
+                            dict[str, list[dict[str, Any]]],
+                            list[ProjectEntry], list[dict[str, str]]]:
+        """The expensive half of ``search``: resolution, the gates, ONE query
+        embedding and the per-project retrieval, before any shaping.
 
-        A read: it never indexes, never calls a staleness pass and never
-        retries an embedding. Resolution defaults to the containing project
-        inferred from the invocation path; fan-out requires ``all_projects``.
-        The query makes ONE embedding attempt (short timeout) and reuses its
-        vector for every project, so cost is bounded by construction. The
-        fan-out stops at ``budget_s`` (default 30 s) and reports the
-        remaining projects as skipped with ``reason=budget``.
-
-        ``skip_refresh`` is accepted and inert: reads no longer refresh, and
-        ``--refresh`` is the explicit write trigger.
-
-        Raises ValueError with a user-facing message on resolution errors,
-        ConfigError (a rebuild) from the fingerprint gate before any
-        embedding work, and BackendError when no project could answer.
-
-        Result shaping (token-budget work item): same-file overlapping/adjacent
-        hits are merged, at most ``per_file`` hits per file are kept (0 = no
-        generic cap), and ``max_chars``/``max_tokens`` trim the lowest-ranked
-        hits. Returns {'hits': [...], 'dropped': int, 'skipped': [...],
-        'partial': bool} so adapters can report trimming and a partial answer.
+        Nothing here merges, orders or trims: every project's hits come back
+        as its store and ranking produced them, so a caller can shape the
+        same retrieval more than once without paying for it twice. Raises
+        ValueError, ConfigError and BackendError exactly as ``search``
+        documents -- the refusals belong to the retrieval, not the shaping.
         """
         if mode not in SEARCH_MODES:
             raise ValueError(f"error: unknown search mode: {mode}")
@@ -1372,6 +1365,21 @@ class Core:
                                for s in skipped)
             raise BackendError(
                 f"search failed on every project ({detail})")
+        return per_project, entries, skipped
+
+    def _shape_answer(self, per_project: dict[str, list[dict[str, Any]]],
+                      entries: list[ProjectEntry],
+                      skipped: list[dict[str, str]], query: str, limit: int, *,
+                      merge: bool, per_file: int = 0,
+                      max_chars: int | None = None,
+                      max_tokens: int | None = None) -> dict[str, Any]:
+        """One retrieval's pools in, one answer out.
+
+        ``merge`` is the shipped shaping's first pass: overlapping or adjacent
+        hits of one file collapse into a union hit before the class key. The
+        hits are shaped in place, so a caller that shapes one pool twice hands
+        the second pass its own copy (``search_both_shapings`` does).
+        """
 
         if len(per_project) == 1:
             all_hits = next(iter(per_project.values()))
@@ -1425,6 +1433,101 @@ class Core:
         # is unchanged — this rides on the Core result dict only.
         return {"hits": all_hits[:max(1, limit)], "dropped": dropped,
                 "skipped": skipped, "partial": bool(skipped)}
+
+    def search(self, query: str, project: str | None = None, limit: int = 8,
+               file_filter: str | None = None,
+               symbol_type: str | None = None,
+               language: str | None = None,
+               ranking_mode: str = "vector",
+               skip_refresh: bool = False,
+               mode: str = "dense",
+               per_file: int = 0,
+               max_chars: int | None = None,
+               max_tokens: int | None = None,
+               merge: bool = True,
+               rerank: str | None = None,
+               all_projects: bool = False,
+               budget_s: float | None = None) -> dict[str, Any]:
+        """Semantic search across one project, or (``all_projects``) all.
+
+        A read: it never indexes, never calls a staleness pass and never
+        retries an embedding. Resolution defaults to the containing project
+        inferred from the invocation path; fan-out requires ``all_projects``.
+        The query makes ONE embedding attempt (short timeout) and reuses its
+        vector for every project, so cost is bounded by construction. The
+        fan-out stops at ``budget_s`` (default 30 s) and reports the
+        remaining projects as skipped with ``reason=budget``.
+
+        ``skip_refresh`` is accepted and inert: reads no longer refresh, and
+        ``--refresh`` is the explicit write trigger.
+
+        Raises ValueError with a user-facing message on resolution errors,
+        ConfigError (a rebuild) from the fingerprint gate before any
+        embedding work, and BackendError when no project could answer.
+
+        Result shaping (token-budget work item): same-file overlapping/adjacent
+        hits are merged, at most ``per_file`` hits per file are kept (0 = no
+        generic cap), and ``max_chars``/``max_tokens`` trim the lowest-ranked
+        hits. Returns {'hits': [...], 'dropped': int, 'skipped': [...],
+        'partial': bool} so adapters can report trimming and a partial answer.
+        """
+        if mode not in SEARCH_MODES:
+            raise ValueError(f"error: unknown search mode: {mode}")
+        per_project, entries, skipped = self._retrieval_pool(
+            query, project, limit, file_filter, symbol_type, language,
+            ranking_mode, mode, rerank, all_projects, budget_s)
+        return self._shape_answer(
+            per_project, entries, skipped, query, limit, merge=merge,
+            per_file=per_file, max_chars=max_chars, max_tokens=max_tokens)
+
+    def search_both_shapings(self, query: str, project: str | None = None,
+                             limit: int = 8,
+                             file_filter: str | None = None,
+                             symbol_type: str | None = None,
+                             language: str | None = None,
+                             ranking_mode: str = "vector",
+                             skip_refresh: bool = False,
+                             mode: str = "dense", per_file: int = 0,
+                             max_chars: int | None = None,
+                             max_tokens: int | None = None,
+                             rerank: str | None = None,
+                             all_projects: bool = False,
+                             budget_s: float | None = None
+                             ) -> ShapedAnswers:
+        """ONE retrieval, shaped twice: the shipped answer and the unmerged one.
+
+        ``merged`` is what a shipped read returns -- overlapping and adjacent
+        same-file hits collapse into one union hit before the class key.
+        ``unmerged`` is the same pool with that pass skipped, the shaping the
+        eval harness measured older tables on. The retrieval (query embedding,
+        vector search, fusion) runs once; only the shaping pass repeats, so
+        the two answers cost one retrieval plus a second shaping pass.
+
+        A caller that reports latency gets it measured, not inferred:
+        ``retrieval_s`` is the shared pass and ``shaping_s`` is each pass
+        alone.
+        """
+        if mode not in SEARCH_MODES:
+            raise ValueError(f"error: unknown search mode: {mode}")
+        started = time.perf_counter()
+        per_project, entries, skipped = self._retrieval_pool(
+            query, project, limit, file_filter, symbol_type, language,
+            ranking_mode, mode, rerank, all_projects, budget_s)
+        retrieval_s = time.perf_counter() - started
+        # The shaping mutates its hits (the share cap rewrites ``score``, the
+        # snippet trim rewrites ``snippet``), so the second pass gets its own
+        # copy. The pool is a few dozen small dicts, not the cost being saved.
+        pristine = copy.deepcopy(per_project)
+        answers: dict[str, dict[str, Any]] = {}
+        shaping_s: dict[str, float] = {}
+        for name, hits in (("merged", per_project), ("unmerged", pristine)):
+            t0 = time.perf_counter()
+            answers[name] = self._shape_answer(
+                hits, entries, skipped, query, limit, merge=name == "merged",
+                per_file=per_file, max_chars=max_chars, max_tokens=max_tokens)
+            shaping_s[name] = time.perf_counter() - t0
+        return ShapedAnswers(answers=answers, retrieval_s=retrieval_s,
+                             shaping_s=shaping_s)
 
     # ------------------------------------------------------------------
     # lexical / hybrid retrieval (FTS5 + RRF)

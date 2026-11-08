@@ -44,6 +44,13 @@ from .core import SEARCH_MODES
 # the wrong layer. The names live in core and are imported from there.
 EVAL_MODES = SEARCH_MODES
 
+# The arms the harness reports. ``merged`` is what a shipped read answers
+# (overlapping/adjacent same-file hits collapse into one union hit before the
+# class key); ``unmerged`` is the same retrieval with that pass skipped and is
+# the shaping the older tables were measured on; ``both`` reports the two side
+# by side from one retrieval per query.
+EVAL_ARMS = ("merged", "unmerged", "both")
+
 DEFAULT_KS = (1, 3, 5, 10)
 
 
@@ -139,69 +146,53 @@ def _hit_correct(core: "Core", entry: Any, hit: dict[str, Any],
     return any(hs <= e and s <= he for s, e in ranges)  # inclusive overlap
 
 
-def run_eval(core: "Core", project: str, queries_path: str | Path,
-             ks: list[int] = list(DEFAULT_KS), mode: str = "dense",
-             limit: int = 10, skip_refresh: bool = True,
-             rerank: str | None = None) -> dict[str, Any]:
-    """Run every query through Core.search and aggregate the metrics.
+def _query_result(core: "Core", entry: Any, q: EvalQuery,
+                  hits: list[dict[str, Any]], latency_s: float,
+                  ks: list[int]) -> QueryResult:
+    """Score one answer: the 1-based rank of its best correct hit, or None."""
+    rank: int | None = None
+    for i, hit in enumerate(hits, 1):
+        if rank is None and any(
+                _hit_correct(core, entry, hit, rel) for rel in q.relevant):
+            rank = i
+    return QueryResult(id=q.id, rank=rank,
+                       correct_at={k: rank is not None and rank <= k
+                                   for k in ks},
+                       latency_s=latency_s, hits=hits)
 
-    ``skip_refresh`` defaults to True: the eval measures ranking, not the
-    staleness pass, and a refresh mid-run would make latency non-comparable.
-    """
-    if mode not in EVAL_MODES:
-        raise ValueError(
-            f"error: unknown eval mode {mode!r} (expected one of {EVAL_MODES})")
-    queries = load_queries(queries_path)
-    entry, err = core.resolve_entry(project)
-    if entry is None:
-        raise ValueError(err)
 
-    ranking_mode = "vector"  # dense == the current pipeline
-    results: list[QueryResult] = []
-    for q in queries:
-        t0 = time.perf_counter()
-        hits = core.search(q.query, project=project, limit=max(limit, max(ks)),
-                           ranking_mode=ranking_mode, skip_refresh=skip_refresh,
-                           merge=False, rerank=rerank,
-                           mode=mode)["hits"]
-        latency = time.perf_counter() - t0
-        rank: int | None = None
-        for i, hit in enumerate(hits, 1):
-            if rank is None and any(
-                    _hit_correct(core, entry, hit, rel) for rel in q.relevant):
-                rank = i
-        results.append(QueryResult(
-            id=q.id, rank=rank,
-            correct_at={k: rank is not None and rank <= k for k in ks},
-            latency_s=latency, hits=hits))
+def _ndcg(rank: int | None, k: int) -> float:
+    """One query's nDCG contribution: a hit within k scores by its rank."""
+    if rank is None or rank > k:
+        return 0.0
+    return 1.0 / math.log2(rank + 1)
 
-    n = len(results)
+
+def _metrics(results: list[QueryResult], ks: list[int]) -> dict[str, float]:
+    """recall@k, MRR, nDCG@10 and the latency summary for one arm."""
     per_k: dict[str, float] = {}
     for k in ks:
-        recall = sum(1 for r in results if r.correct_at[k]) / n
+        recall = sum(1 for r in results if r.correct_at[k]) / len(results)
         per_k[f"recall@{k}"] = round(recall, 4)
     mrr = round(mean(
         1.0 / r.rank if r.rank is not None else 0.0 for r in results), 4)
-
-    def _ndcg(rank: int | None, k: int) -> float:
-        if rank is None or rank > k:
-            return 0.0
-        return 1.0 / math.log2(rank + 1)
-
     ndcg10 = round(mean(_ndcg(r.rank, 10) for r in results), 4)
     latencies = sorted(r.latency_s for r in results)
     p95_idx = max(0, math.ceil(0.95 * len(latencies)) - 1)
     return {
-        "project": entry.path,
-        "mode": mode + (f"+rerank-{rerank}" if rerank else ""),
-        "queries": n,
-        "metrics": {
-            **per_k,
-            "mrr": mrr,
-            "ndcg@10": ndcg10,
-            "mean_latency_s": round(mean(latencies), 4),
-            "p95_latency_s": round(latencies[p95_idx], 4),
-        },
+        **per_k,
+        "mrr": mrr,
+        "ndcg@10": ndcg10,
+        "mean_latency_s": round(mean(latencies), 4),
+        "p95_latency_s": round(latencies[p95_idx], 4),
+    }
+
+
+def _arm_report(results: list[QueryResult],
+                ks: list[int]) -> dict[str, Any]:
+    """One arm's metrics and per-query rows, in the report's field order."""
+    return {
+        "metrics": _metrics(results, ks),
         "results": [
             {
                 "id": r.id,
@@ -214,15 +205,94 @@ def run_eval(core: "Core", project: str, queries_path: str | Path,
     }
 
 
+def run_eval(core: "Core", project: str, queries_path: str | Path,
+             ks: list[int] = list(DEFAULT_KS), mode: str = "dense",
+             limit: int = 10, skip_refresh: bool = True,
+             rerank: str | None = None,
+             arm: str = "unmerged") -> dict[str, Any]:
+    """Run every query through the search pipeline and aggregate the metrics.
+
+    ``arm`` selects the shaping the numbers describe (``EVAL_ARMS``):
+    ``unmerged`` skips the merge of overlapping/adjacent same-file hits and is
+    the shaping the older tables were measured on; ``merged`` is the shipped
+    answer; ``both`` reports the two side by side from ONE retrieval per
+    query -- the query is embedded and the store searched once, and only the
+    shaping pass repeats, so a two-arm run costs one retrieval plus a second
+    shaping pass, not two searches.
+
+    ``skip_refresh`` defaults to True: the eval measures ranking, not the
+    staleness pass, and a refresh mid-run would make latency non-comparable.
+    """
+    if mode not in EVAL_MODES:
+        raise ValueError(
+            f"error: unknown eval mode {mode!r} (expected one of {EVAL_MODES})")
+    if arm not in EVAL_ARMS:
+        raise ValueError(
+            f"error: unknown eval arm {arm!r} (expected one of {EVAL_ARMS})")
+    queries = load_queries(queries_path)
+    entry, err = core.resolve_entry(project)
+    if entry is None:
+        raise ValueError(err)
+
+    ranking_mode = "vector"  # dense == the current pipeline
+    arms = ("merged", "unmerged") if arm == "both" else (arm,)
+    per_arm: dict[str, list[QueryResult]] = {name: [] for name in arms}
+    for q in queries:
+        if arm == "both":
+            shaped = core.search_both_shapings(
+                q.query, project=project, limit=max(limit, max(ks)),
+                ranking_mode=ranking_mode, skip_refresh=skip_refresh,
+                rerank=rerank, mode=mode)
+            for name in arms:
+                # The retrieval is shared; each answer owns its shaping time.
+                latency = shaped.retrieval_s + shaped.shaping_s[name]
+                per_arm[name].append(_query_result(
+                    core, entry, q, shaped.answers[name]["hits"], latency, ks))
+            continue
+        t0 = time.perf_counter()
+        hits = core.search(q.query, project=project, limit=max(limit, max(ks)),
+                           ranking_mode=ranking_mode, skip_refresh=skip_refresh,
+                           merge=arm == "merged", rerank=rerank,
+                           mode=mode)["hits"]
+        latency = time.perf_counter() - t0
+        per_arm[arm].append(_query_result(core, entry, q, hits, latency, ks))
+
+    report: dict[str, Any] = {
+        "project": entry.path,
+        "mode": mode + (f"+rerank-{rerank}" if rerank else ""),
+        "queries": len(queries),
+        "arm": arm,
+    }
+    if arm == "both":
+        report["arms"] = {name: _arm_report(per_arm[name], ks) for name in arms}
+        return report
+    report.update(_arm_report(per_arm[arm], ks))
+    return report
+
+
 def format_eval_report(report: dict[str, Any]) -> str:
-    """One-line summary + per-query table (deterministic field order)."""
-    m = report["metrics"]
+    """One-line summary + per-query table (deterministic field order).
+
+    An arm names itself on its own summary line, so a number can never be
+    read as coming from the other path. A two-arm report prints one such
+    block per arm.
+    """
+    if "arms" in report:
+        return "\n".join(
+            _format_one_arm(report, name, block)
+            for name, block in report["arms"].items())
+    return _format_one_arm(report, report.get("arm"), report)
+
+
+def _format_one_arm(report: dict[str, Any], arm: str | None,
+                    block: dict[str, Any]) -> str:
+    m = block["metrics"]
     lines = [
         f"eval project={report['project']} mode={report['mode']} "
-        f"queries={report['queries']}",
+        f"queries={report['queries']} arm={arm}",
         "  " + "  ".join(f"{k}={v}" for k, v in m.items()),
     ]
-    for r in report["results"]:
+    for r in block["results"]:
         rank = r["rank"] if r["rank"] is not None else "miss"
         lines.append(
             f"  {r['id']}: rank={rank} latency={r['latency_s']}s "
@@ -232,6 +302,11 @@ def format_eval_report(report: dict[str, Any]) -> str:
 
 def compare_reports(a: dict[str, Any], b: dict[str, Any]) -> str:
     """Delta table (b vs a) + per-query win/loss list. Deterministic."""
+    if "arms" in a or "arms" in b:
+        raise ValueError(
+            "error: eval-compare reads single-arm reports; a two-arm report "
+            "carries both arms already -- write one report per arm "
+            "(--arm merged / --arm unmerged) to compare across runs")
     ma, mb = a["metrics"], b["metrics"]
     keys = list(dict.fromkeys(list(ma) + list(mb)))
     lines = ["metric                    a          b         delta",
