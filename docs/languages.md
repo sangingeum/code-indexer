@@ -49,7 +49,12 @@ Legend:
   longer describes any symbol row.
 - prose and configuration (codeindexignore, csproj, css, gitignore, html, json, log, markdown, props, sln, text, toml, yaml)
   are indexed for SEARCH ONLY: chunks for semantic search and a
-  file row, with no symbols and no references. `find-definition`
+  file row, with no symbols and no references. What the class tests
+  is no SYMBOL reader and no reference the index RESOLVES -- the
+  formats carry reference-shaped text (a json `$ref`, an html href,
+  a css `var(--x)`), and none of it names a declaration this index
+  holds, so a stored row would be a guess the symbol table cannot
+  honour. `find-definition`
   cannot answer for anything in them, and says so through the empty-
   answer reason rather than returning prose as a definition.
 - an unparsed language is one with no symbol reader, NOT one the index

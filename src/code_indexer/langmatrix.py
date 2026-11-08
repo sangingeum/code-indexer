@@ -22,13 +22,25 @@ from __future__ import annotations
 from . import ts_chunker
 from .graph_extract import LANGUAGES_WITH_AST
 
-# Formats the index takes for SEARCH ONLY. Their content is prose or
-# configuration: there is no declaration in them to parse and no name
-# reference to resolve, so they contribute chunks (semantic search) and a
-# file row, and nothing to the symbol or reference tables. This is the
-# accuracy ruling of 2026-11-08: the symbol table is an authority other
-# agents act on, and a markdown heading lifted into it is a phantom
-# definition that find-definition answers for as though it were code.
+# Formats the index takes for SEARCH ONLY. What the class actually tests is
+# two facts, and "this format has no references in it" is neither of them:
+#
+#   * no symbol reader -- nothing in the format is parsed into a declaration
+#     row, so `find-definition` has nothing to answer with;
+#   * no reference the index RESOLVES -- the reference writer stores no row
+#     for the format, because none of the names inside it are names the
+#     symbol table holds.
+#
+# The second clause is narrower than it looks, and the difference is real: a
+# json `$ref`, an html `href` or `id`, a css `@import` or `var(--x)` are
+# reference-shaped text, and not one of them points at a declaration this
+# index parses. Storing them would be a heuristic guess about a graph nothing
+# here reads, at a confidence the matrix would then have to describe. So these
+# formats contribute chunks (semantic search) and a file row, and nothing to
+# the symbol or reference tables. This is the accuracy ruling of 2026-11-08:
+# the symbol table is an authority other agents act on, and a markdown heading
+# lifted into it is a phantom definition that find-definition answers for as
+# though it were code.
 #
 # One class, by LANGUAGE, never by filename: the two indexer seams (symbols
 # and references) and the matrix's own `references` column all read this set.
@@ -249,7 +261,12 @@ def render_markdown() -> str:
         "  longer describes any symbol row.",
         f"- prose and configuration ({', '.join(sorted(PROSE_OR_CONFIG_LANGUAGES))})",
         "  are indexed for SEARCH ONLY: chunks for semantic search and a",
-        "  file row, with no symbols and no references. `find-definition`",
+        "  file row, with no symbols and no references. What the class tests",
+        "  is no SYMBOL reader and no reference the index RESOLVES -- the",
+        "  formats carry reference-shaped text (a json `$ref`, an html href,",
+        "  a css `var(--x)`), and none of it names a declaration this index",
+        "  holds, so a stored row would be a guess the symbol table cannot",
+        "  honour. `find-definition`",
         "  cannot answer for anything in them, and says so through the empty-",
         "  answer reason rather than returning prose as a definition.",
         "- an unparsed language is one with no symbol reader, NOT one the index",
