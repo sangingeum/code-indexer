@@ -63,7 +63,7 @@ HELP_SHA256 = {
     "eval-compare": "298652501bfcbf1a9ba91e6083375aa3c67779bcd200f2c561faf52d259dbfc4",
     "file-outline": "0fd2dacf4af1dc9c18b64ea3472705a073590ab8901340029cc6f6f75ea61c3d",
     "find-callees": "29f43f252176e490c2e9af1b979c9aeedc091fdecec44e6a04f2e48cd99a14e2",
-    "find-callers": "58db2d2cccabeec27af286e411f18ff8f608cc6607b6b501e15dde9825818c22",
+    "find-callers": "3cd94f65f32e757ace545143426743c5b7f45f2d2a94069b8df67e73e89567f3",
     "find-definition": "942d1b25ff86c60190b6a746964b45de7ed3007cef8949986ade85d2d313b507",
     "find-references": "5c9f6d3ad0ad64a3c9fd61a5a6868620f68214efd75bfcb8d4aa1195bfe2d80b",
     "find-symbol": "18c1f1871ec4170e7b9f9bad259216f3192168af6b26ce07d7b2120951933c9a",
