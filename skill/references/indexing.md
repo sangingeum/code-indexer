@@ -363,38 +363,38 @@ larger than `MAX_FILE_BYTES` (1 MB default) and binaries are skipped, and
 `index-status` reports the skip counts.
 
 `.gitignore` and `.codeindexignore` answer different questions -- git decides
-what is committed, the index what is searchable. This repository excludes two
-non-source trees in the root `.codeindexignore`: `runs/` (round captures, gate
-output and command logs, kept in the working checkout, no longer tracked) and
-`eval/` (the retrieval corpus -- questions shaped like the ones users type, so
-indexing them ranks near-duplicate queries above the code they point at; this
-one stays tracked). Anchored to the repository root (`/runs/`, `/eval/`), they
-leave a same-named directory under `src/` indexed. Nested ignore files compose
-as git does: each spec is read root-outwards relative to its own directory,
-and the last matching rule decides -- a
-deeper `!pattern` re-includes what a shallower file excluded, and an anchored
-pattern (`/secret.txt`) anchors to the directory carrying it. The repo-local
-`.git/info/exclude` joins there -- anchored at the repository root even when
-only a subdirectory is scanned, read before every `.gitignore`, per repository
-only -- so the scan keeps what `git check-ignore` does not ignore. Rows
-already in a manifest leave on a reindex, not on the edit.
+what is committed, the index what is searchable. The root `.codeindexignore`
+excludes `runs/` (round captures and gate logs; untracked) and `eval/` (the
+retrieval corpus: user-shaped queries, so indexing them outranks the code;
+tracked), anchored to the root so a same-named `src/` directory stays indexed.
+Nested ignore files compose as git does: each is read root-outwards against
+its own directory and the last rule decides, so a deeper `!pattern`
+re-includes and an anchored one (`/secret.txt`) anchors where it sits. The
+repo-local `.git/info/exclude` joins there, read before every `.gitignore` and
+anchored at the repository root even for a subdirectory scan. Two deliberate
+limits: a user-global exclude is never read, and the exclude belongs to the
+repository covering the scanned root, never a nested one. On a tree with
+nothing untracked and not ignored the scan set is `git ls-files` minus `git
+check-ignore` hits; rows leave a manifest on a reindex, not on the edit.
 
-A file the sensitive scan withholds sits in the gap between scan set and
-manifest: scanned, deliberately rowless, and **not** a staleness reason. The
-diff re-applies the pass's own decision function (`sensitive.skip_verdict`,
-over the same 256 KiB prefix) and reports such a path with the layer that
-fired -- `1 file skipped (sensitive content)` on the `index-status` line, and
-`withheld_count` / `withheld_files` / `withheld_summary` in `--json` -- while
-the verdict stays `fresh`. A genuinely new non-sensitive file still reports
-`added`, and a withheld file that changes stays withheld; under
-`--allow-sensitive` nothing is withheld, so every rowless path is `added`,
-exactly the row the next pass writes.
+A withheld file sits between scan set and manifest: scanned, deliberately
+rowless, and **not** a staleness reason. The diff re-applies the pass's own
+decision function (`sensitive.skip_verdict`, over the same 256 KiB prefix) and
+reports such a path with the layer that fired -- `1 file skipped (sensitive
+content)` on the `index-status` line, and `withheld_count` / `withheld_files`
+/ `withheld_summary` in `--json` -- while the verdict stays `fresh`; two
+layers firing carry a per-reason numeral, one does not. A genuinely new
+non-sensitive file still reports `added`; because the decision is re-applied
+rather than remembered, a withheld file that changes stays withheld. Under
+`--allow-sensitive` nothing is withheld, so every rowless path is `added`.
 
-The check reads no more than the pass does: only rowless scanned paths are
-opened, up to the same 256 KiB prefix, inside an 8 MiB budget per check
-charged in bytes actually read (an approximation, not a measured threshold).
-A path past the budget stays `added` and rides `withheld_unexamined_count`.
+The check reads only rowless scanned paths, up to the same 256 KiB prefix,
+inside an 8 MiB budget charged in bytes actually read (an approximation, not a
+measured threshold). A path past the budget stays `added` and rides
+`withheld_unexamined_count`.
 
 A rowless path the check cannot OPEN is a third state -- scan and diff are two
 moments, so it reports `unreadable_count` / `unreadable_files` with `1 file
-could not be read (permission or I/O error)`, never `added` or withheld.
+could not be read (permission or I/O error)`, never `added` or withheld. The
+scanner drops paths it cannot open, so this reports only what the diff saw: a
+path the scan never returned is not counted.

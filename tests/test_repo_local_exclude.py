@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from code_indexer.scanner import scan_project
+from code_indexer.scanner import SKIP_IGNORED, ScanAccounting, scan_project
 
 GIT = shutil.which("git")
 needs_git = pytest.mark.skipif(GIT is None, reason="git is not installed")
@@ -150,3 +150,43 @@ def test_a_tracked_gitignore_negation_overrides_the_local_exclude(tmp_path):
     indexed = {f.path for f in scan_project(str(root))}
     assert "keep.log" in indexed
     assert "drop.log" not in indexed
+
+
+@needs_git
+def test_a_linked_worktree_s_pointer_file_is_not_indexed(tmp_path):
+    """A linked worktree carries a `.git` FILE, and the directory prune
+    cannot see it: the file's text is `gitdir: <host path>`, the one way a
+    machine path reaches the index."""
+    main = tmp_path / "main"
+    (main / "src").mkdir(parents=True)
+    _git(main, "init", "-q")
+    (main / "src" / "app.py").write_text("def main():\n    pass\n",
+                                          encoding="utf-8")
+    identity = ("-c", "user.name=test", "-c",
+                "user.email=test@example.invalid")
+    _git(main, *identity, "add", "-A")
+    _git(main, *identity, "commit", "-qm", "first")
+
+    worktree = tmp_path / "worktree"
+    _git(main, "worktree", "add", "-q", str(worktree), "-b", "side")
+    assert (worktree / ".git").is_file(), (
+        "the linked worktree did not get a pointer file")
+    assert (worktree / ".git").read_text(encoding="utf-8").startswith(
+        "gitdir:")
+    (worktree / "src" / "side.py").write_text("SIDE = 1\n", encoding="utf-8")
+    _git(worktree, *identity, "add", "-A")
+    _git(worktree, *identity, "commit", "-qm", "side")
+
+    accounting = ScanAccounting()
+    rows = scan_project(str(worktree), accounting=accounting)
+    indexed = {f.path for f in rows}
+    tracked = set(_git(worktree, "ls-files").split())
+
+    assert ".git" not in indexed, sorted(indexed)
+    assert indexed == tracked, (sorted(indexed), sorted(tracked))
+    assert ".git" in accounting.examples.get(SKIP_IGNORED, []), (
+        accounting.as_dict())
+    leaked = [f.path for f in rows
+              if "gitdir:" in Path(f.abs_path).read_text(
+                  encoding="utf-8", errors="replace")]
+    assert leaked == [], leaked

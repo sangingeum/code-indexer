@@ -21,8 +21,20 @@ exclude named them. The scan now finds the repository covering the project
 root (`$GIT_COMMON_DIR/info/exclude` for a linked worktree, never a user-global
 exclude file), anchors its patterns at the repository root even when only a
 subdirectory is scanned, and reads it BEFORE every `.gitignore` so a tracked
-negation still wins -- git's own precedence. Against real git the scan set now
-reconciles: indexed files == `git ls-files` minus `git check-ignore` hits.
+negation still wins -- git's own precedence. Against real git, on a tree with
+nothing untracked and not ignored, the scan set now reconciles: indexed files
+== `git ls-files` minus `git check-ignore` hits. Two limits are deliberate: a
+user-global exclude file is never read, and the exclude is resolved for the
+repository covering the scanned root, not per nested repository.
+
+**A linked worktree's `.git` pointer file is not indexed.** The directory
+prune covers the `.git` DIRECTORY only, so a linked worktree (or submodule),
+whose `.git` is a FILE holding `gitdir: <host path>`, had that file scanned
+and its text indexed. The filename loop now skips it as ignored, so a host
+path cannot reach the index through it. Future scans only: a pass does not
+purge rows for a path that left the scan set, and the sweep keeps a row whose
+file still exists on disk, so an already-stored one leaves on
+`reindex-project` for that project.
 
 **`EXTRACTION_VERSION` 14 -> 15** for both, in one bump because both change
 what the index holds: rows built by 14 carry no qualified-call rows and a scan

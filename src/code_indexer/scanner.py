@@ -476,6 +476,16 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
             rel_path = os.path.relpath(abs_path, root).replace(os.sep, "/")
             if accounting is not None:
                 accounting.walked += 1
+            # The SKIP_DIRS prune above removes the .git DIRECTORY only. A
+            # linked worktree (or a submodule) carries a .git FILE instead,
+            # whose text is a "gitdir: <machine path>" pointer: there is
+            # nothing to index in it, and it is the one way a host path could
+            # reach the index.
+            if fname == ".git":
+                logger.debug("skip (git pointer file): %s", rel_path)
+                if accounting is not None:
+                    accounting.skip(SKIP_IGNORED, rel_path)
+                continue
             # Every ignore spec from root down to this directory, root
             # first: the last matching rule decides (design Risk 5).
             if _ignored(rel_path, specs, root):

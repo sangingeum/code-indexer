@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import pytest  # noqa: E402
 
+from code_indexer import graph  # noqa: E402
 from code_indexer.config import Config  # noqa: E402
 from code_indexer.core import Core  # noqa: E402
 from code_indexer.registry import Registry  # noqa: E402
@@ -48,6 +49,19 @@ void use() {
     geo::place();
     geo::Point p;
     p.x = 1;
+}
+"""
+
+# A DEFINITION, not only the header's declaration: a declaration writes no
+# symbol row, so the call could never resolve against the header alone.
+GEO_DEFINITIONS = """\
+#include "geo.h"
+
+namespace geo {
+
+void place() {
+}
+
 }
 """
 
@@ -115,6 +129,7 @@ def _rig(tmp_path, files: dict[str, str], name: str):
 @pytest.fixture()
 def qualified_project(tmp_path):
     core, entry, reg = _rig(tmp_path, {"geo.h": GEO_HEADER,
+                                       "geo.cpp": GEO_DEFINITIONS,
                                        "use.cpp": GEO_USER}, name="qualified")
     yield core, entry
     reg.close()
@@ -135,6 +150,9 @@ def test_a_call_through_a_qualified_name_records_a_call_row_naming_the_callee(
     assert rows, "a call through a namespace still has no caller edge"
     assert {r[0] for r in rows} == {"use.cpp"}, rows
     assert {r[1] for r in rows} == {4}, rows
+    # The caller EDGE, not just the row: the def in geo.cpp is what makes the
+    # call resolvable, and the header's declaration alone never did.
+    assert all(r[3] is not None for r in rows), rows
 
 
 def test_a_qualified_type_use_stays_a_type_row_and_never_becomes_a_call(
@@ -154,3 +172,20 @@ def test_a_qualified_type_use_stays_a_type_row_and_never_becomes_a_call(
         m.close()
     assert {r[0] for r in point} == {"type"}, point
     assert calls == [], calls
+
+
+def _walk(nodes):
+    for n in nodes:
+        yield n
+        yield from _walk(n.children)
+
+
+def test_find_callers_returns_the_call_site_of_a_qualified_call(
+        qualified_project):
+    """The resolved edge is what `find-callers place` walks: the caller is
+    the `use.cpp` line the fixture writes, not an unresolved row."""
+    core, entry = qualified_project
+    result = graph.find_callers(core, entry.slug, "place")
+    sites = [(n.file, n.line) for n in _walk(result.nodes)
+             if n.relationship == "call"]
+    assert ("use.cpp", 4) in sites, [n.label() for n in _walk(result.nodes)]
