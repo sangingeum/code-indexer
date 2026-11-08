@@ -25,7 +25,12 @@ logger = logging.getLogger("code-indexer.tschunker")
 # whenever a change alters which chunks/symbols a file produces, so existing
 # indexes are flagged for reindex instead of silently mixing old and new
 # chunks. Cosmetic changes that never alter output do not need a bump.
-CHUNKER_VERSION = 1
+# v2: an oversized unit's split pieces carry the file lines they came from.
+# v1 counted the unit's start twice and drifted by each piece's length, so a
+# split declaration reported a range past EOF (392 of 823 files on the
+# vivarium tree). Same text, different ranges: rows built by v1 describe an
+# index this build would not produce.
+CHUNKER_VERSION = 2
 
 try:
     import tree_sitter_language_pack
@@ -277,7 +282,14 @@ def _walk(node, data: bytes, out: list[Chunk],
                 # source stays 'ast': the unit boundary is AST-derived; only
                 # the split is mechanical (design round-1 decision).
                 subs = fallback_chunk(node_text)
-                offset = start
+                # A piece's line numbers are relative to ``node_text``, whose
+                # first line is file line ``start``. Map each piece straight
+                # onto the file. A running offset cannot be used: it would
+                # count ``start`` a second time (the piece's 1-based line
+                # already contains the same shift) and the pieces OVERLAP by
+                # OVERLAP_LINES, so adding lengths would drift on every
+                # window too -- the reported range would name text the file
+                # does not have.
                 for s in subs:
                     # Only the FIRST sub-piece is the declaration head and
                     # carries the container's symbol/type. Later pieces are
@@ -289,15 +301,14 @@ def _walk(node, data: bytes, out: list[Chunk],
                     out.append(Chunk(
                         text=s.text, chunk_hash=s.chunk_hash,
                         symbol=symbol if s.start_line == 1 else None,
-                        start_line=offset + s.start_line - 1,
-                        end_line=offset + s.end_line - 1,
+                        start_line=start + s.start_line - 1,
+                        end_line=start + s.end_line - 1,
                         chunk_index=0, source="ast",
                         symbol_type=sym_type if s.start_line == 1 else None,
                         signature=signature if s.start_line == 1 else None,
                         node_type=child.type if s.start_line == 1 else None,
                         container=container if s.start_line == 1 else None,
                     ))
-                    offset += s.end_line - s.start_line + 1
                 # The split pieces hide any nested units (methods inside a
                 # >1000-char C# class, etc.) from the symbol table — walk the
                 # unit's own body so inner symbols are still extracted.
