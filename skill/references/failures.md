@@ -114,6 +114,25 @@ as a fact about the code, so the tool refuses instead.
 | `NonLineAlignedProviderEdit` | a provider edit crosses a line terminator | phase 1 refuses it rather than approximating; ask for the edit inside one line |
 | `KeeperFailure` | keeper failed when nothing had been written | the report names the keeper code |
 
+## Two reads of one query that disagree
+
+No error type: both reads succeed, and their answers differ. The query
+embedding service is not a function of (text, model) -- a reloaded model
+returns one vector for a text's first call and another for an immediately
+repeated call, and the first form comes back after any other request. A read
+fixes the bytes instead of the service: the first read stores the query vector
+in the embedding cache (float16 form, written on a miss and on a failed
+dimension probe alike) and every later read searches those bytes, so a second
+read of the same text is identical while the row survives.
+
+The residual is stated, not hidden: a text keeps the form of its FIRST
+embedding until the row is evicted or the model, embed format or dimension
+changes; with `EMBED_CACHE=0` there is nowhere to store the bytes, so at a deep
+`--limit` a second read can report a different member set (measured: 2 in and
+2 out of 400 hits); and two machines with separate caches can hold different
+forms of the same text. Remedy: leave the cache on (`EMBED_CACHE` unset), and
+treat a cache-disabled deep answer as one sample, not as a fixed list.
+
 ## Diagnosing in order
 
 1. Read the `ErrorType` first; the number is the coarse branch.

@@ -123,23 +123,36 @@ class Embedder:
         an unreachable service is the caller's answer, not a 30-second
         backoff.
 
-        The cache is CANONICAL for the read path. The dimension is resolved
-        first (a cached row is keyed on it), and a miss stores the vector and
-        returns the stored representation rather than the raw one, so the
-        first read of a query and every later read search identical bytes.
-        This matters because the embedding service is not reproducible across
-        a model reload: a cold-loaded run returned components up to 6e-3 away
-        from the warm ones for the same text, which re-ordered scores at depth
-        and made a warm-up call change the answer. Without a usable cache the
-        answer is only as stable as the service's current load state, which is
-        why the cache is consulted even when the dimension is not yet known.
+        The cache is CANONICAL for the read path, and that is the whole of
+        the determinism this path can offer. The service's vector for one
+        text is not a function of (text, model) alone: after a model reload
+        the first call for a text returns one vector and an immediately
+        repeated call returns another, and the same text interleaved with a
+        different text returns the first one again (measured here: up to 8.4e-3
+        per component, every component moving). A warm-up cannot cover that,
+        because the odd value comes back after any other request -- measured,
+        a probe call immediately before the query does not change which form
+        the query receives, and two probe calls do not either. So this path
+        fixes the BYTES instead: the vector is rounded to the stored
+        representation (float16) and written on a MISS as well as served on a
+        HIT, and the caller searches the stored bytes, so the second read of a
+        text searches byte-identical values whatever the service is doing.
+
+        The dimension probe exists to KEY that row. When it fails the
+        dimension is taken from the vector just received, so the row is still
+        written and the read is still stable; without that a failed probe left
+        the vector raw and unstored, and the next read re-embedded it and
+        answered with a different vector (measured: 2 members in and 2 out of
+        a 400-hit answer). A read with the cache disabled has nowhere to fix
+        the bytes: that is the residual limit, and it is documented rather
+        than hidden.
         """
         key: str | None = None
         if self.cache is not None:
             if self._dim is None:
                 try:
                     self.dimension_once()
-                except Exception:  # noqa: BLE001 — cache is an optimisation
+                except Exception:  # noqa: BLE001 — the key is best effort
                     self._dim = None
             if self._dim is not None:
                 key = cache_key(text, self.model, self._dim, EMBED_FORMAT)
@@ -159,7 +172,15 @@ class Embedder:
             if close is not None:
                 close()
         vector = embs[0]
-        if key is not None:
+        if self.cache is not None:
+            # A failed probe must not leave the vector unstored: the dimension
+            # is a property of the vector we just received, so the canonical
+            # form can still be keyed on it and stored. Without this the read
+            # searched raw bytes that nothing could reproduce later.
+            if self._dim is None:
+                self._dim = len(vector)
+            if key is None:
+                key = cache_key(text, self.model, self._dim, EMBED_FORMAT)
             canonical = stored_representation(vector)
             self.cache.put(key, canonical)
             return canonical

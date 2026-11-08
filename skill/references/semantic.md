@@ -155,17 +155,32 @@ pass and the pure-data share cap, before the generic caps (`--per-file`,
 they remove. The exact-symbol pin of `--mode hybrid` orders within its rung, so
 a test-defined exact match can still sit below source.
 
-**Ties are broken by the hit's place in the index, never by arrival order.**
-Score ties inside a mode fall back to `project`, `file`, `start_line`,
+**Ties are broken by the hit's place in the index, never by arrival
+order.** Score ties inside a mode fall back to `project`, `file`, `start_line`,
 `end_line`, `symbol`, so the ordering is total: the same read against the same
 index returns byte-identical output at any `--limit`, including the first call
-after the embedding service reloads a model, as long as the query embedding is
-served from the embedding cache, which is the default -- with `EMBED_CACHE=0`
-and the model reloaded the vector is recomputed, and a cold and a warm read
-differ; and two reads taken across a reindex are two indexes, not one. The
-same-file merge is the line-ordered union of the chunk ranges, so which
-ranges an answer reports is a function of the chunks the store returned and
-not of their scores.
+after the embedding service reloads a model, because the vector a read
+searches is the stored byte form -- the first read embeds the query once,
+rounds it to float16, writes it to the embedding cache and searches the stored
+bytes, so every later read of that text searches identical bytes. That row is
+written even when the dimension probe fails (the dimension is taken from the
+vector received), so a failed probe is not a hole in the guarantee.
+
+The limit, measured rather than assumed: the service's vector for one text is
+not a function of the text and the model. After a reload the first call for a
+text differs from an immediately repeated call (8.4e-3 per component, every
+component moving), and the same text returns the first form again after any
+other request -- so no warm-up settles it, and a probe call immediately before
+the query does not change which form the query receives. What that leaves,
+stated as the limit: a text keeps the form of its FIRST embedding until that
+cache row is evicted or the model, embed format or dimension changes;
+`EMBED_CACHE=0` leaves nowhere to store the bytes, so two reads can search two
+different vectors and at a deep `--limit` report a different member set
+(measured: 2 in and 2 out of 400 hits); and two machines with different caches
+can hold different forms of the same text. Two reads taken across a reindex
+are two indexes, not one. The same-file merge is the line-ordered union of the
+chunk ranges, so which ranges an answer reports is a function of the chunks the
+store returned and not of their scores.
 
 Two waivers, and only two. A **test-targeting query** (`test`, `tests`,
 `testing`, `spec`, `specs`, `fixture`, `fixtures`, `unittest`, `unittests`)
