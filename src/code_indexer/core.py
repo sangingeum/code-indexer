@@ -1396,6 +1396,13 @@ class Core:
 
         all_hits = ranking.class_order(
             all_hits, ranking.query_tokens(query), names_for)
+        # Siblings of one code region (a declaration and a line window over the
+        # same lines, a container and its methods) are separate chunks, so two
+        # slots could show one region twice while another region never appears.
+        # The repeat-coverage order keeps the best-ranked hit of each span and
+        # moves later overlapping siblings behind their rung's distinct spans.
+        all_hits = ranking.demote_repeated_spans(
+            all_hits, ranking.query_tokens(query), names_for)
         all_hits = ranking.cap_per_file(all_hits, per_file)
         all_hits = ranking.truncate_snippets(all_hits, max_chars, max_tokens)
         all_hits, dropped = ranking.trim_to_budget(

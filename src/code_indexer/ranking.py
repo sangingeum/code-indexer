@@ -15,6 +15,13 @@ retrieval mode (`--mode dense`, `hybrid`, `lexical`):
   hit the store returned in the window is still returned, the demoted ones at
   the tail, and the shaping caps below decide only which hits fill a capped
   answer.
+- **repeat coverage after the class order** (`demote_repeated_spans`) — the
+  chunker gives one code region several vectors (a declaration and an
+  anonymous line window over the same lines, a container and its methods), so
+  two slots of one answer could show the same source twice. A hit whose span
+  overlaps a span an earlier hit of the same file already shows moves behind
+  the distinct spans of its own rung, so a region no hit has shown yet
+  outranks a re-shown one. Still an ORDER: never a filter, never a merge.
 - **two waivers**, stated here because a waiver nobody wrote down is folklore:
   1. a query that targets tests — a token in `TEST_QUERY_MARKERS` (`test`,
      `tests`, `testing`, `spec`, `specs`, `fixture`, `fixtures`, `unittest`,
@@ -252,23 +259,98 @@ def class_order(hits: list[dict[str, Any]],
     if not hits:
         return []
     waived_tests = targets_tests(qtokens)
-    source_weight = ordering.CLASS_WEIGHT[ordering.SOURCE]
-    tests_weight = ordering.CLASS_WEIGHT[ordering.TESTS]
 
-    def ladder(hit: dict[str, Any]) -> ordering.ClassNames:
-        if names is None:
-            return ordering.DEFAULT_CLASS_NAMES
-        if callable(names):
-            return names(str(hit.get("project") or ""))
-        return names
+    return sorted(hits, key=lambda h: _rung_position(h, names, waived_tests))
 
-    def weight(hit: dict[str, Any]) -> int:
-        position = ordering.class_weight(hit.get("file") or "", ladder(hit))
-        if waived_tests and position == tests_weight:
-            return source_weight
-        return position
 
-    return sorted(hits, key=weight)
+def demote_repeated_spans(hits: list[dict[str, Any]],
+                          qtokens: list[str] | None = None,
+                          names: ordering.ClassNames
+                          | Callable[[str], ordering.ClassNames]
+                          | None = None) -> list[dict[str, Any]]:
+    """A chunk whose lines an earlier hit of the same file already shows does
+    not take an answer slot ahead of a region no hit has shown yet.
+
+    The chunker emits several vectors for one code region -- a declaration and
+    an anonymous line window over the same lines, a class and its methods, a
+    window and the same window shifted by a line. Those siblings overlap, so
+    two slots of one answer can show the same source twice while a different
+    region never appears. This pass keeps the first (best-ranked) hit of every
+    span and moves later hits that overlap a span already shown, of the same
+    file, behind the DISTINCT spans of their own rung.
+
+    Rung-scoped on purpose: `class_order` already put source before docs, and
+    demoting a source duplicate past a document would trade one bad slot for a
+    worse one. Within the rung the relative order of the distinct spans is the
+    one the mode produced; the repeated ones keep their own relative order
+    behind them, so the result is a permutation of the input, never a filter
+    and never a merge -- `hit_identity` replaces nothing, the answer just
+    ranks a new region ahead of a re-shown one.
+
+    Hits without a line range have no span to repeat and stay where they are.
+    `names` resolves the ladder exactly as `class_order` does (one project's
+    table, or one per hit for a mixed window).
+    """
+    if not hits:
+        return []
+    waived_tests = targets_tests(qtokens)
+    out: list[dict[str, Any]] = []
+    distinct: list[dict[str, Any]] = []
+    repeated: list[dict[str, Any]] = []
+    shown: dict[tuple[str, str], list[tuple[int, int]]] = {}
+    current: int | None = None
+
+    def flush() -> None:
+        out.extend(distinct)
+        out.extend(repeated)
+
+    for hit in hits:
+        rung = _rung_position(hit, names, waived_tests)
+        if current is None or rung != current:
+            flush()
+            distinct, repeated = [], []
+            shown = {}
+            current = rung
+        start, end = hit.get("start_line"), hit.get("end_line")
+        if not isinstance(start, int) or not isinstance(end, int):
+            distinct.append(hit)
+            continue
+        key = (str(hit.get("project") or ""), str(hit.get("file") or ""))
+        spans = shown.setdefault(key, [])
+        if any(start <= de and ds <= end for ds, de in spans):
+            repeated.append(hit)
+        else:
+            distinct.append(hit)
+            spans.append((start, end))
+    flush()
+    return out
+
+
+def _ladder_for(hit: dict[str, Any],
+                names: ordering.ClassNames
+                | Callable[[str], ordering.ClassNames] | None
+                ) -> ordering.ClassNames:
+    if names is None:
+        return ordering.DEFAULT_CLASS_NAMES
+    if callable(names):
+        return names(str(hit.get("project") or ""))
+    return names
+
+
+def _rung_position(hit: dict[str, Any],
+                   names: ordering.ClassNames
+                   | Callable[[str], ordering.ClassNames] | None,
+                   waived_tests: bool) -> int:
+    """The hit's class rung, with the test-targeting waiver applied.
+
+    One expression for both `class_order` and `demote_repeated_spans`, so the
+    two passes can never disagree about where a rung begins.
+    """
+    position = ordering.class_weight(hit.get("file") or "",
+                                     _ladder_for(hit, names))
+    if waived_tests and position == ordering.CLASS_WEIGHT[ordering.TESTS]:
+        return ordering.CLASS_WEIGHT[ordering.SOURCE]
+    return position
 
 
 # -- data-file dominance mitigation (all ranking modes) ---------------------

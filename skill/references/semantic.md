@@ -162,6 +162,25 @@ pass and the pure-data share cap, before the generic caps (`--per-file`,
 they remove. The exact-symbol pin of `--mode hybrid` orders within its rung, so
 a test-defined exact match can still sit below source.
 
+### Repeat coverage: one region takes one slot
+
+The chunker emits several vectors for one code region -- a declaration and an
+anonymous line window over the same lines, a class and its methods, a window
+and the same window shifted by a line -- so two candidates of one answer can
+show the same source twice while a different region never appears. After the
+class key, `semantic-search` keeps the best-ranked hit of every span and moves
+a later hit that OVERLAPS a span an earlier hit of the same file already shows
+behind the distinct spans of its own rung. One line of overlap is enough.
+
+The pass is rung-scoped, so it can never put a source duplicate below a
+document; it is an order, never a filter and never a merge -- nothing is
+dropped and two hits do not become one. A hit with no line range (a lexical
+hit anchored at the file head) has no span to repeat and keeps its place. The
+eval harness runs with overlap merging off and therefore sees this pass
+directly; a default read also merges overlapping hits of one file, and the two
+compose (the merge then collapses the siblings the pass already ranked
+apart).
+
 **Ties are broken by the hit's place in the index, never by arrival
 order.** Score ties inside a mode fall back to `project`, `file`, `start_line`,
 `end_line`, `symbol`, so the ordering is total: the same read against the same
