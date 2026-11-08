@@ -159,33 +159,43 @@ a test-defined exact match can still sit below source.
 order.** Score ties inside a mode fall back to `project`, `file`, `start_line`,
 `end_line`, `symbol`, so the ordering is total: the same read against the same
 index returns byte-identical output at any `--limit`, including the first call
-after the embedding service reloads a model, because the vector a read
+after the embedding service loads a model, because the vector a read
 searches is the stored byte form -- the first read embeds the query once,
 rounds it to float16, writes it to the embedding cache and searches the stored
 bytes, so every later read of that text searches identical bytes. That row is
 written even when the dimension probe fails (the dimension is taken from the
 vector received), so a failed probe is not a hole in the guarantee.
 
-The rule, measured rather than assumed: the vector depends on the request
-sequence, not on the text alone. The property the guarantee above rests on is
-exactly that -- the service can answer the SAME text with a different vector
-on an immediate repeat. That is the exchange the cache protects against, and
-it is what makes a stored byte form worth writing.
+**The drift belongs to the model load.** A model that has just been loaded
+answers the FIRST call for a text with one vector and its IMMEDIATE repeat
+with another. One run of
+`uv run python scripts/probe_embed_drift.py --form both --trials 6` -- which
+unloads the model before every trial, so every trial crosses a load boundary
+-- saw that pair differ in all 6 load-boundary trials of each form: 1.592e-03
+per component for the bare form and 3.990e-03 for the instructed one. The same
+command with `--reload once`, where only the first trial of each form crosses
+a load, saw every warm immediate repeat return the SAME vector: delta
+0.000e+00 in all 10 warm trials of that run (5 bare, 5 instructed).
 
-The size is an observation, not a constant: a few times 1e-3 per component,
-observed from 0.0 to 9.717e-3 across the samples measured in one round, and it
-depends on the text, on the form (bare or instructed) and on the run. Whether
-a text's earlier form comes back after a different request is NOT dependable:
-it has been seen to differ between forms and between runs, so no count is
-claimed here. The measurement of record is
-`uv run python scripts/probe_embed_drift.py` (six trials per form by
-default): it unloads
-the model first, never touches the embedding cache, then per trial embeds the
-text, repeats it immediately, embeds a different text and repeats the first
-one again -- printing per form the immediate repeat's largest per-component
-delta, the two digests, whether the first form returned, and a summary. Run it
-on the host in question; the figures above are samples it can produce, not
-bounds and not a promise.
+So a read's answer depended on whether it happened to be the first call after
+a load -- which a fresh CLI process can be, and which the embedding cache now
+removes by fixing the bytes: the first read embeds the query once, rounds it
+to float16, writes it to the embedding cache and searches the stored bytes, so
+every later read of that text searches identical bytes whatever the service is
+doing.
+
+What a later request does to that form is a per-form observation, not a
+guarantee. In that same run the bare form's call after a different request
+returned the load-first digest in all 6 load-boundary trials, and returned
+that same digest in all 6 trials of the `--reload once` run, while the
+instructed form returned a third, distinct digest in all 12 of its trials --
+neither the load-first form nor its repeat. The size and the shape depend on
+the text, on the form, on the model and on the run, so the figures above are
+one run's observations, not bounds and not a promise. The measurement of
+record is that command: it touches no embedding cache, prints per trial
+whether the trial crossed a load boundary, the immediate repeat's largest
+per-component delta, the digests and what the third call returned, then one
+summary per reload mode and per form. Run it on the host in question.
 
 What that leaves, stated as the limit: a text keeps the form of its FIRST
 embedding until that cache row is evicted or the model, embed format or

@@ -470,6 +470,12 @@ EXTERNAL_FLAGS = {
     "--expected-hash",
     "--expected-content",
     "--task-id",
+    # the probe script's own flags, named where the drift measurement's
+    # protocol is cited; they belong to scripts/probe_embed_drift.py, not to
+    # the CLI this surface documents
+    "--form",
+    "--trials",
+    "--reload",
 }
 
 

@@ -116,22 +116,31 @@ as a fact about the code, so the tool refuses instead.
 
 ## Two reads of one query that disagree
 
-No error type: both reads succeed, and their answers differ. The vector
-depends on the request sequence, not on the text alone. The property the
-tool's guarantee rests on is that the service can answer the SAME text with a
-different vector on an immediate repeat -- that is the exchange the cache
-protects against.
+No error type: both reads succeed, and their answers differ. The drift
+belongs to the model load, not to the text: a model that has just been loaded
+answers the FIRST call for a text with one vector and its IMMEDIATE repeat
+with another. One run of
+`uv run python scripts/probe_embed_drift.py --form both --trials 6` -- which
+unloads the model before every trial, so every trial crosses a load boundary
+-- saw that pair differ in all 6 load-boundary trials of each form: 1.592e-03
+per component for the bare form and 3.990e-03 for the instructed one. The same
+command with `--reload once`, where only the first trial of each form crosses
+a load, saw every warm immediate repeat return the SAME vector -- delta
+0.000e+00 in all 10 warm trials of that run (5 bare, 5 instructed). Those are
+one run's observations, not bounds: the size and the shape depend on the text,
+on the form, on the model and on the run.
 
-The size is an observation, not a constant: a few times 1e-3 per component,
-observed from 0.0 to 9.717e-3 across the samples measured in one round, and it
-depends on the text, on the form (bare or instructed) and on the run. Whether
-a text's earlier form comes back after a different request is NOT dependable:
-it has been seen to differ between forms and between runs, so no count is
-claimed here. The measurement of record is
-`uv run python scripts/probe_embed_drift.py`, which
-unloads the model, touches no cache, and prints per trial and per form the
-immediate repeat's largest per-component delta, the two digests, whether the
-first form returned, and a summary per form. Run it on the host in question.
+So the answer depended on whether a read happened to be the first call after a
+load, which a fresh CLI process can be. What a later request does to that form
+is a per-form observation, not a guarantee: in that same run the bare form's
+call after a different request returned the load-first digest in all 6
+load-boundary trials, while the instructed form returned a third, distinct
+digest in all 12 of its trials of both modes.
+
+The measurement of record is that command: it touches no cache, prints per
+trial whether the trial crossed a load boundary, the immediate repeat's
+largest per-component delta, the digests and what the third call returned,
+then one summary per reload mode and per form. Run it on the host in question.
 
 A read
 fixes the bytes instead of the service: the first read stores the query vector

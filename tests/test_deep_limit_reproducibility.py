@@ -8,15 +8,17 @@ something other than the index:
    the merge below it walked a same-file group in SCORE order, so which
    ranges collapsed into one union depended on that arrival order;
 2. the query embedding was recomputed whenever the dimension was unknown,
-   and the service can answer the same text with a different vector on an
-   immediately repeated call -- the exchange the cache absorbs. The size is
-   an observation, not a constant: a few times 1e-3 per component, observed
-   from 0.0 to 9.717e-3 across the samples measured in one round, and it
-   depends on the text, on the form and on the run; whether the earlier form
-   comes back after a different request is not dependable, which is why
-   `uv run python scripts/probe_embed_drift.py` exists
-   and prints what the service does on the host where it runs. So the second
-   read searched a different vector than the first.
+   and the service's answer drifts at a model load: the FIRST call for a text
+   after a load differs from its IMMEDIATE repeat. One run of
+   `uv run python scripts/probe_embed_drift.py --form both --trials 6`
+   (every trial unloads the model first) saw that pair differ in all 6
+   load-boundary trials of each form, by 1.592e-03 per component for the bare
+   form and 3.990e-03 for the instructed one; with `--reload once` every warm
+   immediate repeat returned the same vector (0.000e+00 in all 10 warm trials
+   of that run). Those are one run's observations, and the probe prints what
+   the service does on the host where it runs. So a read that happened to be
+   the first call after a load searched a different vector than the one that
+   followed it.
 
 The tests here pin the shape the user sees: the second invocation equals the
 first, and the member set does not move.
@@ -96,10 +98,13 @@ def test_deep_limit_order_does_not_depend_on_arrival_order():
 def test_membership_survives_a_tiny_score_perturbation():
     """The member set is a function of the hits, not of their scores.
 
-    The QUERY VECTOR can move per component from one read to the next -- a few
-    times 1e-3 per component, observed from 0.0 to 9.717e-3 across the samples
-    measured in one round (one round's observation, not a bound; re-measure it
-    with `uv run python scripts/probe_embed_drift.py`)
+    The QUERY VECTOR can move from one read to the next when the model is
+    loaded: the first call for a text after a load differs from its immediate
+    repeat by a few times 1e-3 per component -- one run measured 1.592e-03 for
+    the bare form and 3.990e-03 for the instructed form, across 6
+    load-boundary trials of each (one run's observation, not a bound;
+    re-measure it with
+    `uv run python scripts/probe_embed_drift.py`)
     -- and the scores shift as a consequence. That must not change WHICH ranges
     the answer reports: only
     where they sit in the order.

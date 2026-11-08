@@ -2,26 +2,26 @@
 
 What a cache cannot cover is a state, not a text: a read whose dimension
 probe fails used to return the raw vector and store nothing, so the next read
-re-embedded the same text and searched whatever the service answered then --
-and the service can answer the same text with a different vector on an
-immediate repeat. That repeat is the exchange the cache absorbs. The size is
-an observation, not a constant: a few times 1e-3 per component, observed from
-0.0 to 9.717e-3 across the samples measured in one round, and it depends on
-the text, on the form and on the run. Whether a text's earlier form comes back
-after a different request is not dependable -- it has been seen to differ
-between forms and between runs, so no count is asserted here; the measurement
-of record is `uv run python scripts/probe_embed_drift.py` (six trials per
-form by default), which prints what the service does on the host where it
-runs. With the
-cache disabled, one run measured a deep read as 2 members in and 2 out of a
-400-hit answer.
+re-embedded the same text and searched whatever the service answered then.
+The drift belongs to the model load: a model that has just been loaded answers
+the FIRST call for a text with one vector and its IMMEDIATE repeat with
+another. One run of
+`uv run python scripts/probe_embed_drift.py --form both --trials 6` -- which
+unloads the model before every trial, so every trial crosses a load boundary
+-- saw that pair differ in all 6 load-boundary trials of each form: 1.592e-03
+per component for the bare form and 3.990e-03 for the instructed one. With
+`--reload once` every warm immediate repeat returned the same vector -- delta
+0.000e+00 in all 10 warm trials of that run. Those are one run's observations,
+not bounds, and the probe prints what the service does on the host where it
+runs. With the cache disabled, one run measured a deep read as 2 members in
+and 2 out of a 400-hit answer.
 
-The fix is at the tool's end and it is not a warm-up: the warm-up was
-measured and does not settle it (a probe call before the query does not
-change which form the query receives). The bytes are fixed instead -- the
-vector is rounded to the stored representation and written on a miss, and
-the dimension of a failed probe is taken from the vector received, so the
-row is still written.
+The fix is at the tool's end and it is not a warm-up: the differing call is
+whichever one is first after a load, and a fresh CLI process makes its query
+that call. The bytes are fixed instead -- the vector is rounded to the stored
+representation
+and written on a miss, and the dimension of a failed probe is taken from the
+vector received, so the row is still written.
 
 The residual is a limit, not a hope: a text keeps the form of its FIRST
 embedding, and with the cache disabled there is nowhere to store the bytes.
@@ -42,7 +42,7 @@ from code_indexer.embedder import Embedder  # noqa: E402
 REPO = Path(__file__).resolve().parent.parent
 
 # A vector off the float16 grid, and the warm one the service returns
-# afterwards: the measured shape of the drift, at the same scale.
+# afterwards: the measured shape of the load-boundary drift, at the same scale.
 COLD = [0.1234567, -0.7654321, 0.50000007, 0.33333337]
 WARM = [0.1244567, -0.7644321, 0.50100007, 0.33433337]
 

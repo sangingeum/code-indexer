@@ -124,20 +124,25 @@ class Embedder:
         backoff.
 
         The cache is CANONICAL for the read path, and that is the whole of
-        the determinism this path can offer. The property it protects is that
-        the service can answer the SAME text with a different vector on an
-        immediate repeat -- that is the exchange the cache absorbs. The size
-        is an observation, not a constant: a few times 1e-3 per component,
-        observed from 0.0 to 9.717e-3 across the samples measured in one
-        round, and it depends on the text, on the form and on the run.
-        Whether a text's earlier form comes back after a different request is
-        NOT dependable: it has been seen to differ between forms and between
-        runs, so no count is claimed here. The measurement of record is
-        `uv run python scripts/probe_embed_drift.py`,
-        which prints what the service does on the host where it runs. A
-        warm-up cannot cover the turn either: measured, a probe call
-        immediately before the query does not change which form the query
-        receives. So this path fixes the BYTES instead: the vector is rounded to the stored
+        the determinism this path can offer. The drift it absorbs belongs to
+        the model load, not to the text: a model that has just been loaded
+        answers the FIRST call for a text with one vector and its IMMEDIATE
+        repeat with another. One run of
+        `uv run python scripts/probe_embed_drift.py --form both --trials 6`
+        (which unloads the model before every trial, so every trial crosses a
+        load boundary) saw that pair differ in all 6 load-boundary trials of
+        each form: 1.592e-03 per component for the bare form and 3.990e-03
+        for the instructed one. The same command with `--reload once` saw
+        every warm immediate repeat return the same vector -- delta 0.000e+00
+        in all 10 warm trials of that run (5 bare, 5 instructed). So a read's
+        answer depended on whether it happened to be the first call after a
+        load, which a fresh CLI process can be. Those are one run's
+        observations, not constants: the size and the shape depend on the
+        text, on the form, on the model and on the run, and the probe prints
+        what the service does on the host where it runs. A warm-up cannot
+        cover the turn either: the differing call is whichever one is first
+        after a load, and a fresh CLI process makes its query that call. So
+        this path fixes the BYTES instead: the vector is rounded to the stored
         representation (float16) and written on a MISS as well as served on a
         HIT, and the caller searches the stored bytes, so the second read of a
         text searches byte-identical values whatever the service is doing.
