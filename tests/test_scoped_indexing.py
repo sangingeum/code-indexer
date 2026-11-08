@@ -161,6 +161,79 @@ def test_index_more_extends_scope(rig):
         m.close()
 
 
+def test_index_more_normalizes_an_absolute_subpath_to_the_project(rig):
+    """An absolute subtree is stored as the relative pattern the scan matches.
+
+    Stored as given, the absolute path matched no walked path, so the command
+    reported success over zero files and left the project's scope a value its
+    own scan refused.
+    """
+    core, reg, cfg, project = rig
+    runner.invoke(app, ["add-project", str(project), "--name", "monoproj",
+                        "--include", "services/a/**"])
+    result = runner.invoke(app, ["index-more", str(project),
+                                 str(project / "services" / "b")])
+    assert result.exit_code == 0, result.output
+    m = core.manifest_for("monoproj")
+    try:
+        assert (m.get_meta("scope_include").splitlines()
+                == ["services/a/**", "services/b"])
+        assert "services/b/worker.py" in set(m.all_files())
+    finally:
+        m.close()
+
+
+def test_index_more_refuses_a_subpath_outside_the_project(rig, tmp_path):
+    """A selector the scan can never match is refused, scope untouched."""
+    core, reg, cfg, project = rig
+    runner.invoke(app, ["add-project", str(project), "--name", "monoproj",
+                        "--include", "services/a/**"])
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    result = runner.invoke(app, ["index-more", str(project), str(outside)])
+    assert result.exit_code == 2, (result.exit_code, result.output)
+    assert result.stdout == "", result.stdout
+    assert "outside the project root" in result.stderr, result.stderr
+    assert "relative to the root" in result.stderr, result.stderr
+    m = core.manifest_for("monoproj")
+    try:
+        assert m.get_meta("scope_include") == "services/a/**"
+    finally:
+        m.close()
+
+
+def test_add_project_include_accepts_an_absolute_subtree(rig):
+    """The same normalization on the other scope surface, --include."""
+    core, reg, cfg, project = rig
+    result = runner.invoke(app, ["add-project", str(project),
+                                 "--name", "absproj",
+                                 "--include", str(project / "services" / "a")])
+    assert result.exit_code == 0, result.output
+    m = core.manifest_for("absproj")
+    try:
+        assert m.get_meta("scope_include") == "services/a"
+        files = set(m.all_files())
+        assert "services/a/handler.py" in files
+        assert "services/b/worker.py" not in files
+    finally:
+        m.close()
+
+
+def test_a_scope_selector_naming_the_project_root_is_the_whole_tree(rig):
+    """The root itself stores as the pattern that really matches every file."""
+    core, reg, cfg, project = rig
+    result = runner.invoke(app, ["add-project", str(project),
+                                 "--name", "rootproj",
+                                 "--include", str(project)])
+    assert result.exit_code == 0, result.output
+    m = core.manifest_for("rootproj")
+    try:
+        assert m.get_meta("scope_include") == "**"
+        assert "services/b/worker.py" in set(m.all_files())
+    finally:
+        m.close()
+
+
 def test_out_of_scope_note_on_queries(rig):
     core, reg, cfg, project = rig
     runner.invoke(app, ["add-project", str(project), "--name", "monoproj",

@@ -130,9 +130,10 @@ code-indexer reindex-project /path/to/repo
 - The first pass runs in the **foreground** and returns when it finishes. An
   interrupted `add-project` leaves the project registered and reporting
   `state=never-indexed`; `reindex-project` builds it.
-- `index-more` accepts `<project> <subpath>` or `--project <project>
-  <subpath>` and rejects the flag plus two positionals as ambiguous. Neither
-  spelling infers a project from the working directory.
+- `index-more` accepts `<project> <subpath>` or `--project <project> <subpath>`,
+  rejects the flag plus two positionals as ambiguous, and stores an absolute
+  subpath relative to the project root -- one outside it is exit 2, and the root
+  itself is `**`. Neither spelling infers a project from the working directory.
 - `reindex-project` is a full rebuild, also foreground; a vectors-on rebuild
   embeds nothing its current rows already store, so it is cheaper than the first pass.
 
@@ -354,12 +355,11 @@ for `OLLAMA_URL` and `QDRANT_URL` are LAN placeholders and must be set.
 | `VERBOSE` | off | verbose diagnostics on stderr |
 | `STALE_TTL` | -- | retired: accepted and ignored -- setting it neither raises nor changes behaviour, because a read reports its verdict from the stat scan |
 
-
 `.gitignore` and nested `.codeindexignore` files are honoured; `--include`
-scope globs narrow a project at registration; secret-bearing files (filename
-globs plus high-confidence content patterns) are skipped unless
-`--allow-sensitive`; files larger than `MAX_FILE_BYTES` (1 MB default) and
-binaries are skipped. The skip counts are reported by `index-status`.
+scope globs narrow a project at registration, spelled relative to its root;
+secret-bearing files (filename globs plus high-confidence content patterns) are
+skipped unless `--allow-sensitive`; files larger than `MAX_FILE_BYTES` (1 MB
+default) and binaries are skipped. The skip counts are reported by `index-status`.
 
 `.gitignore` and `.codeindexignore` answer different questions -- git decides
 what is committed, the index what is searchable. This repository excludes two

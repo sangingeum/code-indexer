@@ -192,6 +192,38 @@ def _require_selector(core: Core, project: str | None, path: str | None,
                f"name (positional or --project/--name); registered projects: {listing}")
 
 
+def _scope_pattern(selector: str, project_path: str, command: str) -> str:
+    """A subtree selector as the project-relative scope pattern a scan matches.
+
+    Scope patterns are matched against the paths the walk reports, and those
+    are relative to the project root. An absolute selector is therefore
+    re-spelled relative to that root before it is stored: stored as given it
+    matches nothing, and a write command that widens a project's scope to a
+    value its own scan refuses reports success over zero files. A selector
+    outside the root can never match either, so it is a usage error naming
+    the relative form instead of a silently empty scope. The root itself is
+    the whole tree, which is what ``**`` means to the matcher.
+    """
+    pattern = selector.strip()
+    if not pattern:
+        _usage_die(f"{command}: the subpath is empty")
+    if os.path.isabs(pattern):
+        pattern = os.path.relpath(os.path.abspath(pattern),
+                                  os.path.abspath(project_path))
+    pattern = pattern.replace(os.sep, "/")
+    while pattern.startswith("./"):
+        pattern = pattern[2:]
+    pattern = pattern.rstrip("/")
+    if pattern == ".." or pattern.startswith("../"):
+        _usage_die(
+            f"{command}: {selector!r} is outside the project root "
+            f"{os.path.abspath(project_path)}; name a path inside it, "
+            f"relative to the root (e.g. services/b)")
+    if pattern in ("", "."):
+        return "**"
+    return pattern
+
+
 def _refuse_bad_context_selector(file: str | None, symbol: str | None,
                                 start_line: int | None,
                                 end_line: int | None) -> None:
@@ -1106,6 +1138,11 @@ def add_project(
     path = os.path.abspath(os.path.expanduser(path))
     if not os.path.isdir(path):
         _pass_fail(NotFoundError(f"path does not exist: {path}"), json_output)
+    # A scope is stored in the spelling the scan matches it in (relative to
+    # the project root); refusing an unusable one here keeps a half-written
+    # scope out of a project that was never registered.
+    include = [_scope_pattern(p, path, "add-project") for p in (include or [])]
+    priority = [_scope_pattern(p, path, "add-project") for p in (priority or [])]
     entry = core.registry.get_by_path(path)
     if entry is not None:
         lines = [f"already registered — {core.status_summary(entry)}"]
@@ -1222,6 +1259,7 @@ def index_more(
              "index-more <project> <subpath> or "
              "index-more --project <project> <subpath>")
     entry = _resolve(core, selector)
+    subpath = _scope_pattern(subpath, entry.path, "index-more")
     if core.resolve_vectors(entry.slug, vectors) == "on":
         _require_semantic()
     m = core.manifest_for(entry.slug, writable=True)

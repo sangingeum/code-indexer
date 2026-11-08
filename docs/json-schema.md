@@ -564,7 +564,8 @@ pass:             {"slug": str, "state": "idle"|"indexing"|"error",
 performing the pass (exactly-one-pass rule); `detail` says so and `result` is
 absent. `state: "idle"` is a completed pass and carries the pass counters.
 `already_registered` is true when the registration was a no-op, and then
-`index` is `null`. A repair pass (`--repair-points`) adds `"repair_points":
+`index` is `null`. `scope_include` holds project-relative patterns (an absolute
+subpath is normalized to that spelling before it is stored). A repair pass (`--repair-points`) adds `"repair_points":
 true` beside `"vectors"`, and reports `index.result` with `chunks_unrepairable`
 and `files_committed`; on a project that holds no vectors it reports
 `state: "idle"`, `vectors: "off"`, `chunks_skipped` = the stored chunk rows,
