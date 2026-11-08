@@ -173,16 +173,20 @@ SNIFF_SAMPLE_BYTES = 4096
 def _looks_utf8ish(path: str) -> bool:
     """Cheap textual sniff over a bounded sample: is this UTF-8 text?
 
-    The sample is decoded through an INCREMENTAL decoder and is never
-    finalised. A sample that ends inside a multi-byte character therefore
-    decodes fine: the cut is an artefact of how much was read, not a property
-    of the file. Decoding the sample strictly made every file carrying a
-    multi-byte character across byte 4096 look non-text -- eight tracked C#
-    files with box-drawing characters near that offset were dropped from the
-    index this way, with only a debug log to show for it.
+    The sample is decoded through an INCREMENTAL decoder. A sample that ends
+    inside a multi-byte character decodes fine: the cut is an artefact of how
+    much was read, not a property of the file. Decoding the sample strictly
+    made every file carrying a multi-byte character across byte 4096 look
+    non-text -- eight tracked C# files with box-drawing characters near that
+    offset were dropped from the index this way, with only a debug log to
+    show for it.
 
-    Only a genuinely invalid byte sequence fails, which is what the sniff is
-    for.
+    The sample IS the file whenever the file is shorter than the cap, and
+    then there is no cut to excuse: a sequence the decoder is still holding
+    at the end is the file's own truncated character, so the decoder is
+    finalised and the file is refused as non-UTF-8. Only a full-size sample
+    is left pending, because only there can a split be ours. Accepting the
+    truncated tail stored U+FFFD under `parse_unavailable` instead.
     """
     decoder = codecs.getincrementaldecoder("utf-8")("strict")
     try:
@@ -190,7 +194,7 @@ def _looks_utf8ish(path: str) -> bool:
             sample = f.read(SNIFF_SAMPLE_BYTES)
         if not sample:
             return True
-        decoder.decode(sample, final=False)
+        decoder.decode(sample, final=len(sample) < SNIFF_SAMPLE_BYTES)
         return True
     except (UnicodeDecodeError, OSError):
         return False

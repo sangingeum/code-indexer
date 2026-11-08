@@ -16,7 +16,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import pytest  # noqa: E402
 
-from code_indexer.scanner import _is_binary, _looks_utf8ish, scan_project  # noqa: E402
+from code_indexer.scanner import (SNIFF_SAMPLE_BYTES, _is_binary,  # noqa: E402
+                                  _looks_utf8ish, scan_project)
 from pass_rig import index_project, stub_core  # noqa: E402
 
 BOX = "\u2500".encode("utf-8")   # e2 94 80 -- the character the C# files carry
@@ -51,6 +52,54 @@ def test_sniff_still_refuses_a_file_that_is_not_utf8(tmp_path):
     path = tmp_path / "latin.cs"
     path.write_bytes(b"// caf\xe9 au lait\n")
     assert _looks_utf8ish(str(path)) is False
+
+
+def _long_but_whole_payload() -> bytes:
+    """Over the sample size, valid, and the sample ends between characters."""
+    prefix = b"# " + b"y" * (SNIFF_SAMPLE_BYTES - 2)
+    assert len(prefix) == SNIFF_SAMPLE_BYTES
+    assert prefix.endswith(b"y")
+    return prefix + "caf\u00e9\n".encode("utf-8")
+
+
+@pytest.mark.parametrize(
+    "data, expected",
+    [
+        # an invalid byte in the middle: not UTF-8, refused
+        (b"x = 'caf\xe9 au lait'\n", False),
+        # the file ends inside a two-byte character: the truncated tail is
+        # the file's own invalid byte because the sample IS the whole file
+        (b"x = 1  # caf\xc3", False),
+        # ... and the two-byte cut of a three-byte character is the same fact
+        (b"a note ending in caf\xe2\x94", False),
+        # the whole file is valid UTF-8, multi-byte characters included
+        ("# a note about caf\u00e9 and caf\u00e9\n".encode("utf-8"), True),
+        # a full-size sample that ends exactly between two characters is a
+        # cut, not a verdict: the rest of the file is still valid
+        (_long_but_whole_payload(), True),
+    ],
+)
+def test_the_sniff_judges_the_file_when_the_sample_is_the_file(
+        tmp_path, data, expected):
+    path = tmp_path / "subject"
+    path.write_bytes(data)
+    assert _looks_utf8ish(str(path)) is expected
+
+
+def test_a_file_ending_inside_a_character_is_never_stored_corrupted(tmp_path):
+    """A truncated tail is a named non-utf8 skip, not a stored U+FFFD."""
+    (tmp_path / "tail.py").write_bytes(b"x = 1  # caf\xc3")
+    (tmp_path / "whole.py").write_bytes("# caf\u00e9\nx = 1\n".encode("utf-8"))
+    core = stub_core(tmp_path)
+    reg, entry = index_project(core, tmp_path)
+    m = core.manifest_for(entry.slug)
+    try:
+        assert m.get_file("tail.py") is None
+        assert m.get_file("whole.py") is not None
+        from code_indexer.scanner import read_scan_accounting
+        assert read_scan_accounting(m)["skipped"].get("non-utf8") == 1
+    finally:
+        m.close()
 
 
 def test_scan_keeps_a_boundary_split_file(tmp_path):

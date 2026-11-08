@@ -114,7 +114,11 @@ LANGUAGES_WITH_AST = frozenset(
 # formats (csproj, sln, props, gitignore, codeindexignore). They now write no
 # reference rows at all, so their files' stored references change: rows built
 # by v7 carry references to names nothing declares.
-EXTRACTION_VERSION = 8
+# v9: the text sniff finalises its decoder when the sample is the whole file,
+# so a file ending inside a multi-byte character is skipped as non-utf8
+# instead of entering the index with U+FFFD substituted. The SCAN SET changed:
+# rows built by v8 describe an index that holds files this build refuses.
+EXTRACTION_VERSION = 9
 
 _INDEX_EXTS = (".ts", ".tsx", ".js", ".jsx")
 

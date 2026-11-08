@@ -164,7 +164,7 @@ def test_extraction_version_is_pinned():
     # built by 7 are not derivable from these rules, so changing this constant
     # requires a new comment block beside it -- not a silent edit to make a
     # suite green.
-    assert EXTRACTION_VERSION == 8
+    assert EXTRACTION_VERSION == 9
 
 
 def test_chunker_version_is_pinned():
