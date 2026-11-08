@@ -63,6 +63,10 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
+# The suite lives under tests/. A bare `pytest` at the root must not descend
+# into the untracked `runs/` evidence, whose stale __pycache__ collides on
+# duplicate basenames and fails collection before a test runs.
+testpaths = ["tests"]
 # Default runs exclude live-backend tests; `pytest -m live` runs them.
 addopts = "-m 'not live'"
 markers = [
