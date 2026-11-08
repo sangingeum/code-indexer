@@ -2528,6 +2528,15 @@ def find_symbol(
             _usage_die(f"NAME {name!r} and --symbol {symbol!r} disagree; "
                        "pass the symbol once")
         name = symbol
+    # A bad flag VALUE is a wrong request, so it is refused HERE, with the
+    # other boundary checks: ArgumentError / exit 2, empty stdout, before the
+    # core is built and before any index read. Validating after
+    # resolve_entry made an unregistered project answer NotFoundError (exit 1)
+    # for an invocation that was simply wrong.
+    if visibility is not None and visibility not in ("public", "private"):
+        _json_failure(ArgumentError(
+            f"--visibility must be 'public' or 'private', "
+            f"not {visibility!r}"), json_output)
     core = _get_core(skip_stale_check)
     entry, err = core.resolve_entry(project)
     if entry is None:
@@ -2535,10 +2544,6 @@ def find_symbol(
     _refuse_obsolete_rows(core, entry, refresh=refresh)
     block, _ = _read_staleness(core, entry, refresh=False,
                                json_output=json_output)
-    if visibility is not None and visibility not in ("public", "private"):
-        _json_failure(ArgumentError(
-            f"--visibility must be 'public' or 'private', "
-            f"not {visibility!r}"), json_output)
     filters: dict[str, Any] = dict(
         symbol_type=symbol_type, file=file_filter,
         name_pattern=name_pattern, container=container,

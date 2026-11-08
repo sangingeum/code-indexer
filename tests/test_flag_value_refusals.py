@@ -2,16 +2,23 @@
 
 ADR-0003 section 5 and skill/references/failures.md put a bad flag value at
 ``ArgumentError``, exit 2: the request was wrong, so the caller fixes the
-invocation. Before this file, six surfaces fell through the CLI boundary into
-the core and came back as something else entirely -- a bad
-search mode as ``InternalError`` (exit 1), a bad ranking or rerank value as a
-wrapped ``BackendError`` (exit 3, "search failed on every project"), a bad
-eval mode as ``InternalError``, and an unknown value of ``--relationship``,
-``--format``, ``--visibility`` or ``--vectors`` was not refused at the
-boundary at all. The enumerated flags this file covers are ``--mode``,
-``--ranking`` and ``--rerank`` on search, ``--mode`` and ``--rerank`` on eval,
-and ``--relationship``, ``--format``, ``--visibility`` and ``--vectors``.
-A caller reading that line would go looking for a broken install.
+invocation. At the base revision (``e946911``) six surfaces fell through the
+CLI boundary into the core and came back as something else entirely -- a bad
+search mode as ``InternalError`` (exit 1), a bad search ``--ranking`` or
+``--rerank`` value as a wrapped ``BackendError`` (exit 3, "search failed on
+every project"), a bad eval ``--mode`` as ``InternalError`` (exit 1) and a
+bad eval ``--rerank`` the same wrapped way (exit 3), and an unknown
+``--relationship`` value as ``InternalError`` (exit 1). ``--format`` and
+``--vectors`` WERE already refused at the boundary with exit 2. ``--visibility``
+was refused with the right code but only AFTER the index read, so an
+unregistered project answered ``NotFoundError`` (exit 1) for an invocation
+that was merely wrong.
+
+Eight command/flag surfaces now refuse at the boundary: ``--mode``,
+``--ranking`` and ``--rerank`` on search; ``--mode`` and ``--rerank`` on
+eval; ``--relationship``; ``--visibility``; and ``--vectors``, whose accepted
+list moved onto the vectors policy's own tuple. This file tests the first
+seven; ``--vectors`` is covered by its own tests elsewhere.
 
 So every test here asserts the property that was missing: exit 2, ONE stderr
 line naming the values the flag accepts, empty stdout -- and, for the flags
@@ -55,9 +62,73 @@ QUERIES = ('{"id": "q1", "query": "refresh the token", '
            '"symbol": "maybe_refresh"}], "tags": ["conceptual"]}\n')
 
 
-@pytest.fixture()
-def rig(tmp_path, monkeypatch):
-    """A registered, indexed project whose search runs without a service."""
+class _StubEmbedder:
+    def dimension(self):
+        return 4
+
+    def embed(self, texts):
+        return [[0.1] * 4 for _ in texts]
+
+
+class _StubStoreBase:
+    """The store contract a pass needs, WITHOUT the collection swap.
+
+    ``swap_collection`` is deliberately absent here: this is the shape of the
+    pre-fix rig, which logged a swallowed indexing error and still passed
+    every test in this file, because nothing asserted that the pass reached
+    its store contract at all. Only a subclass that adds the swap is a rig a
+    passing test may use.
+    """
+
+    def collection_exists(self, name):
+        return True
+
+    def create_collection(self, name, dim):
+        pass
+
+    def upsert_points(self, name, points):
+        pass
+
+    def purge_file_points(self, *a, **kw):
+        return 0
+
+    def count_points(self, name):
+        return 0
+
+    def search(self, *a, **kw):
+        class _Hit:
+            def __init__(self, payload, score):
+                self.payload, self.score = payload, score
+
+        return [_Hit({"file": "core.py", "symbol": "maybe_refresh",
+                      "symbol_type": "function", "lang": "python",
+                      "start_line": 1, "end_line": 3,
+                      "snippet": "def maybe_refresh(slug):"}, 0.9)]
+
+
+class _RecordingStore(_StubStoreBase):
+    """The tip rig: records the swap, so the acceptance half can assert it."""
+
+    def __init__(self):
+        self.swaps: list[tuple[str, str]] = []
+
+    def swap_collection(self, tmp, target):
+        self.swaps.append((tmp, target))
+
+
+class _RefusingStore(_RecordingStore):
+    """Control one: every other member works, the swap refuses."""
+
+    def swap_collection(self, tmp, target):
+        raise RuntimeError("the store refused the swap")
+
+
+class _PreFixStore(_StubStoreBase):
+    """Control two: the pre-fix rig -- no ``swap_collection`` at all."""
+
+
+def _build_rig(tmp_path, monkeypatch, store):
+    """A registered project indexed through ``store``, with the CLI rendered."""
     cfg = Config(ollama_url="", qdrant_url="", embed_model="stub",
                  index_root=str(tmp_path / "state"),
                  embed_batch=48, upsert_batch=256, max_file_bytes=1048576,
@@ -69,50 +140,38 @@ def rig(tmp_path, monkeypatch):
         "    '''Staleness probe for one slug.'''\n"
         "    return slug\n")
     core = Core(cfg)
-
-    class StubEmbedder:
-        def dimension(self):
-            return 4
-
-        def embed(self, texts):
-            return [[0.1] * 4 for _ in texts]
-
-    class StubStore:
-        def collection_exists(self, name):
-            return True
-
-        def create_collection(self, name, dim):
-            pass
-
-        def upsert_points(self, name, points):
-            pass
-
-        def purge_file_points(self, *a, **kw):
-            return 0
-
-        def count_points(self, name):
-            return 0
-
-        def swap_collection(self, tmp, target):
-            pass
-
-        def search(self, *a, **kw):
-            class _Hit:
-                def __init__(self, payload, score):
-                    self.payload, self.score = payload, score
-            return [_Hit({"file": "core.py", "symbol": "maybe_refresh",
-                          "symbol_type": "function", "lang": "python",
-                          "start_line": 1, "end_line": 3,
-                          "snippet": "def maybe_refresh(slug):"}, 0.9)]
-
-    core.embedder = StubEmbedder()  # type: ignore[assignment]
-    core.store = StubStore()  # type: ignore[assignment]
+    core.embedder = _StubEmbedder()  # type: ignore[assignment]
+    core.store = store  # type: ignore[assignment]
     core.indexer.embedder = core.embedder  # type: ignore[assignment]
     core.indexer.store = core.store  # type: ignore[assignment]
     reg = Registry(os.path.join(cfg.index_root, "registry.db"))
     entry = reg.add(str(project), name="flagproj")
-    core.run_index(entry.slug, str(project))
+    result = core.run_index(entry.slug, str(project))
     monkeypatch.setattr(cli, "_get_core", lambda skip: core)
+    return core, entry, project, reg, result
+
+
+def _assert_index_effect(core, entry, result):
+    """The acceptance effect of the store contract, not its absence.
+
+    The rig's claim is "a registered, INDEXED project", and the pass reports
+    itself through two observable facts: it returns ``state=idle`` and it asks
+    the store to swap the identity-stamped collection onto the project's
+    alias. Before this assertion existed, a store that could not swap left
+    the manifest readable and every refusal test in this file passing.
+    """
+    assert result.get("state") == "idle", (
+        f"the indexing pass did not finish for {entry.slug}: {result}")
+    assert core.store.swaps, (
+        "the indexing pass never swapped a collection onto the project alias")
+
+
+@pytest.fixture()
+def rig(tmp_path, monkeypatch):
+    """A registered, indexed project whose search runs without a service."""
+    core, entry, project, reg, result = _build_rig(
+        tmp_path, monkeypatch, _RecordingStore())
+    _assert_index_effect(core, entry, result)
     yield core, entry, project
     reg.close()
     monkeypatch.undo()
@@ -175,6 +234,28 @@ def test_a_bad_eval_rerank_value_is_a_usage_error(rig, tmp_path):
     queries.write_text(QUERIES)
     _refusal(["eval", "--project", entry_path(rig), "--queries", str(queries),
               "--rerank", "bogus"])
+
+
+def test_a_bad_visibility_value_is_a_usage_error(rig):
+    result = _refusal(["find-symbol", "maybe_refresh", "--project",
+                       entry_path(rig), "--visibility", "bogus"])
+    assert "--visibility must be 'public' or 'private'" in result.stderr
+
+
+def test_a_bad_visibility_is_refused_before_an_unregistered_project(rig,
+                                                                    tmp_path):
+    """The value is checked at the boundary, before any index read.
+
+    Measured at the previous tip: exit 1, ``NotFoundError: project not
+    registered`` -- a wrong invocation reported as a missing project, because
+    the value was checked after ``_get_core``, ``resolve_entry``,
+    ``_refuse_obsolete_rows`` and ``_read_staleness``.
+    """
+    unregistered = tmp_path / "unregistered"
+    unregistered.mkdir()
+    result = _refusal(["find-symbol", "maybe_refresh", "--project",
+                       str(unregistered), "--visibility", "bogus"])
+    assert "--visibility must be 'public' or 'private'" in result.stderr
 
 
 def test_a_bad_relationship_filter_is_a_usage_error(rig):
@@ -242,3 +323,37 @@ def test_the_lists_the_cli_refuses_are_the_lists_the_pipeline_runs():
         "list IS the search mode list")
     assert tuple(getattr(Core, "REFERENCE_FILTERS", ())) == (
         REFERENCE_FILTER_VALUES)
+
+
+def test_a_refusing_store_makes_the_indexing_acceptance_fail(
+        tmp_path, monkeypatch):
+    """Control one: a store that refuses the swap must fail the rig.
+
+    This passes only while ``_assert_index_effect`` is sensitive: the refusal
+    leaves the pass in ``state=error`` with no recorded swap, so the very
+    assertion the fixture makes fails. Before the assertion existed, this rig
+    passed 16 of 16.
+    """
+    core, entry, _project, reg, result = _build_rig(
+        tmp_path, monkeypatch, _RefusingStore())
+    try:
+        with pytest.raises(AssertionError, match="did not finish"):
+            _assert_index_effect(core, entry, result)
+    finally:
+        reg.close()
+
+
+def test_the_pre_fix_rig_fails_the_indexing_acceptance(tmp_path, monkeypatch):
+    """Control two: the stub with no ``swap_collection`` must fail too.
+
+    That is the rig the gate found passing 16 of 16 at the tip while logging
+    a swallowed indexing error; under the effect assertion it cannot pass,
+    which is what makes the acceptance half evidence rather than decoration.
+    """
+    core, entry, _project, reg, result = _build_rig(
+        tmp_path, monkeypatch, _PreFixStore())
+    try:
+        with pytest.raises(AssertionError, match="did not finish"):
+            _assert_index_effect(core, entry, result)
+    finally:
+        reg.close()
