@@ -232,7 +232,7 @@ def test_search_hits_carry_staleness_provenance(rig):
     # payload contract: the indexer records file_hash + indexed_at
     import inspect
     from code_indexer import indexer as ix
-    source = inspect.getsource(ix.Indexer.index_project)
+    source = inspect.getsource(ix._point_dict)
     assert '"file_hash"' in source and '"indexed_at"' in source
 
 

@@ -980,6 +980,51 @@ class Core:
             finally:
                 manifest.close()
 
+    def repair_points(self, slug: str, project_path: str) -> dict[str, Any]:
+        """Re-address every stored row's vector at its current point id.
+
+        The repair for a collection written before a file's chunk sequence
+        shifted: each row's vector is found by CONTENT among that file's
+        points (the payload's ``chunk_hash`` and ``symbol`` name the exact
+        embedding input) and written at the positional id the row's current
+        ``chunk_index`` names, with the row's current payload. Nothing is
+        embedded. A row whose vector is found nowhere is counted in
+        ``chunks_unrepairable`` and left untouched -- the command refuses to
+        invent a vector it does not have, and the caller names the count.
+
+        Idempotent: a second run finds every point already agreeing with its
+        row and writes nothing. Returns the same shape as ``run_index``.
+        """
+        with project_lock(self._lock_path(slug)) as acquired:
+            if not acquired:
+                return {"state": "indexing", "detail": "indexing in progress"}
+            self._set_state(slug, state="indexing", error=None)
+            manifest = self.manifest_for(slug, writable=True)
+            try:
+                if not vectors_policy.rows_current(manifest):
+                    raise RebuildRequiredError(
+                        f"error: {slug}: the stored rows are not current, so "
+                        f"there is no stable numbering to re-address; run: "
+                        f"code-indexer reindex-project {project_path}")
+                indexer = self._build_indexer(vectors=True)
+                collection = self._vector_target(slug, indexer)
+                if not self.store.collection_exists(collection):
+                    raise RebuildRequiredError(
+                        f"error: {slug}: the vector collection is gone, so no "
+                        f"stored vector can be re-addressed; run: "
+                        f"code-indexer reindex-project {project_path}")
+                result = indexer.embed_index(
+                    project_path, slug, manifest, collection=collection,
+                    repair=True)
+                self._set_state(slug, state="idle", last_result=vars(result))
+                return {"state": "idle", "result": vars(result)}
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("point repair failed for %s", project_path)
+                self._set_state(slug, state="error", error=str(exc))
+                return {"state": "error", "error": str(exc)}
+            finally:
+                manifest.close()
+
     # ------------------------------------------------------------------
     # orphan sweep
     # ------------------------------------------------------------------
@@ -1090,23 +1135,32 @@ class Core:
             collection, vector, limit=fetch, file_filter=file_filter,
             symbol_type=symbol_type, language=language)
         out = []
-        # The snippet is read from the manifest, never from the vector store:
-        # Qdrant is a vector store only, and the manifest is authoritative for
-        # chunk content (ADR-0001 section 3).
+        # ONE source of truth for what a hit describes: the manifest row its
+        # point names. Text, range and symbol all come from that row, so an
+        # answer can never show one chunk's text and name another chunk's
+        # region. The payload supplies only the point's identity (file,
+        # chunk_index) and the provenance a row does not carry (file_hash,
+        # indexed_at). A missing row (a stale point for a deleted chunk) falls
+        # back to the payload, which is all that is left to describe it.
         m = self.read_manifest(entry.slug)
         try:
             for h in hits:
                 p = h.payload or {}
-                snippet = m.chunk_text(p.get("file"), p.get("chunk_index"))
+                row = (m.chunk_row(p["file"], p["chunk_index"])
+                       if p.get("file") is not None
+                       and p.get("chunk_index") is not None else None)
+                snippet = row.text if row else m.chunk_text(
+                    p.get("file"), p.get("chunk_index"))
                 out.append({
                     "project": entry.path,
                     "file": p.get("file"),
                     "score": round(h.score, 4),
-                    "symbol": p.get("symbol"),
-                    "symbol_type": p.get("symbol_type"),
+                    "symbol": row.symbol if row else p.get("symbol"),
+                    "symbol_type": (row.symbol_type if row
+                                    else p.get("symbol_type")),
                     "lang": p.get("lang"),
-                    "start_line": p.get("start_line"),
-                    "end_line": p.get("end_line"),
+                    "start_line": row.start_line if row else p.get("start_line"),
+                    "end_line": row.end_line if row else p.get("end_line"),
                     "snippet": (snippet or "")[:500],
                     # Staleness provenance for get_code_context.
                     "file_hash": p.get("file_hash"),

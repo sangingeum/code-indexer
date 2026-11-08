@@ -514,6 +514,20 @@ class Manifest:
         except sqlite3.OperationalError:
             return 0  # pre-revision-7 manifest records no chunk rows
 
+    def chunk_row(self, file: str, chunk_index: int) -> ChunkRow | None:
+        """One chunk row, or None when the index holds no such chunk.
+
+        The read path's source of truth for what a hit DESCRIBES. A point's
+        payload names the chunk it belongs to; the row says what that chunk
+        is -- its text, its range and its symbol. Reading the range from the
+        payload and the text from the row let one answer show one chunk and
+        name another.
+        """
+        row = self._conn.execute(
+            self._CHUNK_COLS + " WHERE file = ? AND chunk_index = ?",
+            (file, chunk_index)).fetchone()
+        return ChunkRow(*row) if row else None
+
     def chunk_text(self, file: str, chunk_index: int) -> str | None:
         row = self._conn.execute(
             "SELECT text FROM chunks WHERE file = ? AND chunk_index = ?",

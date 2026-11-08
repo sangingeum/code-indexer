@@ -1893,6 +1893,11 @@ def reindex_project(
         help="Project path, slug, or name. Takes precedence over the "
              "positional PATH when both are given."),
     vectors: str = VectorsOpt,
+    repair_points: bool = typer.Option(
+        False, "--repair-points",
+        help="Re-address the stored vectors at the point ids the rows name, "
+             "without embedding anything. A row whose vector cannot be found "
+             "is left untouched and counted; the command then exits 4."),
     skip_stale_check: bool = SkipOpt,
     json_output: bool = typer.Option(False, "--json", help="JSON output."),
 ) -> None:
@@ -1902,11 +1907,43 @@ def reindex_project(
     stored chunks and swaps in a collection for the current identity — it
     reparses nothing. ``--vectors off`` rebuilds the rows with no service and
     leaves any existing collection untouched.
+
+    ``--repair-points`` is the collection repair, not a rebuild: every stored
+    row's vector is found by content and written at the point id the row's
+    current chunk_index names, and nothing is embedded. It is idempotent and
+    refuses (exit 4) the rows whose vector is found nowhere.
     """
     _check_vectors_flag(vectors)
     core = _get_core(skip_stale_check)
     selector = _require_selector(core, project, path, "reindex-project")
     entry = _resolve(core, selector)
+    if repair_points:
+        if core.resolve_vectors(entry.slug, vectors) != "on":
+            _pass_fail(ArgumentError(
+                f"error: --repair-points needs vectors on: it re-addresses "
+                f"stored vectors and embeds nothing (got --vectors {vectors})"),
+                json_output)
+        _require_semantic()
+        result = core.repair_points(entry.slug, entry.path)
+        index = _index_payload(entry.slug, result)
+        if index["state"] == "error":
+            _pass_fail(InternalError(
+                f"{entry.slug}: point repair failed: {index.get('error')}"),
+                json_output)
+        unrepairable = int((index.get("result") or {})
+                           .get("chunks_unrepairable") or 0)
+        if unrepairable:
+            _pass_fail(RebuildRequiredError(
+                f"error: {entry.slug}: {unrepairable} chunk row(s) had no "
+                f"vector anywhere in the collection and were left untouched; "
+                f"every other row now carries its own payload; run: "
+                f"code-indexer reindex-project {entry.path}"), json_output)
+        _emit_pass({"schema": 1, "command": "reindex-project",
+                    "path": entry.path, "slug": entry.slug,
+                    "vectors": "on", "repair_points": True,
+                    "index": index}, [_pass_line(entry.slug, result)],
+                   json_output)
+        return
     if core.resolve_vectors(entry.slug, vectors) == "on":
         _require_semantic()
     result = core.reindex_with_swap(entry.slug, entry.path, vectors=vectors)

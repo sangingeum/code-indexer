@@ -33,6 +33,7 @@ class _FakeEmbedder:
 class _FakeStore:
     def __init__(self) -> None:
         self.created: list[str] = []
+        self.points: dict[str, dict] = {}
 
     def collection_exists(self, name: str) -> bool:
         return True
@@ -44,7 +45,13 @@ class _FakeStore:
         return 0
 
     def upsert_points(self, name: str, points: list[object]) -> int:
+        for p in points:
+            self.points[p["id"]] = p
         return len(points)
+
+    def points_for_file(self, name: str, project: str, file: str) -> list[dict]:
+        return [p for p in self.points.values()
+                if p["payload"].get("file") == file]
 
 
 def _scanned(path: str, abs_path: str, content_hash: str) -> object:

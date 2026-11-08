@@ -30,7 +30,7 @@ otherwise. The same is true of every pass command below.
 
 - **Class**: write
 - **Arguments**: `path` (optional)
-- **Flags**: `--project` / `--name` <value>, `--vectors` <value> (default `auto`), `--skip-stale-check`, `--json`
+- **Flags**: `--project` / `--name` <value>, `--vectors` <value> (default `auto`), `--repair-points`, `--skip-stale-check`, `--json`
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 
 ### `remove-project`
@@ -133,9 +133,8 @@ code-indexer reindex-project /path/to/repo
 - `index-more` accepts `<project> <subpath>` or `--project <project>
   <subpath>` and rejects the flag plus two positionals as ambiguous. Neither
   spelling infers a project from the working directory.
-- `reindex-project` is a full rebuild, also foreground. It re-embeds from the
-  embedding cache where it can, so a vectors-on rebuild is cheaper than the
-  first pass.
+- `reindex-project` is a full rebuild, also foreground; a vectors-on rebuild
+  embeds nothing its current rows already store, so it is cheaper than the first pass.
 
 ## Removing and sweeping
 
@@ -168,28 +167,21 @@ code-indexer watch /path/to/repo --duration 300
 code-indexer unwatch --all
 ```
 
-- `--duration T` bounds the watcher's life: it exits 0 after T seconds
-  (`0`/omitted means forever, honoured by `--background` too); SIGINT and
-  SIGTERM exit 0.
+- `--duration T` exits 0 after T seconds (`0`/omitted = forever, honoured by
+  `--background` too); SIGINT and SIGTERM exit 0.
 - One watcher per index root: both modes take the same flock-guarded
-  `<INDEX_ROOT>/watch.pid`, and a second watcher is refused while a live one
-  holds it. `--background` prints `watch daemon started` only after
-  re-confirming the daemon is alive and still holding the pidfile.
+  `<INDEX_ROOT>/watch.pid`; a second is refused while a live one holds it, and
+  `--background` confirms the daemon before printing `watch daemon started`.
 - No watchdog, or inotify descriptor exhaustion, degrades to quiet-period
-  polling (a hash scan per project per quiet tick). Correctness is never
-  lost, only latency. A registered project whose root is missing or
-  unreadable is skipped with one warning naming it; the watcher exits
-  nonzero only when it covers no project.
+  polling: correctness is never lost, only latency. A project whose root is
+  missing is skipped with a warning; the watcher exits nonzero only if it covers none.
 - Projects are repeatable path/slug/name arguments or `--all`, never both.
-- `unwatch` SIGTERMs the live holder, waits for the flock to be released
-  (`--timeout`, default 10 s) and reports the projects it was serving. The
-  flock, never pid existence, is the liveness test, so a stale pidfile left
-  by a killed watcher is cleaned up silently. No watcher running is a clean
-  no-op at exit 0; a live holder that could not be stopped is exit 1.
+- `unwatch` SIGTERMs the live holder, waits for the flock (`--timeout`, default
+  10 s) and reports the projects it served; the flock, never pid existence, is
+  the liveness test. No watcher running is a clean no-op at exit 0; an unstoppable holder is exit 1.
 - **Version bumps need an ordered restart.** A watcher re-stamps its own
-  fingerprint on every sweep, so a watcher left running across an upgrade
-  silently reverts `needs-reindex`. After upgrading: `unwatch --all`,
-  `reindex-project <path>` per project, then `watch --all --background`.
+  fingerprint every sweep, so one left running across an upgrade reverts
+  `needs-reindex`: `unwatch --all`, `reindex-project <path>`, then `watch`.
 
 ## Asking what state an index is in
 
@@ -306,13 +298,21 @@ exits 1 when any check fails.
 | `--vectors off` | rows only, no service | rows only, no service |
 
 `auto` never silently enables embedding on a fresh install, and an existing
-vectors-on project stays on across an upgrade. `watch` follows the recorded
+vectors-on project stays on across the upgrade. `watch` follows the recorded
 mode and never turns vectors on by itself. Turning vectors on for a current
 project reparses nothing and reads no source file: it embeds the stored chunk
 text. A changed embedding identity is a NEW physical collection
 (`idx_<slug>__<identity digest>`), and every vector-writing pass binds the
 stable `idx_<slug>` alias to it; writes name the physical collection, reads
 resolve the alias.
+
+**Point identity.** A point id is positional (`uuid5(project|file|chunk_index)`),
+so every pass re-addresses by content: a chunk whose text and symbol the file's
+points already carry keeps its vector but is written at the id its CURRENT
+`chunk_index` names, with the current payload; a chunk found nowhere is
+embedded; points past the new count are purged. `reindex-project
+--repair-points` runs that over every stored row, embeds nothing, is idempotent,
+and counts and refuses (exit 4) the rows whose vector is nowhere.
 
 The three version axes:
 

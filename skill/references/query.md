@@ -105,6 +105,14 @@ pass first and therefore writes.
 - **JSON**: `--json` accepted; envelope and recipes in [machine-output.md](machine-output.md).
 <!-- generated:commands-query:end -->
 
+## What a reported range is
+
+A line range an answer reports is the range of the manifest chunk row the hit
+names -- the same row its snippet and symbol come from -- so
+`get-code-context --start-line/--end-line` (or `--symbol`) reads the region
+the answer showed. The vector store's payload carries identity and provenance
+only; it is never the description of a chunk.
+
 ## One flag for every format, one shape for every symbol read
 
 Every read command here takes `--format text|json`, and `--json` is the EXACT

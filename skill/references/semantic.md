@@ -70,6 +70,12 @@ code-indexer semantic-search "where does the token refresh happen" --project /pa
   chunk's first non-blank code line, else the hit's own file path -- in
   parentheses in text output, in the symbol column in compact, as
   `hit.identity` in `--json`.
+- A hit's text, symbol and line span all come from one source: the manifest
+  chunk row the point names. The vector payload supplies identity and
+  provenance (`file`, `chunk_index`, `file_hash`, `indexed_at`) only, so an
+  answer cannot show one chunk's snippet and name another chunk's region.
+  `eval` reads those same row-derived fields, so a labeled symbol is scored
+  against the coordinates of the chunk the answer actually holds.
 
 ## The eval harness
 

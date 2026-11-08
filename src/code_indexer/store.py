@@ -220,6 +220,39 @@ class Store:
         logger.info("purged points for file=%s (op=%s)", file, ops)
         return 0 if ops is None else 0  # counts unavailable for filter deletes
 
+    def points_for_file(self, name: str, project: str, file: str,
+                        with_vectors: bool = True) -> list[dict[str, Any]]:
+        """Every point one file holds, as ``{id, vector, payload}`` dicts.
+
+        This is the read side of point identity: an incremental pass asks
+        what the file's points already carry before deciding that a chunk is
+        reused, and the repair asks the same question over every stored row.
+        A chunk is only ever carried from a point whose payload names the
+        same embedding input, never from a bare "this hash exists" flag --
+        the old flag is exactly what let a point keep another chunk's vector.
+
+        Paginated: Qdrant's scroll returns a page and a continuation offset,
+        and a large file has hundreds of chunks.
+        """
+        must: list[Any] = [
+            FieldCondition(key="file", match=MatchValue(value=file)),
+            FieldCondition(key="project", match=MatchValue(value=project)),
+        ]
+        out: list[dict[str, Any]] = []
+        offset = None
+        while True:
+            points, offset = self.client.scroll(
+                collection_name=name, scroll_filter=Filter(must=must),
+                limit=256, offset=offset, with_payload=True,
+                with_vectors=with_vectors,
+            )
+            for p in points:
+                out.append({"id": str(p.id), "vector": p.vector,
+                            "payload": p.payload or {}})
+            if offset is None:
+                break
+        return out
+
     def count_points(self, name: str) -> int:
         try:
             return int(self.client.count(collection_name=name, exact=True).count)

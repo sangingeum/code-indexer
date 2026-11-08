@@ -27,6 +27,7 @@ from . import ts_chunker
 from .manifest import ChunkRow, Manifest, ManifestFile, SymbolRow
 from .scanner import (SKIP_SENSITIVE, SKIP_UNREADABLE, ScanAccounting,
                       ScannedFile, scan_project, write_scan_accounting)
+from .store import point_id
 from . import graph_extract
 from . import langmatrix
 from .sensitive import (SENSITIVE_READ_CHARS, SensitiveReport, skip_verdict)
@@ -89,10 +90,101 @@ class IndexResult:
     chunks_skipped: int = 0     # embed failures recorded in index_errors
     files_committed: int = 0    # manifest rows committed after their upserts
     sensitive_skipped: int = 0  # secret-bearing files excluded (privacy)
+    chunks_unrepairable: int = 0  # repair: rows whose vector was not found
 
 
 def _snippet(text: str, cap: int = 500) -> str:
     return text[:cap]
+
+
+def _embed_key(chunk_hash: str, symbol: str | None) -> tuple[str, str | None]:
+    """The identity of a stored vector: the exact embedding input.
+
+    ``chunk_hash`` covers the chunk text and the symbol is the other half of
+    ``embed_text``'s header, so two chunks with the same text under different
+    symbols are two different vectors. A vector may only be carried from a
+    point whose payload names this same pair -- content addressing by hash
+    alone would merge them.
+    """
+    return (chunk_hash, symbol)
+
+
+def _by_embed_key(points: list[dict[str, Any]]) -> dict[
+        tuple[str, str | None],
+        tuple[list[float], dict[str, Any], str]]:
+    """Index a file's stored points by embedding input (first point wins).
+
+    The point id rides along: a payload can describe the right row and still
+    sit at the wrong id (a store permuted under an older pass), and identity
+    is the pair -- this row, at the id its chunk_index names.
+    """
+    out: dict[tuple[str, str | None],
+              tuple[list[float], dict[str, Any], str]] = {}
+    for p in points:
+        payload = p.get("payload") or {}
+        vector = p.get("vector")
+        if vector is None or not payload.get("chunk_hash"):
+            continue
+        out.setdefault(_embed_key(payload["chunk_hash"], payload.get("symbol")),
+                       (vector, payload, str(p.get("id"))))
+    return out
+
+
+def _payload_agrees(payload: dict[str, Any], path: str, row: Any,
+                    content_hash: str, lang: str) -> bool:
+    """True when a stored point already describes this row exactly.
+
+    Every field a read path can report is compared, so a point is only left
+    alone when rewriting it would change nothing: the row's identity and
+    range, its text digest, the file digest a stale-answer warning uses, and
+    the language. ``indexed_at`` and the snippet are provenance, not identity.
+    """
+    return (payload.get("file") == path
+            and payload.get("chunk_index") == row.chunk_index
+            and payload.get("chunk_hash") == row.chunk_hash
+            and payload.get("start_line") == row.start_line
+            and payload.get("end_line") == row.end_line
+            and payload.get("symbol") == row.symbol
+            and payload.get("symbol_type") == row.symbol_type
+            and payload.get("content_hash") == content_hash
+            and payload.get("lang") == lang)
+
+
+def _pid(project_path: str, path: str, chunk_index: int) -> str:
+    return point_id(project_path, path, chunk_index)
+
+
+def _point_dict(project_path: str, path: str, row: Any, vector: list[float],
+                content_hash: str, lang: str, now: str) -> dict[str, Any]:
+    """One point as a plain dict; the store builds the client type.
+
+    ``row`` is a ``Chunk`` (a freshly chunked file) or a ``ChunkRow`` (an
+    embedded manifest row) -- both carry the same fields, and the payload is
+    the same shape either way. It used to be built twice, once per writer.
+    """
+    return {
+        "id": _pid(project_path, path, row.chunk_index),
+        "vector": vector,
+        "payload": {
+            "project": project_path,
+            "file": path,
+            "chunk_index": row.chunk_index,
+            "content_hash": content_hash,
+            "file_hash": content_hash[:8],
+            "chunk_hash": row.chunk_hash,
+            "symbol": row.symbol,
+            "symbol_type": row.symbol_type,
+            "lang": lang,
+            "start_line": row.start_line,
+            "end_line": row.end_line,
+            "snippet": _snippet(row.text),
+            "indexed_at": now,
+        },
+    }
+
+
+def _now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
 class Indexer:
@@ -141,6 +233,43 @@ class Indexer:
                 except Exception as single_exc:  # noqa: BLE001
                     errors.append((i, str(single_exc)))
             return vecs, errors
+
+    # -- point identity ---------------------------------------------------
+
+    def _stored_points(self, collection: str, project_path: str,
+                       path: str) -> list[dict[str, Any]]:
+        """What the store currently holds for one file (payload + vector).
+
+        A store that cannot report its points yields an empty list, and then
+        every chunk is embedded rather than reused: the pass never assumes a
+        vector exists because a cache said so. That assumption -- a bare
+        ``(file, chunk_hash)`` flag -- is the defect this replaces, because
+        it stays true when the chunk's point id moves underneath it.
+        """
+        reader = getattr(self.store, "points_for_file", None)
+        if reader is None:
+            return []
+        return reader(collection, project_path, path)
+
+    def _write_points(self, collection: str, points: list[dict[str, Any]]) -> int:
+        """Upsert points in configured batches; returns how many were sent."""
+        for i in range(0, len(points), self.cfg.upsert_batch):
+            self.store.upsert_points(
+                collection, points[i:i + self.cfg.upsert_batch])
+        return len(points)
+
+    def _purge_beyond(self, collection: str, project_path: str, path: str,
+                      row_count: int, stored: list[dict[str, Any]]) -> None:
+        """Drop points past the file's current chunk count.
+
+        A file that shrank leaves its old tail at indices no row owns. The
+        row count is the authority, not the previous manifest count, so a
+        collection that already disagrees with the rows is cleaned too.
+        """
+        if any(int((p.get("payload") or {}).get("chunk_index", -1)) >= row_count
+               for p in stored):
+            self.store.purge_file_points(
+                collection, project_path, path, min_chunk_index=row_count)
 
     def index_project(self, project_path: str, slug: str, manifest: Manifest,
                       force_full: bool = False,
@@ -339,14 +468,11 @@ class Indexer:
             changed = list(scanned_map.keys())
             added = []
             deleted = [p for p in old_files if p not in scanned_map]
-            # A full rebuild must actually re-embed: the chunk_hashes cache
-            # records "this vector exists in Qdrant", and Qdrant may have been
-            # wiped/reset independently of the manifest (owner reset, collection
-            # loss). Stale cache + empty collection = silent index loss. Force
-            # re-embed everything on a full pass. The same applies when the
-            # embedding-text format changed: cached hashes describe vectors
-            # built by a different construction, so they cannot be reused.
-            manifest.set_meta("chunk_hashes", "")
+            # A full rebuild must actually re-embed everything it processes:
+            # the store may have been wiped independently of the manifest, and
+            # a changed embedding construction describes vectors built by
+            # another one. Nothing is carried from the old points (see
+            # ``stored`` below, which is empty when ``rebuild`` is set).
 
         # 1) Purge deleted files (payload-filter delete + manifest rows).
         if vectors:
@@ -358,15 +484,15 @@ class Indexer:
                 manifest.fts_purge_file(path)
             logger.info("purged %d deleted files", len(deleted))
 
-        # 2) Chunk changed/added files; embed only chunks whose chunk_hash
-        #    is new. With EMBED_CONCURRENCY > 1, parse/chunk in a small
+        # 2) Chunk changed/added files; carry each unchanged chunk's stored
+        #    vector to the point id its CURRENT chunk_index names, and embed
+        #    only the chunks whose embedding input the file's points do not
+        #    already hold. With EMBED_CONCURRENCY > 1, parse/chunk in a small
         #    thread pool while the embed call is in flight (tree-sitter
         #    parsing is CPU-bound in the C extension and file reads are
         #    IO-bound; the embed HTTP call dominates wall time).
         to_embed: list[tuple[str, Chunk]] = []   # (file, chunk)
-        points: list = []
         reused = 0
-        seen_hashes = self._load_chunk_hashes(manifest)
 
         rows: list[ManifestFile] = []
         # Per-file symbol/reference/import extraction results, applied at the
@@ -438,6 +564,15 @@ class Indexer:
                            for (rt, _r, kind, ln) in imports]
             pending_meta[path] = (syms, refs, import_rows, confidence, lang)
             old = old_files.get(path)
+            # What this file's points already carry decides reuse -- not a
+            # recorded hash, which says only that the text was embedded
+            # somewhere at some time. The vector is carried from a point whose
+            # payload names the same embedding input, and it is written at the
+            # id the chunk's CURRENT chunk_index names; that is the repair of
+            # the shifted-sequence defect, and it also heals a file whose
+            # points were already permuted by an older pass.
+            stored = (self._stored_points(collection, project_path, path)
+                      if vectors and not rebuild else [])
             if vectors and old and old.chunk_count > len(chunks):
                 self.store.purge_file_points(
                     collection, project_path, path, min_chunk_index=len(chunks))
@@ -457,13 +592,29 @@ class Indexer:
                          symbol=c.symbol, symbol_type=c.symbol_type,
                          chunk_hash=c.chunk_hash, text=c.text)
                 for c in chunks])
+            content_hash = scanned_map[path].content_hash
+            by_key = _by_embed_key(stored)
+            refreshed: list[dict[str, Any]] = []
             for chunk_ in chunks:
-                key = f"{path}|{chunk_.chunk_hash}"
-                if vectors and key in seen_hashes and not rebuild:
-                    reused += 1
-                elif vectors:
-                    to_embed.append((path, chunk_))
-                    to_embed_files.add(path)
+                entry = by_key.get(_embed_key(chunk_.chunk_hash, chunk_.symbol))
+                if entry is None:
+                    if vectors:
+                        to_embed.append((path, chunk_))
+                        to_embed_files.add(path)
+                    continue
+                reused += 1
+                vector, payload, pid = entry
+                if (pid != _pid(project_path, path, chunk_.chunk_index)
+                        or not _payload_agrees(payload, path, chunk_,
+                                               content_hash, lang)):
+                    refreshed.append(_point_dict(
+                        project_path, path, chunk_, vector, content_hash, lang,
+                        _now()))
+            if refreshed:
+                self._write_points(collection, refreshed)
+            if vectors:
+                self._purge_beyond(collection, project_path, path, len(chunks),
+                                   stored)
             f = scanned_map[path]
             rows.append(ManifestFile(path, f.content_hash, f.size, len(chunks), "ok",
                                      getattr(f, "mtime_ns", None),
@@ -561,31 +712,15 @@ class Indexer:
                 path, chunk_ = to_embed[idx]
                 manifest.record_index_error(path, chunk_.chunk_index, msg)
                 skipped_errors += 1
-            from .store import point_id
             now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
             def _point(path: str, chunk_: Chunk,
                        vec: list[float]) -> dict[str, Any]:
                 """The point as a plain dict; the store builds the client type."""
-                return {
-                    "id": point_id(project_path, path, chunk_.chunk_index),
-                    "vector": vec,
-                    "payload": {
-                        "project": project_path,
-                        "file": path,
-                        "chunk_index": chunk_.chunk_index,
-                        "content_hash": scanned_map[path].content_hash,
-                        "file_hash": scanned_map[path].content_hash[:8],
-                        "chunk_hash": chunk_.chunk_hash,
-                        "symbol": chunk_.symbol,
-                        "symbol_type": chunk_.symbol_type,
-                        "lang": file_languages.get(path) or _lang_from_ext(path),
-                        "start_line": chunk_.start_line,
-                        "end_line": chunk_.end_line,
-                        "snippet": _snippet(chunk_.text),
-                        "indexed_at": now,
-                    },
-                }
+                return _point_dict(
+                    project_path, path, chunk_, vec,
+                    scanned_map[path].content_hash,
+                    file_languages.get(path) or _lang_from_ext(path), now)
 
             # Group to-embed entries by file, upsert per file, then commit
             # that file's manifest rows — the resumability unit.
@@ -600,11 +735,7 @@ class Indexer:
             for files_done, (path, entries) in enumerate(by_file.items(), 1):
                 points = [_point(path, chunk_, vectors[idx])
                           for idx, _p, chunk_ in entries]
-                for i in range(0, len(points), self.cfg.upsert_batch):
-                    self.store.upsert_points(
-                        collection, points[i:i + self.cfg.upsert_batch])
-                for idx, _p, chunk_ in entries:
-                    self._remember_chunk_hash(manifest, path, chunk_)
+                self._write_points(collection, points)
                 embedded += len(entries)
                 # Commit AFTER the vectors reached the store: a crash before
                 # this line costs a re-embed of this file only; nothing is
@@ -749,14 +880,25 @@ class Indexer:
         vectors_mod.record_rows(manifest)
 
     def embed_index(self, project_path: str, slug: str, manifest: Manifest,
-                    collection: str | None = None) -> IndexResult:
+                    collection: str | None = None,
+                    repair: bool = False) -> IndexResult:
         """Embed the stored chunk rows; read no source file, reparse nothing.
 
         This is the vectors-on pass of ADR-0001 section 3: every input comes
         from ``chunks`` (text and hash) plus the file rows (content hash,
-        language), so it runs with the source tree absent or unreadable. The
-        chunk-hash cache keeps it incremental — a chunk already vectored in
-        this collection costs nothing.
+        language), so it runs with the source tree absent or unreadable.
+
+        It is incremental by CONTENT: a row whose embedding input the
+        collection already holds at this file is carried to the point id its
+        current ``chunk_index`` names instead of being embedded again. That is
+        also the repair for a collection written before a file's chunk
+        sequence shifted -- every row is re-addressed from the vector that
+        describes it, so the run is idempotent and a second run upserts
+        nothing.
+
+        ``repair=True`` writes only what it can carry: a row whose vector is
+        found nowhere in the collection is counted in ``chunks_unrepairable``
+        and left untouched -- never embedded, never guessed.
 
         ``collection`` names a NEW physical collection when the embedding
         identity changed; the caller swaps the alias afterwards and drops the
@@ -771,68 +913,80 @@ class Indexer:
         if not self.store.collection_exists(collection):
             self.store.create_collection(collection, dim)
 
-        # A new identity means a new collection: no hash recorded under the
-        # old collection may be reused here (vectors are never mixed).
+        # A new identity means a new collection: nothing stored under the old
+        # one is carried into it (vectors are never mixed).
         from . import vectors as vectors_mod
         identity = vectors_mod.embedding_identity(self.cfg.embed_model, dim)
-        if manifest.get_meta("embedding_version") not in (None, identity):
-            manifest.set_meta("chunk_hashes", "")
+        same_identity = manifest.get_meta("embedding_version") in (None, identity)
 
         files = manifest.all_files()
-        chunks = [r for r in manifest.all_chunks() if r.file in files]
-        seen = self._load_chunk_hashes(manifest)
-        pending = [(r, f"{r.file}|{r.chunk_hash}") for r in chunks
-                   if f"{r.file}|{r.chunk_hash}" not in seen
-                   or manifest.get_meta("embedding_version") not in (None, identity)]
-        reused = len(chunks) - len(pending)
+        rows_by_file: dict[str, list[ChunkRow]] = {}
+        for row in manifest.all_chunks():
+            if row.file in files:
+                rows_by_file.setdefault(row.file, []).append(row)
+
+        now = _now()
+        reused = 0
+        unrepairable = 0
+        pending: list[tuple[str, ChunkRow]] = []
+        carried: list[dict[str, Any]] = []
+        stored_by_file: dict[str, list[dict[str, Any]]] = {}
+        for file, rows in rows_by_file.items():
+            file_row = files[file]
+            stored = (self._stored_points(collection, project_path, file)
+                      if same_identity else [])
+            stored_by_file[file] = stored
+            by_key = _by_embed_key(stored)
+            for row in rows:
+                entry = by_key.get(_embed_key(row.chunk_hash, row.symbol))
+                if entry is None:
+                    pending.append((file, row))
+                    continue
+                reused += 1
+                vector, payload, pid = entry
+                if (pid != _pid(project_path, file, row.chunk_index)
+                        or not _payload_agrees(payload, file, row,
+                                               file_row.content_hash,
+                                               file_row.language)):
+                    carried.append(_point_dict(
+                        project_path, file, row, vector, file_row.content_hash,
+                        file_row.language, now))
+        if carried:
+            self._write_points(collection, carried)
+        # AFTER the carry: a point past the row count may be a row's only copy
+        # of its vector, and the read above already holds what it needs.
+        for file, rows in rows_by_file.items():
+            self._purge_beyond(collection, project_path, file, len(rows),
+                               stored_by_file[file])
 
         embedded = 0
         skipped = 0
-        if pending:
-            texts = [embed_text(r.file, _chunk_from_row(r)) for r, _k in pending]
+        written_files = {p["payload"]["file"] for p in carried}
+        if repair:
+            unrepairable = len(pending)
+        elif pending:
+            texts = [embed_text(f, _chunk_from_row(r)) for f, r in pending]
             vectors, errors = self._embed_with_errors_compat(texts)
             for idx, msg in errors:
-                row = pending[idx][0]
-                manifest.record_index_error(row.file, row.chunk_index, msg)
+                file, row = pending[idx]
+                manifest.record_index_error(file, row.chunk_index, msg)
                 skipped += 1
-            from .store import point_id
-            now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-            by_file: dict[str, list[tuple[int, Any]]] = {}
-            for idx, (row, _key) in enumerate(pending):
+            by_file: dict[str, list[tuple[int, ChunkRow]]] = {}
+            for idx, (file, row) in enumerate(pending):
                 if vectors[idx] is None:
                     continue
-                by_file.setdefault(row.file, []).append((idx, row))
-            for file, entries in by_file.items():
+                by_file.setdefault(file, []).append((idx, row))
+            for done, (file, entries) in enumerate(by_file.items(), 1):
                 file_row = files[file]
-                points = []
-                for idx, row in entries:
-                    points.append({
-                        "id": point_id(project_path, file, row.chunk_index),
-                        "vector": vectors[idx],
-                        "payload": {
-                            "project": project_path,
-                            "file": file,
-                            "chunk_index": row.chunk_index,
-                            "content_hash": file_row.content_hash,
-                            "file_hash": file_row.content_hash[:8],
-                            "chunk_hash": row.chunk_hash,
-                            "symbol": row.symbol,
-                            "symbol_type": row.symbol_type,
-                            "lang": file_row.language,
-                            "start_line": row.start_line,
-                            "end_line": row.end_line,
-                            "indexed_at": now,
-                        },
-                    })
-                for i in range(0, len(points), self.cfg.upsert_batch):
-                    self.store.upsert_points(
-                        collection, points[i:i + self.cfg.upsert_batch])
-                for _idx, row in entries:
-                    self._remember_chunk_hash(manifest, file, _chunk_from_row(row))
+                points = [_point_dict(project_path, file, row, vectors[idx],
+                                      file_row.content_hash, file_row.language,
+                                      now) for idx, row in entries]
+                self._write_points(collection, points)
                 embedded += len(entries)
+                written_files.add(file)
                 if self.progress_cb is not None:
                     self.progress_cb({
-                        "files_done": len(by_file), "files_total": len(by_file),
+                        "files_done": done, "files_total": len(by_file),
                         "chunks_done": embedded, "chunks_total": len(pending),
                         "docs_per_s": 0.0, "eta_s": 0.0, "errors": skipped})
 
@@ -846,27 +1000,14 @@ class Indexer:
         manifest.set_meta("index_revision", _next_revision(manifest))
         manifest.set_meta("vectors", vectors_mod.MODE_ON)
         manifest.set_meta("vectors_state",
-                          vectors_mod.STATE_ERROR if skipped
+                          vectors_mod.STATE_ERROR if (skipped or unrepairable)
                           else vectors_mod.STATE_CURRENT)
         return IndexResult(
             files_indexed=0, chunks_embedded=embedded, chunks_reused=reused,
             files_deleted=0, duration_s=round(time.time() - t0, 2),
-            chunks_skipped=skipped, files_committed=len(by_file) if pending else 0,
+            chunks_skipped=skipped, files_committed=len(written_files),
+            chunks_unrepairable=unrepairable,
         )
-
-    # -- chunk-hash cache (design §6 step 6) ---------------------------
-
-    def _load_chunk_hashes(self, manifest: Manifest) -> set[str]:
-        raw = manifest.get_meta("chunk_hashes") or ""
-        return set(raw.split("\n")) if raw else set()
-
-    def _remember_chunk_hash(self, manifest: Manifest, file: str, chunk_: Chunk) -> None:
-        raw = manifest.get_meta("chunk_hashes") or ""
-        key = f"{file}|{chunk_.chunk_hash}"
-        if key not in raw:
-            lines = [ln for ln in raw.split("\n") if ln]
-            lines.append(key)
-            manifest.set_meta("chunk_hashes", "\n".join(lines[-5000:]))
 
 
 def _next_revision(manifest: Manifest) -> str:
