@@ -25,6 +25,7 @@ from code_indexer.config import Config  # noqa: E402
 from code_indexer.core import Core  # noqa: E402
 from code_indexer.errors import RebuildRequiredError  # noqa: E402
 from code_indexer.graph_extract import EXTRACTION_VERSION  # noqa: E402
+from code_indexer.ts_chunker import CHUNKER_VERSION  # noqa: E402
 from code_indexer.registry import Registry  # noqa: E402
 
 runner = CliRunner()
@@ -272,3 +273,29 @@ def test_refresh_repairs_the_project_and_the_surface_then_answers(
         assert m.get_meta("extraction_version") == str(EXTRACTION_VERSION)
     finally:
         m.close()
+
+
+def test_an_index_built_by_the_old_chunker_is_refused_on_both_row_axes(
+        needs_reindex_rig):
+    """Both row axes are versions, and the refusal names each one.
+
+    Chunking behaviour changed (a split oversized unit now reports the file
+    lines its pieces came from), so chunker_version 1 is no more reproducible
+    than extraction_version 7 is: an index recorded by that pair must refuse,
+    name both keys, and carry the one reindex command.
+    """
+    core, entry, project = needs_reindex_rig
+    m = core.manifest_for(entry.slug)
+    try:
+        m.set_meta("chunker_version", "1")
+        m.set_meta("extraction_version", str(EXTRACTION_VERSION - 1))
+    finally:
+        m.close()
+
+    with pytest.raises(RebuildRequiredError) as raised:
+        core.assert_rows_acceptable(entry)
+    message = str(raised.value)
+    assert f"chunker_version: 1 -> {CHUNKER_VERSION}" in message, message
+    assert (f"extraction_version: {EXTRACTION_VERSION - 1} -> "
+            f"{EXTRACTION_VERSION}" in message), message
+    assert f"code-indexer reindex-project {project}" in message, message

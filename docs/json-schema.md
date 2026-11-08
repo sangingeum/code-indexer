@@ -540,13 +540,14 @@ top level; `decl_hash` is `sha256:`-prefixed; `symbol_id` is the
 revision-scoped surrogate and belongs to the `index_revision` in the staleness
 block — it is not a durable identifier. No rows is `symbols: []` with exit 0.
 
-`evidence` is a property of the file the row came from, not of the query:
-`ast` (attributed syntax) or `unknown` (no AST extractor, or the parse failed).
-It is present on every row, so a caller can tell `unknown` from a negative —
-most indexed repositories are mostly files with no grammar. The third value,
-`heuristic`, is reserved in the vocabulary and produced by no extractor today
-(a parsed file's rows are `ast`, the regex fallback's are `unknown`), so treat
-it as a value a future extractor may emit, not one a row is in.
+`evidence` is a property of the file the row came from, not of the query.
+Every symbol row is `ast`: a row exists only for a declaration parsed from
+source with an AST, and a file with no AST reader contributes no symbol rows.
+`unknown` therefore describes no symbol row any more (it stays in the
+vocabulary for older readers and for non-symbol surfaces), and `heuristic` is
+reserved with no producer. An unparsed file is reached by semantic search
+over its chunks, and `find-definition` reports `files-not-parsed` rather than
+an `unknown` row.
 
 `match_count` is the uncapped number of rows the same filters match, and
 `truncated` is true when `--limit` showed fewer. `ambiguity` appears in

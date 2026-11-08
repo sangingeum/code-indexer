@@ -47,11 +47,15 @@ def test_language_capabilities_snapshot(lang):
     exp_ast, exp_sym = EXPECTED[lang]
     assert caps["ast_chunking"] is exp_ast, caps
     assert caps["symbols"] is exp_sym, caps
-    if lang in ("python", "typescript", "javascript", "c", "cpp", "go",
-                "csharp"):
-        assert caps["references"] == "ast", caps
-    else:
-        assert caps["references"] in ("heuristic", "none"), caps
+    # The `references` cell names the rows the writer stores for this
+    # language: query rows for an AST-reference language, the textual scan
+    # (heuristic) for every other source language. The old assertion accepted
+    # "none" or "heuristic", which let the column say "none" for a ruby file
+    # that stores heuristic rows.
+    ast_references = {"python", "javascript", "typescript", "c", "cpp", "go",
+                      "csharp"}
+    expected_refs = "ast" if lang in ast_references else "heuristic"
+    assert caps["references"] == expected_refs, (lang, caps)
 
 
 def test_visibility_real_languages():
@@ -82,14 +86,28 @@ def test_render_markdown_table():
     assert "regex chunker fallback despite grammar mapping" in md
 
 
+def test_prose_and_config_rows_store_no_references():
+    # A format the writer gives no reference rows must say "none"; a source
+    # language with a textual scan must not say "none" (it stores rows).
+    for lang in ("markdown", "json", "yaml", "toml", "html", "css",
+                 "csproj", "sln", "props", "gitignore"):
+        assert capabilities(lang)["references"] == "none", lang
+    for lang in ("proto", "csx", "ruby", "bash"):
+        assert capabilities(lang)["references"] == "heuristic", lang
+
+
 def test_languages_without_ast_snapshot():
-    # Every registry language outside the AST-references set. proto, text and
-    # log are declared rows: they are indexed for search and answer no symbol
-    # question, so the list must name them rather than omit them.
+    # Every registry language outside the AST-references set. proto, csx, text
+    # and log are declared rows: they are indexed for search and answer no
+    # symbol question, so the list must name them rather than omit them. The
+    # prose and configuration formats are named for the same reason -- a
+    # .csproj is indexed and answers no definition.
     expected = sorted({"python", "javascript", "typescript", "tsx", "rust",
                        "go", "java", "c", "cpp", "csharp", "ruby", "php",
                        "bash", "lua", "swift", "kotlin", "markdown", "json",
-                       "yaml", "toml", "html", "css", "proto", "text", "log"}
+                       "yaml", "toml", "html", "css", "proto", "text", "log",
+                       "csx", "csproj", "sln", "props", "gitignore",
+                       "codeindexignore"}
                       - {"python", "typescript", "tsx", "javascript",
                          "c", "cpp", "go", "csharp"})
     assert languages_without_ast() == expected

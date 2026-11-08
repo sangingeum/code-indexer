@@ -194,14 +194,16 @@ in one file are both credited with the union of both bodies' references.
 Read such a hit as "this file's `name` makes this call", not "this exact
 symbol does".
 
-**Evidence.** Every symbol row carries `evidence`: `ast` (attributed syntax)
-or `unknown` (no AST extractor for the file, or its parse failed).
-`heuristic` is reserved and produced by nothing today. `--inherits` and
-`--has-call` answer from attributed syntax only, so a symbol in a docs or
-data file reports `unknown` -- never "no". Most repositories are mostly
-files with no grammar, so an empty answer from those two filters carries an
-`evidence_note` (JSON) or one explanatory line (text). Do not read such a
-zero as a negative.
+**Evidence.** Every symbol row is `evidence: ast` -- a symbol row exists only
+for a declaration parsed from source with an AST, which is why `unknown` no
+longer describes any symbol row and `heuristic` is vocabulary with no
+producer. A file with no AST reader (proto, csx, ruby, and every prose or
+configuration format) contributes no symbol rows at all: semantic search over
+its chunks is what remains, and `find-definition` answers empty with the
+`files-not-parsed` (or `language-without-ast`) reason rather than as a
+negative. `--inherits` and `--has-call` answer from attributed syntax only,
+so an empty answer from those two filters carries an `evidence_note` (JSON)
+or one explanatory line (text). Do not read such a zero as a negative.
 
 **Browse-mode order.** With no name there is no name clause, so the answer is
 class, `name`, `file`, `start_line`, `qualified_name`, `decl_hash`: one key

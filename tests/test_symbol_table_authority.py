@@ -1,11 +1,14 @@
 """The symbol and reference tables hold declarations, never prose.
 
 Only a declaration parsed from source with an AST may enter the symbol table.
-Prose and configuration formats (markdown, plain text, logs, json, yaml,
-toml, html, css) keep their chunks -- they are searchable text -- and a file
-row, and contribute NOTHING to symbols or references. Before this rule a
-markdown file's headings and sentences landed in the symbol table, so
-``find-symbol`` answered ``ARCHITECTURE.md:211-234 registry (function)``.
+Prose AND configuration formats (markdown, plain text, logs, json, yaml,
+toml, html, css, csproj, sln, props, gitignore) keep their chunks -- they are
+searchable text -- and a file row, and contribute NOTHING to symbols or
+references. Before this rule a markdown file's headings and sentences landed
+in the symbol table, so ``find-symbol`` answered
+``ARCHITECTURE.md:211-234 registry (function)``; and a build file's element
+names landed in the reference table, so a csproj spelled 580 "references" to
+types it never mentions.
 """
 
 from __future__ import annotations
@@ -43,6 +46,36 @@ ARCHITECTURE = (
 
 SOURCE = "def greet(name):\n    return name\n"
 
+# Build/configuration formats: the same ruling as prose. An element or a
+# project name is not a declaration and not a reference to the C# type it
+# spells, so these files are indexed for search and answer nothing.
+CONFIG_FILES = {
+    "app.csproj": (
+        '<Project Sdk="Microsoft.NET.Sdk">\n'
+        "  <ItemGroup>\n"
+        '    <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />\n'
+        '    <ProjectReference Include="..\\Registry\\Registry.csproj" />\n'
+        "  </ItemGroup>\n"
+        "</Project>\n"
+    ),
+    "Solution.sln": (
+        "Microsoft Visual Studio Solution File, Format Version 12.00\n"
+        'Project("{9A19103F}") = "Registry", "Registry.csproj", "{4B5C}"\n'
+        "EndProject\n"
+    ),
+    "Directory.props": (
+        "<Project>\n"
+        "  <PropertyGroup>\n"
+        "    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>\n"
+        "  </PropertyGroup>\n"
+        "</Project>\n"
+    ),
+    ".gitignore": "bin/\nobj/\n.artifacts/\n*.tmp\n",
+}
+
+PROSE_AND_CONFIG = ["ARCHITECTURE.md", "NOTES.txt", "run.log",
+                    *CONFIG_FILES]
+
 
 @pytest.fixture()
 def rig(tmp_path, monkeypatch):
@@ -51,6 +84,8 @@ def rig(tmp_path, monkeypatch):
     (project / "ARCHITECTURE.md").write_text(ARCHITECTURE)
     (project / "NOTES.txt").write_text("registry (function)\n\nsome prose\n")
     (project / "run.log").write_text("registry: started\nregistry: stopped\n")
+    for name, body in CONFIG_FILES.items():
+        (project / name).write_text(body)
     (project / "app.py").write_text(SOURCE)
     core = stub_core(tmp_path)
     reg, entry = index_project(core, project)
@@ -58,7 +93,7 @@ def rig(tmp_path, monkeypatch):
     return core, entry, project
 
 
-@pytest.mark.parametrize("name", ["ARCHITECTURE.md", "NOTES.txt", "run.log"])
+@pytest.mark.parametrize("name", PROSE_AND_CONFIG)
 def test_a_prose_file_contributes_no_symbols(rig, name):
     core, entry, _ = rig
     m = core.manifest_for(entry.slug)
@@ -68,7 +103,7 @@ def test_a_prose_file_contributes_no_symbols(rig, name):
         m.close()
 
 
-@pytest.mark.parametrize("name", ["ARCHITECTURE.md", "NOTES.txt", "run.log"])
+@pytest.mark.parametrize("name", PROSE_AND_CONFIG)
 def test_a_prose_file_contributes_no_references(rig, name):
     core, entry, _ = rig
     m = core.manifest_for(entry.slug)
@@ -78,7 +113,7 @@ def test_a_prose_file_contributes_no_references(rig, name):
         m.close()
 
 
-@pytest.mark.parametrize("name", ["ARCHITECTURE.md", "NOTES.txt", "run.log"])
+@pytest.mark.parametrize("name", PROSE_AND_CONFIG)
 def test_a_prose_file_keeps_its_chunks_and_its_file_row(rig, name):
     core, entry, _ = rig
     m = core.manifest_for(entry.slug)
@@ -126,3 +161,19 @@ def test_an_ast_chunk_still_becomes_a_symbol_row():
     rows = ts_chunker.extract_symbols("app.py", text, chunks)
     assert verdict == "parsed"
     assert [r["name"] for r in rows] == ["greet"]
+
+
+def test_one_language_class_answers_for_prose_and_configuration():
+    # One place decides: the symbol seam, the reference seam and the matrix's
+    # own `references` column read the same language class. A csproj is not
+    # prose by filename -- "csproj" is a language in the set.
+    from code_indexer.langmatrix import (
+        PROSE_OR_CONFIG_LANGUAGES, capabilities, is_prose_or_config)
+
+    for lang in ("markdown", "json", "csproj", "sln", "props", "gitignore"):
+        assert is_prose_or_config(lang), lang
+        assert lang in PROSE_OR_CONFIG_LANGUAGES
+        assert capabilities(lang)["references"] == "none", lang
+    # A source language outside the class keeps its textual reference rows.
+    assert not is_prose_or_config("csx")
+    assert capabilities("csx")["references"] == "heuristic"

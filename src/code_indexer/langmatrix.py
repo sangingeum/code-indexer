@@ -29,8 +29,14 @@ from .graph_extract import LANGUAGES_WITH_AST
 # accuracy ruling of 2026-11-08: the symbol table is an authority other
 # agents act on, and a markdown heading lifted into it is a phantom
 # definition that find-definition answers for as though it were code.
+#
+# One class, by LANGUAGE, never by filename: the two indexer seams (symbols
+# and references) and the matrix's own `references` column all read this set.
+# A build/configuration format belongs here for the same reason prose does --
+# a csproj element name is not a reference to the C# type it spells.
 PROSE_OR_CONFIG_LANGUAGES = frozenset(
-    {"markdown", "text", "log", "json", "yaml", "toml", "html", "css"})
+    {"markdown", "text", "log", "json", "yaml", "toml", "html", "css",
+     "csproj", "sln", "props", "gitignore", "codeindexignore"})
 
 
 def is_prose_or_config(language: str | None) -> bool:
@@ -69,6 +75,13 @@ _FIXTURES: dict[str, str] = {
     "proto": 'syntax = "proto3";\nmessage Greeting {\n  string name = 1;\n}\n',
     "text": "a plain text note (about a function)\n",
     "log": "2026-11-08 registry: started\n",
+    # Configuration and script formats the index takes. Their rows are what a
+    # reader quotes when asking why a name inside one answers nothing.
+    "csproj": '<Project Sdk="Microsoft.NET.Sdk">\n  <ItemGroup>\n    <PackageReference Include="Greeter" />\n  </ItemGroup>\n</Project>\n',
+    "sln": "Microsoft Visual Studio Solution File\nProject(\"{x}\") = \"Greeter\", \"Greeter.csproj\"\n",
+    "props": "<Project>\n  <PropertyGroup>\n    <Greeter>true</Greeter>\n  </PropertyGroup>\n</Project>\n",
+    "gitignore": "bin/\nobj/\n*.Greeter.tmp\n",
+    "csx": "var greeter = new Greeter();\ngreeter.Greet();\n",
 }
 
 # tree-sitter pack name -> representative extension.
@@ -77,6 +90,8 @@ _LANG_EXT: dict[str, str] = {
     "go": "go", "java": "java", "c": "c", "cpp": "cpp", "csharp": "cs",
     "ruby": "rb", "php": "php", "kotlin": "kt", "bash": "sh", "lua": "lua",
     "swift": "swift", "proto": "proto", "text": "txt", "log": "log",
+    "csproj": "csproj", "sln": "sln", "props": "props",
+    "gitignore": "gitignore", "csx": "csx",
 }
 
 
@@ -88,15 +103,19 @@ def capabilities(lang: str) -> dict:
     """
     text = _FIXTURES.get(lang)
     ext = _LANG_EXT.get(lang)
+    # The column must describe what the reference WRITER does for this
+    # language, so it is read from the same two facts here as at the indexer
+    # seams: prose/configuration writes no reference rows at all, an
+    # AST-reference language writes query rows, and every other language
+    # takes the textual scan (confidence 'heuristic'). Writing "none" for a
+    # language whose files store heuristic rows made the matrix lie.
     caps = {
         "language": lang, "ext": ext, "ast_chunking": False,
         "symbols": False, "signatures": False, "visibility": False,
-        "references": "heuristic" if lang in LANGUAGES_WITH_AST else "none",
+        "references": _reference_column(lang),
         "imports_resolution": _resolution_note(lang),
         "notes": "",
     }
-    if lang in LANGUAGES_WITH_AST:
-        caps["references"] = "ast"
     if text is None or ext is None:
         caps["notes"] = "unsupported: window chunker fallback only"
         return caps
@@ -123,6 +142,20 @@ def capabilities(lang: str) -> dict:
     elif chunks and not ast_chunks and not caps["notes"]:
         caps["notes"] = "regex chunker fallback"
     return caps
+
+
+def _reference_column(lang: str) -> str:
+    """The `references` cell: the rows this language's files actually store.
+
+    Three outcomes, matching the one reference writer in ``indexer``:
+    prose/configuration stores nothing (``none``), an AST-reference language
+    stores query rows (``ast``), and every other indexed language takes the
+    textual scan (``heuristic``). There is no fourth value and no path that
+    silently falls back to ``none``.
+    """
+    if is_prose_or_config(lang):
+        return "none"
+    return "ast" if lang in LANGUAGES_WITH_AST else "heuristic"
 
 
 def _resolution_note(lang: str) -> str:
@@ -155,6 +188,7 @@ def languages_without_ast() -> list[str]:
     """
     known = ({row["language"] for row in matrix()}
              | set(EXT_LANG_NAMES)
+             | set(PROSE_OR_CONFIG_LANGUAGES)
              | set(DECLARED_WITHOUT_READER))
     return sorted(known - LANGUAGES_WITH_AST)
 
@@ -168,6 +202,8 @@ EXT_LANG_NAMES = sorted(set(ts_chunker.EXT_LANG.values()))
 DECLARED_WITHOUT_READER: dict[str, str] = {
     "proto": "indexed for search; no symbol or reference reader, so "
              "find-definition cannot answer inside a .proto file",
+    "csx": "indexed for search; the parser has no grammar mapping for a "
+           ".csx script, so find-definition cannot answer inside one",
 }
 
 
@@ -200,20 +236,29 @@ def render_markdown() -> str:
         "  for oversize units); `no` means the window/regex chunker handles",
         "  the file (chunks still embed and search fine).",
         "- references `ast`: tree-sitter queries (queries/<lang>/references.scm),",
-        "  comments/strings excluded. Anything else that extracts references",
-        "  does it textually (heuristic; comments/strings count).",
+        "  comments/strings excluded. `heuristic` is the textual scan the other",
+        "  indexed languages take (comments/strings count). `none` means the",
+        "  format stores no reference rows at all — the prose and configuration",
+        "  formats below. The cell is what the indexer's one reference writer",
+        "  actually does for that language.",
         "- symbols: ONLY a declaration parsed from source with an AST enters",
         "  the symbol table. A text window's first line is not a declaration,",
         "  so a language whose chunker is the regex fallback (ruby) yields no",
         "  symbol rows, and neither does an unparsed language such as proto.",
-        "- prose and configuration (markdown, text, log, json, yaml, toml, html,",
-        "  css) are indexed for SEARCH ONLY: chunks for semantic search and a",
+        "  Every symbol row is therefore `evidence=ast`: `evidence=unknown` no",
+        "  longer describes any symbol row.",
+        f"- prose and configuration ({', '.join(sorted(PROSE_OR_CONFIG_LANGUAGES))})",
+        "  are indexed for SEARCH ONLY: chunks for semantic search and a",
         "  file row, with no symbols and no references. `find-definition`",
         "  cannot answer for anything in them, and says so through the empty-",
         "  answer reason rather than returning prose as a definition.",
         "- an unparsed language is one with no symbol reader, NOT one the index",
-        "  refuses: proto files are indexed and searchable, and answer nothing",
-        "  for `find-definition`. `index-status` lists every such language.",
+        "  refuses: proto and csx files are indexed and searchable, and answer",
+        "  nothing for `find-definition`. `index-status` lists every such",
+        "  language. Semantic search over the file's chunks is what remains —",
+        "  the text is indexed and reachable — and `find-definition` answers",
+        "  empty with the files-not-parsed (or language-without-ast) reason",
+        "  rather than as a negative.",
         "- visibility is real only where rules exist (python underscore,",
         "  rust pub, csharp modifiers); C/C++/Java default public.",
         "- Unsupported languages fall back cleanly to the window chunker and",

@@ -28,6 +28,7 @@ from code_indexer.fingerprint import (ConfigError, Fingerprint,  # noqa: E402
                                       manifest_newer_than,
                                       read_fingerprint)
 from code_indexer.graph_extract import EXTRACTION_VERSION  # noqa: E402
+from code_indexer.ts_chunker import CHUNKER_VERSION  # noqa: E402
 from code_indexer.manifest import Manifest  # noqa: E402
 from code_indexer.registry import Registry  # noqa: E402
 
@@ -154,13 +155,23 @@ def rig():
 
 def test_extraction_version_is_pinned():
     # Pinned on purpose: this value decides whether an existing index is
-    # trusted or refused as stale. 7 is the pass that made the symbol table an
-    # authority (AST-only rows, prose contributes none), counted chunk ranges
-    # in the file's own lines, and split oversized windows instead of
-    # truncating them. Rows built by 6 are not derivable from these rules, so
-    # changing this constant requires a new comment block beside it -- not a
-    # silent edit to make a suite green.
-    assert EXTRACTION_VERSION == 7
+    # trusted or refused as stale. 8 is the pass that extended the
+    # prose-and-configuration language class to build formats (csproj, sln,
+    # props, gitignore, codeindexignore), so those files store no reference
+    # rows; 7 was the pass that made the symbol table an authority (AST-only
+    # rows, prose contributes none), counted chunk ranges in the file's own
+    # lines, and split oversized windows instead of truncating them. Rows
+    # built by 7 are not derivable from these rules, so changing this constant
+    # requires a new comment block beside it -- not a silent edit to make a
+    # suite green.
+    assert EXTRACTION_VERSION == 8
+
+
+def test_chunker_version_is_pinned():
+    # Same contract one axis over: 2 is the pass where a split oversized unit
+    # reports the file lines its pieces came from (1 counted the unit's start
+    # twice and drifted past EOF). A bump is a documented decision.
+    assert CHUNKER_VERSION == 2
 
 
 def test_fingerprint_roundtrip_and_mismatch_detection():

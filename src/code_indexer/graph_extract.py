@@ -110,7 +110,11 @@ LANGUAGES_WITH_AST = frozenset(
 # truncated. Rows built by v6 describe a different index -- prose definitions
 # that do not exist, ranges past EOF, and text that never reached a chunk --
 # so an index built by it must report needs-reindex, never answer from them.
-EXTRACTION_VERSION = 7
+# v8: the prose-or-configuration language class grew its build/configuration
+# formats (csproj, sln, props, gitignore, codeindexignore). They now write no
+# reference rows at all, so their files' stored references change: rows built
+# by v7 carry references to names nothing declares.
+EXTRACTION_VERSION = 8
 
 _INDEX_EXTS = (".ts", ".tsx", ".js", ".jsx")
 
