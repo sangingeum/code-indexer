@@ -463,20 +463,26 @@ def test_a_drift_path_outside_the_checkout_is_an_assertion_not_a_crash():
     assert "outside the checkout" in str(caught.value)
 
 
-EXTERNAL_FLAGS = {
-    # click's own option
+# click's own option, and keeper's flags named where a plan is applied or
+# undone: neither belongs to the CLI this surface documents.
+FOREIGN_TOOL_FLAGS = {
     "--help",
-    # keeper's flags, named where a plan is applied or undone
     "--expected-hash",
     "--expected-content",
     "--task-id",
-    # the probe script's own flags, named where the drift measurement's
-    # protocol is cited; they belong to scripts/probe_embed_drift.py, not to
-    # the CLI this surface documents
+}
+
+# The probe script's own flags, named where the drift measurement's protocol
+# is cited; they belong to scripts/probe_embed_drift.py, not to the CLI this
+# surface documents. The test below measures that claim instead of assuming
+# it: each of these must be a flag the probe really declares.
+PROBE_FLAGS = {
     "--form",
     "--trials",
     "--reload",
 }
+
+EXTERNAL_FLAGS = FOREIGN_TOOL_FLAGS | PROBE_FLAGS
 
 
 def test_every_mentioned_flag_exists_on_a_command():
@@ -490,6 +496,22 @@ def test_every_mentioned_flag_exists_on_a_command():
     mentioned = set(re.findall(r"(--[a-z][a-z0-9-]+)", _surface_text()))
     bogus = sorted(mentioned - real - EXTERNAL_FLAGS)
     assert not bogus, f"documented flags no command accepts: {bogus}"
+
+
+def test_the_probe_flags_the_surface_exempts_are_flags_the_probe_declares():
+    """The exemption is a measurement, not an assumption.
+
+    A flag cited in the agent surface is exempted only because it belongs to
+    scripts/probe_embed_drift.py. If the probe stops declaring one, the
+    exemption is a hole and this fails rather than hiding it.
+    """
+    probe = (REPO / "scripts" / "probe_embed_drift.py").read_text(
+        encoding="utf-8")
+    declared = set(re.findall(r'add_argument\(\s*"(--[a-z][a-z0-9-]+)"', probe))
+    missing = sorted(PROBE_FLAGS - declared)
+    assert not missing, (
+        f"exempted as probe flags, absent from scripts/probe_embed_drift.py: "
+        f"{missing}")
 
 
 def test_global_flags_section_names_the_fresh_set():
