@@ -25,7 +25,7 @@ ordering policy every ranked answer follows, the structural ones included.
 
 - **Class**: read
 - **Arguments**: none
-- **Flags**: `--project` <value>, `--queries` <value>, `--k` <value> (default `1,3,5,10`), `--mode` <value> (default `dense`), `--rerank` <value>, `--out` <value>, `--skip-stale-check`, `--refresh`
+- **Flags**: `--project` <value>, `--queries` <value>, `--k` <value> (default `1,3,5,10`), `--mode` <value> (default `dense`), `--arm` <value> (default `unmerged`), `--rerank` <value>, `--out` <value>, `--skip-stale-check`, `--refresh`
 - **JSON**: text only, no `--json`.
 
 ### `eval-compare`
@@ -101,22 +101,67 @@ code-indexer eval-compare /tmp/eval-dense.json /tmp/eval-rerank.json
   takes `dense` (default), `lexical` or `hybrid` -- the same three pipelines
   `semantic-search` runs -- and `--rerank` takes `heuristic` or `none`
   (default off).
+- `--arm` selects the shaping the numbers describe: `merged`, `unmerged`
+  (default) or `both`. `merged` is the shipped answer -- overlapping and
+  adjacent same-file hits collapse into one union hit before the class key.
+  `unmerged` is the same retrieval with that merge pass skipped; it is what
+  the older tables were measured on, kept so those tables stay comparable
+  with a re-run. `both` reports the two side by side in ONE report: each
+  query is retrieved once (one embedding, one vector search) and the pool is
+  shaped twice, so a two-arm run costs one retrieval plus a second shaping
+  pass, not two searches. A value outside the three is `ArgumentError`,
+  exit 2, refused before any index read.
 - Without `--out` the report is printed; with it the JSON report is written
-  and stdout carries the progress lines. The report has `project`, `mode`,
-  `queries`, `metrics` (`recall@k` per requested k, `mrr`, `ndcg@10`,
-  `mean_latency_s`, `p95_latency_s`) and `results[]` (`id`, `rank` -- `null`
-  for a miss -- `latency_s`, `output_chars`, `approx_tokens`).
-- `eval-compare` reads two of those reports and prints a metric delta table
+  and stdout carries the progress lines. A single-arm report has `project`,
+  `mode`, `queries`, `arm`, `metrics` (`recall@k` per requested k, `mrr`,
+  `ndcg@10`, `mean_latency_s`, `p95_latency_s`) and `results[]` (`id`,
+  `rank` -- `null` for a miss -- `latency_s`, `output_chars`,
+  `approx_tokens`). A two-arm report has `arm: "both"` and an `arms` object
+  holding one `metrics` + `results` block per arm; `docs/json-schema.md`
+  owns that shape.
+- `eval-compare` reads two single-arm reports and prints a metric delta table
   (`a`, `b`, `delta`) plus the per-query `improved` / `regressed` / `unchanged`
-  lists. Neither command has `--json`: the report is already machine-readable,
-  and `--skip-stale-check` / `--refresh` are accepted but inert here because
-  both only read files.
-- The harness runs with overlap merging off, so its numbers describe the
-  unmerged path: a shipped read merges the overlapping and adjacent hits of
-  one file before the class key, and the repeat-coverage pass is an identity
-  there (see Repeat coverage). The eval harness section above is where a
-  merged arm -- or a documented note of the unmerged gap -- would land, so
-  this caveat is not permanent.
+  lists; a two-arm report already carries both arms, so it is refused there
+  and comparing across runs takes one report per arm. Neither command has
+  `--json`: the report is already machine-readable, and `--skip-stale-check` /
+  `--refresh` are accepted but inert here because both only read files.
+
+### Which arm a published number came from
+
+Every number the retrieval rounds published before the arm existed came from
+the **unmerged** shaping: the harness had only that path, so its tables and
+the pre-chunker baseline they compare against (recall@1 0.5714, MRR 0.6914,
+nDCG@10 0.7434) all describe the unmerged arm. The round's dense tip figures
+-- recall@1 0.5238, MRR 0.6655, nDCG@10 0.7194 -- are that arm too.
+
+Against that baseline the tip residual is -0.0476 / -0.0259 / -0.0240 for the
+unmerged arm: the pre-chunker numbers did not come back, and no reading of
+the table makes them.
+
+### The measured arms, and both ceilings
+
+One index revision, one command, 42 labelled queries:
+
+```
+code-indexer eval --project code-indexer --queries eval/queries.jsonl \
+  --k 1,3,5,10 --mode dense --arm both --out runs/merged-arm/both-3310.json
+```
+
+Observed at index revision 3310 (`last_indexed` 2026-11-08T21:51:47Z), index
+state idle, rows current, vectors current:
+
+| arm | recall@1 | MRR | nDCG@10 | residual vs pre-chunker |
+|---|---|---|---|---|
+| merged (shipped) | 0.5476 | 0.6822 | 0.7316 | -0.0238 / -0.0092 / -0.0118 |
+| unmerged | 0.5000 | 0.6541 | 0.7105 | -0.0714 / -0.0373 / -0.0329 |
+
+Both arms carry recall@10 = 0.8810 (37/42) at this revision. That is the
+in-window ceiling the round already sat on: the two depth misses lie outside
+the answer window by construction (the round's probe placed them at raw
+cosine rank 42 and 64), so no ordering change inside the window recovers
+them. 0.9286 (39/42) is the ceiling only if the candidate pool widens; the
+window is max(limit*3, 24) = 30 today, and changing it is a pool-size
+decision with its own latency cost -- a separate round, not work done here.
 
 ## Ordering: source, then samples, tests, docs, artifacts
 
@@ -192,6 +237,9 @@ hit before the class key, so by the time this pass runs a file's surviving
 spans are disjoint and the pass is an identity -- the merge has already freed
 the slot. The eval harness runs with merging off and is the surface where the
 pass acts; on one read the two steps are alternatives, never a composition.
+The harness's `unmerged` arm keeps that measurement surface; its `merged`
+arm runs the shipped configuration, so a ranking change can be measured on
+the answer a reader actually gets.
 
 **Ties are broken by the hit's place in the index, never by arrival
 order.** Score ties inside a mode fall back to `project`, `file`, `start_line`,

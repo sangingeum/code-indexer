@@ -857,6 +857,46 @@ the taxonomy's: 5 for a stale pre-pass or a keeper 5, 1 for `PartialApply`
 (something was written) or `KeeperFailure` (nothing was), 3 for
 `KeeperUnavailable` or `KeeperCapabilityMissing`.
 
+## The eval report (`eval --out`)
+
+`eval` is the only read command whose output is a document you keep rather
+than an answer, so its shape is versioned here. A single-arm report
+(`--arm merged` or `--arm unmerged`, the default) is:
+
+```json
+{"project": "/abs/path", "mode": "dense", "queries": 42, "arm": "unmerged",
+ "metrics": {"recall@1": 0.5, "recall@3": 0.8095, "recall@5": 0.8333,
+             "recall@10": 0.881, "mrr": 0.6541, "ndcg@10": 0.7105,
+             "mean_latency_s": 0.0257, "p95_latency_s": 0.017},
+ "results": [{"id": "q-concept-01", "rank": 9, "latency_s": 0.02,
+              "output_chars": 8528, "approx_tokens": 2132}]}
+```
+
+`arm` names the shaping the numbers describe, so a table can cite the arm it
+came from: `merged` is the shipped answer (overlapping/adjacent same-file
+hits merged before the class key) and `unmerged` skips that pass. `metrics`
+holds `recall@k` for each requested k plus `mrr`, `ndcg@10` and the latency
+summary; `results[]` holds one row per query, `rank` being `null` for a miss.
+Every key a pre-arm report carried keeps its meaning; `arm` is the one field
+added.
+
+A two-arm report (`--arm both`) carries both arms from ONE retrieval per
+query:
+
+```json
+{"project": "...", "mode": "dense", "queries": 42, "arm": "both",
+ "arms": {"merged": {"metrics": {...}, "results": [...]},
+          "unmerged": {"metrics": {...}, "results": [...]}}}
+```
+
+`arms` adds no new field names: each block is the `metrics` + `results` pair
+the single-arm report already has. The arms share the retrieval (one query
+embedding and one vector search per query); a row's `latency_s` is that
+shared retrieval plus the arm's own shaping time, so the two latencies are
+not the pair's wall time counted twice. A two-arm document is what
+`eval-compare` refuses, because it compares two single-arm reports; neither
+shape has a `--json` envelope.
+
 ## Error contract (non-JSON)
 
 Failures print exactly one line `ErrorType: description` to stderr:
