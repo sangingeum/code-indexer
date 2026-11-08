@@ -488,8 +488,10 @@ pass, and `uncommitted` is a file the pass read and could not store because
 every one of its chunks failed to embed (a later pass retries it). A file the
 pass cannot re-open after the scan is not uncommitted: it is a skip under
 `unreadable`, and the same reason is recorded as the pass's error for it. `examples` names the first few paths of each
-kind (capped), which is what lets `outline` answer why a file it cannot find
-was left out. `counted_exactly` is false only when a pruned subtree was too
+kind (capped). `outline` answers why a file it cannot find was left out:
+the recorded reason when the path is one of the examples, the counted skip
+classes otherwise — a file the index cannot take is counted and named,
+never answered with a bare "not indexed". `counted_exactly` is false only when a pruned subtree was too
 large for the counting budget, which makes `walked` a floor. The key is
 always present and is `null` when no pass has recorded one, and `overview`
 carries the same object under the same name in the same shape.

@@ -146,6 +146,34 @@ class _DroppingEmbedder:
         pass
 
 
+def test_outline_names_the_class_of_a_skip_past_the_named_examples(
+        tmp_path, monkeypatch):
+    """The 51st skipped file is still counted AND named by class.
+
+    Only the first few files of each reason are recorded by path, so an
+    outline on a path past that sample used to answer a bare "file not
+    indexed" -- the one answer the round's promise rules out.
+    """
+    project = tmp_path / "manybins"
+    project.mkdir()
+    for i in range(51):
+        (project / f"blob{i:02d}.bin").write_bytes(b"\x00\x01payload")
+    (project / "app.py").write_text("def app():\n    return 1\n")
+    core = stub_core(tmp_path)
+    reg, entry = index_project(core, project)
+    monkeypatch.setattr(cli, "_get_core", lambda skip: core)
+    data = json.loads(runner.invoke(
+        app, ["index-status", str(entry.path), "--json"]).output)
+    named = set(data["scan_accounting"]["examples"]["binary"])
+    unnamed = sorted({f"blob{i:02d}.bin" for i in range(51)} - named)
+    assert unnamed, "the example sample is capped below the 51 skipped files"
+    with pytest.raises(ValueError) as excinfo:
+        core.outline(entry, unnamed[0])
+    message = str(excinfo.value)
+    assert "binary" in message, message
+    assert "51" in message, message
+
+
 def test_index_status_carries_the_key_before_any_pass(tmp_path, monkeypatch):
     """One shape: `index-status` and `overview` both always carry
     `scan_accounting`, null until a pass records one."""

@@ -34,7 +34,8 @@ from . import ts_chunker
 from . import vectors as vectors_policy
 from .registry import ProjectEntry, Registry
 from .scanner import (ScanBudget, ScanBudgetExceeded, ScannedFile,
-                      read_scan_accounting, scan_project, skip_reason_for)
+                      read_scan_accounting, scan_project, skip_counts_phrase,
+                      skip_reason_for)
 
 if TYPE_CHECKING:  # annotations only: no client library is imported here
     from .embedder import Embedder
@@ -1668,6 +1669,12 @@ class Core:
                 # indexed" alone reads like a bug or an empty index.
                 raise ValueError(f"error: file not indexed: {file} "
                                  f"(the scan skipped it: {reason})")
+            counts = self._skip_counts(entry, rel)
+            if counts:
+                # Past the named examples the path is still counted: name the
+                # classes rather than leave a 51st file answered with silence.
+                raise ValueError(f"error: file not indexed: {file} "
+                                 f"({counts})")
             raise ValueError(f"error: file not indexed: {file}")
         src_lines: list[str] = []
         if include_docstrings:
@@ -1726,6 +1733,14 @@ class Core:
         m = self.read_manifest(entry.slug)
         try:
             return skip_reason_for(rel, read_scan_accounting(m))
+        finally:
+            m.close()
+
+    def _skip_counts(self, entry: ProjectEntry, rel: str) -> str | None:
+        """The counted skip classes, for a path past the named examples."""
+        m = self.read_manifest(entry.slug)
+        try:
+            return skip_counts_phrase(read_scan_accounting(m))
         finally:
             m.close()
 

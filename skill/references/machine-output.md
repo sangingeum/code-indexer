@@ -175,8 +175,9 @@ uncommitted + skipped_total` always holds; a file the pass cannot re-open
 after the scan is an `unreadable` skip, not uncommitted. `counted_exactly:
 false` means a
 pruned subtree was too large to count and `walked` is a floor. `outline` on a
-file the index does not hold quotes the recorded reason for it, so an
-unindexed path is never answered with silence.
+file the index does not hold quotes the recorded reason for it when the path
+is one of the `examples`, and otherwise names the skip classes the pass
+counted, so an unindexed path is never answered with a bare "not indexed".
 
 The block does not narrow with a prefix. `overview --path-prefix` and a
 `skeleton` subtree argument narrow the FILES an answer reports; `scope` stays

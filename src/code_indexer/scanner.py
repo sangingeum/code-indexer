@@ -505,6 +505,24 @@ def skip_reason_for(path: str, accounting: dict | None) -> str | None:
     return None
 
 
+def skip_counts_phrase(accounting: dict | None) -> str | None:
+    """The skip reasons the pass counted, for a path outside the named sample.
+
+    ``skip_reason_for`` names a path only while it is among the first few
+    examples of its kind. The 51st file of a reason is still COUNTED, so the
+    answer names the classes the pass skipped and says that this path was not
+    one of the examples -- a file the index cannot take is counted and named,
+    not answered with a bare "not indexed".
+    """
+    skipped = (accounting or {}).get("skipped") or {}
+    if not skipped:
+        return None
+    counts = ", ".join(f"{reason} ({n})"
+                       for reason, n in sorted(skipped.items()))
+    return (f"the last pass skipped files as {counts}, and recorded no "
+            f"example for this path")
+
+
 def accounting_phrase(accounting: dict | None) -> str | None:
     """One clause stating what a pass took and why it took nothing else.
 
