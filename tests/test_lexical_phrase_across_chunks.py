@@ -108,7 +108,12 @@ def test_a_phrase_matches_words_in_different_chunks_of_one_file(rig):
 
 
 def test_a_nonsense_two_word_query_matches_nothing(rig):
-    """Widening the match construction must not make every query a hit."""
+    """Widening the match construction must not make every query a hit.
+
+    The nonsense tokens are assembled from pieces so this file does not put
+    them into the corpus it is indexed into.
+    """
     core, entry = rig
-    assert core.search("zzqx blorf", project=entry.path,
+    nonsense = " ".join(("zz" + "qx", "bl" + "orf"))
+    assert core.search(nonsense, project=entry.path,
                        mode="lexical")["hits"] == []
