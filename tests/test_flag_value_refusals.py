@@ -282,6 +282,9 @@ def test_a_bad_visibility_value_is_a_usage_error(rig):
     result = _refusal(["find-symbol", "maybe_refresh", "--project",
                        entry_path(rig), "--visibility", "bogus"])
     assert "--visibility must be 'public' or 'private'" in result.stderr
+    # The refusal names the SAME tuple its membership test reads, so a mode
+    # added to VISIBILITY_MODES cannot be missing from the message.
+    assert all(f"'{mode}'" in result.stderr for mode in cli.VISIBILITY_MODES)
 
 
 def test_a_bad_visibility_is_refused_before_an_unregistered_project(rig,

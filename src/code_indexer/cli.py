@@ -2669,8 +2669,9 @@ def find_symbol(
     # resolve_entry made an unregistered project answer NotFoundError (exit 1)
     # for an invocation that was simply wrong.
     if visibility is not None and visibility not in VISIBILITY_MODES:
+        accepted = " or ".join(repr(mode) for mode in VISIBILITY_MODES)
         _json_failure(ArgumentError(
-            f"--visibility must be 'public' or 'private', "
+            f"--visibility must be {accepted}, "
             f"not {visibility!r}"), json_output)
     core = _get_core(skip_stale_check)
     entry, err = core.resolve_entry(project)
