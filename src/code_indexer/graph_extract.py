@@ -129,7 +129,11 @@ LANGUAGES_WITH_AST = frozenset(
 # cpp, so a header's includes and references are extracted instead of skipped
 # as an unknown language. Rows built by v9 hold neither the type rows nor the
 # header rows, so the index reports needs-reindex until its next pass.
-EXTRACTION_VERSION = 10
+# v11: the `.h` extension maps to cpp, not c. A C++ header spelled `.h`
+# stored no symbol or reference rows at all while its file row said `parsed`,
+# so a name the tree declares read as absent from a complete index. Rows built
+# by v10 describe an index that cannot see those headers.
+EXTRACTION_VERSION = 11
 
 _INDEX_EXTS = (".ts", ".tsx", ".js", ".jsx")
 

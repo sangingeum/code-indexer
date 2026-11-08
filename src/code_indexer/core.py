@@ -1964,7 +1964,7 @@ def _lang_from_path(path: str) -> str:
     return {
         "py": "python", "js": "javascript", "ts": "typescript",
         "rs": "rust", "go": "go", "java": "java", "c": "c", "cpp": "cpp",
-        "cc": "cpp", "h": "c", "hpp": "cpp", "cs": "csharp", "rb": "ruby",
+        "cc": "cpp", "h": "cpp", "hpp": "cpp", "cs": "csharp", "rb": "ruby",
         "php": "php", "sh": "bash", "md": "markdown", "json": "json",
         "yaml": "yaml", "yml": "yaml", "toml": "toml",
     }.get(ext, ext or "text")

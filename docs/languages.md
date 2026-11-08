@@ -7,8 +7,8 @@ supported language gets from the pipeline:
 | language | ext | AST chunking | symbols | signatures | visibility | references | imports resolution | notes |
 |---|---|---|---|---|---|---|---|---|
 | bash | sh | yes | no | no | no | heuristic | unresolved (no resolver) | grammar present but symbol extraction is weak |
-| c | c | yes | yes | yes | yes | ast | quoted includes relative to the file; angled unresolved | — |
-| cpp | cpp | yes | yes | yes | yes | ast | quoted includes relative to the file; angled unresolved | — |
+| c | c | yes | yes | yes | yes | ast | quoted includes relative to the file; angled unresolved | a header spelled .h is cpp, not this row |
+| cpp | cpp | yes | yes | yes | yes | ast | quoted includes relative to the file; angled unresolved | .h headers map here too; cpp parses a C header |
 | csharp | cs | yes | yes | yes | yes | ast | unresolved (no resolver) | — |
 | csproj | csproj | no | no | no | no | none | unresolved (no resolver) | regex chunker fallback |
 | csx | csx | no | no | no | no | heuristic | unresolved (no resolver) | regex chunker fallback |

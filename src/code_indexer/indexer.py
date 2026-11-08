@@ -887,8 +887,12 @@ def _lang_from_ext(path: str) -> str:
     The C++ header and translation-unit spellings are one language: a ``.hpp``
     read as the bare token ``hpp`` has no grammar, no symbol rows and no
     references, so its ``#include`` directives were silently absent from the
-    graph. ``.h`` stays C, because that is what the chunker has always called
-    it.
+    graph. ``.h`` is a header spelling too, and the language a header is
+    WRITTEN in cannot be read off its name: C++ projects spell headers ``.h``
+    as often as ``.hpp``, and reading one as C made every declaration in it
+    invisible while coverage still said the file parsed. tree-sitter's cpp
+    grammar parses a C header as well (C is its subset), so the whole header
+    family maps to cpp and a C-only header still answers.
     """
     ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
     return {
@@ -896,6 +900,6 @@ def _lang_from_ext(path: str) -> str:
         "ts": "typescript", "tsx": "tsx",
         "rs": "rust", "go": "go", "java": "java", "c": "c", "cpp": "cpp",
         "cc": "cpp", "cxx": "cpp", "hpp": "cpp", "hxx": "cpp",
-        "hh": "cpp", "h": "c", "cs": "csharp", "sh": "shell", "toml": "toml",
+        "hh": "cpp", "h": "cpp", "cs": "csharp", "sh": "shell", "toml": "toml",
         "yaml": "yaml", "yml": "yaml", "json": "json", "txt": "text",
     }.get(ext, ext or "text")

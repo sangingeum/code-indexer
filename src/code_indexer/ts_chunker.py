@@ -30,7 +30,9 @@ logger = logging.getLogger("code-indexer.tschunker")
 # counted the unit's start twice and drifted by each piece's length, so a
 # split declaration reported a range past EOF. Same text, different ranges:
 # rows built by v1 describe an index this build would not produce.
-CHUNKER_VERSION = 2
+# v3: `.h` headers chunk with the cpp grammar (v2 read them as C), so a C++
+# header's chunks describe declarations v2 never saw.
+CHUNKER_VERSION = 3
 
 try:
     import tree_sitter_language_pack
@@ -39,9 +41,12 @@ except Exception:  # noqa: BLE001
     _TS_OK = False
 
 EXT_LANG = {
+    # `.h` is cpp, not c: a header's language is not readable from its name,
+    # tree-sitter's cpp grammar parses a C header too, and reading a C++
+    # header as C made every declaration in it invisible.
     "py": "python", "js": "javascript", "jsx": "javascript", "ts": "typescript",
     "tsx": "typescript", "rs": "rust", "go": "go", "java": "java", "c": "c",
-    "cpp": "cpp", "cc": "cpp", "h": "c", "hpp": "cpp", "cs": "csharp",
+    "cpp": "cpp", "cc": "cpp", "h": "cpp", "hpp": "cpp", "cs": "csharp",
     "rb": "ruby", "php": "php", "sh": "bash", "lua": "lua", "swift": "swift",
     "kt": "kotlin", "md": "markdown", "json": "json", "yaml": "yaml",
     "yml": "yaml", "toml": "toml", "html": "html", "css": "css",

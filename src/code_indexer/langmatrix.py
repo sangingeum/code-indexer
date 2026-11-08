@@ -149,6 +149,10 @@ def capabilities(lang: str) -> dict:
     # Empirical notes (audit §6): grammar present but extraction limited.
     if lang == "bash" and not syms:
         caps["notes"] = "grammar present but symbol extraction is weak"
+    elif lang == "cpp" and not caps["notes"]:
+        caps["notes"] = ".h headers map here too; cpp parses a C header"
+    elif lang == "c" and not caps["notes"]:
+        caps["notes"] = "a header spelled .h is cpp, not this row"
     elif lang == "ruby" and not ast_chunks:
         caps["notes"] = "regex chunker fallback despite grammar mapping"
     elif chunks and not ast_chunks and not caps["notes"]:

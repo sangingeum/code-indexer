@@ -49,6 +49,18 @@ unknown language, and a C++ template call (`obj.method<T>(...)`,
 `free<T>(...)`) is a call row -- the name sits one node deeper, so the plain
 identifier pattern never saw it.
 
+**A header is read as the language it is written in, not the one its name
+suggests.** `.h` mapped to C, so a C++ project that spells its headers `.h`
+had every declaration in them invisible while the file row said `parsed` — no
+`parse_unavailable`, no caveat, and `find-symbol` calling the class absent
+from an index it had just declared complete. `.h` now maps to cpp in the
+chunker's extension map, the indexer's language map and the query map alike;
+tree-sitter's cpp grammar parses a C header too, so a C-only header still
+answers (its type declarations become rows; a bare prototype is not a chunk in
+either grammar). Both row axes moved: `CHUNKER_VERSION` 2 -> 3 (a `.h` file's
+chunks come from the cpp grammar) and `EXTRACTION_VERSION` 10 -> 11 (a `.h`
+file's symbol, reference and import rows exist at all now).
+
 **A file the parser read is `parsed`, even when its AST declares nothing.**
 An import-only module parses cleanly and yields no chunk, and the verdict was
 taken from the chunk yield: the file was stored `parse_unavailable` beside
