@@ -60,6 +60,10 @@ dev = [
     # extras are installed in CI; this declares the one that is imported
     # directly rather than leaving it implicit.
     "click>=8.0",
+    # The lint gate is written as `uvx ruff check ...`, but the obvious
+    # `uv run ruff` must answer a lint result instead of a spawn failure:
+    # declared here it lands in `.venv` on `uv sync`.
+    "ruff>=0.6",
 ]
 
 [tool.pytest.ini_options]

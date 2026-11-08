@@ -371,7 +371,14 @@ uv run code-indexer list-projects        # one-shot CLI (no daemon)
 uv run pytest -m "not live"              # offline suite (CI runs this)
 uv run pytest -m live                    # live-backend tests (needs Ollama/Qdrant up)
 uv run python scripts/generate_skill_docs.py   # regenerate the roster and command blocks
+uv run ruff check src tests scripts      # lint gate
 ```
+
+`ruff` is a dev dependency and `typer` a core one, so every `uv run` command
+above runs in one environment: the lint gate answers a result instead of a
+spawn failure, and the CLI imports without a separate install. `uvx ruff check
+src tests scripts` returns the same lint verdict on a machine with no venv.
+A bare system interpreter is not a supported runner for either.
 
 Offline tests use fake embedder/store seams (no backends required); live
 tests are marked `live` and deselected by default. Documentation drift is
