@@ -50,7 +50,7 @@ from . import changed as changed_mod
 from .evalharness import (EVAL_MODES, compare_reports, format_eval_report,
                           load_report, run_eval)
 from .reranker import RERANK_MODES
-from .manifest import Manifest
+from .manifest import VISIBILITY_MODES, Manifest
 from .registry import ProjectEntry
 
 PROJECT_OPT = typer.Option(None, help="Project path, slug, or name.")
@@ -2558,7 +2558,7 @@ def find_symbol(
     # core is built and before any index read. Validating after
     # resolve_entry made an unregistered project answer NotFoundError (exit 1)
     # for an invocation that was simply wrong.
-    if visibility is not None and visibility not in ("public", "private"):
+    if visibility is not None and visibility not in VISIBILITY_MODES:
         _json_failure(ArgumentError(
             f"--visibility must be 'public' or 'private', "
             f"not {visibility!r}"), json_output)

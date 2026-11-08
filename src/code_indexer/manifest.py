@@ -91,6 +91,12 @@ logger = logging.getLogger("code-indexer.manifest")
 
 SCHEMA_VERSION = "7"
 
+# The visibilities a symbol row can be written with, and the list the CLI's
+# `--visibility` filter accepts. NULL is the schema's third state and it READS
+# as public (see the file-symbol query below), so the enumerated values are
+# these two; declared here because the rows are written and filtered here.
+VISIBILITY_MODES = ("public", "private")
+
 # The symbol kinds a name can be written under and still be a TYPE: what the
 # interim `type_use` rows are allowed to become. A namespace resolves like any
 # other symbol and is deliberately absent -- `geo::Point` scopes into `geo`,
