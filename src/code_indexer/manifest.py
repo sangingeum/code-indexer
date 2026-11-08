@@ -1124,6 +1124,32 @@ class Manifest:
                 return local[0], "same_file"
             return choose(name)
 
+        # Receiver-derived type references (relationship `member_receiver`,
+        # written by the extractor for `Type.Member`): the receiver becomes a
+        # `type` row when it binds a definition by the SAME precedence, and is
+        # deleted when it binds none -- a receiver that is a local variable or
+        # a parameter is not a type and must not gain a row.
+        converted: list[tuple[int, str, int]] = []
+        dropped = 0
+        for rowid, ref_file, name in self._conn.execute(
+                "SELECT rowid, file, to_name FROM refs"
+                " WHERE relationship = 'member_receiver'"
+                + (" AND file = ?" if file is not None else ""),
+                ([file] if file is not None else [])):
+            target, resolution = resolve(ref_file, name)
+            if target is None:
+                dropped += 1
+                self._conn.execute("DELETE FROM refs WHERE rowid = ?",
+                                   (rowid,))
+            else:
+                converted.append((target, resolution, rowid))
+        if converted:
+            self._conn.executemany(
+                "UPDATE refs SET target_symbol_id = ?, resolution = ?,"
+                " relationship = 'type' WHERE rowid = ?", converted)
+        if converted or dropped:
+            self._conn.commit()
+
         sql = ("SELECT rowid, file, to_name, target_symbol_id, resolution"
                " FROM refs")
         args: list = []

@@ -22,6 +22,11 @@ vocabulary is fixed here and documented once:
 - ``type``       — a name used in a type position (AST).
 - ``base_class`` — a base class / interface in an inheritance list (AST).
 - ``member``     — a member access read, e.g. C# ``a.OughtRoleBindings`` (AST).
+- ``type``       — a name used in a type position (AST), and the RECEIVER of a
+                   member access once the resolver has bound it to a
+                   definition (``NeedBand.Critical`` -> a ``type`` row for
+                   ``NeedBand``). A receiver that binds no definition is
+                   dropped, never stored as a type.
 - ``includes``   — an include/import directive. AST: a python import, a TS/JS
                    import specifier or ``require(...)`` source, a Go import
                    path, a C# ``using`` target, a C/C++ quoted include. A
@@ -118,7 +123,13 @@ LANGUAGES_WITH_AST = frozenset(
 # so a file ending inside a multi-byte character is skipped as non-utf8
 # instead of entering the index with U+FFFD substituted. The SCAN SET changed:
 # rows built by v8 describe an index that holds files this build refuses.
-EXTRACTION_VERSION = 9
+# v10: a member access through a plain identifier also writes the receiver as
+# a reference, resolved to `type` when the name binds a definition and dropped
+# when it binds none; the C++ header extensions (.hpp/.hxx/.hh/.cc/.cxx) map to
+# cpp, so a header's includes and references are extracted instead of skipped
+# as an unknown language. Rows built by v9 hold neither the type rows nor the
+# header rows, so the index reports needs-reindex until its next pass.
+EXTRACTION_VERSION = 10
 
 _INDEX_EXTS = (".ts", ".tsx", ".js", ".jsx")
 
@@ -198,6 +209,7 @@ def extract_graph(path: str, text: str, lang: str
         return best
 
     # QueryCursor.captures: normalize across binding shapes.
+    local_names = _local_binding_names(tree.root_node, data)
     raw = cursor.captures(tree.root_node)
     if isinstance(raw, dict):
         pairs: list[tuple[object, str]] = [
@@ -216,9 +228,8 @@ def extract_graph(path: str, text: str, lang: str
         elif capture == "ref.call" or capture == "ref.call_plain":
             refs.append((row + 1, frm, text_val, "call", None))
         elif capture == "ref.member":
-            member_row = _member_ref(node, data, row, frm)
-            if member_row is not None:
-                refs.append(member_row)
+            member_rows = _member_ref(node, data, row, frm, local_names)
+            refs.extend(member_rows)
         elif capture == "ref.type":
             refs.append((row + 1, frm, text_val, "type", None))
         elif capture == "ref.base_class":
@@ -229,29 +240,43 @@ def extract_graph(path: str, text: str, lang: str
             _dedupe_refs([r for r in refs if r[2]]))
 
 
-def _member_ref(node, data: bytes, row: int, frm: str | None
-                ) -> tuple[int, str | None, str, str, str | None] | None:
-    """One member-access row: (line, from_symbol, name, relationship, receiver).
+def _member_ref(node, data: bytes, row: int, frm: str | None,
+                local_names: set[str] | None = None
+                ) -> list[tuple[int, str | None, str, str, str | None]]:
+    """The rows one member access produces: the member, and the receiver.
 
-    ``node`` is a ``member_access_expression`` (C#). The relationship is
-    ``call`` when the access is the function of an invocation
+    ``node`` is a ``member_access_expression`` (C#). The member row's
+    relationship is ``call`` when the access is the function of an invocation
     (``ArmorResolution.Classify(...)``) and ``member`` when it is a plain read
     (``a.OughtRoleBindings``). The receiver is the object expression's text
     only when that expression is a plain identifier, else NULL.
 
-    Returns ``None`` for an INTERMEDIATE segment of a longer chain: in
+    The access ALSO produces a row for the receiver itself, because
+    ``NeedBand.Critical`` reaches a TYPE and a member row alone leaves that
+    type invisible to ``find-references``. The row is written with the
+    interim relationship ``member_receiver`` and no confidence of its own:
+    the index pass's resolver (:meth:`Manifest.resolve_ref_targets`) keeps it
+    only when the name binds a definition, converting it to ``type``, and
+    drops it otherwise. So a receiver that is a plain local variable or a
+    parameter -- a name the file binds as a VALUE -- never becomes a type
+    reference, by name (``local_names``) or by resolution (it binds no
+    definition). The known limit is stated rather than hidden: a value bound
+    under the EXACT name of a type in the same file is indistinguishable from
+    the type by name alone and binds to it.
+
+    Returns an empty list for an INTERMEDIATE segment of a longer chain: in
     ``System.Console.WriteLine(x)`` the inner ``System.Console`` access is the
     ``expression`` child of the outer access, so ``Console`` is a namespace
     segment, not something anyone can call or read. Only the outermost access
     of a chain becomes a row. Consequence: for a chain deeper than one hop the
     surviving row's receiver is NULL (the receiver expression is itself a
-    member access, not a plain identifier) — the trade-off for dropping the
+    member access, not a plain identifier) -- the trade-off for dropping the
     intermediate rows.
     """
     parent = node.parent
     if (parent is not None and parent.type == "member_access_expression"
             and parent.child_by_field_name("expression") == node):
-        return None
+        return []
     name_node = node.child_by_field_name("name")
     member = _node_text(name_node, data) if name_node is not None else ""
     obj = node.child_by_field_name("expression")
@@ -260,7 +285,45 @@ def _member_ref(node, data: bytes, row: int, frm: str | None
     is_call = (parent is not None
                and parent.type == "invocation_expression"
                and parent.child_by_field_name("function") == node)
-    return (row + 1, frm, member, "call" if is_call else "member", receiver)
+    rows = [(row + 1, frm, member, "call" if is_call else "member", receiver)]
+    if (receiver and receiver != member
+            and receiver not in (local_names or frozenset())):
+        rows.append((row + 1, frm, receiver, "member_receiver", None))
+    return rows
+
+
+# Node types that BIND a value name in C#: a parameter, a local variable, a
+# foreach left-hand side, a catch variable, an out-parameter declaration.
+_LOCAL_BINDING_TYPES = frozenset({
+    "parameter", "variable_declarator", "foreach_statement",
+    "catch_declaration", "declaration_expression",
+})
+
+
+def _local_binding_names(root, data: bytes) -> set[str]:
+    """Every name the file binds as a VALUE (parameter, local, foreach, out).
+
+    Used to keep a member access through a local variable from being read as
+    an access through a type: ``other.Critical`` names a parameter, and no
+    type reference may be invented for it. Best effort by design -- the tree
+    walk covers the binding node types C# writes, and anything it misses is
+    caught by the resolver (a name with no definition binds nothing and its
+    row is dropped).
+    """
+    names: set[str] = set()
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if node.type in _LOCAL_BINDING_TYPES:
+            name_node = node.child_by_field_name("name")
+            if name_node is not None:
+                names.add(_node_text(name_node, data))
+            elif node.type == "foreach_statement":
+                left = node.child_by_field_name("left")
+                if left is not None and left.type == "identifier":
+                    names.add(_node_text(left, data))
+        stack.extend(node.children)
+    return names
 
 
 def extract_graph_textual(path: str, text: str

@@ -745,15 +745,25 @@ def _announce_coverage(coverage_block: dict[str, Any], *,
         typer.echo(line, err=not with_answer)
 
 
-def _references_empty(core: Core, entry: ProjectEntry, name: str
+def _references_empty(core: Core, entry: ProjectEntry, name: str,
+                      coverage_block: dict[str, Any] | None = None,
+                      importers: int = 0
                       ) -> tuple[str, str]:
-    """``(empty_reason, sentence)`` for a bare ``no references`` answer."""
+    """``(empty_reason, sentence)`` for a ``no references`` answer.
+
+    The three states come from ``coverage.references_empty``: rows found is
+    not this function's business; no rows with a definition is a fact about
+    the code; no rows and no definition is a fact about this index, and only
+    a fully parsed index may call that name absent.
+    """
     m = core.read_manifest(entry.slug)
     try:
         files = coverage_mod.files_in_scope(m)
+        definitions = m.definitions_of(name)
     finally:
         m.close()
-    return coverage_mod.empty_answer(f"no references to {name!r}", files)
+    return coverage_mod.references_empty(name, files, definitions,
+                                          coverage_block, importers)
 
 
 def _json_failure(exc: BaseException, json_output: bool) -> NoReturn:
@@ -907,6 +917,15 @@ def _emit_graph(result: graph.GraphResult, json_output: bool,
         typer.echo(json.dumps(payload))
         return
     typer.echo(graph.render_tree(result.nodes))
+    if result.importers:
+        # Its own section, its own count: an include is not a call, so it
+        # never sits in the caller tree or in the caller count.
+        subject_label = subject or "the subject"
+        typer.echo(f"importers ({len(result.importers)}) -- files that "
+                   f"import the file defining {subject_label!r}; an include "
+                   "is not a call:")
+        for node in result.importers:
+            typer.echo(f"- {node.file}:{node.line}")
     cov = (coverage_mod.block(files, scope=coverage_mod.SCOPE_PROJECT,
                               freshness=coverage_mod.freshness(
                                   staleness_block),
@@ -970,14 +989,35 @@ def deps(
         typer.echo(json.dumps(result))
         return
     lines: list[str] = []
-    for dir_key in ("in", "out"):
-        levels = result.get(dir_key) or {}
-        if not levels:
-            continue
+    want_out = direction in ("out", "both")
+    unresolved = result.get("unresolved_imports") or {}
+    for key, heading in (("imports", "imports"), ("importers", "importers")):
+        levels = result.get(key) or {}
         for lvl, files in sorted(levels.items()):
+            lines.append(f"{heading} of {path} (depth {lvl}):")
             for f in files:
-                indent = "  " * (lvl - 1)
-                lines.append(f"{dir_key} L{lvl}: {indent}{f}")
+                lines.append(f"  {f}")
+        if not levels and key in result and (
+                (key == "imports" and want_out)
+                or (key == "importers" and direction in ("in", "both"))):
+            named = unresolved.get(path) or []
+            if key == "imports" and named:
+                count = len(named)
+                noun = "directive" if count == 1 else "directives"
+                lines.append(
+                    f"imports of {path}: none resolved; {count} include "
+                    f"{noun} unresolved ({', '.join(named)}) -- a directive "
+                    "that resolves to no file in the index is not an edge")
+            else:
+                lines.append(
+                    f"{heading} of {path}: none -- the index holds no "
+                    "import/include row for this file")
+    if want_out and unresolved:
+        for f, named in sorted(unresolved.items()):
+            count = len(named)
+            noun = "directive" if count == 1 else "directives"
+            lines.append(f"unresolved imports of {f}: {count} {noun} "
+                         f"({', '.join(named)})")
     typer.echo("\n".join(lines) if lines else "no resolved dependencies")
     # An incomplete answer says so, on the same stream as the answer.
     for note in result.get("notes") or []:
@@ -2813,6 +2853,12 @@ def find_references(
     except ValueError as exc:
         _json_failure(exc, json_output)
     known = core.all_symbol_names(entry)
+    # Importers are a SEPARATE fact and a separate list: an include directive
+    # names a file, it does not use the symbol, so it never enters
+    # `references` or `total`. `--relationship includes` still asks for them
+    # explicitly.
+    importers = (core.find_importers(entry, name, limit=limit)
+                 if relationship is None else [])
     references = [
         dict(r, project=entry.path,
              target_confidence=("exact" if r["target"] in known
@@ -2824,17 +2870,22 @@ def find_references(
             "schema": 1, "name": name, "project": entry.path,
             "relationship": relationship, "references": references,
             "total": len(references), "coverage": cov, **block}
+        if importers:
+            payload["importers"] = [dict(r, project=entry.path)
+                                    for r in importers]
+            payload["importer_count"] = len(importers)
         if not rows and relationship is not None:
             counts = core.reference_relationship_counts(entry, name)
             if counts:
                 payload["unfiltered_count"] = sum(n for _rel, n in counts)
                 payload["unfiltered_relationships"] = [rel for rel, _n in counts]
             else:
-                reason, sentence = _references_empty(core, entry, name)
+                reason, sentence = _references_empty(core, entry, name, cov)
                 payload["empty_reason"] = reason
                 payload["empty_reason_sentence"] = sentence
         elif not rows:
-            reason, sentence = _references_empty(core, entry, name)
+            reason, sentence = _references_empty(core, entry, name, cov,
+                                                 len(importers))
             payload["empty_reason"] = reason
             payload["empty_reason_sentence"] = sentence
         typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -2854,7 +2905,9 @@ def find_references(
                     f"{plural} {verb} unfiltered ({kinds})")
                 _announce_coverage(cov, with_answer=True)
                 return
-        typer.echo(_references_empty(core, entry, name)[1])
+        typer.echo(_references_empty(core, entry, name, cov,
+                                     len(importers))[1])
+        _print_importers(entry, name, importers)
         _announce_coverage(cov, with_answer=True)
         return
     typer.echo(f"references to {name!r} (confidence=how the row was "
@@ -2868,7 +2921,20 @@ def find_references(
                    f"{r['relationship']} {r['target']} "
                    f"(confidence={r['confidence']}{recv}, "
                    f"target_confidence={exact})")
+    _print_importers(entry, name, importers)
     _announce_coverage(cov)
+
+
+def _print_importers(entry: ProjectEntry, name: str,
+                     importers: list[dict[str, Any]]) -> None:
+    """The importers section: counted, labelled, and never a reference row."""
+    if not importers:
+        return
+    typer.echo(f"importers ({len(importers)}) — include/import directives "
+               f"naming {name!r}; an import is not a reference:")
+    for r in importers:
+        typer.echo(f"- {r['file']}:{r['line']} {r['relationship']} "
+                   f"{r['target']}")
 
 
 @app.callback()

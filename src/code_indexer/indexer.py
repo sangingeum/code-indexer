@@ -880,11 +880,21 @@ def _chunk_from_row(row) -> Chunk:
 
 
 def _lang_from_ext(path: str) -> str:
+    """The language a file's extension names, spelled as the reference
+    extractor and the capability matrix spell it.
+
+    The C++ header and translation-unit spellings are one language: a ``.hpp``
+    read as the bare token ``hpp`` has no grammar, no symbol rows and no
+    references, so its ``#include`` directives were silently absent from the
+    graph. ``.h`` stays C, because that is what the chunker has always called
+    it.
+    """
     ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
     return {
         "py": "python", "md": "markdown", "js": "javascript", "jsx": "javascript",
         "ts": "typescript", "tsx": "tsx",
         "rs": "rust", "go": "go", "java": "java", "c": "c", "cpp": "cpp",
-        "h": "c", "cs": "csharp", "sh": "shell", "toml": "toml",
+        "cc": "cpp", "cxx": "cpp", "hpp": "cpp", "hxx": "cpp",
+        "hh": "cpp", "h": "c", "cs": "csharp", "sh": "shell", "toml": "toml",
         "yaml": "yaml", "yml": "yaml", "json": "json", "txt": "text",
     }.get(ext, ext or "text")

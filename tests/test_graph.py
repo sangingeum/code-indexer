@@ -160,13 +160,20 @@ def test_string_argument_call_is_not_an_include_or_import(lang, path):
     assert any(r[2] == "alert" and r[3] == "call" for r in refs)
 
 
-def test_angled_include_stays_unresolved_and_unreferenced():
-    """The documented C/C++ limitation, pinned: a system header is neither an
-    `imports` row nor an `includes` reference row (the grammar node is a
-    `system_lib_string`, which the query does not capture)."""
+def test_angled_include_is_recorded_and_named_as_unresolved():
+    """A system header is a recorded directive now: an `imports` row whose
+    target stays unresolved and the matching `includes` reference row.
+
+    It used to be dropped on the floor (the grammar node is a
+    `system_lib_string`, which the query did not capture), so a header made of
+    system includes read exactly like a leaf.
+    """
     imports, refs = extract_graph("src/a.cpp", '#include <vector>\n', "cpp")
-    assert imports == []
-    assert [r for r in refs if r[3] == "includes"] == []
+    assert imports == [("<vector>", None, "import", 1)]
+    assert [(r[2], r[3]) for r in refs if r[3] == "includes"] == [
+        ("<vector>", "includes")]
+    assert resolve_imports("/tmp", "src/a.cpp", "cpp",
+                           ["<vector>"]) == {"<vector>": None}
 
 
 def test_ast_language_is_actually_ast_backed(lang_of=("tsx", "javascript")):
@@ -611,7 +618,7 @@ def test_deps_reports_its_truncation_and_keeps_its_levels(tmp_path, monkeypatch)
     payload = json.loads(runner.invoke(
         app, ["deps", "app.py", "--project", str(project), "--direction",
               "out", "--format", "json"]).stdout)
-    assert payload["out"], payload  # per-level dict unchanged
+    assert payload["imports"], payload  # per-level dict, keyed by depth
     assert payload["truncated"] is False and payload["omitted"] == 0
     # Three resolved out-edges under a cap of 2: the start file leaves room
     # for one, so exactly two are refused — a count that requires counting

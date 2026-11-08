@@ -91,6 +91,10 @@ class GraphResult:
     # The subject's definition rows, as disambiguating records: more than one
     # means the walk unioned over several candidates, and the answer says so.
     candidates: list[dict] = field(default_factory=list)
+    # Files whose import/include directive names the file that defines the
+    # subject. An import is NOT a call, so these are reported in their own
+    # section with their own count and never occupy the caller list.
+    importers: list[GraphNode] = field(default_factory=list)
     match_count: int = 0
 
 
@@ -194,29 +198,48 @@ def _expand_callers(core, m: Manifest, name: str
                     ) -> list[tuple[str, int | None, str | None, str, str,
                                    str | None, str | None]]:
     """(file, line, from_symbol, relationship, confidence, receiver,
-    target_file) — the edges INTO `name` (by target symbol name, matching
-    either a direct ref or an import of the file that defines it).
+    target_file) — the reference edges INTO `name`.
+
+    Only `refs` rows are here: a call site or a name-level reference. An
+    `#include` of the file that defines the name is a different fact (the file
+    is an IMPORTER, not a caller), so it never enters this list; the walk
+    reports it separately through `_importers_for` and the answer labels it as
+    importers.
 
     ``target_file`` is the definition a hit can be attributed to WHEN the
-    store knows it (an import resolves to a file). A name-level reference row
-    does not say which definition it means, so it reports None rather than a
-    guess — the caller then labels it with every candidate.
+    store knows it. A name-level reference row does not say which definition
+    it means, so it reports None rather than a guess — the caller then labels
+    it with every candidate.
     """
     edges = []
     for r in m.callers_of(name):
         edges.append((r["file"], r["line"], r["from_symbol"],
                       r["relationship"], r["confidence"], r["receiver"],
                       None))
-    # Import-based fan-in: files importing the file whose symbols include
-    # `name` (resolved edges are project-relative files). An import edge has
-    # no receiver expression.
-    for imp in m.import_rows():
-        if imp["resolved_file"] and _file_defines(m, imp["resolved_file"],
-                                                  name):
-            edges.append((imp["file"], imp["line"], None,
-                          f"import:{imp['kind']}", "ast", None,
-                          imp["resolved_file"]))
     return edges
+
+
+def _importers_for(core, m: Manifest, name: str,
+                   names: ordering.ClassNames) -> list[GraphNode]:
+    """Files importing the file whose symbols include `name`.
+
+    Each importer is one node, shaped like a graph node so the two surfaces
+    render it the same way, but it is NOT a caller: `find-callers` prints it
+    under its own counted heading and JSON carries it under `importers`. An
+    import edge has no receiver expression and no enclosing symbol.
+    """
+    nodes = []
+    for imp in m.import_rows():
+        if not imp["resolved_file"] or not _file_defines(
+                m, imp["resolved_file"], name):
+            continue
+        relationship = f"import:{imp['kind']}"
+        nodes.append(((imp["file"], imp["line"], relationship), GraphNode(
+            file=imp["file"], symbol=None, line=imp["line"],
+            relationship=relationship, confidence="ast")))
+    nodes.sort(key=lambda pair: ordering.edge_key(
+        pair[0][0], None, pair[0][1], pair[0][2], "ast", None, names))
+    return [node for _key, node in nodes]
 
 
 def _file_defines(m: Manifest, file: str, name: str) -> bool:
@@ -339,6 +362,7 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
                 target = name
         else:
             target = member
+        importers = _importers_for(core, m, target, names)
         definition_rows = m.definitions_of(target)
         all_roots = _definition_roots(definition_rows)
         # One label per candidate, and per file, so a direct hit can name the
@@ -384,7 +408,8 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
             elif omitted:
                 notes.append(_cap_note(max_nodes, omitted, "reference"))
             return GraphResult(nodes=seeds, notes=notes,
-                               truncated=bool(omitted), omitted=omitted)
+                               truncated=bool(omitted), omitted=omitted,
+                               importers=importers)
         seen: set[tuple] = {_root_key(n.file, n.symbol) for n in roots}
         frontier = list(roots)
         result: list[GraphNode] = list(roots)
@@ -447,6 +472,7 @@ def find_callers(core, slug: str, name: str, depth: int = 2,
                            candidates=([identity.candidate(r)
                                         for r in definition_rows]
                                        if ambiguous else []),
+                           importers=importers,
                            match_count=len(definition_rows))
     finally:
         m.close()
@@ -579,6 +605,14 @@ def result_to_json(result: GraphResult) -> dict:
     payload["truncated"] = result.truncated
     payload["omitted"] = result.omitted
     payload["match_count"] = result.match_count
+    # Importers are their own counted list, never caller rows: an include is
+    # not a call. Present only when the walk found one, so a consumer that
+    # ignores the key reads exactly the graph it read before.
+    if result.importers:
+        payload["importers"] = [
+            {"file": n.file, "line": n.line,
+             "relationship": n.relationship} for n in result.importers]
+        payload["importer_count"] = len(result.importers)
     if result.match_count > 1 and result.candidates:
         payload["ambiguity"] = {"candidates": list(result.candidates)}
     if result.notes:
@@ -588,9 +622,12 @@ def result_to_json(result: GraphResult) -> dict:
 
 def deps_for_file(core, slug: str, path: str, direction: str = "both",
                   depth: int = 2, max_nodes: int = 60) -> dict:
-    """Import graph around one file: `in` (importers), `out` (imports),
-    or both. Returns {'in': [...], 'out': [...]} of file names per level,
-    plus `truncated` / `omitted` / `notes` describing a refused edge.
+    """Import graph around one file: `importers` (who imports it), `imports`
+    (what it imports), or both. Returns the file names per DEPTH LEVEL
+    (``{1: [...], 2: [...]}``, 1-based, depth = hops from the queried file),
+    the `unresolved_imports` the store holds for every file shown (raw targets
+    that resolved to no file), plus `truncated` / `omitted` / `notes`
+    describing a refused edge.
 
     Every level is ordered by the ordering policy's class key (class first,
     then path) BEFORE the node cap fills, so an importer in a test tree, a
@@ -598,6 +635,11 @@ def deps_for_file(core, slug: str, path: str, direction: str = "both",
     importer. The answer stays a WALK -- levels are kept apart, because "what
     imports this" is a distance question, not a relevance ranking -- so the
     policy reorders each level and never flattens them into one list.
+
+    Unresolved directives are COUNTED AND NAMED beside the walk rather than
+    dropped with the edges they could not become: a file whose includes all
+    point outside the index is not a leaf, and both the text and JSON forms
+    say so.
     """
     m = _manifest_for(core, slug)
     names = core.class_names(slug)
@@ -659,22 +701,39 @@ def deps_for_file(core, slug: str, path: str, direction: str = "both",
                         return levels_out, refused, True
             return levels_out, refused, False
 
-        result: dict = {}
-        for dir_key, edge_fn, wanted in (("out", out_edges, want_out),
-                                         ("in", in_edges, want_in)):
+        result: dict = {"path": path, "direction": direction}
+        for key, edge_fn, wanted, label in (
+                ("imports", out_edges, want_out, "import"),
+                ("importers", in_edges, want_in, "import")):
             if not wanted:
-                result[dir_key] = {}
+                result[key] = {}
                 continue
             levels, refused, deeper = walk(path, edge_fn, depth)
-            result[dir_key] = levels
+            result[key] = levels
             omitted += refused
             if refused:
-                notes.append(_cap_note(max_nodes, refused, "import",
-                                       scope=f" ({dir_key} direction)"))
+                notes.append(_cap_note(max_nodes, refused, label,
+                                       scope=f" ({key} direction)"))
             if deeper:
                 depth_capped = True
                 notes.append(_depth_note(max(0, depth),
-                                         f"{dir_key} import edges"))
+                                         f"{key} {label} edges"))
+        # An include/import directive that resolved to NO file is not an edge,
+        # but it is not nothing either: it is named. A header made of twenty
+        # system includes would otherwise read exactly like a leaf. Every file
+        # the walk shows is covered, so an unresolved include found one hop
+        # away is reported too.
+        shown = {path}
+        for key in ("imports", "importers"):
+            for files in (result.get(key) or {}).values():
+                shown.update(files)
+        unresolved: dict[str, list[str]] = {}
+        for r in all_rows:
+            if r["file"] in shown and not r["resolved_file"]:
+                unresolved.setdefault(r["file"], []).append(r["raw_target"])
+        result["unresolved_imports"] = {f: sorted(set(targets))
+                                        for f, targets in sorted(
+                                            unresolved.items())}
         result["truncated"] = bool(omitted or depth_capped)
         result["omitted"] = omitted
         if notes:

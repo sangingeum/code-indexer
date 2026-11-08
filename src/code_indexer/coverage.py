@@ -67,14 +67,19 @@ SCOPES = (SCOPE_PROJECT, SCOPE_ANSWER, SCOPE_NONE)
 # ``explain_empty`` is a type error, not a convention the tests have to catch,
 # and the four constants are annotated with it so the tuple cannot drift.
 EmptyReason = Literal["name-absent", "files-not-parsed",
-                      "language-without-ast", "index-empty"]
+                      "language-without-ast", "index-empty",
+                      "defined-not-referenced"]
 
 NAME_ABSENT: EmptyReason = "name-absent"
 FILES_NOT_PARSED: EmptyReason = "files-not-parsed"
 LANGUAGE_WITHOUT_AST: EmptyReason = "language-without-ast"
 INDEX_EMPTY: EmptyReason = "index-empty"
+# A name the index DEFINES and nothing references: the opposite of absent, and
+# the state a bare "no references" used to hide behind "the name is absent".
+DEFINED_NOT_REFERENCED: EmptyReason = "defined-not-referenced"
 EMPTY_REASONS: tuple[EmptyReason, ...] = (NAME_ABSENT, FILES_NOT_PARSED,
-                                          LANGUAGE_WITHOUT_AST, INDEX_EMPTY)
+                                          LANGUAGE_WITHOUT_AST, INDEX_EMPTY,
+                                          DEFINED_NOT_REFERENCED)
 
 # The manifest's language spelling (``indexer._lang_from_ext``) and the
 # capability matrix's (``ts_chunker.EXT_LANG``) differ for these two; the
@@ -297,6 +302,66 @@ def explain_empty(files: Sequence[ManifestFile],
     return (LANGUAGE_WITHOUT_AST,
             f"{languages} {verb} no AST reader, so no symbol is extracted "
             "from the files that would hold it")
+
+
+def references_empty(name: str, files: Sequence[ManifestFile],
+                     definitions: Sequence[Any],
+                     coverage: dict[str, Any] | None = None,
+                     importers: int = 0
+                     ) -> tuple[EmptyReason, str]:
+    """``(reason, sentence)`` for a ``find-references`` answer with no rows.
+
+    Three states, three sentences, and the absence reading is never printed
+    over a tree the index did not fully parse:
+
+    * the index DEFINES the name and nothing references it -- ``defined-not-
+      referenced``, naming where the definition sits, because "no references"
+      next to a definition is a fact about the code, not about the index;
+    * the name has no row at all and the index parsed everything -- ``name-
+      absent``, the one case where absence may be claimed;
+    * the name has no row and part of the tree was never parsed -- ``name-
+      absent`` for the vocabulary, but the sentence says what is actually
+      known: no row for it HERE, and the counts of what was read, so the
+      reader can tell an absent name from an unread one.
+
+    ``coverage`` is the answer's coverage block when the caller has one; its
+    ``complete`` flag decides the second and third states.
+    """
+    if definitions:
+        places = [f"{row.file}:{row.start_line}" for row in definitions[:3]]
+        more = len(definitions) - len(places)
+        tail = f" (+{more} more)" if more > 0 else ""
+        return (DEFINED_NOT_REFERENCED,
+                f"no references to {name!r}; the index defines it at "
+                f"{', '.join(places)}{tail} -- nothing in the index refers "
+                "to it")
+    whole = bool(coverage.get("complete")) if coverage else False
+    parsed = int(coverage.get("files_parsed") or 0) if coverage else 0
+    total = int(coverage.get("files") or 0) if coverage else len(files)
+    if coverage is None:
+        parsed = sum(1 for row in files if row.parse_verdict == "parsed")
+        whole = parsed == total
+    if importers:
+        noun = "directive" if importers == 1 else "directives"
+        return (DEFINED_NOT_REFERENCED,
+                f"no references to {name!r}; {importers} import/include "
+                f"{noun} name it -- those are importers, not references")
+    parsed_rows = [row for row in files if row.parse_verdict == "parsed"]
+    if parsed_rows and not any(has_symbol_reader(row.language)
+                              for row in parsed_rows):
+        languages = ", ".join(sorted({row.language or "unknown"
+                                       for row in parsed_rows}))
+        return (LANGUAGE_WITHOUT_AST,
+                f"no references to {name!r}: {languages} has no AST reader, "
+                "so no symbol is extracted from the files that would hold it")
+    if whole:
+        return (NAME_ABSENT,
+                f"no references to {name!r}: no definition and no reference "
+                f"row in an index that parsed all {total} files")
+    return (NAME_ABSENT,
+            f"no references to {name!r}: no definition or reference row in "
+            f"this index, which parsed {parsed} of {total} files -- it may "
+            "live in a file the index never read")
 
 
 def empty_answer(lead: str, files: Sequence[ManifestFile],

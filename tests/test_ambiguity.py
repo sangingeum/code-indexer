@@ -243,17 +243,17 @@ def test_find_callers_unions_over_both_candidates_and_labels_each_hit(
     target_labels = {label for hit in hits for label in hit["targets"]}
     assert target_labels == root_labels, target_labels
 
-    # The import edge is attributable: caller_alpha imports alpha, so that hit
-    # names ONE target; the name-level call row names both, because the store
-    # cannot say which definition it means.
-    import_hits = [h for h in hits if h["relationship"].startswith("import:")]
-    assert import_hits, hits
-    for hit in import_hits:
-        assert len(hit["targets"]) == 1, hit
-    assert {h["file"] for h in import_hits} == {"caller_alpha.py",
-                                               "caller_beta.py"}
-    ref_hits = [h for h in hits if not h["relationship"].startswith("import:")]
-    assert ref_hits and all(len(h["targets"]) == 2 for h in ref_hits), ref_hits
+    # Importers are reported in their own counted section, never in the caller
+    # tree: caller_alpha imports alpha and caller_beta imports beta, and an
+    # import is not a call site.
+    importers = payload["importers"]
+    assert {i["file"] for i in importers} == {"caller_alpha.py",
+                                             "caller_beta.py"}, importers
+    assert payload["importer_count"] == len(importers)
+    assert all(not h["relationship"].startswith("import:") for h in hits), hits
+    # A name-level call row names both candidates, because the store cannot
+    # say which definition it means.
+    assert hits and all(len(h["targets"]) == 2 for h in hits), hits
 
 
 def test_find_callers_text_prints_the_target_labels(ambiguous_rig):

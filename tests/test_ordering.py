@@ -560,13 +560,13 @@ def test_deps_orders_each_level_by_class_before_the_node_cap(rig):
     slot left it decides WHICH importer survives the cap."""
     core, _reg, entry, _project = rig
     walk = graph.deps_for_file(core, entry.slug, SOURCE_FILE, direction="in")
-    level = walk["in"][1]
+    level = walk["importers"][1]
     assert set(level) == {USES_FILE, EXAMPLE_FILE, TESTS_USES_FILE}, level
     assert level == [USES_FILE, EXAMPLE_FILE, TESTS_USES_FILE], level
 
     capped = graph.deps_for_file(core, entry.slug, SOURCE_FILE,
                                  direction="in", max_nodes=2)
-    assert capped["in"][1] == [USES_FILE], capped
+    assert capped["importers"][1] == [USES_FILE], capped
     assert capped["omitted"] == 2, capped
     assert capped["truncated"] is True, capped
 

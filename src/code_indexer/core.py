@@ -1480,6 +1480,14 @@ class Core:
         "references": ("type", "member", "identifier"),
     }
 
+    # The relationships that ANSWER "what references this": a reference row.
+    # `includes` is deliberately absent -- an include directive names a file,
+    # it does not use the symbol -- so an unfiltered answer reports importers
+    # in their own section instead of counting them as references.
+    _REFERENCE_RELATIONSHIPS: tuple[str, ...] = (
+        "call", "type", "base_class", "member", "identifier")
+    _IMPORTER_RELATIONSHIPS: tuple[str, ...] = ("includes",)
+
     def find_references(self, entry: ProjectEntry, name: str,
                         relationship: str | None = None,
                         limit: int = 25) -> list[dict[str, Any]]:
@@ -1495,7 +1503,10 @@ class Core:
         once per store.
 
         ``relationship`` filters the *reported* vocabulary
-        (calls|includes|inherits|references); ``None`` returns every row.
+        (calls|includes|inherits|references); ``None`` returns every
+        REFERENCE row -- ``includes`` is not one, because an include directive
+        names a file rather than using the symbol, so the unfiltered answer
+        leaves importers to :meth:`find_importers` and its own section.
         Rows come back in the ordering policy's order -- file class first, then
         a reference inside a named enclosing symbol before a module-level
         mention, then attributed syntax, then (file, line, relationship,
@@ -1509,7 +1520,8 @@ class Core:
                 f"error: unknown relationship: {relationship} "
                 "(expected calls|includes|inherits|references)")
         stored = (self._REFERENCE_FILTERS[relationship]
-                  if relationship is not None else None)
+                  if relationship is not None
+                  else self._REFERENCE_RELATIONSHIPS)
         m = self.read_manifest(entry.slug)
         try:
             rows = m.refs_to(name, relationships=stored, limit=limit)
@@ -1520,6 +1532,31 @@ class Core:
                  "relationship": r["relationship"],
                  "confidence": r["confidence"],
                  "receiver": r["receiver"]} for r in rows]
+
+    def find_importers(self, entry: ProjectEntry, name: str,
+                       limit: int = 25) -> list[dict[str, Any]]:
+        """Files whose import/include directive targets a file defining
+        ``name`` -- the IMPORTERS, not users.
+
+        An ``#include``/``import`` directive names a FILE, not a symbol, so
+        the connection to a symbol is made through the defining file: every
+        resolved import whose target defines ``name``. Same row shape and
+        order as :meth:`find_references`.
+        """
+        m = self.read_manifest(entry.slug)
+        try:
+            defining = {row.file for row in m.definitions_of(name)}
+            rows = [imp for imp in m.import_rows()
+                    if imp["resolved_file"] in defining]
+        finally:
+            m.close()
+        out = [{"file": r["file"], "line": r["line"],
+                "from_symbol": None,
+                "target": r["raw_target"],
+                "relationship": f"import:{r['kind']}",
+                "confidence": "ast", "receiver": None}
+               for r in rows]
+        return out[:limit] if limit is not None else out
 
     def reference_relationship_counts(self, entry: ProjectEntry, name: str
                                       ) -> list[tuple[str, int]]:

@@ -221,7 +221,7 @@ def test_an_empty_index_says_the_project_is_not_indexed(index_project):
 
 
 def test_the_reason_vocabulary_is_the_same_on_every_name_read(index_project):
-    """find-definition and find-references answer the same four values."""
+    """find-definition and find-references answer the same value set."""
     core, entry, project = index_project({"run.sh": SH}, name="scripts")
     for argv in (["find-definition", "zzz_missing"],
                  ["find-references", "zzz_missing"],
@@ -233,18 +233,17 @@ def test_the_reason_vocabulary_is_the_same_on_every_name_read(index_project):
 
 
 def test_the_reason_vocabulary_is_closed_by_a_type_not_a_convention():
-    """The four values are one Closed set: a fifth is a type error.
+    """Every name read answers from the same value set.
 
-    ``EmptyReason`` is the annotation ``explain_empty`` returns, and the tuple
-    is built from the same four names, so the set a test cannot see cannot
-    exist either.
+    ``defined-not-referenced`` is the fifth value: a name the index DEFINES
+    with nothing referencing it is a fact about the code, not an absence.
     """
     from typing import get_args
 
     from code_indexer.coverage import EMPTY_REASONS, EmptyReason
 
     assert get_args(EmptyReason) == EMPTY_REASONS
-    assert len(EMPTY_REASONS) == 4
+    assert len(EMPTY_REASONS) == 5
 
 
 def test_the_search_surface_words_its_own_cause(index_project):
