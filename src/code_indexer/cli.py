@@ -357,6 +357,10 @@ def _format_overview_compact(data: dict[str, Any],
         add(f"hotspot-unattributed "
             f"references={data['hotspots']['unattributed']} "
             f"unresolved={data['hotspots']['unresolved']} "
+            f"unresolved_missing_definition="
+            f"{data['hotspots']['unresolved_missing_definition']} "
+            f"unresolved_language_without_symbols="
+            f"{data['hotspots']['unresolved_language_without_symbols']} "
             f"ambiguous={data['hotspots']['ambiguous']}")
     for h in data["hotspots"]["size"][:5]:
         add(f"hotspot-size {h['file']} loc={h['loc']}")

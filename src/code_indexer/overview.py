@@ -226,6 +226,10 @@ def build_overview(m: Manifest, project_path: str,
         "hotspots": {"fan_in": hotspots_fan,
                      "unattributed": unattributed["unattributed"],
                      "unresolved": unattributed["unresolved"],
+                     "unresolved_missing_definition":
+                         unattributed["unresolved_missing_definition"],
+                     "unresolved_language_without_symbols":
+                         unattributed["unresolved_language_without_symbols"],
                      "ambiguous": unattributed["ambiguous"],
                      "size": hotspots_size},
         # The last pass's reconciliation, so a reader can account for the
@@ -292,7 +296,11 @@ def format_overview(data: dict[str, Any], max_lines: int = 60) -> str:
             add(f"  {h['file']}: {h['fan_in']}")
     if hs["unattributed"]:
         add(f"  unattributed: {hs['unattributed']} references credited to no "
-            f"file ({hs['unresolved']} names defined nowhere, "
+            f"file ({hs['unresolved']} names defined nowhere: "
+            f"{hs['unresolved_language_without_symbols']} sit in files whose "
+            f"language holds no symbol row at all, so nothing there could "
+            f"ever match them, and {hs['unresolved_missing_definition']} "
+            f"name a definition their language does define; "
             f"{hs['ambiguous']} tied between definitions)")
     if hs["size"]:
         add("hotspots (size):")

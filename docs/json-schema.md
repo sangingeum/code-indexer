@@ -97,10 +97,23 @@ to a definition. They are credited to no file and never folded into an
 arbitrary definer. The count is split by WHY, additively: `unresolved` is the
 rows whose name the store defines nowhere, and `ambiguous` the rows whose
 name has several definitions and no same-file match, so the two sum to
-`unattributed`. The text form prints `unattributed: N references credited to
-no file (U names defined nowhere, A tied between definitions)` when the total
-is non-zero, and the compact form carries
-`hotspot-unattributed references=N unresolved=U ambiguous=A`.
+`unattributed`.
+
+`unresolved` is itself split, because the two halves answer different
+questions: `unresolved_language_without_symbols` counts the rows that sit in
+files whose language holds no symbol row anywhere in the index — no reader
+there can ever match them, so they say nothing about whether the index is
+complete — and `unresolved_missing_definition` counts the rest, rows in a
+language whose files do define symbols, so the name really is missing a
+definition. The two sum to `unresolved`.
+
+The text form prints `unattributed: N references credited to no file (U names
+defined nowhere: L sit in files whose language holds no symbol row at all, so
+nothing there could ever match them, and M name a definition their language
+does define; A tied between definitions)` when the total is non-zero, and the
+compact form carries `hotspot-unattributed references=N unresolved=U
+unresolved_missing_definition=M unresolved_language_without_symbols=L
+ambiguous=A`.
 
 Under `--path-prefix` the count is scoped to the files being reported on:
 only target files inside the prefix are counted, and `unattributed` counts

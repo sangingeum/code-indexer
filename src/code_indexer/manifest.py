@@ -1148,12 +1148,23 @@ class Manifest:
         """Reference rows no rule attributed, split by WHY they were not.
 
         Every row here has ``resolution = 'none'`` and is credited to NO
-        file's fan-in. Two different facts produce that state, and one
-        number cannot report both:
+        file's fan-in. Three different facts produce that state, and one
+        number cannot report all of them:
 
-        * ``unresolved`` -- the store defines the NAME nowhere. There is no
-          definition to point at: a builtin, an external or deleted symbol,
-          or a word the heuristic extractor read as an identifier.
+        * ``unresolved`` -- the store defines the NAME nowhere. No definition
+          exists to point at: a builtin, an external or deleted symbol, or a
+          word the heuristic extractor read as an identifier. It splits in
+          two, and that split is the difference between "the index is
+          missing a definition" and "this file's language has no symbol
+          reader at all":
+          - ``unresolved_missing_definition`` -- some file of the same
+            language does hold a symbol row, so the name could have been
+            defined here and is not;
+          - ``unresolved_language_without_symbols`` -- NO file of that
+            language holds a symbol row anywhere in the store, so no reader
+            there can ever match these rows; they are structurally
+            unattributable and say nothing about whether the index is
+            complete.
         * ``ambiguous`` -- the store defines the name more than once and no
           same-file definition settles it, so the project-wide choice is a
           tie; picking one would be the old first-definer guess.
@@ -1165,9 +1176,16 @@ class Manifest:
         reported on.
         """
         sql = ("SELECT COUNT(*),"
-               " SUM(CASE WHEN EXISTS (SELECT 1 FROM symbols s"
-               " WHERE s.name = r.to_name) THEN 0 ELSE 1 END)"
-               " FROM refs r WHERE r.resolution = 'none'")
+               " SUM(CASE WHEN d.name IS NULL THEN 1 ELSE 0 END),"
+               " SUM(CASE WHEN d.name IS NULL AND f.language IS NOT NULL"
+               " AND NOT EXISTS (SELECT 1 FROM symbols ls"
+               "  WHERE ls.language = f.language)"
+               " THEN 1 ELSE 0 END)"
+               " FROM refs r"
+               " LEFT JOIN files f ON f.path = r.file"
+               " LEFT JOIN (SELECT DISTINCT name FROM symbols) d"
+               "   ON d.name = r.to_name"
+               " WHERE r.resolution = 'none'")
         args: list = []
         if scope_prefix:
             sql += " AND substr(r.file, 1, ?) = ?"
@@ -1175,7 +1193,10 @@ class Manifest:
         row = self._conn.execute(sql, args).fetchone()
         total = int(row[0])
         unresolved = int(row[1] or 0)
+        without_symbols = int(row[2] or 0)
         return {"unattributed": total, "unresolved": unresolved,
+                "unresolved_missing_definition": unresolved - without_symbols,
+                "unresolved_language_without_symbols": without_symbols,
                 "ambiguous": total - unresolved}
 
     def unattributed_ref_count(self, scope_prefix: str | None = None) -> int:
@@ -1185,7 +1206,7 @@ class Manifest:
         defined nowhere in the store, or its definitions tie. It is credited
         to NO file's fan-in, and this count is what keeps the omission
         visible instead of silent. ``unattributed_ref_counts`` reports the
-        same total split into the two reasons. ``scope_prefix`` counts the
+        same total split into those reasons. ``scope_prefix`` counts the
         rows that SIT in the prefix -- the file carrying the reference --
         because the scope names the files being reported on.
         """

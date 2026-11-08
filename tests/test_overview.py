@@ -303,7 +303,12 @@ def test_unattributed_splits_names_defined_nowhere_from_ties(rig):
 
         after = m.unattributed_ref_counts()
         delta = {k: after[k] - before[k] for k in after}
+        # Every added file here carries no language, so a row in one of them
+        # cannot be blamed on a language without a symbol reader: all two
+        # unresolved rows are names a definition is missing for.
         assert delta == {"unattributed": 5, "unresolved": 2,
+                         "unresolved_missing_definition": 2,
+                         "unresolved_language_without_symbols": 0,
                          "ambiguous": 3}, delta
         # The three counts differ and the two reasons sum to the total.
         assert len({delta["unresolved"], delta["ambiguous"],
@@ -322,11 +327,63 @@ def test_unattributed_splits_names_defined_nowhere_from_ties(rig):
         assert hotspots["unattributed"] == (hotspots["unresolved"]
                                            + hotspots["ambiguous"])
         text = format_overview(data, max_lines=200)
+        # None of the added files carries a language, so no row here can be
+        # blamed on a language without a symbol reader: the whole unresolved
+        # count is names a definition is missing for.
         assert (f"{hotspots['unattributed']} references credited to no file "
-                f"({hotspots['unresolved']} names defined nowhere, "
+                f"({hotspots['unresolved']} names defined nowhere: "
+                f"0 sit in files whose language holds no symbol row at all, "
+                f"so nothing there could ever match them, and "
+                f"{hotspots['unresolved']} name a definition their language "
+                f"does define; "
                 f"{hotspots['ambiguous']} tied between definitions)") in text
     finally:
         m.close()
+
+
+def test_unattributed_separates_rows_no_reader_could_ever_match(tmp_path):
+    """"Defined nowhere" is two facts, and one number reads as a broken index.
+
+    A shell file writes heuristic rows, and no shell file can hold a symbol
+    row at all: its rows are structurally unattributable and say nothing
+    about the index's completeness. A Python row naming something the
+    project never defines IS a missing definition. Before the split both
+    were reported as "names defined nowhere" (86% of the reference table on
+    a real tree), and the text read as though the store had lost its
+    definitions.
+    """
+    from code_indexer.overview import build_overview, format_overview
+    from pass_rig import index_project, stub_core
+
+    project = tmp_path / "mixed"
+    _write(project, "pkg/model.py", "def widget():\n    return 1\n")
+    _write(project, "pkg/twin.py", "def widget():\n    return 2\n")
+    _write(project, "pkg/caller.py",
+           "def go():\n    widget()\n    missing_thing()\n")
+    _write(project, "scripts/run.sh", "curl https://example.test/api\n")
+    core = stub_core(tmp_path)
+    reg, entry = index_project(core, project)
+    m = core.manifest_for(entry.slug)
+    try:
+        counts = m.unattributed_ref_counts()
+        data = build_overview(m, str(project))
+    finally:
+        m.close()
+    # Five identifier rows from the shell file (curl, https, example, test,
+    # api): that language defines nothing in this store.
+    assert counts["unresolved_language_without_symbols"] == 5, counts
+    # `missing_thing` is a call in a language whose files DO define symbols.
+    assert counts["unresolved_missing_definition"] == 1, counts
+    assert counts["ambiguous"] == 1, counts          # widget() has two homes
+    assert counts["unresolved"] == 6, counts
+    assert counts["unattributed"] == 7, counts
+    hotspots = data["hotspots"]
+    assert hotspots["unresolved_language_without_symbols"] == 5, hotspots
+    assert hotspots["unresolved_missing_definition"] == 1, hotspots
+    text = format_overview(data, max_lines=200)
+    assert ("5 sit in files whose language holds no symbol row at all"
+            in text), text
+    assert ("1 name a definition their language does define" in text), text
 
 
 def test_manifest_loc_language_columns(rig):
