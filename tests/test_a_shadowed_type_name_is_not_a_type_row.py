@@ -47,26 +47,37 @@ namespace App
 }
 
 # `NeedBand` is a type, and a property, a field and a local are each spelled
-# with its name. Lines 7, 13 and 21 name the type (a property's type, a
-# field's type, a local's type); lines 8, 14 and 22 read a value.
-SHADOWED_BY_VALUES = """\
+# with its name. One file per binding kind, so one binding cannot hide
+# another: the walk is file-wide, and a local named `NeedBand` in one file
+# would keep a property of the same name in that file from being seen at all.
+# In each file line 5 (or line 7, for the local) names the TYPE and the line
+# after it reads the VALUE.
+SHADOWED_BY_PROPERTY = """\
 namespace App
 {
-    public class NeedBand { public static double Critical; }
-
-    public class UsesProperty
+    public class PropertyUser
     {
         public NeedBand NeedBand { get; set; }
         public double Read() { return NeedBand.Critical; }
     }
+}
+"""
 
-    public class UsesField
+SHADOWED_BY_FIELD = """\
+namespace App
+{
+    public class FieldUser
     {
         private NeedBand NeedBand;
         public double Read() { return NeedBand.Critical; }
     }
+}
+"""
 
-    public class UsesLocal
+SHADOWED_BY_LOCAL = """\
+namespace App
+{
+    public class LocalUser
     {
         public double Read()
         {
@@ -74,6 +85,13 @@ namespace App
             return NeedBand.Critical;
         }
     }
+}
+"""
+
+NEED_BAND_TYPE = """\
+namespace App
+{
+    public class NeedBand { public static double Critical; }
 }
 """
 
@@ -158,18 +176,25 @@ def test_a_generic_parameter_that_shadows_a_type_is_no_type_row(tmp_path):
 
 def test_a_property_a_field_and_a_local_that_shadow_a_type_are_no_type_rows(
         tmp_path):
-    """Three value bindings spelled `NeedBand`; the receiver rule keeps their
-    READS out, and the type each one is declared with stays a type use."""
-    core, entry, reg = _rig(tmp_path, {"App/Needs.cs": SHADOWED_BY_VALUES},
-                            name="shadowv")
+    """Three value bindings spelled `NeedBand`, one per file: the receiver rule
+    keeps their READS out, and the type each one is declared with stays a type
+    use."""
+    core, entry, reg = _rig(tmp_path, {
+        "App/NeedBand.cs": NEED_BAND_TYPE,
+        "App/PropertyUser.cs": SHADOWED_BY_PROPERTY,
+        "App/FieldUser.cs": SHADOWED_BY_FIELD,
+        "App/LocalUser.cs": SHADOWED_BY_LOCAL,
+    }, name="shadowv")
     try:
         m = core.read_manifest(entry.slug)
         try:
             rows = m._conn.execute(
-                "SELECT line, relationship FROM refs WHERE to_name = 'NeedBand'"
-                " ORDER BY line").fetchall()
+                "SELECT file, line, relationship FROM refs"
+                " WHERE to_name = 'NeedBand' ORDER BY file, line").fetchall()
         finally:
             m.close()
     finally:
         reg.close()
-    assert rows == [(7, "type"), (13, "type"), (21, "type")], rows
+    assert rows == [("App/FieldUser.cs", 5, "type"),
+                    ("App/LocalUser.cs", 7, "type"),
+                    ("App/PropertyUser.cs", 5, "type")], rows
