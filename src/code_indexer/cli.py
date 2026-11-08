@@ -975,9 +975,9 @@ def deps(
     refresh: bool = RefreshOpt,
 ) -> None:
     """Import graph around one file (resolved edges only). The payload keeps
-    its per-level `in` / `out` dicts and gains `truncated` and `omitted`; a
-    result the depth or node cap left incomplete also prints a `note:` line
-    naming the cap."""
+    its `imports` / `importers` dicts, keyed by depth, and gains `truncated`
+    and `omitted`; a result the depth or node cap left incomplete also prints
+    a `note:` line naming the cap."""
     core, entry = _core_entry(project, skip_stale_check)
     _refuse_obsolete_rows(core, entry, refresh=refresh)
     verdict_block, _ = _read_staleness(core, entry, refresh=False,
@@ -2933,8 +2933,8 @@ def _print_importers(entry: ProjectEntry, name: str,
     """The importers section: counted, labelled, and never a reference row."""
     if not importers:
         return
-    typer.echo(f"importers ({len(importers)}) — include/import directives "
-               f"naming {name!r}; an import is not a reference:")
+    typer.echo(f"importers ({len(importers)}) — files that import the file "
+               f"defining {name!r}; an import is not a reference:")
     for r in importers:
         typer.echo(f"- {r['file']}:{r['line']} {r['relationship']} "
                    f"{r['target']}")

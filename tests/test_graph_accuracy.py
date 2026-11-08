@@ -317,6 +317,14 @@ def test_find_references_keeps_imports_out_of_the_reference_count(
         assert text.exit_code == 0, text.output
         assert "includes probe" not in text.stdout
         assert "importers (2)" in text.stdout
+        # The heading says what its rows ARE: files importing the file that
+        # defines the subject, not directives naming the subject. The rows
+        # carry the defining file's path, which the old heading mislabelled.
+        assert ("importers (2) — files that import the file defining "
+                "'probe'; an import is not a reference:") in text.stdout
+        # The rows name the importing FILE and the directive's target, which
+        # the old heading ("directives naming 'probe'") mislabelled.
+        assert "- importer.py:1 import:import defs" in text.stdout
 
         # An explicit include filter still answers, on the name the directive
         # actually carries (a python import names its module).

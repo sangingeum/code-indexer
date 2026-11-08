@@ -57,7 +57,7 @@ CORE_NAMES = frozenset({
 HELP_SHA256 = {
     "add-project": "3c40042d1e809ef9a945dec81b4097de2b883f58a976ab982f9080af822932e5",
     "changed-symbols": "c32e58a721460d757cf9a1f8edcaecf994e819bc436c56393da5646db3397c1a",
-    "deps": "156c9942908585d4dc05a48fa5def3c94c55bfd891da39eba16b0e5d3f22b111",
+    "deps": "b273519b0803f7abad57dcd8e267d9e59caf82d9d2349d85ac5861267d89dc77",
     "doctor": "e876133ea4e7a4a956a496e8c3eba1247d290368d571cb01f69bd1d9be6357cb",
     "eval": "4073eb3dec0b32476a0b64f9eca2b25cb7779176630fed3c3a639ae665159041",
     "eval-compare": "298652501bfcbf1a9ba91e6083375aa3c67779bcd200f2c561faf52d259dbfc4",
