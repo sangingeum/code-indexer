@@ -564,9 +564,14 @@ pass:             {"slug": str, "state": "idle"|"indexing"|"error",
 performing the pass (exactly-one-pass rule); `detail` says so and `result` is
 absent. `state: "idle"` is a completed pass and carries the pass counters.
 `already_registered` is true when the registration was a no-op, and then
-`index` is `null`. A failure carries `ErrorType` and the taxonomy's exit code,
-like every other `--json` failure. Fields are additive and `schema` stays 1;
-the text renderer prints the same fields as prose lines.
+`index` is `null`. A repair pass (`--repair-points`) adds `"repair_points":
+true` beside `"vectors"`, and reports `index.result` with `chunks_unrepairable`
+and `files_committed`; on a project that holds no vectors it reports
+`state: "idle"`, `vectors: "off"`, `chunks_skipped` = the stored chunk rows,
+`chunks_unrepairable: 0` and writes nothing -- exit 0, with a text line saying
+there is nothing to re-address. A failure carries `ErrorType` and the taxonomy's
+exit code, like every other `--json` failure. Fields are additive and `schema`
+stays 1; the text renderer prints the same fields as prose lines.
 
 ## find-symbol --json
 

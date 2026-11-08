@@ -81,7 +81,7 @@ HELP_SHA256 = {
     "plan-replace-body": "738d981b80fd5c6d9cd0f878384064d5e22938c5f58c124a6b44ac43f2fedc8b",
     "plan-show": "8a64f4b605f36f7d95954b4ac23ecda6db9a0be17978dd71a3922aa1345b95fc",
     "plan-validate": "8b17537af3ee8b74d1b5db2e6d3fcd88c95d83fff18f4546ee0a8b3be84900c6",
-    "reindex-project": "558b1c4a3ae7c7638fb3d0ecc9dfe7e6efb022dc970f014fc53220f248abb86e",
+    "reindex-project": "e76915ae52ec590aa645770ace3a970fb840bf0ff0865cb9ab4d5351ed9f941a",
     "remove-project": "1a37f2ef24f760adfafb6babed971e196d9ba84dd756edf31e4154c4634479f4",
     "semantic-search": "098d41eb03a885f3aa36598cef49e1997a15ea7e7a1fa07aa6c1acfe83c15b82",
     "skeleton": "4859e3b704822dbef3bc3a70c80578a21c6f8bcc7e5b6889f2ad4862a8163384",

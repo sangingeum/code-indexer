@@ -297,27 +297,22 @@ text. A changed embedding identity is a NEW physical collection
 (`idx_<slug>__<identity digest>`) that every vector-writing pass binds the
 `idx_<slug>` alias to; writes name it, reads resolve the alias.
 
-**Point identity.** A point id is positional (`uuid5(project|file|chunk_index)`),
-so every pass re-addresses by content: a chunk whose text and symbol the file's
-points already carry keeps its vector but is written at the id its CURRENT
-`chunk_index` names, with the current payload; a chunk found nowhere is
-embedded; points past the new count are purged. Two rows with the same text and
-symbol (a declaration repeated in one file) share an embedding input but never a
-point: the lookup consumes one stored point per row and prefers the point already
-at that row's own id, so a repeated declaration is carried, not rewritten.
-`reindex-project --repair-points` runs that over every stored row, is idempotent
--- a second run on an agreeing index writes no point, reports
-`files_committed 0`, and leaves `index_revision` alone -- and refuses (exit 4)
-rows whose vector is nowhere.
+**Point identity.** A point id is positional (`uuid5(project|file|chunk_index)`), so every pass
+re-addresses by content: a chunk whose text and symbol the file's points already carry keeps its
+vector but is written at the id its CURRENT `chunk_index` names, with the current payload; a chunk
+found nowhere is embedded; points past the new count are purged. Two rows with the same text and
+symbol (a repeated declaration) share a vector but never a point. `reindex-project
+--repair-points` runs that over every stored row and is idempotent: a second run on an agreeing
+index writes no point, reports `files_committed 0` and leaves `index_revision` alone. It refuses
+(exit 4) a row whose vector is nowhere, reports idle (exit 0) with the row count on a project that
+holds no vectors, and keeps exit 2 for `--vectors off` passed WITH it.
 
-**A repair embeds no chunk and needs no embedding service.** What it needs is
-the dimension, and the index already records it: `meta.embed_dim` from the
-last vector-writing pass, else the length of a vector the collection holds.
-So a repair issues no embedder request at all -- not even the dimension probe
--- and succeeds with the service down, reporting the same counts; with
-neither recorded it refuses (exit 4) naming `reindex-project` instead of
-asking the service to guess. A repair that writes no point writes no
-manifest, so `index_revision` and `last_indexed` stay put; a row left
+**A repair embeds no chunk and needs no embedding service.** The dimension is already recorded
+(`meta.embed_dim`, else the length of a vector the collection holds), so a repair dials no
+embedder at all and works with the service down; with neither recorded it refuses (exit 4) naming
+`reindex-project` rather than asking the service to guess. A repair that writes no point writes no
+manifest, so `index_revision` and `last_indexed` stay put; a row left unrepairable is not a no-op
+-- the vector state is recorded, then exit 4.
 unrepairable is not a no-op -- the vector state is recorded, then exit 4.
 
 The three version axes:

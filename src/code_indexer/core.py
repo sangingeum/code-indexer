@@ -1020,6 +1020,19 @@ class Core:
             f"vector can be re-addressed; run: code-indexer reindex-project "
             f"{project_path}")
 
+    def chunk_row_count(self, slug: str) -> int:
+        """How many chunk rows the index holds -- what a repair re-addresses.
+
+        A question for an index that records no vectors: there is no point to
+        re-address, but the rows it would have carried are still a fact worth
+        reporting, so a repair loop can say how much it left alone.
+        """
+        m = self.read_manifest(slug)
+        try:
+            return m.count_chunks()
+        finally:
+            m.close()
+
     def repair_points(self, slug: str, project_path: str) -> dict[str, Any]:
         """Re-address every stored row's vector at its current point id.
 

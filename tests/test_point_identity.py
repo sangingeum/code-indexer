@@ -526,6 +526,73 @@ def _cli_rig(tmp_path, monkeypatch, *, collection_present: bool = True):
     return core, entry, registry
 
 
+def _cli_rig_without_vectors(tmp_path, monkeypatch):
+    """A registered project whose index holds rows and no vectors at all."""
+    src = tmp_path / "mod.py"
+    src.write_text(ORIGINAL)
+    cfg = _cfg(tmp_path)
+    core = Core(cfg)
+    embedder, store = _Embedder(), _Store()
+    core.embedder = embedder  # type: ignore[assignment]
+    core.store = store  # type: ignore[assignment]
+    core.indexer.embedder = embedder  # type: ignore[assignment]
+    core.indexer.store = store  # type: ignore[assignment]
+    registry = Registry(os.path.join(cfg.index_root, "registry.db"))
+    entry = registry.add(str(tmp_path), name="offproj")
+    core.run_index(entry.slug, str(tmp_path), vectors="off")
+    monkeypatch.setattr(cli_mod, "_get_core", lambda skip: core)
+    return core, entry, registry
+
+
+def test_repair_points_on_a_vectors_off_project_is_idle_exit_zero(tmp_path,
+                                                                 monkeypatch):
+    """Nothing to re-address is an answer: idle, the row count, exit 0.
+
+    A fleet-wide repair loop must not stop on a project that holds no
+    vectors, and the index it does hold is left exactly as stored.
+    """
+    core, entry, registry = _cli_rig_without_vectors(tmp_path, monkeypatch)
+    result = RUNNER.invoke(app, ["reindex-project", str(tmp_path),
+                                 "--repair-points", "--json"])
+    registry.close()
+    assert result.exit_code == 0, (result.exit_code, result.output,
+                                   result.stderr)
+    payload = json.loads(result.output)
+    assert payload["index"]["state"] == "idle", payload
+    assert payload["vectors"] == "off", payload
+    assert payload["index"]["result"] == {
+        "repair_points": True, "chunks_embedded": 0, "chunks_reused": 0,
+        "chunks_unrepairable": 0, "chunks_skipped": 2, "files_committed": 0,
+    }, payload
+    assert core.store.writes == 0, "a vectors-off repair wrote a point"
+
+
+def test_repair_points_on_a_vectors_off_project_says_so_in_text(tmp_path,
+                                                                monkeypatch):
+    """The text line names the reason instead of a malformed invocation."""
+    _core, _entry, registry = _cli_rig_without_vectors(tmp_path, monkeypatch)
+    result = RUNNER.invoke(app, ["reindex-project", str(tmp_path),
+                                 "--repair-points"])
+    registry.close()
+    assert result.exit_code == 0, (result.exit_code, result.output,
+                                   result.stderr)
+    assert "holds no vectors" in result.output, result.output
+    assert "nothing to re-address" in result.output, result.output
+    assert result.stderr == "", result.stderr
+
+
+def test_repair_points_with_an_explicit_vectors_off_stays_a_usage_error(
+        tmp_path, monkeypatch):
+    """A caller who asked for off AND a repair made a wrong request."""
+    _core, _entry, registry = _cli_rig_without_vectors(tmp_path, monkeypatch)
+    result = RUNNER.invoke(app, ["reindex-project", str(tmp_path),
+                                 "--repair-points", "--vectors", "off"])
+    registry.close()
+    assert result.exit_code == 2, (result.exit_code, result.output)
+    assert result.stdout == "", result.stdout
+    assert result.stderr.count("ArgumentError:") == 1, result.stderr
+
+
 def test_rows_not_current_is_a_rebuild_refusal_exit_four(tmp_path, monkeypatch):
     """The rebuild the repair demands is exit 4, not a generic failure (1)."""
     core, entry, registry = _cli_rig(tmp_path, monkeypatch)

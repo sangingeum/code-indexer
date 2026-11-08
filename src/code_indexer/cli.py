@@ -1917,18 +1917,42 @@ def reindex_project(
     already records. It is idempotent, writes no manifest revision when it
     writes no point, and refuses (exit 4) the rows whose vector is found
     nowhere, as it does when the rows are no longer current or the collection
-    is gone.
+    is gone. A project that holds no vectors has nothing to re-address: the
+    repair reports idle with the row count, writes nothing and exits 0 --
+    ``--vectors off`` beside it is still a usage error (exit 2).
     """
     _check_vectors_flag(vectors)
     core = _get_core(skip_stale_check)
     selector = _require_selector(core, project, path, "reindex-project")
     entry = _resolve(core, selector)
     if repair_points:
-        if core.resolve_vectors(entry.slug, vectors) != "on":
-            _pass_fail(ArgumentError(
-                f"error: --repair-points needs vectors on: it re-addresses "
-                f"stored vectors and embeds nothing (got --vectors {vectors})"),
-                json_output)
+        resolved = core.resolve_vectors(entry.slug, vectors)
+        if resolved != "on":
+            # A caller who SAID off and asked for a repair has made a wrong
+            # request (a repair re-addresses stored vectors). A project that
+            # merely HOLDS no vectors has nothing to re-address, and that is
+            # an answer, not an error: a fleet repair loop must not stop on
+            # it, and nothing is written.
+            if vectors == "off":
+                _pass_fail(ArgumentError(
+                    "error: --repair-points needs vectors on: it re-addresses "
+                    "stored vectors and embeds nothing (got --vectors off)"),
+                    json_output)
+            rows = core.chunk_row_count(entry.slug)
+            _emit_pass({"schema": 1, "command": "reindex-project",
+                        "path": entry.path, "slug": entry.slug,
+                        "vectors": "off", "repair_points": True,
+                        "index": {"slug": entry.slug, "state": "idle",
+                                  "result": {"repair_points": True,
+                                             "chunks_embedded": 0,
+                                             "chunks_reused": 0,
+                                             "chunks_unrepairable": 0,
+                                             "chunks_skipped": rows,
+                                             "files_committed": 0}}},
+                       [f"{entry.slug}: idle: the project holds no vectors "
+                        f"(vectors=off), so there is nothing to re-address; "
+                        f"{rows} chunk row(s) left as stored"], json_output)
+            return
         _require_semantic()
         try:
             result = core.repair_points(entry.slug, entry.path)
