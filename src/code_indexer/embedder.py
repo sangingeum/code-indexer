@@ -127,15 +127,18 @@ class Embedder:
         the determinism this path can offer. The service's vector for one
         text is not a function of (text, model) alone: after a model reload
         the first call for a text returns one vector and an immediately
-        repeated call returns another, and the same text interleaved with a
-        different text returns the first one again (measured here: a few
-        times 1e-3 per component -- 3.280e-3, 3.491e-3 and 8.438e-3 across
-        three runs on one service, so no single figure is a constant -- every
-        component moving). A warm-up cannot cover that,
-        because the odd value comes back after any other request -- measured,
-        a probe call immediately before the query does not change which form
-        the query receives, and two probe calls do not either. So this path
-        fixes the BYTES instead: the vector is rounded to the stored
+        repeated call returns another, and the delta depends on the text
+        form -- on the measured query text the instructed form this path
+        sends moved by 6.237e-3 per component, the bare text by 3.317e-3,
+        and across the texts measured on this service the figure runs from
+        1.575e-3 to 8.438e-3, so this range is quoted as 1.5e-3 to 8.5e-3 on
+        the texts measured. Whether an earlier form returns after a
+        different request is not dependable either (measured: the bare text
+        10 of 10, the instructed form 0 of 6 in one measurement and 10 of 10
+        in another), so the turn belongs to the request sequence and a
+        warm-up cannot cover it -- measured, a probe call immediately before
+        the query does not change which form the query receives, and two
+        probe calls do not either. So this path fixes the BYTES instead: the vector is rounded to the stored
         representation (float16) and written on a MISS as well as served on a
         HIT, and the caller searches the stored bytes, so the second read of a
         text searches byte-identical values whatever the service is doing.

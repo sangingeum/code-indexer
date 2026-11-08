@@ -2,12 +2,16 @@
 
 ADR-0003 section 5 and skill/references/failures.md put a bad flag value at
 ``ArgumentError``, exit 2: the request was wrong, so the caller fixes the
-invocation. Before this file, four enumerated flags fell through the CLI
-boundary into the core and came back as something else entirely -- a bad
+invocation. Before this file, six surfaces fell through the CLI boundary into
+the core and came back as something else entirely -- a bad
 search mode as ``InternalError`` (exit 1), a bad ranking or rerank value as a
 wrapped ``BackendError`` (exit 3, "search failed on every project"), a bad
-eval mode as ``InternalError``. A caller reading that line would go looking
-for a broken install.
+eval mode as ``InternalError``, and an unknown value of ``--relationship``,
+``--format``, ``--visibility`` or ``--vectors`` was not refused at the
+boundary at all. The enumerated flags this file covers are ``--mode``,
+``--ranking`` and ``--rerank`` on search, ``--mode`` and ``--rerank`` on eval,
+and ``--relationship``, ``--format``, ``--visibility`` and ``--vectors``.
+A caller reading that line would go looking for a broken install.
 
 So every test here asserts the property that was missing: exit 2, ONE stderr
 line naming the values the flag accepts, empty stdout -- and, for the flags
@@ -88,6 +92,9 @@ def rig(tmp_path, monkeypatch):
 
         def count_points(self, name):
             return 0
+
+        def swap_collection(self, tmp, target):
+            pass
 
         def search(self, *a, **kw):
             class _Hit:

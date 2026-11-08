@@ -168,15 +168,19 @@ vector received), so a failed probe is not a hole in the guarantee.
 
 The limit, measured rather than assumed: the service's vector for one text is
 not a function of the text and the model. After a reload the first call for a
-text differs from an immediately repeated call by a few times 1e-3 per
-component, every component moving -- the size is not a constant of the tool,
-so no single figure is quoted: three measurements on this service gave
-8.438e-3, 3.491e-3 and 3.280e-3, a range of roughly 3e-3 to 8e-3. The turn
-belongs to the sequence, not to the load state: a text's earlier form comes
-back after any other request (measured: text A, text B, text A returns A's
-first form -- 5 of 5 fresh-model loads and 5 of 5 rounds with the model
-already loaded) -- so no warm-up settles it, and a probe call immediately before
-the query does not change which form the query receives. What that leaves,
+text differs from an immediately repeated call, and the size of that delta
+depends on the text form the read path sends: on the measured query text the
+instructed form (the one `semantic-search` embeds) moved by 6.237e-3 per
+component and the bare text by 3.317e-3. Across the texts measured on this
+service the figure runs from 1.575e-3 to 8.438e-3, so no single figure is a
+constant of the tool; this page quotes the range 1.5e-3 to 8.5e-3, on the
+texts measured. Whether a text's earlier form comes back after another
+request is not dependable either: the bare text returned its first form 10
+times out of 10, while the instructed form returned it 0 times out of 6 in
+one measurement and 10 times out of 10 in a later one. The turn therefore
+belongs to the request sequence, not to the load state: no warm-up settles
+it, and a probe call immediately before the query does not change which form
+the query receives. What that leaves,
 stated as the limit: a text keeps the form of its FIRST embedding until that
 cache row is evicted or the model, embed format or dimension changes;
 `EMBED_CACHE=0` leaves nowhere to store the bytes, so two reads can search two

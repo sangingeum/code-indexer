@@ -5,11 +5,12 @@ probe fails used to return the raw vector and store nothing, so the next read
 re-embedded the same text and searched whatever the service answered then --
 and the service does not answer the same vector twice. Measured on this
 machine: the first call for a text after a model reload and an immediately
-repeated call differ by a few 1e-3 per component (measured at 3.280e-3,
-3.491e-3 and 8.438e-3 on three runs -- the size is not a constant, so the
-range is the honest form), with every component
-moving, and at a deep limit that is 2 members in and 2 out of a 400-hit
-answer.
+repeated call differ by a per-component delta that depends on the text form
+(the instructed form the query path sends moved by 6.237e-3, the bare text by
+3.317e-3), and across the texts measured the figure runs from 1.575e-3 to
+8.438e-3 -- the size is not a constant, so the range is the honest form:
+1.5e-3 to 8.5e-3, on the texts measured. At a deep limit that is 2 members in
+and 2 out of a 400-hit answer.
 
 The fix is at the tool's end and it is not a warm-up: the warm-up was
 measured and does not settle it (a probe call before the query does not

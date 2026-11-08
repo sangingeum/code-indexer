@@ -9,8 +9,9 @@ something other than the index:
    ranges collapsed into one union depended on that arrival order;
 2. the query embedding was recomputed whenever the dimension was unknown,
    and the service's cold-loaded run returns a materially different vector
-   than its warm one (measured: components up to 6e-3 apart), so the first
-   call after idle searched a different vector than the second.
+   than its warm one (measured: 1.5e-3 to 8.5e-3 per component on the texts
+   measured), so the first call after idle searched a different vector than
+   the second.
 
 The tests here pin the shape the user sees: the second invocation equals the
 first, and the member set does not move.
@@ -90,9 +91,9 @@ def test_deep_limit_order_does_not_depend_on_arrival_order():
 def test_membership_survives_a_tiny_score_perturbation():
     """The member set is a function of the hits, not of their scores.
 
-    A vector search's scores move by ~1e-3 between a cold and a warm model
-    load. That must not change WHICH ranges the answer reports: only where
-    they sit in the order.
+    A vector search's scores move by 1.5e-3 to 8.5e-3 per component between
+    a cold and a warm model load (on the texts measured). That must not
+    change WHICH ranges the answer reports: only where they sit in the order.
     """
     pool = _deep_pool()
     jittered = []
