@@ -304,6 +304,14 @@ namespace Vivarium.Sim
 """
 
 
+# One line that names `Foo` BOTH as a plain type (`Foo y;`) and as a
+# qualified scope (`Foo::Callback`): two captures for one site, one key.
+COLLIDING_TYPE_AND_SCOPE = """\
+struct Foo { using Callback = void (*)(int); };
+void f() { Foo::Callback cb; Foo y; }
+"""
+
+
 @pytest.fixture()
 def type_use_project(tmp_path, monkeypatch):
     core, entry, project, reg = _rig(
@@ -375,6 +383,31 @@ def test_an_ambiguous_type_use_stays_unattributed_and_counted(
     finally:
         reg.close()
     assert rows == [("type", "none", None)], rows
+
+
+def test_one_site_naming_a_type_twice_still_indexes(tmp_path, monkeypatch):
+    """A plain type and a qualified scope on one line share one row key.
+
+    `Foo::Callback cb; Foo y;` gives the site two captures for `Foo` -- one
+    plain type, one scope. They are one (file, line, name, relationship) row,
+    so converting the interim row must not collide with the type row already
+    written there, and must not abort the pass.
+    """
+    core, entry, _project, reg = _rig(
+        tmp_path, monkeypatch, {"a.cpp": COLLIDING_TYPE_AND_SCOPE},
+        name="collide")
+    try:
+        m = core.read_manifest(entry.slug)
+        try:
+            rows = m._conn.execute(
+                "SELECT relationship, resolution FROM refs"
+                " WHERE file = 'a.cpp' AND to_name = 'Foo' AND line = 2"
+            ).fetchall()
+        finally:
+            m.close()
+    finally:
+        reg.close()
+    assert rows == [("type", "same_file")], rows
 
 
 # ---------------------------------------------------------------------------

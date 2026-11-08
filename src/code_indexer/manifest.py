@@ -1153,9 +1153,16 @@ class Manifest:
             target, resolution = resolve(ref_file, name)
             converted.append((target, resolution, rowid))
         if converted:
+            # OR REPLACE, because a C++ line can spell one name in BOTH a type
+            # position and a qualified scope (`Foo::Callback cb; Foo y;`): the
+            # plain type row is already `type` at that site, and the two rows
+            # share the table's (file, line, to_name, relationship) key. The
+            # replacement is the same fact, re-attributed; without this the
+            # pass aborts on the primary key.
             self._conn.executemany(
-                "UPDATE refs SET target_symbol_id = ?, resolution = ?,"
-                " relationship = 'type' WHERE rowid = ?", converted)
+                "UPDATE OR REPLACE refs SET target_symbol_id = ?,"
+                " resolution = ?, relationship = 'type' WHERE rowid = ?",
+                converted)
         if converted or dropped:
             self._conn.commit()
 
