@@ -564,8 +564,10 @@ def test_the_post_apply_verdict_is_the_same_rung_the_validate_reads(
 
     The validate ladder reads ts_chunker.parse_file; the post-apply report
     used to read parse_tree, which answers `parsed` for a file whose AST holds
-    no unit at all while parse_file answers `parse_unavailable` for the same
-    bytes. Both now read parse_file, so the two surfaces cannot disagree.
+    no unit at all while parse_file answered `parse_unavailable` for the same
+    bytes. Both now read parse_file, so the two surfaces cannot disagree --
+    and for a file with nothing to declare the shared answer is `parsed`: the
+    parser read it, so no surface may blame a reader that exists.
     """
     root = str(tmp_path)
     (tmp_path / "quiet.py").write_text("# nothing to declare\n")
@@ -577,7 +579,7 @@ def test_the_post_apply_verdict_is_the_same_rung_the_validate_reads(
         text = plans.read_text_file(root, path).text
         _chunks, verdict = ts_chunker.parse_file(path, text)
         assert reported[path]["verdict"] == verdict
-    assert reported["quiet.py"]["verdict"] == "parse_unavailable"
+    assert reported["quiet.py"]["verdict"] == "parsed"
     assert reported["broken.py"]["verdict"] == "parse_error"
     assert reported["broken.py"]["lines"]
 
