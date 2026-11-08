@@ -212,17 +212,31 @@ reads the same tree.
 ## deps --json
 
 ```json
-{"out": {level: [file...]}, "in": {level: [file...]},
+{"path": str, "direction": str,
+ "imports": {depth: [file...]}, "importers": {depth: [file...]},
+ "unresolved_imports": {file: [raw target...]},
  "truncated": bool, "omitted": int, "notes": [str]}
 ```
 
-level = 1-based. `truncated`, `omitted` and `notes` mean exactly what they
+`imports` is what the queried file imports; `importers` is what imports it.
+Each is a dict keyed by **depth** — the 1-based number of import hops from the
+queried file, `"1"` being a direct edge (JSON object keys are strings). A
+direction that was not requested keeps its empty dict. The same words label
+the text form: `imports of <file> (depth 1):`, `importers of <file> (depth 2):`.
+
+`unresolved_imports` is the other half of the answer: every include/import
+directive, in any file the walk shows, whose target resolved to no file in the
+index. The list is per file and carries the raw target as written (a system
+header keeps its angle brackets). A directive that resolves to nothing is not
+an edge, but it is not silence either: a header made of twenty system
+includes has an empty `imports` dict and twenty named entries here, and the
+text form says `imports of <file>: none resolved; N include directives
+unresolved (...)`. `truncated`, `omitted` and `notes` mean exactly what they
 mean for `find-callers` (above): node-cap refusals are counted in `omitted`,
 a depth-capped answer is `truncated` with `omitted: 0`, and `notes` is
 present only when non-empty. A refusal line names its direction
-(`node cap 2 reached (out direction) — ...`) because one answer can carry
-refusals from both walks; `omitted` is the sum over both. A direction that
-was not requested keeps its empty dict.
+(`node cap 2 reached (imports direction) — ...`) because one answer can carry
+refusals from both walks; `omitted` is the sum over both.
 
 ## The staleness block (every read answer)
 
@@ -346,7 +360,8 @@ The name reads -- `find-symbol`, `find-definition`, `find-references`,
 empty answer, and nothing to a non-empty one:
 
 ```json
-{"empty_reason": "name-absent|files-not-parsed|language-without-ast|index-empty",
+{"empty_reason": "name-absent|files-not-parsed|language-without-ast|index-empty|
+                  defined-not-referenced",
  "empty_reason_sentence": str}
 ```
 
@@ -356,8 +371,21 @@ at least one did not; the sentence names the count and the languages.
 `language-without-ast` means the files parsed but their language has no AST
 reader, so no symbol is extracted; the sentence names the language.
 `index-empty` means the project is registered and the index holds no files.
-The precedence is fixed in that order, so one condition never reports two
-values. `empty_reason_sentence` is the same sentence the text form prints,
+Those four keep the fixed precedence they have always had, so one condition
+never reports two values.
+
+`defined-not-referenced` is the fifth value, and `find-references` is the one
+surface that can return it: the index DEFINES the name and no reference row
+targets it. That is a fact about the code, not about the index, so the sentence
+names where the definition sits (`no references to 'X'; the index defines it
+at a.py:1 -- nothing in the index refers to it`) rather than claiming absence.
+It also covers a name whose only rows are import/include directives: the
+sentence says those name it as importers, not as references. `find-references`
+otherwise answers `name-absent`, and its sentence distinguishes the two
+coverage states behind that value: only an index that parsed ALL of its files
+may say the name is absent; a partly parsed one says there is no definition or
+reference row in THIS index, how many files it parsed, and that the name may
+live in a file the index never read. `empty_reason_sentence` is the same sentence the text form prints,
 with the command's own lead (`no symbols matching 'X'`, `no references to
 'X'`, `no results`) in front. The four VALUES are shared; the sentence is
 worded per surface, because the symbol reads look for a NAME and
@@ -630,6 +658,8 @@ because the name is ambiguous rather than missing).
 {"roots": [{"file", "symbol", "line", "relationship", "confidence",
            "receiver", "targets": [str], "children": [...]}],
  "truncated": bool, "omitted": int, "match_count": int,
+ "importers"|"missing": [{"file", "line", "relationship"}],
+ "importer_count"|"missing": int,
  "ambiguity"|"missing": {"candidates": [...]}, "notes"|"missing": [str]}
 ```
 
@@ -637,14 +667,19 @@ because the name is ambiguous rather than missing).
 `ambiguity` appears when that exceeds one, with the same candidate records as
 `find-symbol`. The walk unions over every candidate, and each DIRECT hit
 carries `targets` — the `file:start-end` candidate label(s) it can belong to.
-An import-resolved edge is attributed to the candidate in its file; a
-name-level reference cannot be attributed, so it names every candidate. A
+A name-level reference cannot be attributed, so it names every candidate. A
 root's `confidence` is the evidence of the row it was built from (`ast` or
 `unknown`), never a constant — the same label the `ambiguity` candidate for
 that row carries. Text mode prints the tree, the `targets` labels and one
 line saying the subject name matched several definitions.
 `targets` is empty when the subject has one definition (nothing to pick) and
 on transitive nodes.
+
+`importers` and `importer_count` are the files whose import/include directive
+targets a file defining the subject -- present only when there is at least
+one. An import is NOT a call: none of them is a root, and none enters
+`omitted` by being refused as a caller; they are a separate counted list,
+printed in text under `importers (N)`.
 
 ## find-references --json
 
@@ -654,8 +689,16 @@ on transitive nodes.
                   "relationship", "confidence", "receiver",
                   "project", "target_confidence"}],
  "total": int, "unfiltered_count"|missing,
- "unfiltered_relationships"|missing, <staleness block>}
+ "unfiltered_relationships"|missing,
+ "importers"|"missing": [row], "importer_count"|"missing": int,
+ <staleness block>}
 ```
+
+`references` and `total` hold REFERENCE rows only. `includes` rows are not
+references -- an include/import directive names a file, it does not use the
+symbol -- so an unfiltered answer lists the importing files under `importers`
+(counted in `importer_count`) and leaves them out of `references`. Asking
+`--relationship includes` explicitly still returns the raw directive rows.
 
 The two `unfiltered_*` fields appear only when a relationship filter came
 back empty and the store does carry the name under another relationship.

@@ -1,5 +1,59 @@
 # Changelog
 
+## [Unreleased] — the graph says what it can see
+
+**A type reached through its member is a reference.** `NeedBand.Critical`
+recorded only the member row, with `NeedBand` as its receiver, and never a row
+targeting `NeedBand` — so `find-references NeedBand` reported a type that 27
+lines of the tree name as invisible. The extractor now writes the receiver as
+a `member_receiver` row; the index pass's resolver turns it into a `type`
+reference when the name binds a definition (the file's own first, then the
+store's unique definition, then its file-class choice — the precedence
+introduced for reference targets) and deletes it when the name binds nothing.
+a C# local-binding walk keeps parameters, locals, foreach and catch names out
+before the resolver is asked, so a member read through a variable never
+becomes a type reference. The documented limit: a value bound under the exact
+name of a type in the same file is indistinguishable from the type by name
+alone and binds to it.
+
+**`find-references` no longer claims a name absent when it is not.** The empty
+answer now has three states: references found; no reference rows but the index
+defines the name (new `empty_reason` value `defined-not-referenced`, sentence
+naming the definition — the code has no references, it is not a hole in the
+index); and no rows and no definition, where only an index that parsed all of
+its files may say the name is absent. A partly parsed index says there is no
+definition or reference row in THIS index, how many files it parsed, and that
+the name may live in a file it never read. The coverage caveat rides the state
+it describes.
+
+**An `#include` is an importer, not a caller.** Import edges left the
+`find-callers` walk: callers are `call`/`reference` rows, and files that
+merely import the file defining the subject are printed in their own counted
+section (`importers (N)` in text, `importers` / `importer_count` in JSON),
+never in the caller list or its count. `find-references` applies the same
+rule to `includes` rows: they are not references, so the unfiltered answer
+lists the importing files separately and keeps them out of `total`;
+`--relationship includes` still returns the raw directive rows.
+
+**`deps` names its levels and never reads as a leaf.** `in L1` / `out L1`
+became `imports of <file> (depth N):` / `importers of <file> (depth N):`, and
+the JSON keys became `imports` / `importers`, each keyed by depth (documented
+in `docs/json-schema.md`). Every include/import directive that resolved to no
+file is counted and named under `unresolved_imports` (`imports of <file>:
+none resolved; N include directives unresolved (...)` in text), so a header
+made of twenty system includes no longer reads like a leaf. C/C++ system
+headers are captured by the reference queries now, the C++ header
+spellings (`.hpp`, `.hxx`, `.hh`, `.cc`, `.cxx`) map to cpp, so a header's
+directives and references are extracted at all instead of being skipped as an
+unknown language, and a C++ template call (`obj.method<T>(...)`,
+`free<T>(...)`) is a call row -- the name sits one node deeper, so the plain
+identifier pattern never saw it.
+
+`EXTRACTION_VERSION` moves 9 -> 10: the extraction axis moved (new reference
+rows, new include rows, a wider scanned language map). An existing index
+reports `needs-reindex` and its row reads refuse until the next pass; chunking,
+embedded text and vectors are untouched.
+
 ## [Unreleased] — a reference credits the definition it resolves to
 
 **Fan-in is now per DEFINITION, not per name.** The name half of

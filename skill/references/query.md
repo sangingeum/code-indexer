@@ -227,7 +227,10 @@ sentence names the count and the languages), `language-without-ast` (the
 sentence names the language -- a shell-only layer has files, and no symbol is
 extracted from them) or `index-empty` -- and text mode prints the same
 sentence after the lead. `find-definition`, `find-references`, `find-callers`
-and `find-callees` use the same four values. Every read answer's JSON also
+and `find-callees` use the same values, and `find-references` adds
+`defined-not-referenced` when the index defines the name and nothing
+references it (the sentence names the definition; a bare "the name is absent"
+is printed only for an index that parsed all of its files). Every read answer's JSON also
 carries a `coverage` block (scope, parsed and unparsed counts, withheld files,
 languages without an AST reader, freshness); in text the one coverage line
 appears ONLY when files were unparsed or withheld, never on a clean answer.
@@ -249,15 +252,25 @@ code-indexer deps src/code_indexer/cli.py --direction both --format edges
 
 - `find-references` reads the single reference store; every row carries
   `confidence=` (`ast` or `heuristic`) and `receiver=`, `--limit` defaults
-  to 25.
+  to 25. Include/import rows are not references: an unfiltered answer keeps
+them out of the list and the count and prints the importing files under
+`importers (N)` (`--relationship includes` asks for them explicitly).
 - `find-callers` walks fan-in over `refs`; every **call site** is a node,
   while `find-callees` walks fan-out where a **target** is a node, so one
-  target reached twice is one callee.
+  target reached twice is one callee. Files that merely import the file
+defining the subject are reported in their own counted `importers` section,
+never as callers.
 - Both accept a dotted `Type.Member`, union over an ambiguous name, label
   each direct hit with `targets`, and report `truncated`/`omitted` when
   `--max-nodes` cut the walk.
-- `deps` resolves imports to files; unresolved edges are not drawn, and each
-  level is class-ordered before the node cap fills (the two walks are in
+- `deps` resolves imports to files and prints two named, depth-keyed
+  sections -- `imports of <file> (depth N):` and `importers of <file>
+  (depth N):`; the JSON keys are `imports` and `importers`, each keyed by
+  depth. Every include/import directive that resolved to no file is counted
+  and named under `unresolved_imports` (text: `none resolved; N include
+  directives unresolved (...)`), so a header full of system includes never
+  reads as a leaf. Each level is class-ordered before the node cap fills (the
+  two walks are in
   [semantic.md](semantic.md#the-two-walks-that-keep-their-own-order)).
 - `find-callees` is the one graph arm outside the policy: call-site order,
   because "what does this symbol reach" reads one body.

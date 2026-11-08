@@ -401,6 +401,33 @@ def test_deps_names_the_includes_a_header_could_not_resolve(
         reg.close()
 
 
+def test_a_template_call_site_is_a_caller(tmp_path, monkeypatch):
+    """`obj.method<T>(...)` and `free<T>(...)` are calls, not silence.
+
+    The name sits one node deeper (template_method / template_function), so a
+    plain identifier/field pattern read the call site as nothing and the two
+    real callers of a template API stayed invisible.
+    """
+    core, entry, project, reg = _rig(tmp_path, monkeypatch, {
+        "api.cpp": (
+            "template<typename T> void publish(const char* t, bool r);\n"
+            "void user(Client* client) {\n"
+            "    client->publish<int>(\"x\", true);\n"
+            "    publish<double>(\"y\");\n"
+            "}\n"),
+    }, name="templates")
+    try:
+        m = core.read_manifest(entry.slug)
+        try:
+            rows = m.refs_to("publish")
+        finally:
+            m.close()
+        calls = [r for r in rows if r["relationship"] == "call"]
+        assert [r["line"] for r in calls] == [3, 4], rows
+    finally:
+        reg.close()
+
+
 def test_deps_keeps_a_second_depth_level(tmp_path, monkeypatch):
     core, entry, project, reg = _rig(tmp_path, monkeypatch, {
         "chain/a.py": "import chain.b\n",

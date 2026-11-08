@@ -802,7 +802,10 @@ def find_callers(
     (tree-sitter `call`/`type`/`base_class`/`member` rows, confidence `ast`,
     for python/typescript/tsx/javascript/c/cpp/go/csharp, plus the textual
     `identifier` / `includes` rows, confidence `heuristic`, for every other
-    language, where comments and strings DO match) and import-based edges.
+    language, where comments and strings DO match). Import edges are NOT
+    callers: files that import the file defining the subject are printed in
+    their own counted `importers (N)` section (JSON: `importers`,
+    `importer_count`) and never enter the caller list or its count.
     The graph is TEXTUAL AND UNBOUND by design: names are matched as text,
     there is no compiler resolution, so a heuristic row is a navigation aid,
     not a resolved call. NAME may be dotted (`Type.Member`): the qualifier
