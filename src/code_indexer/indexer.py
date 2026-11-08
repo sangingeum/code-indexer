@@ -63,15 +63,17 @@ def reference_rows(path: str, text: str, lang: str
     return imports, refs, "heuristic"
 
 
-def _parse_dispatch(path: str, text: str) -> tuple[list[Chunk], str]:
-    """Chunker seam + the file's parse verdict, from ONE parse.
+def _parse_dispatch(path: str, text: str) -> tuple[list[Chunk], str, str | None]:
+    """Chunker seam + the file's parse verdict + the grammar that parsed it.
 
     The verdict is the parser's own (``parsed``/``parse_error``) or
     ``parse_unavailable`` when no AST exists at all -- no grammar pack, no
     grammar for the extension, or a parser exception; it is never inferred
-    from the chunks themselves (ADR-0004 section 7).
+    from the chunks themselves (ADR-0004 section 7). The language is the
+    grammar the parser chose for THIS file, which for an ambiguous `.h`
+    header is a decision the bytes made, not the name.
     """
-    return ts_chunker.parse_file(path, text)
+    return ts_chunker.parse_file_with_language(path, text)
 
 
 logger = logging.getLogger("code-indexer.indexer")
@@ -370,11 +372,14 @@ class Indexer:
         # Per-file symbol/reference/import extraction results, applied at the
         # commit phase (step 3/4) in the same commit family as the manifest
         # rows — never ahead of vectors.
-        pending_meta: dict[str, tuple[list, list, list, str]] = {}
+        pending_meta: dict[str, tuple[list, list, list, str, str]] = {}
         # Total chunk count per processed file (for the manifest row).
         file_chunk_counts: dict[str, int] = {}
         # Parse verdict per processed file (parsed|parse_error|parse_unavailable).
         file_verdicts: dict[str, str] = {}
+        # The grammar each processed file was parsed with (a `.h` header's is
+        # decided from its contents, so it is not the extension's answer).
+        file_languages: dict[str, str] = {}
         # Approx LOC per processed file (max chunk end_line).
         file_loc_counts: dict[str, int] = {}
         # Files that had at least one chunk queued for embedding.
@@ -384,23 +389,24 @@ class Indexer:
         # cause is a chunk lost to an embed failure).
         read_failures: dict[str, str] = {}
 
-        def _process_file(path: str) -> tuple[str, str, list[Chunk], list, str] | None:
+        def _process_file(path: str) -> tuple[str, str, list[Chunk], list, str,
+                                          str | None] | None:
             """Read + chunk + extract symbols for one file.
 
             Returns None only when the file cannot be opened now, in which
             case the reason is left in ``read_failures`` for the caller to
-            record as a skip.
+            record as a skip. The last element is the grammar the parse used.
             """
             f = scanned_map[path]
             try:
                 with open(f.abs_path, encoding="utf-8", errors="replace") as fh:
                     file_text = fh.read()
-                    chunks, verdict = _parse_dispatch(path, file_text)
+                    chunks, verdict, lang = _parse_dispatch(path, file_text)
             except OSError as exc:
                 logger.warning("cannot read %s: %s", path, exc)
                 read_failures[path] = str(exc)
                 return None
-            if langmatrix.is_prose_or_config(_lang_from_ext(path)):
+            if langmatrix.is_prose_or_config(lang or _lang_from_ext(path)):
                 # Prose and configuration are indexed for SEARCH: their chunks
                 # embed and rank, and nothing in them is a declaration or a
                 # reference. The chunk-level symbol metadata is cleared here so
@@ -413,10 +419,10 @@ class Indexer:
                     c.symbol = None
                     c.symbol_type = None
             syms = ts_chunker.extract_symbols(path, file_text, chunks)
-            return path, file_text, chunks, syms, verdict
+            return path, file_text, chunks, syms, verdict, lang
 
         def _record_file(path: str, file_text: str, chunks: list[Chunk],
-                         syms, verdict: str) -> None:
+                         syms, verdict: str, lang: str | None) -> None:
             """Apply one parsed file's bookkeeping (main thread only)."""
             nonlocal reused
             # ONE reference writer (v6), reading the SAME rule the language
@@ -424,13 +430,13 @@ class Indexer:
             # the textual scan stamps 'heuristic', and prose/configuration
             # stores nothing. Rows are held until the commit phase so a crash
             # never claims references for a file whose vectors are absent.
-            lang = _lang_from_ext(path)
+            lang = _stored_language(path, lang)
             imports, refs, confidence = reference_rows(path, file_text, lang)
             resolutions = graph_extract.resolve_imports(
                 project_path, path, lang, [i[0] for i in imports])
             import_rows = [(rt, resolutions.get(rt), kind, ln)
                            for (rt, _r, kind, ln) in imports]
-            pending_meta[path] = (syms, refs, import_rows, confidence)
+            pending_meta[path] = (syms, refs, import_rows, confidence, lang)
             old = old_files.get(path)
             if vectors and old and old.chunk_count > len(chunks):
                 self.store.purge_file_points(
@@ -464,10 +470,11 @@ class Indexer:
                                      getattr(f, "inode", None),
                                      max((c.end_line for c in chunks),
                                          default=0),
-                                     _lang_from_ext(path), verdict))
+                                     lang, verdict))
             file_chunk_counts[path] = len(chunks)
             file_loc_counts[path] = max((c.end_line for c in chunks), default=0)
             file_verdicts[path] = verdict
+            file_languages[path] = lang
 
         def _commit_metadata(path: str) -> None:
             """Write a file's symbols, references and imports in ONE place.
@@ -479,7 +486,7 @@ class Indexer:
             meta = pending_meta.pop(path, None)
             if meta is None:
                 return
-            syms, refs, import_rows, confidence = meta
+            syms, refs, import_rows, confidence, lang = meta
             manifest.replace_file_symbols(
                 path,
                 [SymbolRow(file=path, name=s["name"],
@@ -490,7 +497,7 @@ class Indexer:
                            visibility=s.get("visibility"),
                            qualified_name=s["qualified_name"],
                            container=s["container"],
-                           language=_lang_from_ext(path),
+                           language=lang,
                            decl_hash=s["decl_hash"]) for s in syms])
             manifest.replace_file_refs(path, refs, confidence)
             manifest.replace_file_imports(path, import_rows)
@@ -517,7 +524,8 @@ class Indexer:
                 if parsed is None:
                     _record_read_failure(path)
                 else:
-                    _record_file(parsed[0], parsed[1], parsed[2], parsed[3], parsed[4])
+                    _record_file(parsed[0], parsed[1], parsed[2], parsed[3],
+                                 parsed[4], parsed[5])
         else:
             # Pipeline: parse the next file in the pool while recording the
             # current one. The embed call itself happens after the loop (one
@@ -531,7 +539,8 @@ class Indexer:
                     if parsed is None:
                         _record_read_failure(path)
                     else:
-                        _record_file(parsed[0], parsed[1], parsed[2], parsed[3], parsed[4])
+                        _record_file(parsed[0], parsed[1], parsed[2], parsed[3],
+                                     parsed[4], parsed[5])
 
         # 3) Embed with per-text failure isolation (bisect on batch failure);
         #    commit each file's manifest row + symbols AFTER its points are
@@ -570,7 +579,7 @@ class Indexer:
                         "chunk_hash": chunk_.chunk_hash,
                         "symbol": chunk_.symbol,
                         "symbol_type": chunk_.symbol_type,
-                        "lang": _lang_from_ext(path),
+                        "lang": file_languages.get(path) or _lang_from_ext(path),
                         "start_line": chunk_.start_line,
                         "end_line": chunk_.end_line,
                         "snippet": _snippet(chunk_.text),
@@ -608,7 +617,8 @@ class Indexer:
                     file_chunk_counts.get(path, 0), "ok",
                     getattr(f, "mtime_ns", None),
                     getattr(f, "inode", None),
-                    file_loc_counts.get(path, 0), _lang_from_ext(path),
+                    file_loc_counts.get(path, 0),
+                    file_languages.get(path) or _lang_from_ext(path),
                     file_verdicts.get(path))])
                 files_committed += 1
                 if self.progress_cb is not None:
@@ -638,7 +648,8 @@ class Indexer:
                          scanned_map[path].size, file_chunk_counts.get(path, 0),
                          "ok", getattr(scanned_map[path], "mtime_ns", None),
                          getattr(scanned_map[path], "inode", None),
-                         file_loc_counts.get(path, 0), _lang_from_ext(path),
+                         file_loc_counts.get(path, 0),
+                         file_languages.get(path) or _lang_from_ext(path),
                          file_verdicts.get(path))
             for path in file_chunk_counts
             if path not in by_file and path not in all_failed]
@@ -880,6 +891,22 @@ def _chunk_from_row(row) -> Chunk:
                  chunk_index=row.chunk_index, symbol_type=row.symbol_type)
 
 
+def _stored_language(path: str, parsed: str | None) -> str:
+    """The manifest's language spelling for a file, from the grammar it used.
+
+    For an ambiguous `.h` header the grammar IS the fact: the file and its
+    symbols are labelled with the language that actually parsed them (``c``
+    or ``cpp``), so `--language` and the coverage counts describe what
+    happened. Every other spelling keeps the manifest's own vocabulary --
+    ``.sh`` stores ``shell`` here while the chunker's map says ``bash`` -- and
+    a parse that yielded no grammar (``None``) falls back to the name.
+    """
+    ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
+    if parsed and ext in ts_chunker.AMBIGUOUS_HEADER_EXTENSIONS:
+        return parsed
+    return _lang_from_ext(path)
+
+
 def _lang_from_ext(path: str) -> str:
     """The language a file's extension names, spelled as the reference
     extractor and the capability matrix spell it.
@@ -887,12 +914,11 @@ def _lang_from_ext(path: str) -> str:
     The C++ header and translation-unit spellings are one language: a ``.hpp``
     read as the bare token ``hpp`` has no grammar, no symbol rows and no
     references, so its ``#include`` directives were silently absent from the
-    graph. ``.h`` is a header spelling too, and the language a header is
-    WRITTEN in cannot be read off its name: C++ projects spell headers ``.h``
-    as often as ``.hpp``, and reading one as C made every declaration in it
-    invisible while coverage still said the file parsed. tree-sitter's cpp
-    grammar parses a C header as well (C is its subset), so the whole header
-    family maps to cpp and a C-only header still answers.
+    graph. ``.h`` is the one header spelling whose language its NAME cannot
+    settle -- C and C++ projects both ship it -- so this function only gives
+    the family default (``cpp``); the grammar a file is actually parsed with is
+    decided from the file's own bytes in ``ts_chunker._choose_grammar`` and is
+    what the index stores as the file's and its symbols' language.
     """
     ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
     return {

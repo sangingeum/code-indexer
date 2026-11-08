@@ -32,7 +32,10 @@ logger = logging.getLogger("code-indexer.tschunker")
 # rows built by v1 describe an index this build would not produce.
 # v3: `.h` headers chunk with the cpp grammar (v2 read them as C), so a C++
 # header's chunks describe declarations v2 never saw.
-CHUNKER_VERSION = 3
+# v4: a `.h` header's grammar is decided from the file itself (C first, cpp
+# when C cannot read it), so a C-only header's chunks again come from the C
+# grammar -- v3 read every `.h` as cpp and lost a K&R definition.
+CHUNKER_VERSION = 4
 
 try:
     import tree_sitter_language_pack
@@ -40,13 +43,21 @@ try:
 except Exception:  # noqa: BLE001
     _TS_OK = False
 
+# The one header spelling whose language its name cannot settle: C and C++
+# projects both ship `.h`. The map keeps the family default (`cpp`) for the
+# callers that see only a path, but a file's own bytes decide the grammar in
+# `parse_tree_with_language` -- see `_choose_grammar`. `.hpp/.hxx/.hh` are
+# unambiguous and stay cpp.
+AMBIGUOUS_HEADER_EXTENSIONS = {"h"}
+
 EXT_LANG = {
-    # `.h` is cpp, not c: a header's language is not readable from its name,
-    # tree-sitter's cpp grammar parses a C header too, and reading a C++
-    # header as C made every declaration in it invisible.
+    # `.h` keeps the cpp default here; the per-file decision (C first, cpp
+    # when C's tree carries an error or a missing node) lives in
+    # `_choose_grammar`, and the index stores the language that parse used.
     "py": "python", "js": "javascript", "jsx": "javascript", "ts": "typescript",
     "tsx": "typescript", "rs": "rust", "go": "go", "java": "java", "c": "c",
-    "cpp": "cpp", "cc": "cpp", "h": "cpp", "hpp": "cpp", "cs": "csharp",
+    "cpp": "cpp", "cc": "cpp", "h": "cpp", "hpp": "cpp", "hxx": "cpp",
+    "hh": "cpp", "cxx": "cpp", "cs": "csharp",
     "rb": "ruby", "php": "php", "sh": "bash", "lua": "lua", "swift": "swift",
     "kt": "kotlin", "md": "markdown", "json": "json", "yaml": "yaml",
     "yml": "yaml", "toml": "toml", "html": "html", "css": "css",
@@ -141,22 +152,41 @@ def chunk_text(path: str, text: str) -> list[Chunk]:
 
 
 def parse_tree(path: str, text: str):
-    """The parser's tree and its own verdict, or ``(None, unavailable)``.
+    """The parser's tree and its own verdict, or ``(None, unavailable)``."""
+    _lang, tree, verdict = parse_tree_with_language(path, text)
+    return tree, verdict
+
+
+def parse_tree_with_language(path: str, text: str):
+    """The tree, its verdict, and the grammar that produced them.
 
     One place decides whether an AST exists at all: no grammar pack, no grammar
     for the extension, or a parser exception yields ``None`` with
     ``parse_unavailable``. Callers that need node ranges read the tree; the
     chunker reads it through ``parse_file`` so both answer from the same parse.
+
+    The grammar is the extension's, except for the ambiguous `.h` header
+    spelling, where the file's own contents decide (``_choose_grammar``). The
+    chosen language is returned so the index can STORE the language that
+    actually parsed the file instead of the one its name suggested.
     """
     if not _TS_OK:
-        return None, PARSE_UNAVAILABLE
+        return None, None, PARSE_UNAVAILABLE
     ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
     lang = EXT_LANG.get(ext)
     if lang is None:
-        return None, PARSE_UNAVAILABLE
+        return None, None, PARSE_UNAVAILABLE
+    data = text.encode("utf-8")
+    if ext in AMBIGUOUS_HEADER_EXTENSIONS:
+        return _choose_grammar(path, data)
+    tree, verdict = _parse_with(lang, path, data)
+    return lang, tree, verdict
+
+
+def _parse_with(lang: str, path: str, data: bytes):
+    """One grammar's tree and verdict, or ``(None, unavailable)``."""
     try:
         parser = tree_sitter_language_pack.get_parser(lang)
-        data = text.encode("utf-8")
         tree = parser.parse(data)
     except Exception as exc:  # noqa: BLE001
         logger.debug("tree-sitter parse failed for %s (%s): %s", path, lang, exc)
@@ -164,8 +194,78 @@ def parse_tree(path: str, text: str):
     return tree, _tree_verdict(tree.root_node)
 
 
+def _choose_grammar(path: str, data: bytes):
+    """The grammar a `.h` header is written in, read from the header itself.
+
+    A `.h` name does not say C or C++: C++ projects spell headers `.h` too,
+    and C is not a strict subset of what the cpp grammar reads (a K&R
+    definition is legal C and an error in cpp). So both grammar trees are
+    built -- this is the one extension where a second parse is spent -- and
+    the evidence picks between them, in this order:
+
+    1. a tree with no error or missing node beats one that carries a defect;
+    2. between two clean trees, the one that DECLARES MORE wins: the C
+       grammar reads a C++ header as a legal-looking function body whose name
+       it cannot recover (`namespace geometry { ... }`), so it declares
+       nothing from it, while the cpp grammar declares the names the project
+       uses;
+    3. a tie stays `c`: a header both grammars read into the same named
+       declarations is C-compatible, and calling it C is what the C project
+       that ships it expects -- no symbol is lost either way.
+
+    Two trees that both carry a defect keep the cpp one: it is the family
+    default and recovers the most of a broken header.
+    """
+    c_tree, c_verdict = _parse_with("c", path, data)
+    cpp_tree, cpp_verdict = _parse_with("cpp", path, data)
+    if c_tree is None and cpp_tree is None:
+        return "c", None, PARSE_UNAVAILABLE
+    if cpp_tree is None:
+        return "c", c_tree, c_verdict
+    if c_tree is None:
+        return "cpp", cpp_tree, cpp_verdict
+    c_clean = c_verdict == PARSE_PARSED
+    cpp_clean = cpp_verdict == PARSE_PARSED
+    if c_clean and not cpp_clean:
+        return "c", c_tree, c_verdict
+    if cpp_clean and not c_clean:
+        return "cpp", cpp_tree, cpp_verdict
+    if not c_clean:
+        return "cpp", cpp_tree, cpp_verdict
+    if (_declaration_count(cpp_tree.root_node, data)
+            > _declaration_count(c_tree.root_node, data)):
+        return "cpp", cpp_tree, cpp_verdict
+    return "c", c_tree, c_verdict
+
+
+def _declaration_count(root, data: bytes) -> int:
+    """How many NAMED declaration units a tree holds, at any depth.
+
+    The same node types the chunk walk honours, counted without building
+    chunks. The name is part of the count because a misread C++ header parses
+    as a nameless function body: a node that declares nothing particular is
+    not evidence that this grammar read the file.
+    """
+    total = 0
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if node.type in _UNIT_TYPES or node.type in _UNIT_TYPES_EXTRACT_ONLY:
+            if _symbol_from_node(node, data) is not None:
+                total += 1
+        stack.extend(node.children)
+    return total
+
+
 def parse_file(path: str, text: str) -> tuple[list[Chunk], str]:
-    """Chunks plus the file's parse verdict, from ONE parse of the file.
+    """Chunks plus the file's parse verdict, from ONE parse of the file."""
+    chunks, verdict, _lang = parse_file_with_language(path, text)
+    return chunks, verdict
+
+
+def parse_file_with_language(
+        path: str, text: str) -> tuple[list[Chunk], str, str | None]:
+    """Chunks, the parser's verdict, and the grammar that produced them.
 
     The verdict is the parser's own result (ADR-0004 section 7), never the
     chunker's: ``parse_error`` when the tree carries an error or a missing
@@ -176,10 +276,14 @@ def parse_file(path: str, text: str) -> tuple[list[Chunk], str]:
     one fallback chunk for search while the verdict stays ``parsed`` — the
     parser read the file and said so. Only a file with no AST at all reports
     ``parse_unavailable``: a failed claim, not a pass.
+
+    The language is the one the chosen grammar names (``c`` or ``cpp`` for a
+    `.h` header), so the caller records what parsed the file rather than what
+    its extension suggested.
     """
-    tree, verdict = parse_tree(path, text)
+    lang, tree, verdict = parse_tree_with_language(path, text)
     if tree is None:
-        return fallback_chunk(text), PARSE_UNAVAILABLE
+        return fallback_chunk(text), PARSE_UNAVAILABLE, lang
 
     chunks: list[Chunk] = []
     root = tree.root_node
@@ -196,11 +300,11 @@ def parse_file(path: str, text: str) -> tuple[list[Chunk], str]:
         # be searchable, but the verdict describes the PARSE, not the chunk
         # yield: blaming a missing reader for a file the parser read is the
         # false fact this branch used to store.
-        return fallback_chunk(text), verdict
+        return fallback_chunk(text), verdict, lang
     for i, c in enumerate(chunks):
         c.chunk_index = i
         c.source = "ast"
-    return chunks, verdict
+    return chunks, verdict, lang
 
 
 def _tree_verdict(root) -> str:

@@ -1332,7 +1332,7 @@ class Core:
                     "project": entry.path, "file": r.file,
                     "score": 2.0, "symbol": r.name,
                     "symbol_type": r.symbol_type,
-                    "lang": _lang_from_path(r.file),
+                    "lang": r.language or _lang_from_path(r.file),
                     "start_line": r.start_line, "end_line": r.end_line,
                     "snippet": f"exact symbol match: {r.name}",
                     "match": "symbol",
@@ -1616,7 +1616,7 @@ class Core:
                 rows = rows[:limit]
             out_files.append({
                 "file": path,
-                "lang": _lang_from_path(path),
+                "lang": f.language or _lang_from_path(path),
                 "size": f.size,
                 "total_symbols": len(by_file.get(path, [])),
                 "symbols": [

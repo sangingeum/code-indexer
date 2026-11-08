@@ -164,14 +164,15 @@ def test_extraction_version_is_pinned():
     # built by 7 are not derivable from these rules, so changing this constant
     # requires a new comment block beside it -- not a silent edit to make a
     # suite green.
-    assert EXTRACTION_VERSION == 12
+    assert EXTRACTION_VERSION == 13
 
 
 def test_chunker_version_is_pinned():
     # Same contract one axis over: 2 is the pass where a split oversized unit
     # reports the file lines its pieces came from (1 counted the unit's start
-    # twice and drifted past EOF). A bump is a documented decision.
-    assert CHUNKER_VERSION == 3
+    # twice and drifted past EOF). A bump is a documented decision. 4 is the
+    # per-file `.h` grammar pass (3 read every `.h` as cpp).
+    assert CHUNKER_VERSION == 4
 
 
 def test_fingerprint_roundtrip_and_mismatch_detection():

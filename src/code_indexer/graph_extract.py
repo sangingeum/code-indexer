@@ -138,7 +138,13 @@ LANGUAGES_WITH_AST = frozenset(
 # reference row, as a member access's receiver already was; both are written
 # as the interim `type_use` relationship and resolved, or deleted when the
 # store defines the name nowhere. Rows built by v11 have no such rows.
-EXTRACTION_VERSION = 12
+# v13: a `.h` header's grammar is decided from the file itself -- C first,
+# cpp when the C tree carries an error or a missing node -- and the language
+# that parse used is what the file and its symbols store. A C header's rows
+# built by v12 came from the cpp grammar and its file row said `cpp`, so
+# rows and language labels built by v12 describe an index this build would
+# not produce (a K&R definition was lost; `--language c` answered absent).
+EXTRACTION_VERSION = 13
 
 _INDEX_EXTS = (".ts", ".tsx", ".js", ".jsx")
 
