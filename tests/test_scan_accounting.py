@@ -1,9 +1,10 @@
 """Every scanned file is accounted for -- no silent drops.
 
 A file the walk sees ends in exactly one bucket: indexed (parsed,
-parse_error or parse_unavailable) or skipped for a named reason. The counts
-have to reconcile in the payload, because "403 indexed" against "450 on disk"
-with no explanation is not an answer a reader can act on.
+parse_error or parse_unavailable), uncommitted (the pass read it but could
+not put it in the index) or skipped for a named reason. The counts have to
+reconcile in the payload, because "403 indexed" against "450 on disk" with
+no explanation is not an answer a reader can act on.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from typer.testing import CliRunner  # noqa: E402
 
 import code_indexer.cli as cli  # noqa: E402
 from code_indexer.cli import app  # noqa: E402
+from code_indexer.registry import Registry  # noqa: E402
 from pass_rig import index_project, stub_core  # noqa: E402
 
 runner = CliRunner()
@@ -62,7 +64,13 @@ def test_the_counts_reconcile(payload):
     finally:
         m.close()
     assert acc["indexed"] == indexed
-    assert acc["walked"] == acc["indexed"] + acc["skipped_total"], acc
+    # The identity the code implements, stated once: `indexed` is what the
+    # manifest holds after the pass, `uncommitted` is scanned-but-not-stored,
+    # `skipped_total` is what the walk named a reason for. A fixture that
+    # loses nothing cannot tell this apart from `walked == indexed + skipped`,
+    # which is why the lost-file case below exists.
+    assert (acc["walked"]
+            == acc["indexed"] + acc["uncommitted"] + acc["skipped_total"]), acc
     assert acc["skipped_total"] == sum(acc["skipped"].values())
 
 
@@ -94,7 +102,8 @@ def test_overview_carries_the_same_reconciliation(tmp_path, monkeypatch):
     data = json.loads(runner.invoke(
         app, ["overview", "--project", str(entry.path), "--json"]).output)
     acc = data["scan_accounting"]
-    assert acc["walked"] == acc["indexed"] + acc["skipped_total"]
+    assert (acc["walked"]
+            == acc["indexed"] + acc["uncommitted"] + acc["skipped_total"])
     assert data["parse_error_files"] == ["broken.py"]
 
 
@@ -105,3 +114,100 @@ def test_outline_names_the_reason_a_file_is_absent(payload):
     message = str(excinfo.value)
     assert "blob.bin" in message
     assert "binary" in message
+
+
+LOST_MARKER = "the one file whose every chunk fails to embed"
+
+
+class _DroppingEmbedder:
+    """A stub embedder that cannot embed one file, and only that file."""
+
+    def dimension(self) -> int:
+        return 4
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        return [[0.1] * 4 for _ in texts]
+
+    def embed_with_errors(self, texts: list[str]):
+        vectors: list[list[float] | None] = []
+        errors: list[tuple[int, str]] = []
+        for i, text in enumerate(texts):
+            if LOST_MARKER in text:
+                vectors.append(None)
+                errors.append((i, "embed failed: backend refused the text"))
+            else:
+                vectors.append([0.1] * 4)
+        return vectors, errors
+
+    def query_instruction_text(self, query: str) -> str:
+        return query
+
+    def close(self) -> None:
+        pass
+
+
+def test_a_file_whose_chunks_all_fail_is_counted_uncommitted(tmp_path,
+                                                            monkeypatch):
+    """`uncommitted` is a real bucket: the pass read the file and could not
+    put it in the index, so `walked == indexed + skipped_total` is FALSE."""
+    project = tmp_path / "lostproj"
+    project.mkdir()
+    (project / "kept.py").write_text("def kept():\n    return 1\n")
+    (project / "lost.py").write_text(
+        f"def lost():\n    return '{LOST_MARKER}'\n")
+    core = stub_core(tmp_path)
+    core.embedder = _DroppingEmbedder()  # type: ignore[assignment]
+    core.indexer.embedder = core.embedder  # type: ignore[assignment]
+    reg = Registry(os.path.join(core.cfg.index_root, "registry.db"))
+    entry = reg.add(str(project), name="lostproj")
+    core.run_index(entry.slug, str(project), vectors="on")
+    monkeypatch.setattr(cli, "_get_core", lambda skip: core)
+    result = runner.invoke(app, ["index-status", str(entry.path), "--json"])
+    assert result.exit_code == 0, result.output
+    acc = json.loads(result.output)["scan_accounting"]
+    assert acc["uncommitted"] == 1, acc
+    assert (acc["walked"]
+            == acc["indexed"] + acc["uncommitted"] + acc["skipped_total"]), acc
+    m = core.manifest_for(entry.slug)
+    try:
+        assert m.get_file("lost.py") is None
+        assert m.get_file("kept.py") is not None
+    finally:
+        m.close()
+
+
+def test_a_file_that_cannot_be_read_is_a_named_skip(tmp_path, monkeypatch):
+    """A read failure after the scan is a skip with a reason, not a file
+    parked in `uncommitted` under a cause that is not true."""
+    project = tmp_path / "unreadableproj"
+    project.mkdir()
+    (project / "kept.py").write_text("def kept():\n    return 1\n")
+    (project / "late.py").write_text("def late():\n    return 2\n")
+    core = stub_core(tmp_path)
+    reg = Registry(os.path.join(core.cfg.index_root, "registry.db"))
+    entry = reg.add(str(project), name="unreadableproj")
+    victim = str(project / "late.py")
+    real_open = open
+
+    def guarded_open(file, mode="r", *args, **kwargs):
+        # The scan reads bytes (`rb`) and succeeds; the parse reads text later
+        # and fails, which is the read failure this fold has to name.
+        if str(file) == victim and "b" not in mode:
+            raise OSError("permission denied (simulated after the scan)")
+        return real_open(file, mode, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.open", guarded_open)
+    core.run_index(entry.slug, str(project))
+    monkeypatch.setattr(cli, "_get_core", lambda skip: core)
+    result = runner.invoke(app, ["index-status", str(entry.path), "--json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    acc = data["scan_accounting"]
+    assert acc["skipped"].get("unreadable") == 1, acc
+    assert acc["uncommitted"] == 0, acc
+    assert (acc["walked"]
+            == acc["indexed"] + acc["uncommitted"] + acc["skipped_total"]), acc
+    assert "late.py" in acc["examples"]["unreadable"]
+    with pytest.raises(ValueError) as excinfo:
+        core.outline(entry, "late.py")
+    assert "unreadable" in str(excinfo.value)

@@ -25,8 +25,8 @@ from .fingerprint import (configured_values, current_fingerprint,
                           row_side_mismatches, write_fingerprint)
 from . import ts_chunker
 from .manifest import ChunkRow, Manifest, ManifestFile, SymbolRow
-from .scanner import (SKIP_SENSITIVE, ScanAccounting, ScannedFile, scan_project,
-                      write_scan_accounting)
+from .scanner import (SKIP_SENSITIVE, SKIP_UNREADABLE, ScanAccounting,
+                      ScannedFile, scan_project, write_scan_accounting)
 from . import graph_extract
 from . import langmatrix
 from .sensitive import (SENSITIVE_READ_CHARS, SensitiveReport, skip_verdict)
@@ -356,9 +356,18 @@ class Indexer:
         file_loc_counts: dict[str, int] = {}
         # Files that had at least one chunk queued for embedding.
         to_embed_files: set[str] = set()
+        # Files the scan returned and the parse could not open again, with the
+        # reason. They become a named skip (never `uncommitted`, whose one
+        # cause is a chunk lost to an embed failure).
+        read_failures: dict[str, str] = {}
 
         def _process_file(path: str) -> tuple[str, str, list[Chunk], list, str] | None:
-            """Read + chunk + extract symbols for one file (pure)."""
+            """Read + chunk + extract symbols for one file.
+
+            Returns None only when the file cannot be opened now, in which
+            case the reason is left in ``read_failures`` for the caller to
+            record as a skip.
+            """
             f = scanned_map[path]
             try:
                 with open(f.abs_path, encoding="utf-8", errors="replace") as fh:
@@ -366,6 +375,7 @@ class Indexer:
                     chunks, verdict = _parse_dispatch(path, file_text)
             except OSError as exc:
                 logger.warning("cannot read %s: %s", path, exc)
+                read_failures[path] = str(exc)
                 return None
             if langmatrix.is_prose_or_config(_lang_from_ext(path)):
                 # Prose and configuration are indexed for SEARCH: their chunks
@@ -470,12 +480,28 @@ class Indexer:
             manifest.replace_file_refs(path, refs, confidence)
             manifest.replace_file_imports(path, import_rows)
 
+        def _record_read_failure(path: str) -> None:
+            """A file the scan handed over and the parse could not open.
+
+            It is a skip under the scanner's own reason, so it appears in the
+            reconciliation as ``unreadable`` instead of parking in
+            ``uncommitted`` -- whose only cause is a chunk lost to an embed
+            failure. The reason is recorded against the file too, so
+            ``index-status`` names it rather than counting a silent drop.
+            """
+            accounting.skip(SKIP_UNREADABLE, path)
+            manifest.record_index_error(
+                path, None,
+                f"cannot read: {read_failures.get(path, 'unknown error')}")
+
         process_paths = added + changed
         concurrency = max(1, self.cfg.embed_concurrency)
         if concurrency == 1:
             for path in process_paths:
                 parsed = _process_file(path)
-                if parsed is not None:
+                if parsed is None:
+                    _record_read_failure(path)
+                else:
                     _record_file(parsed[0], parsed[1], parsed[2], parsed[3], parsed[4])
         else:
             # Pipeline: parse the next file in the pool while recording the
@@ -487,7 +513,9 @@ class Indexer:
                            for p in process_paths}
                 for future, path in futures.items():
                     parsed = future.result()
-                    if parsed is not None:
+                    if parsed is None:
+                        _record_read_failure(path)
+                    else:
                         _record_file(parsed[0], parsed[1], parsed[2], parsed[3], parsed[4])
 
         # 3) Embed with per-text failure isolation (bisect on batch failure);
@@ -617,8 +645,13 @@ class Indexer:
         # walked = indexed + uncommitted + skipped, with every skip carrying a
         # reason. Written here, after every row is in, so the numbers describe
         # the index a reader will be given and not the walk in progress.
+        # `uncommitted` is scanned-but-not-stored: a file whose every chunk
+        # failed to embed. A file the pass could not re-open is already in
+        # `skipped` (`unreadable`), so it is subtracted rather than counted
+        # twice.
         accounting.indexed = len(manifest.all_files())
-        accounting.uncommitted = max(0, len(scanned_map) - accounting.indexed)
+        accounting.uncommitted = max(
+            0, len(scanned_map) - len(read_failures) - accounting.indexed)
         write_scan_accounting(manifest, accounting)
         # One revision per committed pass: the revision a read answer was
         # read from. A counter (never a timestamp) so two passes in the same

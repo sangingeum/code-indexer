@@ -216,11 +216,21 @@ class ScanAccounting:
 
     ``walked`` counts file entries the walk considered: the files in the
     directories it entered, plus the files inside subtrees it pruned as
-    ignored (counted, not walked, as ``ignored-directory``). Each of them is
-    either returned by the scan (``indexed`` here) or counted in ``skipped``
-    under a named reason, so ``walked == indexed + skipped_total`` always
-    holds. ``exact`` is False only when a pruned subtree was too large for the
-    counting budget, which makes ``walked`` a floor.
+    ignored (counted, not walked, as ``ignored-directory``). Every one of
+    them ends in exactly one bucket:
+
+    * ``indexed`` -- the file has a row in the manifest after the pass;
+    * ``uncommitted`` -- the pass read the file and could not store it (every
+      chunk of it failed to embed), so a later pass tries again;
+    * ``skipped`` -- the walk or the pass named a reason for leaving it out.
+
+    So ``walked == indexed + uncommitted + skipped_total`` always holds, and
+    it is the only form of the identity this code states. ``exact`` is False
+    only when a pruned subtree was too large for the counting budget, which
+    makes ``walked`` a floor.
+
+    ``indexed`` is filled from the manifest after the pass commits, not from
+    the scan: the scan's own result is not what a reader will be given.
 
     Directories on the built-in skip list (.git, node_modules, .venv, build
     output) are not the tree an indexer answers about and are never counted;
@@ -501,12 +511,12 @@ def accounting_phrase(accounting: dict | None) -> str | None:
         return None
     skipped = accounting.get("skipped") or {}
     why = ", ".join(f"{reason}:{n}" for reason, n in skipped.items()) or "none"
+    # All three buckets in the arithmetic, so the numbers on the line add up to
+    # `walked` even when a file was read and could not be stored.
     text = (f"scan={accounting.get('walked')} walked:"
             f"{accounting.get('indexed')} indexed,"
+            f"{accounting.get('uncommitted') or 0} uncommitted,"
             f"{accounting.get('skipped_total')} skipped ({why})")
-    uncommitted = accounting.get("uncommitted") or 0
-    if uncommitted:
-        text += f",{uncommitted} uncommitted after embed failures"
     if not accounting.get("counted_exactly", True):
         text += ",walked is a floor"
     return text

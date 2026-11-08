@@ -466,11 +466,15 @@ answers on a `needs-reindex` project by contract.
 index: `{walked, indexed, uncommitted, skipped, skipped_total,
 skipped_directories, examples, counted_exactly}`. `walked` counts the file
 entries the walk considered, including files inside subtrees it pruned as
-ignored; every one of them is `indexed`, `uncommitted` (a chunk lost to an
-embed failure) or counted in `skipped` under a named reason — `ignored`,
+ignored; every one of them is `indexed`, `uncommitted` or counted in
+`skipped` under a named reason — `ignored`,
 `ignored-directory`, `oversized`, `binary`, `non-utf8`, `unreadable`,
 `out-of-scope`, `sensitive` — so `walked == indexed + uncommitted +
-skipped_total` always holds. `examples` names the first few paths of each
+skipped_total` always holds. `indexed` is what the manifest holds after the
+pass, and `uncommitted` is a file the pass read and could not store because
+every one of its chunks failed to embed (a later pass retries it). A file the
+pass cannot re-open after the scan is not uncommitted: it is a skip under
+`unreadable`, and the same reason is recorded as the pass's error for it. `examples` names the first few paths of each
 kind (capped), which is what lets `outline` answer why a file it cannot find
 was left out. `counted_exactly` is false only when a pruned subtree was too
 large for the counting budget, which makes `walked` a floor. The field is

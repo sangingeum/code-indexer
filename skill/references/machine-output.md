@@ -163,11 +163,15 @@ same names in both documents. `parse_error_files` lists the files behind the
 `parse_error` count, because a count a reader cannot act on is half an answer.
 `scan_accounting` is the last pass's reconciliation: `walked` (file entries
 the walk considered, including the files in subtrees it pruned as ignored),
-`indexed`, `uncommitted` (a chunk lost to an embed failure), `skipped` by
+`indexed` (what the manifest holds after the pass), `uncommitted` (a file the
+pass read and could not store -- every chunk of it failed to embed),
+`skipped` by
 named reason (`ignored`, `ignored-directory`, `oversized`, `binary`,
 `non-utf8`, `unreadable`, `out-of-scope`, `sensitive`), `skipped_total`, and
 `examples`, the first few skipped paths of each kind. `walked == indexed +
-uncommitted + skipped_total` always holds; `counted_exactly: false` means a
+uncommitted + skipped_total` always holds; a file the pass cannot re-open
+after the scan is an `unreadable` skip, not uncommitted. `counted_exactly:
+false` means a
 pruned subtree was too large to count and `walked` is a floor. `outline` on a
 file the index does not hold quotes the recorded reason for it, so an
 unindexed path is never answered with silence.
