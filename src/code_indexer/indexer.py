@@ -402,9 +402,12 @@ class Indexer:
             if langmatrix.is_prose_or_config(_lang_from_ext(path)):
                 # Prose and configuration are indexed for SEARCH: their chunks
                 # embed and rank, and nothing in them is a declaration or a
-                # reference. The chunk-level symbol metadata is cleared too --
-                # left set, a markdown heading rides every payload that echoes
-                # a chunk symbol and the phantom is back.
+                # reference. The chunk-level symbol metadata is cleared here so
+                # no payload echoes it -- left set, a markdown heading rides
+                # every payload that echoes a chunk symbol and the phantom is
+                # back. This is a payload concern only: what may enter the
+                # SYMBOL TABLE is guarded once, by the AST-only rule in
+                # ts_chunker.extract_symbols.
                 for c in chunks:
                     c.symbol = None
                     c.symbol_type = None

@@ -15,8 +15,7 @@ import hashlib
 import logging
 
 from .chunker import (Chunk, chunk as fallback_chunk, declaration_hash,
-                      _guess_symbol, regex_signature, regex_visibility,
-                      split_lines)
+                      _guess_symbol, split_lines)
 
 logger = logging.getLogger("code-indexer.tschunker")
 
@@ -450,18 +449,17 @@ def extract_symbols(path: str, text: str, chunks: list[Chunk]) -> list[dict]:
             # and for any language without a readable AST) is not that: a
             # markdown heading and a sentence with a name in parentheses both
             # matched the declaration patterns, and both became definitions.
+            #
+            # THIS is the table's one guard. The indexer clears a prose
+            # chunk's symbol metadata before its payload is written; that
+            # clearing is about what a chunk echoes, not about what enters
+            # the table, and it is not a second rule.
             continue
         stype = c.symbol_type or _guess_type_regex(c.text) or "function"
         qualified = _join_qualified(c.container, c.symbol)
-        if c.source == "ast":
-            signature = c.signature
-            visibility = _visibility_from_name(
-                c.symbol, c.node_type or "", c.text, stype)
-        else:
-            # Regex-chunked: best-effort (design §3) — first line of the
-            # chunk; Python underscore rule only.
-            signature = regex_signature(c.text)
-            visibility = regex_visibility(c.symbol)
+        signature = c.signature
+        visibility = _visibility_from_name(
+            c.symbol, c.node_type or "", c.text, stype)
         first_line = split_lines(c.text)[0] if c.text else ""
         decl = declaration_hash(signature, first_line)
         # The identity key is line-free, so ONE declaration observed twice (a
