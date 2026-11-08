@@ -499,7 +499,10 @@ comparison did not run (the index records no fingerprint), and
 `parse_*` counts are the per-file parse verdicts (text:
 `parse=parsed:N,parse_error:N,parse_unavailable:N`) and are always all three,
 zero included — a verdict is the parser's own result, never the chunker's
-fallback. `parse_error_files` names the files behind the `parse_error` count,
+fallback. `parsed` also covers a file whose AST declares nothing: the parser
+read the file and found no declaration, and that file carries ONE fallback
+chunk so its text stays searchable — the verdict describes the parse, the
+chunk is a search artifact (ADR-0010). `parse_error_files` names the files behind the `parse_error` count,
 because a count a reader cannot act on is half an answer. `index-status`
 answers on a `needs-reindex` project by contract.
 

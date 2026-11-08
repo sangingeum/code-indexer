@@ -3,7 +3,7 @@
 - Status: accepted (owner ratification 2026-11-07)
 - Date: 2026-11-07
 - Deciders: owner (ratification), architecture review
-- Supersedes / Superseded by: --
+- Supersedes / Superseded by: partially superseded by ADR-0010 (section 7, the regex-fallback example and the "in the index as well" sentence; not the section's rule)
 - Amended: 2026-11-07 -- section 1's `provider` member was `{name, version}`; it now carries `transport` as well, because ADR-0006 sections 4 and 5 make a plan built from a provider carry the same `{name, version, transport}` object a semantic answer does, and a member that dropped `transport` could not round-trip with the answer it came from.
 
 ## Decision in one paragraph

@@ -255,6 +255,14 @@ code-indexer deps src/code_indexer/cli.py --direction both --format edges
   to 25. Include/import rows are not references: an unfiltered answer keeps
 them out of the list and the count and prints the importing files under
 `importers (N)` (`--relationship includes` asks for them explicitly).
+- A name written where a TYPE belongs is a reference when it binds a
+  definition of a type kind; a value binding the extractor can see -- a
+  parameter, local, field, property or generic parameter -- is not. Two
+  known limits on that rule: a C# type spelled with its namespace
+  (`Vivarium.Sim.NeedBand b`) produces no row at all, and a C++ qualifier
+  records the scoped type only when that name is a type -- a project
+  namespace is a scope, not a type, and `geo::place()` still records no
+  call edge.
 - `find-callers` walks fan-in over `refs`; every **call site** is a node,
   while `find-callees` walks fan-out where a **target** is a node, so one
   target reached twice is one callee. Files that merely import the file

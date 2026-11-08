@@ -6,7 +6,7 @@
 recorded only the member row, with `NeedBand` as its receiver, and never a row
 targeting `NeedBand` — so `find-references NeedBand` reported a type that 27
 lines of the tree name as invisible. The extractor now writes the receiver as
-a `member_receiver` row; the index pass's resolver turns it into a `type`
+a `type_use` row; the index pass's resolver turns it into a `type`
 reference when the name binds a definition (the file's own first, then the
 store's unique definition, then its file-class choice — the precedence
 introduced for reference targets) and deletes it when the name binds nothing.
@@ -56,11 +56,26 @@ an `is`/`as` pattern and a cast produced no row at all (9 lines and 10 tokens
 on the vivarium tree). The C# query now captures those positions and the C++
 query captures the qualifier of `Type::Member`, all written as the interim
 `type_use` relationship the receiver rows already used. The resolver turns one
-into a `type` reference when the name binds a definition (this file first,
-then the store's unique definition), keeps it unattributed and counted when
-the name is defined more than once and no file-class choice breaks the tie,
-and deletes it when the store defines the name nowhere -- a local variable, a
-property name or an external library's type never becomes a type row.
+into a `type` reference when the name binds a definition OF A TYPE KIND (this
+file first, then the store's unique definition), keeps it unattributed and
+counted when the name is defined more than once and no file-class choice
+breaks the tie, and deletes it when the store defines the name nowhere or
+defines it as a namespace or a function -- so a name that resolves to
+something which is not a type, an external library's type among them, never
+becomes a type row.
+
+*Corrected in this unreleased section:* an earlier draft of the paragraph
+above promised that "a local variable, a property name or an external
+library's type never becomes a type row", and the same claim was written
+beside the capture set in `queries/csharp/references.scm`. That was not true
+of the code then shipped: the value-binding walk read parameters, locals,
+foreach and catch names only, so a property or a field spelled like a type
+still produced a row, and the resolver converted any name that bound a
+definition at all -- a project namespace included. The true rule is narrower:
+a value binding is excluded only where the extractor can SEE the binding, and
+the walk now also covers a property, a field and a generic type parameter. A
+value bound in a form the walk does not cover is still indistinguishable from
+the type by name alone, and that limit is now stated where the captures live.
 
 `EXTRACTION_VERSION` moves 11 -> 12: the extraction axis moved (new reference
 rows); rows built by 11 hold none of them.
@@ -69,13 +84,65 @@ rows); rows built by 11 hold none of them.
 suggests.** `.h` mapped to C, so a C++ project that spells its headers `.h`
 had every declaration in them invisible while the file row said `parsed` — no
 `parse_unavailable`, no caveat, and `find-symbol` calling the class absent
-from an index it had just declared complete. `.h` now maps to cpp in the
-chunker's extension map, the indexer's language map and the query map alike;
-tree-sitter's cpp grammar parses a C header too, so a C-only header still
-answers (its type declarations become rows; a bare prototype is not a chunk in
-either grammar). Both row axes moved: `CHUNKER_VERSION` 2 -> 3 (a `.h` file's
-chunks come from the cpp grammar) and `EXTRACTION_VERSION` 10 -> 11 (a `.h`
-file's symbol, reference and import rows exist at all now).
+from an index it had just declared complete. A `.h` header's grammar is now
+decided PER FILE from the file itself, and the language that parse used is
+what the file row and its symbol rows store — not the one its extension
+suggested, and not a fixed map that reads every `.h` one way just to make the
+other side work. tree-sitter's cpp grammar parses a C header too, and C is not
+a strict subset of cpp (a K&R definition is legal C and an error in cpp), so
+both trees are built for a `.h` file and the NAMED DECLARATIONS they produce
+are compared, name plus kind: cpp wins when it names a declaration the C tree
+does not, and a header both grammars read into the same declarations stays
+`c`, which is what the C project that ships it expects. Both row axes moved
+with this work: `CHUNKER_VERSION` 2 -> 3 (a `.h` file's chunks came from the
+cpp grammar), then 3 -> 4 (the per-file decision, so a C-only header's chunks
+come from the C grammar again and a K&R definition is not lost), then 4 -> 5
+(below, where the decision stopped counting declarations and started comparing
+them), and `EXTRACTION_VERSION` 10 -> 11 (a `.h` file's symbol, reference and
+import rows exist at all).
+
+**A header's grammar is chosen by what each tree DECLARES.** The per-file
+decision counted declarations, and a count cannot tell a misreading from a
+reading: C accepts `class Widget { public: void run(); };` without an error
+and reads a FUNCTION named `Widget` from it, so the two counts tied 1-1 and
+the tie went to `c` -- the file row said `c`, the symbol said `function`, and
+`find-symbol Widget --language cpp` printed the absence sentence over an index
+that called itself complete. The two trees' named declarations are compared
+now, name plus kind: cpp wins when it names one the C tree does not, so the
+class-only header is cpp with a `class` row, and a header that mixes a
+namespace with a K&R definition reads as cpp instead of as a C tree that
+parses cleanly and hides the class. A `struct Point` header names the same
+declaration in both trees and stays `c`. `CHUNKER_VERSION` 4 -> 5 and
+`EXTRACTION_VERSION` 13 -> 14: a `.h` header's stored language, symbol kinds
+and chunks all moved.
+
+**A namespace in a qualifier is a scope, not a type.** `geo::Point` resolves
+`geo` to the namespace the project defines, and the resolver converted every
+resolved `type_use` row to `type` -- so the index carried a type reference to
+a namespace. The conversion is now guarded by the KIND of the definition it
+binds (class, struct, enum, interface, record), so a namespace, a function or
+a method that binds the name keeps no type row, while a real type reached
+through a qualified name keeps its row. A generic type parameter is read off
+the tree and shadows a type of the same name across the whole declaring type,
+so `class Box<T>` beside a `class T` records no row for `T`; a property and a
+field join the value-binding walk for the member-access rule. Still
+unrecorded, and now stated as a limit: a C# type written with its namespace
+(`Vivarium.Sim.NeedBand b`) produces no row at all, because only a bare
+identifier is captured.
+
+**A hit's language and a directory's dominant language read the stored row.**
+The lexical-search hit labelled `lang` and the `--tree` projection's dominant
+language both asked the extension map, so a `.h` header the index had read
+with the C grammar was reported `cpp` in `search --json`, and a C project
+whose headers are all `.h` was reported as dominant cpp. Both read the
+language the file's row stores.
+
+**One axis note for whoever splits this set.** The parse-verdict change
+landed in `b3275ae` with no version bump of its own: the verdict stopped being
+the chunk yield's and became the parser's, so a file whose AST declares
+nothing is `parsed`. It is carried here because v13 and v14 rebuild
+everything; cherry-picking `b3275ae` alone would leave every import-only file
+stored `parse_unavailable` with nothing to trigger the rebuild.
 
 **A file the parser read is `parsed`, even when its AST declares nothing.**
 An import-only module parses cleanly and yields no chunk, and the verdict was
