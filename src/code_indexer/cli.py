@@ -3522,9 +3522,12 @@ def eval_command(
     """Run a labeled query set against a project's index and report ranking
     metrics (recall@k, MRR, nDCG@10, latency, approx output tokens). Dev
     utility for retrieval-quality gates; deliberately CLI-only (no MCP
-    surface). The 'hybrid' mode is accepted for forward compatibility but
-    currently aliases the dense pipeline (the lexical index is not built
-    yet)."""
+    surface). The mode is forwarded to the search pipeline as given: 'dense'
+    is vector search only, 'lexical' is the manifest's full-text bm25 ranking
+    with no embedding call, and 'hybrid' is the dense ranking reciprocal-rank
+    fused with the lexical ranking (plus the exact-symbol pin for an
+    identifier-shaped query). Three distinct pipelines -- 'hybrid' is not an
+    alias of 'dense'."""
     core = _get_core(skip_stale_check)
     if refresh:
         entry, _err = core.resolve_entry(project)
