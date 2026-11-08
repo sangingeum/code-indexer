@@ -1537,6 +1537,11 @@ def index_status(
     state = core.effective_state(entry.slug, st.get("state", "idle"))
     parts = [f"project={entry.path}", f"state={state}"]
     fields: dict[str, Any] = {"project": entry.path, "state": state}
+    # The last pass's reconciliation, in ONE shape on every answer: the key is
+    # always present and is null until a pass records one (and, like
+    # `overview`, always present even when this project has no manifest yet).
+    # An absent key and a null value are two spellings of one absence.
+    fields["scan_accounting"] = None
     # The pass state says nothing about whether the index still matches the
     # current configuration. Query paths refuse on a mismatch (ConfigError)
     # and list-projects/doctor already call it needs-reindex; index-status
@@ -1666,12 +1671,16 @@ def index_status(
                              ",".join(parse_errors[:6]))
             # What the last pass took, and why it took nothing else, in the
             # same words overview uses.
+            # One shape in both documents: the key is always present and is
+            # null when no pass recorded an accounting (`overview` emits the
+            # same), so a consumer never has to tell "absent key" from "no
+            # accounting" -- two spellings of one absence is how a reader
+            # concludes the wrong thing.
             accounting = read_scan_accounting(m)
-            if accounting:
-                fields["scan_accounting"] = accounting
-                phrase = accounting_phrase(accounting)
-                if phrase:
-                    parts.append(phrase)
+            fields["scan_accounting"] = accounting
+            phrase = accounting_phrase(accounting)
+            if phrase:
+                parts.append(phrase)
         except Exception as exc:  # noqa: BLE001 — status must never fail
             logger.debug("recorded errors skipped: %s", exc)
         finally:

@@ -410,7 +410,7 @@ An unregistered selector answers `registered: false` with its `path` and an
  "last_errors"|missing,
  "parsed": int, "parse_error": int, "parse_unavailable": int,
  "parse_error_files": [str],
- "registry_languages_without_ast": [str], "scan_accounting"|missing,
+ "registry_languages_without_ast": [str], "scan_accounting": object|null,
  "fingerprint_meaning"|missing, "note"|missing, "coverage": {...},
  <staleness block>}
 ```
@@ -490,9 +490,9 @@ pass cannot re-open after the scan is not uncommitted: it is a skip under
 `unreadable`, and the same reason is recorded as the pass's error for it. `examples` names the first few paths of each
 kind (capped), which is what lets `outline` answer why a file it cannot find
 was left out. `counted_exactly` is false only when a pruned subtree was too
-large for the counting budget, which makes `walked` a floor. The field is
-missing when no pass has recorded one, and `overview` carries the same object
-under the same name.
+large for the counting budget, which makes `walked` a floor. The key is
+always present and is `null` when no pass has recorded one, and `overview`
+carries the same object under the same name in the same shape.
 
 The three vector fields are read from the manifest alone — a status read never
 dials Qdrant. `rows` is `current` only when this build's extraction wrote the

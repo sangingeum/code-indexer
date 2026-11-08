@@ -146,6 +146,23 @@ class _DroppingEmbedder:
         pass
 
 
+def test_index_status_carries_the_key_before_any_pass(tmp_path, monkeypatch):
+    """One shape: `index-status` and `overview` both always carry
+    `scan_accounting`, null until a pass records one."""
+    project = tmp_path / "nopass"
+    project.mkdir()
+    (project / "a.py").write_text("def a():\n    return 1\n")
+    core = stub_core(tmp_path)
+    reg = Registry(os.path.join(core.cfg.index_root, "registry.db"))
+    entry = reg.add(str(project), name="nopass")
+    monkeypatch.setattr(cli, "_get_core", lambda skip: core)
+    result = runner.invoke(app, ["index-status", str(entry.path), "--json"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.output)
+    assert "scan_accounting" in data
+    assert data["scan_accounting"] is None
+
+
 def test_a_file_whose_chunks_all_fail_is_counted_uncommitted(tmp_path,
                                                             monkeypatch):
     """`uncommitted` is a real bucket: the pass read the file and could not

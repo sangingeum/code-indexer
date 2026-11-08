@@ -71,6 +71,7 @@ Compact labels are normalized field names, not the text form's own spellings:
 `loc` prints as `LOC`, `directory` as `directories:`, `share` as `(100.0%)`,
 `hotspot-fan-in`/`hotspot-size` as `hotspots (fan-in):`/`hotspots (size):`,
 `hotspots.unattributed` as `hotspot-unattributed references=N unresolved=U
+unresolved_missing_definition=M unresolved_language_without_symbols=L
 ambiguous=A` (emitted only when non-zero), and `fan_in` has no separate text label. Same field, one
 spelling per form;
 no emitted label changes.
@@ -159,7 +160,8 @@ knows that has no AST reader), which is why the two never share a key -- and
 `freshness` repeats the staleness verdict, never a second estimate.
 
 `index-status --json` and `overview --json` carry two more blocks under the
-same names in both documents. `parse_error_files` lists the files behind the
+same names in both documents, in one shape each: `scan_accounting` is always
+present and is `null` when no pass recorded one. `parse_error_files` lists the files behind the
 `parse_error` count, because a count a reader cannot act on is half an answer.
 `scan_accounting` is the last pass's reconciliation: `walked` (file entries
 the walk considered, including the files in subtrees it pruned as ignored),
