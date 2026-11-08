@@ -223,7 +223,9 @@ class ScanAccounting:
     ignored (counted, not walked, as ``ignored-directory``). Every one of
     them ends in exactly one bucket:
 
-    * ``indexed`` -- the file has a row in the manifest after the pass;
+    * ``indexed`` -- the file has a row in the manifest after the pass and
+      this pass did not fail to read it (an unreadable file keeps no claim
+      on `indexed`, even when an older row for it survives);
     * ``uncommitted`` -- the pass read the file and could not store it (every
       chunk of it failed to embed), so a later pass tries again;
     * ``skipped`` -- the walk or the pass named a reason for leaving it out.

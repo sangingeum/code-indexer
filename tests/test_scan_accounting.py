@@ -221,6 +221,20 @@ def test_a_file_whose_chunks_all_fail_is_counted_uncommitted(tmp_path,
         m.close()
 
 
+def _text_read_fails_for(victim: str):
+    """An open() that fails for one path's TEXT read, after the scan read it."""
+    real_open = open
+
+    def guarded_open(file, mode="r", *args, **kwargs):
+        # The scan reads bytes (`rb`) and succeeds; the parse reads text later
+        # and fails, which is the read failure these tests name.
+        if str(file) == victim and "b" not in mode:
+            raise OSError("permission denied (simulated after the scan)")
+        return real_open(file, mode, *args, **kwargs)
+
+    return guarded_open
+
+
 def test_a_file_that_cannot_be_read_is_a_named_skip(tmp_path, monkeypatch):
     """A read failure after the scan is a skip with a reason, not a file
     parked in `uncommitted` under a cause that is not true."""
@@ -231,17 +245,8 @@ def test_a_file_that_cannot_be_read_is_a_named_skip(tmp_path, monkeypatch):
     core = stub_core(tmp_path)
     reg = Registry(os.path.join(core.cfg.index_root, "registry.db"))
     entry = reg.add(str(project), name="unreadableproj")
-    victim = str(project / "late.py")
-    real_open = open
-
-    def guarded_open(file, mode="r", *args, **kwargs):
-        # The scan reads bytes (`rb`) and succeeds; the parse reads text later
-        # and fails, which is the read failure this fold has to name.
-        if str(file) == victim and "b" not in mode:
-            raise OSError("permission denied (simulated after the scan)")
-        return real_open(file, mode, *args, **kwargs)
-
-    monkeypatch.setattr("builtins.open", guarded_open)
+    monkeypatch.setattr("builtins.open",
+                        _text_read_fails_for(str(project / "late.py")))
     core.run_index(entry.slug, str(project))
     monkeypatch.setattr(cli, "_get_core", lambda skip: core)
     result = runner.invoke(app, ["index-status", str(entry.path), "--json"])
@@ -256,3 +261,31 @@ def test_a_file_that_cannot_be_read_is_a_named_skip(tmp_path, monkeypatch):
     with pytest.raises(ValueError) as excinfo:
         core.outline(entry, "late.py")
     assert "unreadable" in str(excinfo.value)
+
+
+def test_a_read_failure_on_a_later_pass_is_counted_once(tmp_path, monkeypatch):
+    """An older row for a now-unreadable file is not this pass's work: the
+    file lands in one bucket, not in `indexed` and `unreadable` at once, and
+    the row is not thrown away for a condition the next pass may lift."""
+    project = tmp_path / "laterproj"
+    project.mkdir()
+    (project / "kept.py").write_text("def kept():\n    return 1\n")
+    (project / "late.py").write_text("def late():\n    return 2\n")
+    core = stub_core(tmp_path)
+    reg = Registry(os.path.join(core.cfg.index_root, "registry.db"))
+    entry = reg.add(str(project), name="laterproj")
+    core.run_index(entry.slug, str(project))   # a clean first pass
+    (project / "late.py").write_text("def late():\n    return 3\n")
+    monkeypatch.setattr("builtins.open",
+                        _text_read_fails_for(str(project / "late.py")))
+    core.run_index(entry.slug, str(project))
+    monkeypatch.setattr(cli, "_get_core", lambda skip: core)
+    data = json.loads(runner.invoke(
+        app, ["index-status", str(entry.path), "--json"]).output)
+    acc = data["scan_accounting"]
+    assert acc["skipped"].get("unreadable") == 1, acc
+    assert acc["uncommitted"] == 0, acc
+    assert (acc["walked"]
+            == acc["indexed"] + acc["uncommitted"] + acc["skipped_total"]), acc
+    # The older row survives, so the index still answers for the file.
+    assert core.outline(entry, "late.py")["file"] == "late.py"

@@ -663,7 +663,12 @@ class Indexer:
         # failed to embed. A file the pass could not re-open is already in
         # `skipped` (`unreadable`), so it is subtracted rather than counted
         # twice.
-        accounting.indexed = len(manifest.all_files())
+        # An unreadable file is counted under `skipped`, so a row an older pass
+        # left for it is not this pass's work: `indexed` counts the manifest
+        # rows this pass did not fail to read, which keeps one file out of two
+        # buckets and the identity true on a second pass as on the first.
+        committed = manifest.all_files()
+        accounting.indexed = sum(1 for p in committed if p not in read_failures)
         accounting.uncommitted = max(
             0, len(scanned_map) - len(read_failures) - accounting.indexed)
         write_scan_accounting(manifest, accounting)
