@@ -21,7 +21,8 @@ current), one runner, one warm-up discarded, the merged arm: lexical MRR
 0.7210 -> 0.7440, nDCG@10 0.7431 -> 0.7665 and recall@10 0.8095 -> 0.8333,
 with four queries improving (one from a miss) and none regressing; hybrid
 changes nothing it measures (MRR 0.7242, nDCG@10 0.7583, every correct-hit
-rank identical) although 25 of its 42 answers differ in the fused tail; dense
+rank identical) although 25 of its 42 answers differ in their rows and 26 in
+their scores in the fused tail; dense
 answers are untouched, 0 of 42. The cost is reported rather than tuned back:
 the wider arm admits slightly more prose to the fusion window (the hybrid
 window's docs share 15.50% -> 15.97% at the same revision, over 1271 slots),
