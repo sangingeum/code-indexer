@@ -1390,12 +1390,12 @@ class Core:
         hits of one file collapse into a union hit before the class key.
 
         NON-MUTATION CONTRACT: no pass here writes into the hits it is given.
-        Every ranking pass either copies a hit before changing a field
-        (``downweight_data_files``, ``hybrid_fuse``, ``metadata_rerank``,
-        ``truncate_snippets``, ``_merge_run``) or builds a new list of the
-        same references (``score_order``, ``class_order``,
-        ``demote_repeated_spans``, ``merge_overlapping``, ``cap_per_file``,
-        ``cap_data_file_share``, ``trim_to_budget``, ``rrf_fuse``). The pool
+        Every ranking pass either copies each hit it changes before writing
+        it (``downweight_data_files``, ``hybrid_fuse``, ``metadata_rerank``,
+        ``truncate_snippets``, ``_merge_run``, ``merge_overlapping``,
+        ``rrf_fuse``) or builds a new list holding the same references
+        (``score_order``, ``class_order``, ``demote_repeated_spans``,
+        ``cap_per_file``, ``cap_data_file_share``, ``trim_to_budget``). The pool
         a caller holds is therefore read-only to this method: shaping it once
         leaves it byte-identical, and shaping it twice returns the same
         answer. ``search_both_shapings`` shapes a pool twice and is what the
