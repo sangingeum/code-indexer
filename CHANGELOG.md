@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] — a lexical token's prefix family survives its position
+
+**Every lexical token is prefix-matched, not only the trailing one.**
+`build_match_query` put FTS5's `*` on the last token alone, so a token that
+occurs nowhere narrowed the answer when it sat last: at revision 3312 a query
+for `vector` prefix-matched 668 rows, `vector OR zzqxx*` matched 377, and
+`zzqxx OR vector*` matched 668 again -- the same two words answered
+differently in the other order, and the real word lost its expansion in the
+first. Every token is now quoted and prefix-matched, so each contributes its
+prefix family wherever it sits and an absent token contributes no postings.
+FTS5 syntax still cannot reach the MATCH string: every token is quoted, so an
+operator word survives only as a literal quoted token.
+
+Measured on the forty-two labelled queries at revision 3312 (219 files, rows
+current), one runner, one warm-up discarded, the merged arm: lexical MRR
+0.7210 -> 0.7440, nDCG@10 0.7431 -> 0.7665 and recall@10 0.8095 -> 0.8333,
+with four queries improving (one from a miss) and none regressing; hybrid
+changes nothing it measures (MRR 0.7242, nDCG@10 0.7583, every correct-hit
+rank identical) although 25 of its 42 answers differ in the fused tail; dense
+answers are untouched, 0 of 42. The cost is reported rather than tuned back:
+the wider arm admits slightly more prose to the fusion window (the hybrid
+window's docs share 15.50% -> 15.97% at the same revision, over 1271 slots),
+and the class ladder still keeps a document out of the answer.
+
 ## [Unreleased] — a qualified C++ call, and the repository's own excludes
 
 **A call through a qualified name writes a caller edge.** `geo::place()`
@@ -48,7 +72,8 @@ set that includes files git ignores, so every registered project answers
 lexical` built its FTS5 MATCH string as quoted tokens joined by the implicit
 AND, so every word had to sit inside ONE chunk: "vector database" matched
 nothing on this repository while "hashing" and "point_id" matched. The
-query is now the OR of its quoted tokens (the last one still prefix-matched),
+query is now the OR of its quoted tokens (at that point the trailing token
+alone was prefix-matched; every token is prefix-matched as of the entry above),
 so a chunk carrying any of the words is a hit and bm25 ranks a chunk carrying
 more of them higher. FTS5 syntax stays out of reach: every token is quoted,
 so no caller-supplied operator reaches the query string.
