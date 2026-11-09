@@ -8,6 +8,10 @@ the real word lost its prefix expansion. The properties pinned here:
 * an absent trailing token does not narrow the answer the present word's
   prefix family answers;
 * no FTS5 operator text from the query reaches the MATCH string.
+
+The escaping property already held at base: base quoted every token and only
+the last carried `*`, so its test is a passing neighbour here rather than a
+regression guard -- escaping was never broken, only the prefix reach was.
 """
 
 from __future__ import annotations

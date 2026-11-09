@@ -11,7 +11,9 @@ snake_case, digit runs, ``::``/``.`` separators) and the ORIGINAL token is
 kept alongside — a query for ``refreshToken`` matches ``refresh_token`` and
 vice versa. Query side builds an FTS5 MATCH string of quoted tokens joined by
 OR (a phrase is evidence, not a requirement) with a ``*`` prefix on EVERY
-token, so token order cannot narrow the answer; bm25() ranks with column
+token, so token order cannot narrow the answer among the tokens the builder
+keeps; the builder keeps the last twelve, so a longer query's answer still
+depends on which tokens survive the cut. bm25() ranks with column
 weights symbol > path > content, so a chunk
 carrying more of the query's words ranks above one carrying fewer.
 """
@@ -59,11 +61,13 @@ def build_match_query(query: str, max_terms: int = 12) -> str | None:
     reach the query string; the tokens are joined with OR, so a multi-word
     query is EVIDENCE rather than a requirement -- a phrase matches a chunk
     that carries any of its words, and bm25 treats chunks carrying more of
-    them as better matches. EVERY token is also a prefix match, so token
-    order cannot change the answer: a token contributes its prefix family
-    wherever it sits, and a token that occurs nowhere contributes no
-    postings and therefore narrows nothing. Returns None when nothing
-    remains.
+    them as better matches. EVERY kept token is also a prefix match, so token
+    order cannot change the answer among the tokens that survive the cut: a
+    token contributes its prefix family wherever it sits, and a token that
+    occurs nowhere contributes no postings and therefore narrows nothing.
+    The cut is the one caveat: only the last ``max_terms`` (12) tokens are
+    kept, so a longer query still depends on which tokens survive it.
+    Returns None when nothing remains.
     """
     tokens = re.findall(fts_token, query or "")
     if not tokens:

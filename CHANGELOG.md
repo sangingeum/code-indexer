@@ -10,8 +10,11 @@ for `vector` prefix-matched 668 rows, `vector OR zzqxx*` matched 377, and
 differently in the other order, and the real word lost its expansion in the
 first. Every token is now quoted and prefix-matched, so each contributes its
 prefix family wherever it sits and an absent token contributes no postings.
-FTS5 syntax still cannot reach the MATCH string: every token is quoted, so an
-operator word survives only as a literal quoted token.
+That order-independence holds among the tokens the builder keeps: it keeps
+only the last twelve, so a query longer than twelve still answers differently
+depending on which tokens survive the cut. FTS5 syntax still cannot reach the
+MATCH string: every token is quoted, so an operator word survives only as a
+literal quoted token.
 
 Measured on the forty-two labelled queries at revision 3312 (219 files, rows
 current), one runner, one warm-up discarded, the merged arm: lexical MRR
