@@ -138,7 +138,7 @@ The round's dense tip figures at revision 3047
 column) -- recall@1 0.5238, MRR 0.6655, nDCG@10 0.7194 -- are that arm too,
 and they are 3047 numbers, not the 3310 figures in the table below.
 
-Against that baseline the tip residual is -0.0476 / -0.0259 / -0.0240 for the
+Against that baseline the 3047 residual is -0.0476 / -0.0259 / -0.0240 for the
 unmerged arm: the pre-chunker numbers did not come back, and no reading of
 the table makes them.
 
