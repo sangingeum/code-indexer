@@ -102,29 +102,35 @@ code-indexer eval-compare /tmp/eval-dense.json /tmp/eval-rerank.json
   `semantic-search` runs -- and `--rerank` takes `heuristic` or `none`
   (default off).
 - `--arm` selects the shaping the numbers describe: `merged`, `unmerged`
-  (default) or `both`. `merged` is the shipped answer -- overlapping and
-  adjacent same-file hits collapse into one union hit before the class key.
-  `unmerged` is the same retrieval with that merge pass skipped; it is what
-  the older tables were measured on, kept so those tables stay comparable
-  with a re-run. `both` reports the two side by side in ONE report: each
-  query is retrieved once (one embedding, one vector search) and the pool is
-  shaped twice, so a two-arm run costs one retrieval plus a second shaping
-  pass, not two searches. A value outside the three is `ArgumentError`,
-  exit 2, refused before any index read.
+  (default), `ranked`, `both` or `merge-timing`. `merged` is the shipped
+  answer -- overlapping and adjacent same-file hits collapse into one union
+  hit before the class key. `unmerged` is the same retrieval with that merge
+  pass skipped; it is what the older tables were measured on, kept so those
+  tables stay comparable with a re-run. `ranked` is the other merge TIMING:
+  the order is fixed on the unmerged hits (class key, then the
+  repeat-coverage pass) and the merge runs only for display, so a repeated
+  span yields its slot to a distinct region and the reader still gets one
+  entry per region. `both` reports merged and unmerged side by side in ONE
+  report; `merge-timing` reports the two timings (merged and ranked) the same
+  way -- each query is retrieved once (one embedding, one vector search) and
+  the pool is shaped twice, so a paired run costs one retrieval plus a second
+  shaping pass, not two searches. A value outside the five is
+  `ArgumentError`, exit 2, refused before any index read.
 - Without `--out` the report is printed; with it the JSON report is written
   and stdout carries the progress lines. A single-arm report has `project`,
   `mode`, `queries`, `arm`, `metrics` (`recall@k` per requested k, `mrr`,
   `ndcg@10`, `mean_latency_s`, `p95_latency_s`) and `results[]` (`id`,
   `rank` -- `null` for a miss -- `latency_s`, `output_chars`,
-  `approx_tokens`). A two-arm report has `arm: "both"` and an `arms` object
-  holding one `metrics` + `results` block per arm; `docs/json-schema.md`
-  owns that shape.
+  `approx_tokens`). A paired report has its pair name as `arm` (`both` or
+  `merge-timing`) and an `arms` object holding one `metrics` + `results` block
+  per shaping (`merged`+`unmerged`, or `merged`+`ranked`);
+  `docs/json-schema.md` owns that shape.
 - `eval-compare` reads two single-arm reports of the SAME arm and prints a
   metric delta table (`a`, `b`, `delta`) whose header names each side's arm
   (a report written before `--arm` existed reads `arm unrecorded`), plus the
   per-query `improved` / `regressed` / `unchanged` lists. A cross-arm pair is
   refused -- a delta across the two shapings would read as a rule change, and
-  the two-arm report already carries both arms -- and so is a two-arm report;
+  a paired report already carries its shapings -- and so is a paired report;
   both are `ArgumentError`, exit 2, and comparing across runs takes one report
   per arm. Neither command has `--json`: the report is already
   machine-readable, and `--skip-stale-check` / `--refresh` are accepted but
@@ -245,11 +251,20 @@ This is the CHUNK-level order. A shipped read merges first: `Core.search`
 collapses the overlapping and adjacent hits of one file into a single union
 hit before the class key, so by the time this pass runs a file's surviving
 spans are disjoint and the pass is an identity -- the merge has already freed
-the slot. The eval harness runs with merging off and is the surface where the
-pass acts; on one read the two steps are alternatives, never a composition.
-The harness's `unmerged` arm keeps that measurement surface; its `merged`
-arm runs the shipped configuration, so a ranking change can be measured on
-the answer a reader actually gets.
+the slot. The harness's `unmerged` arm is the surface where the pass acts;
+its `merged` arm runs the shipped configuration, so a ranking change can be
+measured on the answer a reader actually gets. `ranked` is the other merge
+TIMING: the order is fixed on the unmerged hits and the merge runs only for
+display, each union taking its best-ranked member's slot.
+
+Measured at index revision 3312 on the 42 labelled queries, on the shipped
+answer: the two timings return the same order and the same regions on both
+pipelines -- dense recall@1/3/5/10 0.5714 / 0.8095 / 0.8333 / 0.8810, MRR
+0.6938, nDCG@10 0.7401; hybrid 0.6190 / 0.8333 / 0.8571 / 0.8571, MRR 0.7242,
+nDCG@10 0.7583 -- with 0 improved and 0 regressed queries out of 42 in each.
+The merge folds a repeated span's slot away before either timing reads it, so
+ranking the unmerged hits first buys nothing a reader can see, and the shipped
+timing stays.
 
 **Ties are broken by the hit's place in the index, never by arrival
 order.** Score ties inside a mode fall back to `project`, `file`, `start_line`,

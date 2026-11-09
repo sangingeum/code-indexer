@@ -47,9 +47,19 @@ EVAL_MODES = SEARCH_MODES
 # The arms the harness reports. ``merged`` is what a shipped read answers
 # (overlapping/adjacent same-file hits collapse into one union hit before the
 # class key); ``unmerged`` is the same retrieval with that pass skipped and is
-# the shaping the older tables were measured on; ``both`` reports the two side
-# by side from one retrieval per query.
-EVAL_ARMS = ("merged", "unmerged", "both")
+# the shaping the older tables were measured on; ``ranked`` fixes the order on
+# the UNMERGED hits (class key, then the repeat-coverage pass) and merges only
+# for display, so a repeated span yields its slot to a distinct region while
+# the reader still gets one entry per region -- the other merge TIMING.
+# ``both`` reports merged+unmerged from one retrieval per query; the pair arm
+# ``merge-timing`` reports the two timings (merged vs ranked) the same way.
+EVAL_ARMS = ("merged", "unmerged", "ranked", "both", "merge-timing")
+
+# Each pair arm and the two shapings it reports from ONE retrieval.
+PAIRED_ARMS: dict[str, tuple[str, ...]] = {
+    "both": ("merged", "unmerged"),
+    "merge-timing": ("merged", "ranked"),
+}
 
 DEFAULT_KS = (1, 3, 5, 10)
 
@@ -215,10 +225,12 @@ def run_eval(core: "Core", project: str, queries_path: str | Path,
     ``arm`` selects the shaping the numbers describe (``EVAL_ARMS``):
     ``unmerged`` skips the merge of overlapping/adjacent same-file hits and is
     the shaping the older tables were measured on; ``merged`` is the shipped
-    answer; ``both`` reports the two side by side from ONE retrieval per
-    query -- the query is embedded and the store searched once, and only the
-    shaping pass repeats, so a two-arm run costs one retrieval plus a second
-    shaping pass, not two searches.
+    answer; ``ranked`` ranks the unmerged hits and merges only for display.
+    ``both`` (merged vs unmerged) and ``merge-timing`` (merged vs ranked)
+    report two shapings side by side from ONE retrieval per query -- the query
+    is embedded and the store searched once, and only the shaping pass
+    repeats, so a paired run costs one retrieval plus a second shaping pass,
+    not two searches.
 
     ``skip_refresh`` defaults to True: the eval measures ranking, not the
     staleness pass, and a refresh mid-run would make latency non-comparable.
@@ -235,14 +247,15 @@ def run_eval(core: "Core", project: str, queries_path: str | Path,
         raise ValueError(err)
 
     ranking_mode = "vector"  # dense == the current pipeline
-    arms = ("merged", "unmerged") if arm == "both" else (arm,)
+    paired = arm in PAIRED_ARMS
+    arms = PAIRED_ARMS.get(arm, (arm,))
     per_arm: dict[str, list[QueryResult]] = {name: [] for name in arms}
     for q in queries:
-        if arm == "both":
+        if paired:
             shaped = core.search_both_shapings(
                 q.query, project=project, limit=max(limit, max(ks)),
                 ranking_mode=ranking_mode, skip_refresh=skip_refresh,
-                rerank=rerank, mode=mode)
+                rerank=rerank, mode=mode, shapings=arms)
             for name in arms:
                 # The retrieval is shared; each answer owns its shaping time.
                 latency = shaped.retrieval_s + shaped.shaping_s[name]
@@ -263,7 +276,7 @@ def run_eval(core: "Core", project: str, queries_path: str | Path,
         "queries": len(queries),
         "arm": arm,
     }
-    if arm == "both":
+    if paired:
         report["arms"] = {name: _arm_report(per_arm[name], ks) for name in arms}
         return report
     report.update(_arm_report(per_arm[arm], ks))
@@ -315,9 +328,10 @@ def compare_reports(a: dict[str, Any], b: dict[str, Any]) -> str:
     """
     if "arms" in a or "arms" in b:
         raise ValueError(
-            "error: eval-compare reads single-arm reports; a two-arm report "
-            "carries both arms already -- write one report per arm "
-            "(--arm merged / --arm unmerged) to compare across runs")
+            "error: eval-compare reads single-arm reports; a paired report "
+            "carries its shapings already -- write one report per arm "
+            "(--arm merged / --arm unmerged / --arm ranked) to compare "
+            "across runs")
     arm_a, arm_b = a.get("arm"), b.get("arm")
     if arm_a is not None and arm_b is not None and arm_a != arm_b:
         raise ValueError(

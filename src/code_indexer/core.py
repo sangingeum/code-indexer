@@ -163,12 +163,19 @@ def _merge_symbol_ranges(
     return merged
 
 
-class ShapedAnswers(NamedTuple):
-    """One retrieval's answers under both shapings, with their wall times.
+# The shapings `_shape_answer` knows, in the vocabulary the eval report
+# prints. ``merged`` is the shipped answer, ``unmerged`` skips the merge,
+# ``ranked`` ranks the unmerged hits (class key, then repeat coverage) and
+# merges only for display.
+SHAPINGS = ("merged", "unmerged", "ranked")
 
-    ``answers`` maps ``merged`` to what a shipped read returns and
-    ``unmerged`` to the same pool with the merge pass skipped. The two share
-    one ``retrieval_s``; ``shaping_s`` is what each pass cost alone.
+
+class ShapedAnswers(NamedTuple):
+    """One retrieval's answers under each requested shaping, with wall times.
+
+    ``answers`` maps a name from ``SHAPINGS`` to the answer that shaping
+    produced. The passes share one ``retrieval_s``; ``shaping_s`` is what
+    each pass cost alone.
     """
 
     answers: dict[str, dict[str, Any]]
@@ -1390,13 +1397,19 @@ class Core:
     def _shape_answer(self, per_project: dict[str, list[dict[str, Any]]],
                       entries: list[ProjectEntry],
                       skipped: list[dict[str, str]], query: str, limit: int, *,
-                      merge: bool, per_file: int = 0,
+                      merge: bool, defer_merge: bool = False, per_file: int = 0,
                       max_chars: int | None = None,
                       max_tokens: int | None = None) -> dict[str, Any]:
         """One retrieval's pools in, one answer out.
 
         ``merge`` is the shipped shaping's first pass: overlapping or adjacent
         hits of one file collapse into a union hit before the class key.
+
+        ``defer_merge`` is the other merge TIMING: the class key and the
+        repeat-coverage order run on the UNMERGED hits, then
+        ``ranking.merge_for_display`` folds the same-file runs away without
+        re-sorting, so the displayed answer keeps the order the ranking pass
+        fixed. The two flags are refused together -- one answer has one merge.
 
         NON-MUTATION CONTRACT: no pass here writes into the hits it is given.
         Every ranking pass either copies each hit it changes before writing
@@ -1432,7 +1445,13 @@ class Core:
         # budget trim (lowest-ranked dropped first). The class order runs after
         # the pure-data share cap above and before the generic caps, so it
         # decides which hits fill them; it is an order, never a filter
-        # (ranking.class_order).
+        # (ranking.class_order). The merge has two timings and one answer takes
+        # exactly one: the shipped pass folds the runs BEFORE the class key
+        # (``merge``), or the ranking passes run on the unmerged hits and
+        # ``ranking.merge_for_display`` folds them afterwards (`defer_merge`).
+        if merge and defer_merge:
+            raise ValueError(
+                "error: merge and defer_merge are one answer's one merge")
         if merge:
             all_hits = ranking.merge_overlapping(all_hits)
         # The ladder is each hit's own project table, never the built-in
@@ -1456,6 +1475,11 @@ class Core:
         # moves later overlapping siblings behind their rung's distinct spans.
         all_hits = ranking.demote_repeated_spans(
             all_hits, ranking.query_tokens(query), names_for)
+        if defer_merge:
+            # The order above is fixed on the UNMERGED hits, so the repeat pass
+            # could move a re-shown span behind a distinct region; the merge
+            # now only folds the runs away, in place.
+            all_hits = ranking.merge_for_display(all_hits)
         all_hits = ranking.cap_per_file(all_hits, per_file)
         all_hits = ranking.truncate_snippets(all_hits, max_chars, max_tokens)
         all_hits, dropped = ranking.trim_to_budget(
@@ -1524,23 +1548,32 @@ class Core:
                              max_tokens: int | None = None,
                              rerank: str | None = None,
                              all_projects: bool = False,
-                             budget_s: float | None = None
+                             budget_s: float | None = None,
+                             shapings: tuple[str, ...] = ("merged", "unmerged")
                              ) -> ShapedAnswers:
-        """ONE retrieval, shaped twice: the shipped answer and the unmerged one.
+        """ONE retrieval, shaped under every requested shaping.
 
         ``merged`` is what a shipped read returns -- overlapping and adjacent
         same-file hits collapse into one union hit before the class key.
         ``unmerged`` is the same pool with that pass skipped, the shaping the
-        eval harness measured older tables on. The retrieval (query embedding,
-        vector search, fusion) runs once; only the shaping pass repeats, so
-        the two answers cost one retrieval plus a second shaping pass.
+        eval harness measured older tables on. ``ranked`` fixes the order on
+        the UNMERGED hits (class key, then the repeat-coverage order) and
+        merges only for display, so a repeated span yields its slot to a
+        distinct region while the reader still gets one entry per region.
 
-        A caller that reports latency gets it measured, not inferred:
-        ``retrieval_s`` is the shared pass and ``shaping_s`` is each pass
-        alone.
+        The retrieval (query embedding, vector search, fusion) runs once; only
+        the shaping pass repeats, so two answers cost one retrieval plus a
+        second shaping pass. A caller that reports latency gets it measured,
+        not inferred: ``retrieval_s`` is the shared pass and ``shaping_s`` is
+        each pass alone.
         """
         if mode not in SEARCH_MODES:
             raise ValueError(f"error: unknown search mode: {mode}")
+        unknown = [name for name in shapings if name not in SHAPINGS]
+        if unknown or not shapings:
+            raise ValueError(
+                f"error: unknown shaping(s) {unknown or list(shapings)} "
+                f"(expected any of {SHAPINGS})")
         started = time.perf_counter()
         per_project, entries, skipped = self._retrieval_pool(
             query, project, limit, file_filter, symbol_type, language,
@@ -1548,17 +1581,19 @@ class Core:
         retrieval_s = time.perf_counter() - started
         # Every shaping pass returns new structures and never writes into the
         # hits it is handed (the non-mutation contract on ``_shape_answer``),
-        # so the two passes COULD share one pool. The copy is belt-and-braces:
-        # it makes a future in-place pass a performance regression instead of
+        # so the passes COULD share one pool. The copies are belt-and-braces:
+        # they make a future in-place pass a performance regression instead of
         # a wrong answer for the first shaping. The pool is a few dozen small
         # dicts, not the cost being saved.
-        pristine = copy.deepcopy(per_project)
+        pools = [per_project] + [copy.deepcopy(per_project)
+                                 for _ in shapings[1:]]
         answers: dict[str, dict[str, Any]] = {}
         shaping_s: dict[str, float] = {}
-        for name, hits in (("merged", per_project), ("unmerged", pristine)):
+        for name, hits in zip(shapings, pools):
             t0 = time.perf_counter()
             answers[name] = self._shape_answer(
-                hits, entries, skipped, query, limit, merge=name == "merged",
+                hits, entries, skipped, query, limit,
+                merge=name == "merged", defer_merge=name == "ranked",
                 per_file=per_file, max_chars=max_chars, max_tokens=max_tokens)
             shaping_s[name] = time.perf_counter() - t0
         return ShapedAnswers(answers=answers, retrieval_s=retrieval_s,

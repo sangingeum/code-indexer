@@ -1,5 +1,45 @@
 # Changelog
 
+## [Unreleased] — the shipped ordering was measured against ranking the unmerged hits and kept
+
+**The merge-before-the-class-key order stays, and the reason is measured, not
+assumed.** The repeat-coverage pass is an identity on a shipped read:
+`Core.search` folds overlapping/adjacent same-file hits into one union hit
+before the class key, so the surviving spans are already disjoint, and the
+pass's +0.0204 MRR win belonged to the eval harness's `unmerged` arm, where the
+merge is off. This round built the instrument that puts the two orderings on
+the SAME retrieval and measured them on the answer a reader gets. `eval --arm
+ranked` fixes the order on the unmerged hits (class key, then the
+repeat-coverage pass) and runs `ranking.merge_for_display` afterwards, which
+folds each same-file run into its union at the best-ranked member's slot and
+never re-sorts; `--arm merge-timing` reports it beside the shipped `merged` arm
+from ONE retrieval per query. The existing `merged`, `unmerged` and `both` arms
+are unchanged.
+
+Measured at index revision 3312 (`last_indexed` 2026-11-09T00:39:37Z), 42
+labelled queries, one runner, one warm-up discarded, shipped answer surface,
+counters showing 42 store searches and 42 embeddings per 42 queries for both
+orderings:
+
+| pipeline | ordering | recall@1 | recall@3 | recall@5 | recall@10 | MRR | nDCG@10 |
+|---|---|---|---|---|---|---|---|
+| dense | merged (shipped) | 0.5714 | 0.8095 | 0.8333 | 0.8810 | 0.6938 | 0.7401 |
+| dense | ranked | 0.5714 | 0.8095 | 0.8333 | 0.8810 | 0.6938 | 0.7401 |
+| hybrid | merged (shipped) | 0.6190 | 0.8333 | 0.8571 | 0.8571 | 0.7242 | 0.7583 |
+| hybrid | ranked | 0.6190 | 0.8333 | 0.8571 | 0.8571 | 0.7242 | 0.7583 |
+
+Every delta is 0.0000, 0 of 42 queries improved and 0 regressed on each
+pipeline, and the top-10 class composition is identical (dense 333 source /
+83 tests / 2 docs; hybrid 210 source / 159 tests / 42 docs). The stated bar
+was: adopt the alternative only if it is strictly better on MRR AND nDCG@10
+and its recall@10 is not lower, on BOTH pipelines. It is equal, not better, so
+the shipped ordering is kept and the shipped path is unchanged. The structural
+reason the two timings agree: the merge takes a repeated span's slot away
+before either ordering reads it, and a display merge that gives each union its
+best-ranked member's slot reproduces the shipped order exactly. Evidence:
+`runs/ranking-comparison/` (local, untracked); the reader-facing record is the
+Repeat coverage section of `skill/references/semantic.md`.
+
 ## [Unreleased] — a vectors-off upgrade reparses instead of re-stamping
 
 **On the `--vectors off` arm, a manifest recording OLDER row axes now forces a

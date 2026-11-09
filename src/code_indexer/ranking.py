@@ -513,6 +513,65 @@ def _merge_run(run: list[dict[str, Any]]) -> dict[str, Any]:
     return out
 
 
+def merge_for_display(hits: list[dict[str, Any]],
+                      adjacency_gap: int = 2
+                      ) -> list[dict[str, Any]]:
+    """Collapse same-file overlapping/adjacent runs, keeping the given order.
+
+    The DISPLAY-ONLY twin of `merge_overlapping`: the membership is the same
+    one (one union per line-ordered run of a file, cut at ``adjacency_gap``),
+    but no hit is re-sorted. A union takes the slot of its best-ranked member
+    -- the earliest member in ``hits``, which the caller has already ordered --
+    and the other members' slots disappear. So the order the caller fixed
+    survives the merge: what the answer ranks is what the reader sees, minus
+    the slots the merge folded away.
+
+    Hits without a line range have no span to fold and keep their slot.
+    """
+    if not hits:
+        return []
+    by_file: dict[tuple[str, str], list[int]] = {}
+    for index, hit in enumerate(hits):
+        if hit.get("start_line") is None or hit.get("end_line") is None:
+            continue
+        key = (hit.get("project") or "", hit.get("file") or "")
+        by_file.setdefault(key, []).append(index)
+
+    # index -> the union that replaces it, or None when the member's slot is
+    # folded into an earlier member's.
+    placement: dict[int, dict[str, Any] | None] = {}
+
+    def place(run: list[int]) -> None:
+        union = _merge_run([hits[i] for i in run])
+        first = min(run)  # the best-ranked member's slot
+        for i in run:
+            placement[i] = union if i == first else None
+
+    for indices in by_file.values():
+        group = sorted(indices, key=lambda i: (hits[i]["start_line"],
+                                               hits[i]["end_line"],
+                                               hit_identity(hits[i])))
+        run: list[int] = []
+        run_end = 0
+        for i in group:
+            hit = hits[i]
+            if run and hit["start_line"] > run_end + adjacency_gap + 1:
+                place(run)
+                run = []
+            run.append(i)
+            run_end = max(hit["end_line"], run_end)
+        if run:
+            place(run)
+
+    out: list[dict[str, Any]] = []
+    for index, hit in enumerate(hits):
+        if index not in placement:
+            out.append(hit)
+        elif placement[index] is not None:
+            out.append(placement[index])
+    return out
+
+
 def cap_per_file(hits: list[dict[str, Any]], per_file: int) -> list[dict[str, Any]]:
     """Keep at most ``per_file`` hits per file (score-ordered input).
 

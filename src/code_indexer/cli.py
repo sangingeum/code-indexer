@@ -3714,8 +3714,11 @@ def eval_command(
         help="Eval arm: unmerged (default -- the shaping configuration the "
              "older tables were measured on) | merged (the shipped answer: "
              "overlapping/adjacent same-file hits merge into one union hit "
-             "before the class key) | both (report the two side by side; one "
-             "retrieval per query, so it costs a second shaping pass, not a "
+             "before the class key) | ranked (rank the unmerged hits -- class "
+             "key, then repeat coverage -- and merge only for display) | both "
+             "(merged and unmerged side by side) | merge-timing (merged and "
+             "ranked side by side: the two merge timings, on one retrieval per "
+             "query, so a paired run costs a second shaping pass, not a "
              "second search)."),
     rerank: str = typer.Option(
         None, "--rerank", help="Rerank mode: heuristic | none (default off)."),
@@ -3736,10 +3739,13 @@ def eval_command(
     The arm names which shaping the numbers describe: 'merged' is the shipped
     answer (overlapping and adjacent same-file hits collapse into one union hit
     before the class key), 'unmerged' is the same retrieval with that pass
-    skipped and is what the older tables were measured on, and 'both' reports
-    the two side by side. A two-arm run retrieves each query once -- one
-    embedding and one vector search -- and shapes the pool twice, so it costs
-    one retrieval plus a second shaping pass, not two searches."""
+    skipped and is what the older tables were measured on, 'ranked' fixes the
+    order on the unmerged hits (class key, then repeat coverage) and merges
+    only for display, and the pair arms 'both' (merged vs unmerged) and
+    'merge-timing' (merged vs ranked) report their two shapings side by side.
+    A paired run retrieves each query once -- one embedding and one vector
+    search -- and shapes the pool twice, so it costs one retrieval plus a
+    second shaping pass, not two searches."""
     # A bad flag value is a usage error, refused before the core reads
     # anything -- and BEFORE --refresh can run a pass, so a wrong request can
     # never write the index first and fail afterwards.

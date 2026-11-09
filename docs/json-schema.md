@@ -861,7 +861,7 @@ the taxonomy's: 5 for a stale pre-pass or a keeper 5, 1 for `PartialApply`
 
 `eval` is the only read command whose output is a document you keep rather
 than an answer, so its shape is versioned here. A single-arm report
-(`--arm merged` or `--arm unmerged`, the default) is:
+(`--arm merged`, `--arm unmerged` -- the default -- or `--arm ranked`) is:
 
 ```json
 {"project": "/abs/path", "mode": "dense", "queries": 42, "arm": "unmerged",
@@ -874,14 +874,15 @@ than an answer, so its shape is versioned here. A single-arm report
 
 `arm` names the shaping the numbers describe, so a table can cite the arm it
 came from: `merged` is the shipped answer (overlapping/adjacent same-file
-hits merged before the class key) and `unmerged` skips that pass. `metrics`
+hits merged before the class key), `unmerged` skips that pass, and `ranked`
+fixes the order on the unmerged hits and merges only for display. `metrics`
 holds `recall@k` for each requested k plus `mrr`, `ndcg@10` and the latency
 summary; `results[]` holds one row per query, `rank` being `null` for a miss.
 Every key a pre-arm report carried keeps its meaning; `arm` is the one field
 added.
 
-A two-arm report (`--arm both`) carries both arms from ONE retrieval per
-query:
+A paired report (`--arm both`, or `--arm merge-timing` for the two merge
+timings) carries both of its shapings from ONE retrieval per query:
 
 ```json
 {"project": "...", "mode": "dense", "queries": 42, "arm": "both",
@@ -893,9 +894,9 @@ query:
 the single-arm report already has. The arms share the retrieval (one query
 embedding and one vector search per query); a row's `latency_s` is that
 shared retrieval plus the arm's own shaping time, so the two latencies are
-not the pair's wall time counted twice. A two-arm report's latency is also not
+not the pair's wall time counted twice. A paired report's latency is also not
 comparable with a single-arm report's of the same shaping: the shared retrieval
-is measured once per query here, against a fresh retrieval there. A two-arm
+is measured once per query here, against a fresh retrieval there. A paired
 document is what `eval-compare` refuses (a usage error, exit 2), because it
 compares two single-arm reports of one arm; neither shape has a `--json`
 envelope.
