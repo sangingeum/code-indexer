@@ -15,6 +15,7 @@ _DEFAULTS: dict[str, str] = {
     "embed_model": "qwen3-embedding:8b",
     "index_root": "~/.code-indexer",
     "embed_batch": "48",        # texts per Ollama embed request
+    "embed_group": "512",       # chunks embedded and committed per group
     "upsert_batch": "256",      # points per Qdrant upsert
     "max_file_bytes": "1048576",  # skip files > 1MB
     "watch_debounce": "3",      # seconds; `watch` quiet period between passes
@@ -45,6 +46,7 @@ class Config:
     ollama_timeout: int = 120
     doctor_probe_timeout: float = 5.0
     embed_concurrency: int = 1
+    embed_group: int = 512
     extra: dict[str, str] = field(default_factory=dict)
 
 
@@ -95,4 +97,5 @@ def load_config(argv: list[str] | None = None) -> Config:
         ollama_timeout=int(cfg["ollama_timeout"]),
         doctor_probe_timeout=float(cfg["doctor_probe_timeout"]),
         embed_concurrency=int(cfg["embed_concurrency"]),
+        embed_group=int(cfg["embed_group"]),
     )

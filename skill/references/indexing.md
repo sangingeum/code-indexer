@@ -135,7 +135,9 @@ code-indexer reindex-project /path/to/repo
   subpath relative to the project root -- one outside it is exit 2, and the root
   itself is `**`. Neither spelling infers a project from the working directory.
 - `reindex-project` is a full rebuild, also foreground; a vectors-on rebuild
-  embeds nothing its current rows already store, so it is cheaper than the first pass.
+  embeds nothing its current rows already store, so it is cheaper than the first
+  pass. It writes in whole-file `EMBED_GROUP` (default 512) chunk groups: a crash
+  costs one group's re-embed, and a file's rows go in only after its points do.
 
 ## Removing and sweeping
 
@@ -180,9 +182,8 @@ code-indexer unwatch --all
 - `unwatch` SIGTERMs the live holder, waits for the flock (`--timeout`, default
   10 s) and reports the projects it served; the flock, never pid existence, is
   the liveness test. No watcher running is a clean no-op at exit 0; an unstoppable holder is exit 1.
-- **Version bumps need an ordered restart.** A watcher re-stamps its own
-  fingerprint every sweep, so one left running across an upgrade reverts
-  `needs-reindex`: `unwatch --all`, `reindex-project <path>`, then `watch`.
+- **A pass older than the recorded fingerprint is refused**, not just the
+  re-stamp: exit 4, never a delete of rows its older scan cannot see, and the line names `unwatch` and `reindex-project`.
 
 ## Asking what state an index is in
 
@@ -247,8 +248,7 @@ with no AST reader, freshness -- fields in [machine-output.md](machine-output.md
 
 `index-status` takes `--format text|json` (`--json` is the alias) and
 `--format compact`, the SAME line the text form prints -- it is already
-`key=value`. `doctor` and `list-projects` refuse `compact` with exit 2 like
-every other read without a one-line-per-record form ([machine-output.md](machine-output.md)).
+`key=value`. `doctor` and `list-projects` refuse `compact` with exit 2, like every read with no one-line-per-record form ([machine-output.md](machine-output.md)).
 
 It also names what the sensitive layer withheld: a suffixed
 `1 file skipped (sensitive content)` (or `sensitive filename`), followed by the
@@ -314,7 +314,6 @@ embedder at all and works with the service down; with neither recorded it refuse
 `reindex-project` rather than asking the service to guess. A repair that writes no point writes no
 manifest, so `index_revision` and `last_indexed` stay put; a row left unrepairable is not a no-op
 -- the vector state is recorded, then exit 4.
-unrepairable is not a no-op -- the vector state is recorded, then exit 4.
 
 The three version axes:
 
@@ -340,6 +339,7 @@ for `OLLAMA_URL` and `QDRANT_URL` are LAN placeholders and must be set.
 | `QDRANT_URL` | LAN placeholder | vector store |
 | `EMBED_MODEL` | `qwen3-embedding:8b` | embed model; a change is a new embedding identity |
 | `EMBED_BATCH` | 48 | texts per Ollama embed request |
+| `EMBED_GROUP` | 512 | chunks embedded and committed per group -- the pass's vector memory bound |
 | `UPSERT_BATCH` | 256 | points per Qdrant upsert |
 | `EMBED_CONCURRENCY` | 1 | passes that parse while another embeds |
 | `OLLAMA_TIMEOUT` | 120 s | connect/read timeout; transient failures retry with backoff, max 5 |

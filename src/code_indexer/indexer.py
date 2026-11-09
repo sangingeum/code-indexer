@@ -11,15 +11,17 @@ as the symbol rows — never ahead of the vectors.
 
 from __future__ import annotations
 
+import itertools
 import logging
 import os
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from .chunker import Chunk
 from .config import Config
 from .embed_text import EMBED_FORMAT, embed_text
+from .errors import RebuildRequiredError
 from .fingerprint import (configured_values, current_fingerprint,
                           manifest_newer_than, read_fingerprint,
                           row_side_mismatches, write_fingerprint)
@@ -40,6 +42,34 @@ if TYPE_CHECKING:  # annotations only: importing this module costs no client
 def _chunk_dispatch(path: str, text: str) -> list[Chunk]:
     """Chunker seam (design §5): tree-sitter AST when supported, else fallback."""
     return ts_chunker.chunk_text(path, text)
+
+
+T = TypeVar("T")
+
+
+def _bounded_file_groups(entries: list[tuple[str, T]],
+                         limit: int) -> list[list[tuple[str, T]]]:
+    """Split ``(file, item)`` entries into whole-file groups of bounded size.
+
+    Consecutive entries naming the same file stay together, so one file's
+    vectors are written and its rows committed with no other file's vectors in
+    flight -- the per-file resumability unit survives the bound. A group holds
+    at most ``limit`` entries; a single file with more entries than that
+    travels alone, so the bound is then that file's own size, the smallest
+    group that still keeps the resumability unit whole.
+    """
+    limit = max(1, limit)
+    groups: list[list[tuple[str, T]]] = []
+    current: list[tuple[str, T]] = []
+    for _path, file_entries in itertools.groupby(entries, key=lambda e: e[0]):
+        items = list(file_entries)
+        if current and len(current) + len(items) > limit:
+            groups.append(current)
+            current = []
+        current.extend(items)
+    if current:
+        groups.append(current)
+    return groups
 
 
 def reference_rows(path: str, text: str, lang: str
@@ -423,34 +453,44 @@ class Indexer:
         # older-code watcher sweeping would re-embed the whole project with
         # its older extraction code (fingerprint_mismatches is direction-blind)
         # and then stamp its own older version over the newer one — the flag
-        # reverts and good vectors are replaced. So: warn loudly and defer the
-        # re-stamp, leaving the recorded (newer) value untouched. The deferral
-        # guards the fingerprint write and the direction-blind FULL REBUILD
-        # only — it does not skip the pass, so a CHANGED file is still embedded
-        # with this older process's extraction code while the recorded newer
-        # fingerprint stands.
-        defer_fingerprint_write = False
+        # reverts and good vectors are replaced.
+        #
+        # So the pass itself is refused, not merely the re-stamp. The pass's
+        # delete step is derived from THIS process's scan set, and its embed
+        # step from this process's extraction code: an older scanner that
+        # cannot see a file deletes that file's rows, and an older embedder
+        # writes vectors the recorded newer fingerprint cannot vouch for. The
+        # refusal is loud (the watcher reports the error on every tick) and
+        # names the remedy; the legitimate upgrade direction above is
+        # untouched.
         if current_fp is not None and manifest_newer_than(recorded_fp, current_fp):
             assert recorded_fp is not None  # manifest_newer_than implies it
             logger.warning(
                 "index for %s was built by NEWER code (%s) than this process "
-                "(%s, pid %d): refusing the fingerprint re-stamp and the "
-                "direction-blind full rebuild; changed files may still be "
-                "embedded with this older extraction code. Remedy: stop this "
-                "watcher (code-indexer unwatch) and restart it on the current "
-                "code, or run: code-indexer reindex-project %s",
+                "(%s, pid %d): refusing the pass so it neither deletes from "
+                "this older scan set nor writes rows with this older "
+                "extraction code. Remedy: stop this watcher (code-indexer "
+                "unwatch) and restart it on the current code, or run: "
+                "code-indexer reindex-project %s",
                 slug, recorded_fp.describe(), current_fp.describe(),
                 os.getpid(), project_path)
-            defer_fingerprint_write = True
-        else:
-            row_diffs = ([] if current_fp is None else
-                         row_side_mismatches(recorded_fp,
-                                             configured_values(self.cfg.embed_model)))
-            fp_changed = bool(row_diffs)
-            if fp_changed:
-                logger.info("index row axes changed (%s): full reparse",
-                            row_diffs)
-            rebuild = rebuild or fp_changed
+            raise RebuildRequiredError(
+                f"index for {slug} was built by NEWER code "
+                f"({recorded_fp.describe()}) than this process "
+                f"({current_fp.describe()}, pid {os.getpid()}): refusing the "
+                f"pass — it would delete rows this older scan cannot see and "
+                f"write rows this older extraction code cannot vouch for. "
+                f"Stop this watcher (code-indexer unwatch) and restart it on "
+                f"the current code, or run: code-indexer reindex-project "
+                f"{project_path}")
+        row_diffs = ([] if current_fp is None else
+                     row_side_mismatches(recorded_fp,
+                                         configured_values(self.cfg.embed_model)))
+        fp_changed = bool(row_diffs)
+        if fp_changed:
+            logger.info("index row axes changed (%s): full reparse",
+                        row_diffs)
+        rebuild = rebuild or fp_changed
 
         # Turning vectors on for a project that was kept off: no cached hash
         # describes a vector in this mode, so this pass embeds what it
@@ -731,25 +771,29 @@ class Indexer:
                         _record_file(parsed[0], parsed[1], parsed[2], parsed[3],
                                      parsed[4], parsed[5])
 
-        # 3) Embed with per-text failure isolation (bisect on batch failure);
-        #    commit each file's manifest row + symbols AFTER its points are
-        #    upserted, so a crashed pass resumes where it stopped and a
-        #    poisoned chunk is recorded in index_errors instead of failing
-        #    the whole pass.
+        # 3) Embed in bounded groups with per-text failure isolation (bisect
+        #    on batch failure); commit each file's manifest row + symbols AFTER
+        #    its points are upserted, so a crashed pass resumes where it
+        #    stopped and a poisoned chunk is recorded in index_errors instead
+        #    of failing the whole pass.
+        #
+        #    The group is the memory bound: the pass holds one group's vectors
+        #    and never the project's, so the vector set alive at any moment is
+        #    a function of ``embed_group`` (chunks) rather than of the tree.
+        #    It is also the durability envelope -- a crash costs at most one
+        #    group's re-embed, because the per-file commit still runs inside
+        #    its group, after that file's points reached the store.
         embedded = 0
         skipped_errors = 0
         files_committed = 0
-        by_file: dict[str, list[tuple[int, str, Chunk]]] = {}
+        committed_files: set[str] = set()
+        files_total = len({path for path, _ in to_embed})
+        files_done = 0
+        t_embed0 = time.time()
         if to_embed:
             # Contextual embedding text (path+symbol header + chunk text):
             # raw code chunks alone land in a tight similarity band and NL
             # queries mis-rank them; the header restores file/symbol context.
-            vectors, embed_errors = self._embed_with_errors_compat(
-                [embed_text(p, c) for p, c in to_embed])
-            for idx, msg in embed_errors:
-                path, chunk_ = to_embed[idx]
-                manifest.record_index_error(path, chunk_.chunk_index, msg)
-                skipped_errors += 1
             now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
             def _point(path: str, chunk_: Chunk,
@@ -760,24 +804,20 @@ class Indexer:
                     scanned_map[path].content_hash,
                     file_languages.get(path) or _lang_from_ext(path), now)
 
-            # Group to-embed entries by file, upsert per file, then commit
-            # that file's manifest rows — the resumability unit.
-            by_file: dict[str, list[tuple[int, str, Chunk]]] = {}
-            for idx, (path, chunk_) in enumerate(to_embed):
-                if vectors[idx] is None:
-                    continue  # poisoned chunk: recorded, skipped
-                by_file.setdefault(path, []).append((idx, path, chunk_))
+            def _commit_file(path: str, entries: list[tuple[int, Chunk]],
+                             vectors: list[list[float] | None]) -> None:
+                """Upsert one file's points, then commit its manifest rows.
 
-            t_embed0 = time.time()
-            files_total = len(by_file)
-            for files_done, (path, entries) in enumerate(by_file.items(), 1):
+                The resumability unit: commit AFTER the vectors reached the
+                store, so a crash before this costs a re-embed of this file
+                only and nothing is claimed that does not exist.
+                """
+                nonlocal embedded, files_committed, files_done
                 points = [_point(path, chunk_, vectors[idx])
-                          for idx, _p, chunk_ in entries]
+                          for idx, chunk_ in entries]
                 self._write_points(collection, points)
                 embedded += len(entries)
-                # Commit AFTER the vectors reached the store: a crash before
-                # this line costs a re-embed of this file only; nothing is
-                # claimed that does not exist.
+                committed_files.add(path)
                 if path in pending_meta:
                     _commit_metadata(path)
                 f = scanned_map[path]
@@ -790,6 +830,7 @@ class Indexer:
                     file_languages.get(path) or _lang_from_ext(path),
                     file_verdicts.get(path))])
                 files_committed += 1
+                files_done += 1
                 if self.progress_cb is not None:
                     elapsed = max(time.time() - t_embed0, 1e-6)
                     rate = embedded / elapsed  # chunks/s
@@ -802,6 +843,27 @@ class Indexer:
                         "chunks_total": len(to_embed),
                         "docs_per_s": round(rate, 2), "eta_s": round(eta, 1),
                         "errors": skipped_errors})
+
+            for group in _bounded_file_groups(to_embed, self.cfg.embed_group):
+                group_vectors, group_errors = self._embed_with_errors_compat(
+                    [embed_text(p, c) for p, c in group])
+                for idx, msg in group_errors:
+                    path, chunk_ = group[idx]
+                    manifest.record_index_error(path, chunk_.chunk_index, msg)
+                    skipped_errors += 1
+                # Group the group's entries by file, upsert per file, then
+                # commit that file's rows. Nothing but this group's vectors is
+                # alive here; the next group is embedded after they are gone.
+                per_file: dict[str, list[tuple[int, Chunk]]] = {}
+                for idx, (path, chunk_) in enumerate(group):
+                    if group_vectors[idx] is None:
+                        continue  # poisoned chunk: recorded, skipped
+                    per_file.setdefault(path, []).append((idx, chunk_))
+                for path, entries in per_file.items():
+                    _commit_file(path, entries, group_vectors)
+                # Drop this group's vectors before the next group is embedded:
+                # the bound is one group alive, never two.
+                del group_vectors, group_errors
             if skipped_errors:
                 logger.warning("%d chunk(s) skipped after embed failures "
                                "(recorded in index_errors)", skipped_errors)
@@ -811,7 +873,7 @@ class Indexer:
         # exist. Those stay uncommitted and the next pass re-embeds them.
         all_failed = {
             path for path in file_chunk_counts
-            if path not in by_file and path in to_embed_files}
+            if path not in committed_files and path in to_embed_files}
         remaining_rows = [
             ManifestFile(path, scanned_map[path].content_hash,
                          scanned_map[path].size, file_chunk_counts.get(path, 0),
@@ -821,11 +883,11 @@ class Indexer:
                          file_languages.get(path) or _lang_from_ext(path),
                          file_verdicts.get(path))
             for path in file_chunk_counts
-            if path not in by_file and path not in all_failed]
+            if path not in committed_files and path not in all_failed]
         if remaining_rows:
             manifest.upsert_files(remaining_rows)
         for path in list(pending_meta):
-            if path in by_file:
+            if path in committed_files:
                 continue  # already committed with its vectors
             _commit_metadata(path)
         # Attribute every reference to the definition it resolves to. Run
@@ -862,12 +924,12 @@ class Indexer:
         if vectors:
             manifest.set_meta("embed_format", EMBED_FORMAT)
         self._record_vectors_meta(manifest, vectors, skipped_errors)
-        # DEFERRED when the manifest was built by newer code than this process
-        # (see the direction-aware guard above): stamping our own older
-        # fingerprint here is exactly the regression this pass must not make.
-        if not defer_fingerprint_write and current_fp is not None:
+        # The pass's fingerprint is stamped here, on every direction: a pass
+        # that reached this line ran under code at least as new as the recorded
+        # one (the older-code case was refused before any write).
+        if current_fp is not None:
             write_fingerprint(manifest, current_fp)
-        elif not defer_fingerprint_write:
+        else:
             from .fingerprint import write_row_side
             write_row_side(manifest)
 
@@ -1013,30 +1075,41 @@ class Indexer:
         if repair:
             unrepairable = len(pending)
         elif pending:
-            texts = [embed_text(f, _chunk_from_row(r)) for f, r in pending]
-            vectors, errors = self._embed_with_errors_compat(texts)
-            for idx, msg in errors:
-                file, row = pending[idx]
-                manifest.record_index_error(file, row.chunk_index, msg)
-                skipped += 1
-            by_file: dict[str, list[tuple[int, ChunkRow]]] = {}
-            for idx, (file, row) in enumerate(pending):
-                if vectors[idx] is None:
-                    continue
-                by_file.setdefault(file, []).append((idx, row))
-            for done, (file, entries) in enumerate(by_file.items(), 1):
-                file_row = files[file]
-                points = [_point_dict(project_path, file, row, vectors[idx],
-                                      file_row.content_hash, file_row.language,
-                                      now) for idx, row in entries]
-                self._write_points(collection, points)
-                embedded += len(entries)
-                written_files.add(file)
-                if self.progress_cb is not None:
-                    self.progress_cb({
-                        "files_done": done, "files_total": len(by_file),
-                        "chunks_done": embedded, "chunks_total": len(pending),
-                        "docs_per_s": 0.0, "eta_s": 0.0, "errors": skipped})
+            files_total = len({file for file, _ in pending})
+            written = 0
+            for group in _bounded_file_groups(pending, self.cfg.embed_group):
+                texts = [embed_text(f, _chunk_from_row(r)) for f, r in group]
+                group_vectors, group_errors = self._embed_with_errors_compat(texts)
+                for idx, msg in group_errors:
+                    file, row = group[idx]
+                    manifest.record_index_error(file, row.chunk_index, msg)
+                    skipped += 1
+                by_file: dict[str, list[tuple[int, ChunkRow]]] = {}
+                for idx, (file, row) in enumerate(group):
+                    if group_vectors[idx] is None:
+                        continue
+                    by_file.setdefault(file, []).append((idx, row))
+                for file, entries in by_file.items():
+                    file_row = files[file]
+                    points = [_point_dict(project_path, file, row,
+                                          group_vectors[idx],
+                                          file_row.content_hash,
+                                          file_row.language, now)
+                              for idx, row in entries]
+                    self._write_points(collection, points)
+                    embedded += len(entries)
+                    written_files.add(file)
+                    written += 1
+                    if self.progress_cb is not None:
+                        self.progress_cb({
+                            "files_done": written, "files_total": files_total,
+                            "chunks_done": embedded,
+                            "chunks_total": len(pending),
+                            "docs_per_s": 0.0, "eta_s": 0.0,
+                            "errors": skipped})
+                # Drop this group's vectors before the next group is embedded:
+                # the bound is one group alive, never two.
+                del group_vectors, group_errors
 
         # Record the construction that produced these vectors, on the vector
         # side only: the rows were not touched and their axes are already

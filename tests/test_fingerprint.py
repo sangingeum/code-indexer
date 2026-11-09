@@ -379,11 +379,15 @@ def test_older_manifest_rebuilds_and_restamps(rig):
     assert _recorded_extraction_version(core, entry) == EXTRACTION_VERSION
 
 
-def test_newer_manifest_defers_the_restamp_and_does_not_reembed(rig, caplog):
-    """Direction 2 (the failure): a manifest built by NEWER code must not be
-    re-embedded by this older process, nor re-stamped with the older version.
-    MEASURED — zero chunks embedded, zero upserts, recorded value untouched —
-    and the warning names the project, both fingerprints and the remedy."""
+def test_newer_manifest_refuses_the_pass_before_any_write(rig, caplog):
+    """Direction 2 (the failure): a manifest built by NEWER code refuses the
+    whole pass, not merely its re-stamp.
+
+    MEASURED — the pass reports the rebuild class, nothing is embedded, nothing
+    is upserted, the recorded value is untouched — and both the warning and the
+    refusal name the project, both fingerprints and the remedy. The delete/write
+    property is its own test in test_older_pass_guard.py.
+    """
     import logging
 
     core, reg, entry, project, store = rig
@@ -395,10 +399,9 @@ def test_newer_manifest_defers_the_restamp_and_does_not_reembed(rig, caplog):
     store.upserts.clear()
     with caplog.at_level(logging.WARNING, logger="code-indexer.indexer"):
         result = core.run_index(entry.slug, project)
-    assert result["state"] == "idle"
+    assert result["state"] == "error"
     # NOT re-embedded: the direction-blind path would have set rebuild=True
     # and re-embedded the whole project with this process's older code.
-    assert result["result"]["chunks_embedded"] == 0
     assert sum(n for _, n in store.upserts) == 0
     # The newer recorded value is left alone — our older version is not stamped.
     assert _recorded_extraction_version(core, entry) == newer
@@ -408,6 +411,7 @@ def test_newer_manifest_defers_the_restamp_and_does_not_reembed(rig, caplog):
     assert f"extr={EXTRACTION_VERSION}" in text  # this process's own
     assert "NEWER code" in text
     assert "unwatch" in text and "reindex-project" in text
+    assert "Refusing" in result["error"] or "refusing" in result["error"]
 
 
 # ---------------------------------------------------------------------------

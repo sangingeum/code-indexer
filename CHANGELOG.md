@@ -1,5 +1,52 @@
 # Changelog
 
+## [Unreleased] — a pass holds one group of vectors, not the project
+
+**A vectors-on pass embeds and writes in bounded groups.** The pass built every
+embedding text for the project, embedded them in one call and only then started
+its per-file upsert loop, so each chunk's vector was alive before the first
+point was written: reindexing vivarium-sim (823 files, 32,629 chunks, 4096-dim
+embeddings) was OOM-killed at 4.18 GB RSS under a 4 GiB scope while the box had
+28 GB free. Chunks are now embedded and their files committed in whole-file
+groups of at most `EMBED_GROUP` (default 512) chunks, a file larger than that
+travelling alone. The per-file commit after that file's points reach the store
+is unchanged, so a crash still costs at most one group's re-embed and the
+manifest never claims a row whose vector did not reach the store; a poisoned
+chunk is still recorded in `index_errors` and skipped. The embedded text is the
+same `embed_text()` construction as before, byte for byte, so no vector changes.
+
+Measured on a generated fixture of 80 files / 8,000 chunks at dimension 1024,
+one runner: the largest single embed request 8,000 -> 500 chunks, the peak
+number of vector objects alive at once 8,000 -> 500 (16x), and the process's
+RSS growth 74.6 MB -> 11.6 MB. At 16,000 chunks the base peak doubles to 16,000
+while the grouped pass stays at 500, so the bound is a function of the group,
+not of the tree. A 512-chunk group at the fleet's 4096 dimensions is about
+65.5 MB of vectors, against about 4.28 GB for the whole 32,629-chunk project --
+the size the OOM measured. Throughput costs 3.7%: 0.730 -> 0.757 ms/chunk,
+median of three runs on the same fixture with a per-request and per-text delay
+standing in for Ollama. The embedded texts hash identically before and after,
+so the grouping changed where the vectors live, never what they are.
+
+## [Unreleased] — a pass older than the recorded fingerprint refuses
+
+**A pass whose code is older than the manifest's fingerprint no longer runs at
+all.** The direction-aware guard refused the fingerprint re-stamp and the
+direction-blind full rebuild, but let the pass continue: an older watcher still
+ran a delete step derived from its own scan set (vivarium-sim lost all 12
+multibyte-straddle files, 823 -> 811 rows) and could embed changed files with
+its older extraction code. The guard now raises the rebuild class (exit 4)
+before any delete or write, naming the recorded and running fingerprints and the
+remedy -- stop the watcher (`code-indexer unwatch`) and restart it on the
+current code, or run `code-indexer reindex-project <path>`. A watcher left
+running across an upgrade reports that error on every tick instead of
+corrupting silently. The legitimate direction is untouched: a manifest built by
+OLDER code still rebuilds, deletes what is genuinely gone and re-stamps.
+
+Measured: the dedicated guard tests reproduce the deletion at the base commit
+(the multibyte-named file's row disappears while the recorded newer fingerprint
+stands) and hold every row after the change, with the upgrade direction
+re-embedding, deleting and re-stamping in its own test.
+
 ## [Unreleased] — a lexical token's prefix family survives its position
 
 **Every lexical token is prefix-matched, not only the trailing one.**
