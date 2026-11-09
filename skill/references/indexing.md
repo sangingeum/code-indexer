@@ -182,8 +182,8 @@ code-indexer unwatch --all
   10 s) and reports the projects it served; the flock, never pid existence, is
   the liveness test. No watcher running is a clean no-op at exit 0; an unstoppable holder is exit 1.
 - **A pass older than the recorded fingerprint is refused** on both arms (a
-  `--vectors off` pass deletes rows too): no delete, no manifest write, exit 4,
-  naming `unwatch`, `watch` and `reindex-project`.
+  `--vectors off` pass deletes rows too): no delete and no row or version write
+  (`index-more` keeps its scope), exit 4, naming `unwatch`, `watch` and `reindex-project`.
 
 ## Asking what state an index is in
 

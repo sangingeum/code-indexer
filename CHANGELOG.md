@@ -59,15 +59,18 @@ remedy -- stop the watcher (`code-indexer unwatch`), then restart it on the
 current code (`code-indexer watch --all --background`), or run
 `code-indexer reindex-project <path>`. A watcher left running across an upgrade
 reports that error on every tick instead of corrupting silently. The legitimate
-direction is untouched: a manifest built by OLDER code still rebuilds, deletes
-what is genuinely gone and re-stamps, on both arms.
+direction is untouched: a manifest built by OLDER code still deletes what is
+genuinely gone and re-stamps, on both arms -- on the vectors-on arm by
+rebuilding and re-embedding, on the vectors-off arm by the incremental pass it
+always ran (a vectors-off pass cannot embed anything).
 
 Measured: the dedicated guard tests reproduce the deletion at the base commit
 (the multibyte-named file's row disappears while the recorded newer fingerprint
 stands, and on the vectors-off arm a row is deleted and the recorded extraction
 version regresses) and hold every row after the change, with the upgrade
-direction re-embedding, deleting and re-stamping in its own test -- on the
-vectors-off arm too. A refused `reindex-project` exits 4 (`RebuildRequiredError`
+direction in its own test per arm: re-embedding, deleting and re-stamping on the
+vectors-on arm, and deleting plus re-stamping incrementally on the vectors-off
+arm. A refused `reindex-project` exits 4 (`RebuildRequiredError`
 on stderr), not 1.
 
 ## [Unreleased] — a lexical token's prefix family survives its position

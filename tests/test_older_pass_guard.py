@@ -17,7 +17,7 @@ base code already took exactly that path: `manifest_newer_than` returned False
 for a LOWER recorded version, so the else-branch compared the row axes, saw the
 extraction-version difference and set `rebuild`, the ordinary pass then purged the
 genuinely gone file and re-stamped the current fingerprint. On the vectors-off arm
-`test_a_vectors_off_manifest_from_older_code_still_rebuilds_and_restamps` passed
+`test_a_vectors_off_manifest_from_older_code_still_deletes_and_restamps_incrementally` passed
 for a different reason, and the reason is worth stating because it is the hole:
 with no embedder the base built no `current_fp`, so `row_diffs` came back empty
 and the older axes were never COMPARED -- the pass simply ran incrementally,
@@ -337,11 +337,13 @@ def test_a_vectors_off_pass_under_a_newer_full_fingerprint_also_refuses(
     assert "NEWER code" in result["error"]
 
 
-def test_a_vectors_off_manifest_from_older_code_still_rebuilds_and_restamps(
+def test_a_vectors_off_manifest_from_older_code_still_deletes_and_restamps_incrementally(
         rig):
     """The legitimate direction on the vectors-off arm: older recorded axes
-    still rebuild, a file genuinely gone still loses its row, and the row
-    axes are re-stamped to current."""
+    are not refused, a file genuinely gone still loses its row, and the row
+    axes are re-stamped to current -- by the incremental pass, which reparses
+    nothing and embeds nothing (a vectors-off pass cannot embed at all), so this
+    arm re-stamps rather than rebuilding."""
     core, reg, entry, project, _store, _embedder = rig
     assert core.run_index(entry.slug, project,
                           vectors="off")["state"] == "idle"
