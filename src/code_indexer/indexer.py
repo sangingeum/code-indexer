@@ -26,6 +26,7 @@ from .fingerprint import (VERSION_KEYS, configured_values,
                           current_fingerprint, current_version_meta,
                           current_version_stamp, describe_versions,
                           manifest_newer_than, newer_version_gaps,
+                          older_version_gaps,
                           read_fingerprint, row_side_mismatches,
                           write_fingerprint)
 from . import ts_chunker
@@ -521,6 +522,31 @@ class Indexer:
                         row_diffs)
         rebuild = rebuild or fp_changed
 
+        # The inverse direction on the vectors-off arm. With no embedder the
+        # pass builds no fingerprint, so `row_diffs` above is empty and the
+        # recorded axes were never COMPARED: a manifest recording OLDER row
+        # axes used to run incrementally and then have `write_row_side` stamp
+        # the current versions over rows the older extraction produced -- every
+        # row-reading surface then sees versions that agree while the rows are
+        # not this build's. The version keys need no service, so the comparison
+        # is made directly and a hit forces a full reparse. It stays a
+        # vectors-off pass: `to_embed` is only appended to when `vectors` is
+        # set, so nothing is embedded and no vector surface changes. Only the
+        # OLDER direction reparse here; the NEWER direction above is a refusal
+        # of the whole pass.
+        #
+        # A blank or absent recorded value is not a verdict (same rule as
+        # `newer_version_gaps`), so a pre-versioning manifest is still
+        # re-stamped without a reparse. That is a deliberate leave: nothing
+        # recorded can say its rows are older, and the first vectors-on pass
+        # writes a complete fingerprint for it.
+        row_axes_older = (current_fp is None
+                          and bool(older_version_gaps(recorded_versions)))
+        if row_axes_older:
+            logger.info("row axes recorded by OLDER code (%s): full reparse",
+                        describe_versions(recorded_versions))
+        rebuild = rebuild or row_axes_older
+
         # Turning vectors on for a project that was kept off: no cached hash
         # describes a vector in this mode, so this pass embeds what it
         # processes instead of trusting a cache built under another mode.
@@ -968,6 +994,19 @@ class Indexer:
         # one (the older-code case was refused before any write).
         if current_fp is not None:
             write_fingerprint(manifest, current_fp)
+        elif row_axes_older and read_failures:
+            # A forced reparse that could not re-open a file it just scanned
+            # (the read fails between the scan and the parse) leaves that
+            # file's rows as the older extraction wrote them. Stamping the
+            # current axes over them is exactly the certification this pass was
+            # made to stop; leaving the recorded axes where they are keeps the
+            # next pass's detection alive (and the error rows say why). A file
+            # the SCANNER cannot read is dropped from the scan set and its row
+            # deleted instead, so nothing stale is certified there either.
+            logger.warning(
+                "row axes stay at the recorded (older) values: %d file(s) "
+                "could not be reparsed, so not every row is this build's",
+                len(read_failures))
         else:
             from .fingerprint import write_row_side
             write_row_side(manifest)

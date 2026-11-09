@@ -135,9 +135,8 @@ code-indexer reindex-project /path/to/repo
   subpath relative to the project root -- one outside it is exit 2, and the root
   itself is `**`. Neither spelling infers a project from the working directory.
 - `reindex-project` is a full rebuild, also foreground; a vectors-on rebuild
-  embeds nothing its current rows already store, so it is cheaper than the first
-  pass. It writes in whole-file `EMBED_GROUP` (default 512) chunk groups: a crash
-  costs one group's re-embed, and a file's rows go in only after its points do.
+  embeds nothing its rows already store, and writes in whole-file `EMBED_GROUP`
+  (default 512) chunk groups, so a crash costs one group's re-embed.
 
 ## Removing and sweeping
 
@@ -184,6 +183,10 @@ code-indexer unwatch --all
 - **A pass older than the recorded fingerprint is refused** on both arms (a
   `--vectors off` pass deletes rows too): no delete and no row or version write
   (`index-more` keeps its scope), exit 4, naming `unwatch`, `watch` and `reindex-project`.
+- **The other direction reparses on the `--vectors off` arm**: recorded row axes
+  LOWER than this build's rebuild every file's rows instead of re-stamping them,
+  so a reader sees this extraction's rows; still no vector write, and a tree
+  already at the axes does nothing (`files_indexed=0`, `chunks_embedded=0`).
 
 ## Asking what state an index is in
 
@@ -220,8 +223,7 @@ stderr line saying what the pair MEANS, from the same verdict object the
   so the row reads refuse until a rebuild; a stale vector side is named too,
   and with vectors off the sentence says the clearing pass is a row pass.
 - `vectors-on-identity-matched` (`vectors=on`, no recorded identity key
-  differs): every key a read can compare matched; the DIMENSION is the one it
-  cannot compare, because learning it needs the service.
+  differs): every comparable key matched; the DIMENSION needs the service.
 - `vectors-on-identity-differs` (`vectors=on`, a recorded identity key
   differs, `vectors_state=stale`): the sentence names the key that did not
   match and says `reindex-project` clears it -- never "every key matched".
@@ -233,8 +235,7 @@ stderr line saying what the pair MEANS, from the same verdict object the
   rebuild is prescribed, and the difference is inert until a vectors-on pass.
 - `vectors-off-identity-matched` (`vectors=off`, identity matches): every
   comparable key matched and no rebuild is prescribed -- no vector side here.
-- `no-verdict-recorded` (no `fingerprint` field): the comparison did not run,
-  and the sentence says so -- silence would read as a pass.
+- `no-verdict-recorded` (no `fingerprint` field): the comparison did not run.
 
 `vectors_state` is the RECORDED marker; `stale` is written by no pass in this
 build, and with vectors off it prints as-is -- "not `stale`" is not "matched".
@@ -248,7 +249,7 @@ with no AST reader, freshness -- fields in [machine-output.md](machine-output.md
 
 `index-status` takes `--format text|json` (`--json` is the alias) and
 `--format compact`, the SAME line the text form prints -- it is already
-`key=value`. `doctor` and `list-projects` refuse `compact` with exit 2, like every read with no one-line-per-record form ([machine-output.md](machine-output.md)).
+`key=value`; `doctor` and `list-projects` refuse `compact` with exit 2 ([machine-output.md](machine-output.md)).
 
 It also names what the sensitive layer withheld: a suffixed
 `1 file skipped (sensitive content)` (or `sensitive filename`), followed by the
@@ -324,8 +325,7 @@ The three version axes:
 | `index_schema_version` | `meta` | the manifest migrates on the next WRITE open; the collection is untouched |
 
 **A read never migrates the manifest.** Reads open it read-only -- no
-journal-mode write, no DDL. An older manifest is reported as `schema=<n>` and
-its row surfaces refuse with exit 4 until a pass runs.
+journal-mode write, no DDL; an older one reports `schema=<n>` and refuses with exit 4.
 
 ## Configuration
 

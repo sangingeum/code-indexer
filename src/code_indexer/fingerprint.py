@@ -112,6 +112,33 @@ def newer_version_gaps(
     return gaps
 
 
+def older_version_gaps(
+        recorded: Mapping[str, str | None]) -> list[str]:
+    """Version keys a manifest recorded as LOWER than this build's.
+
+    The sibling direction of ``newer_version_gaps``: the recorded rows were
+    produced by an older chunker/extractor, so a pass that merely re-stamps
+    the row axes current would certify rows no pass rebuilt. A vectors-off
+    pass cannot see this through ``row_diffs`` (it builds no fingerprint), so
+    it reads the two recorded keys directly and forces a reparse on a hit.
+    A blank or unreadable value is not a verdict, exactly as in
+    ``newer_version_gaps`` -- a legacy manifest records no ordering at all.
+    """
+    gaps: list[str] = []
+    current = {key: int(value) for key, value in current_version_meta().items()}
+    for key in VERSION_KEYS:
+        raw = recorded.get(key)
+        if raw in (None, ""):
+            continue
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if value < current[key]:
+            gaps.append(f"{key}: {value} < {current[key]}")
+    return gaps
+
+
 # Keys whose configured value is knowable from configuration alone. The
 # embedding dimension is a property of the model and is only knowable by
 # asking the service, so a read path never compares it (ADR-0001 section 1).

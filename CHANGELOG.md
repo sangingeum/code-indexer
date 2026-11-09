@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased] — a vectors-off upgrade reparses instead of re-stamping
+
+**On the `--vectors off` arm, a manifest recording OLDER row axes now forces a
+full reparse.** That arm builds no fingerprint, so the row-axis comparison the
+vectors-on arm runs never happened there: a pass over a manifest recording
+`extraction_version` 14 ran incrementally, and then `write_row_side` stamped the
+current axes (`14 -> 15`) over rows the older extraction had produced -- every
+row-reading surface saw versions that agreed while the rows underneath were not
+this build's. The recorded `chunker_version`/`extraction_version` are now
+compared directly (the inverse of the newer-direction check), and a LOWER
+recorded value reparses every file. It stays a vectors-off pass: no chunk is
+queued for embedding and no vector surface changes. The NEWER direction still
+refuses the whole pass, unchanged. The row-side stamp now waits for the
+reparse: if a file the reparse had to rebuild cannot be re-opened between the
+scan and the parse, the recorded axes are left where they are for the next pass
+instead of being certified current over it.
+
+Measured on the guard fixture (2 files, 3 functions each) from the counters the
+pass returns: older axes with the tree unchanged -- `files_indexed 2`,
+`chunks_embedded 0`, `files_deleted 0`, zero embedder calls, and a symbol row
+the older extraction's row set lacked (`handler_2` of `caf\u00e9_na\u00efve.py`) is
+back; the same tree already at the current axes -- `files_indexed 0`,
+`chunks_embedded 0`. At ef70e6c the older-axes case reported `files_indexed 0`.
+The vectors-on arm's numbers are unchanged (its upgrade case still re-embeds,
+`chunks_embedded > 0`).
+
 ## [Unreleased] — a pass holds one group of vectors, not the project
 
 **A vectors-on pass embeds and writes in bounded groups.** The pass built every
@@ -61,16 +87,16 @@ current code (`code-indexer watch --all --background`), or run
 reports that error on every tick instead of corrupting silently. The legitimate
 direction is untouched: a manifest built by OLDER code still deletes what is
 genuinely gone and re-stamps, on both arms -- on the vectors-on arm by
-rebuilding and re-embedding, on the vectors-off arm by the incremental pass it
-always ran (a vectors-off pass cannot embed anything).
+rebuilding and re-embedding, on the vectors-off arm by the reparse it runs (a
+vectors-off pass cannot embed anything).
 
 Measured: the dedicated guard tests reproduce the deletion at the base commit
 (the multibyte-named file's row disappears while the recorded newer fingerprint
 stands, and on the vectors-off arm a row is deleted and the recorded extraction
 version regresses) and hold every row after the change, with the upgrade
 direction in its own test per arm: re-embedding, deleting and re-stamping on the
-vectors-on arm, and deleting plus re-stamping incrementally on the vectors-off
-arm. A refused `reindex-project` exits 4 (`RebuildRequiredError`
+vectors-on arm, and reparsing, deleting and re-stamping on the vectors-off arm.
+A refused `reindex-project` exits 4 (`RebuildRequiredError`
 on stderr), not 1.
 
 ## [Unreleased] — a lexical token's prefix family survives its position

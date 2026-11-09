@@ -17,16 +17,17 @@ base code already took exactly that path: `manifest_newer_than` returned False
 for a LOWER recorded version, so the else-branch compared the row axes, saw the
 extraction-version difference and set `rebuild`, the ordinary pass then purged the
 genuinely gone file and re-stamped the current fingerprint. On the vectors-off arm
-`test_a_vectors_off_manifest_from_older_code_still_deletes_and_restamps_incrementally` passed
-for a different reason, and the reason is worth stating because it is the hole:
-with no embedder the base built no `current_fp`, so `row_diffs` came back empty
-and the older axes were never COMPARED -- the pass simply ran incrementally,
-deleted the file that was genuinely gone, and the row-side stamp at the end of the
-pass wrote the current versions unconditionally. The test asserts exactly that,
-so it was green at base by way of the missing comparison, not by way of a
-comparison that went the right way. The refusal added by the rewrite is the NEWER
-direction only, so
-these two are the guard that it does not over-reach.
+`test_a_vectors_off_manifest_from_older_code_still_deletes_and_restamps_incrementally`
+also passed, for a different reason, and that reason was the hole: with no
+embedder the base built no `current_fp`, so `row_diffs` came back empty and the
+older axes were never COMPARED -- the pass ran incrementally and the row-side
+stamp at the end of the pass wrote the current versions unconditionally. The test
+asserted exactly that, so it was green by way of the missing comparison. The
+refusal added by the rewrite is the NEWER direction only. The OLDER direction on
+that arm is now a forced REPARSE (owner ruling): the recorded version
+keys are compared directly, a lower value rebuilds every row, and the pass still
+embeds nothing because the vectors-off arm never queues a chunk. The cases below
+are the guard in both directions.
 """
 
 from __future__ import annotations
@@ -173,6 +174,25 @@ def _snapshot(core, entry) -> tuple[set[str], int, list]:
     try:
         return (set(manifest.all_files()), len(manifest.all_chunks()),
                 [dict(r) for r in manifest.last_index_errors(50)])
+    finally:
+        manifest.close()
+
+
+def _drop_a_symbol_row(core, entry, path: str, name: str) -> None:
+    """Leave the row set an older extraction would have left: one symbol
+    short. A re-stamp cannot repair it; only a reparse re-extracts it."""
+    manifest = core.manifest_for(entry.slug)
+    try:
+        kept = [s for s in manifest.symbols_for_file(path) if s.name != name]
+        manifest.replace_file_symbols(path, kept)
+    finally:
+        manifest.close()
+
+
+def _symbol_names(core, entry, path: str) -> set[str]:
+    manifest = core.manifest_for(entry.slug, writable=False)
+    try:
+        return {s.name for s in manifest.symbols_for_file(path)}
     finally:
         manifest.close()
 
@@ -337,13 +357,53 @@ def test_a_vectors_off_pass_under_a_newer_full_fingerprint_also_refuses(
     assert "NEWER code" in result["error"]
 
 
-def test_a_vectors_off_manifest_from_older_code_still_deletes_and_restamps_incrementally(
-        rig):
-    """The legitimate direction on the vectors-off arm: older recorded axes
-    are not refused, a file genuinely gone still loses its row, and the row
-    axes are re-stamped to current -- by the incremental pass, which reparses
-    nothing and embeds nothing (a vectors-off pass cannot embed at all), so this
-    arm re-stamps rather than rebuilding."""
+def test_a_vectors_off_pass_over_older_axes_reparses_and_embeds_nothing(rig):
+    """The legitimate direction on the vectors-off arm forces a REPARSE.
+
+    A manifest whose recorded row axes are older still lets the pass run (the
+    NEWER direction is what refuses), but the pass must not re-stamp the axes
+    current over rows the older extraction produced: it reparses every file,
+    so the rows it leaves behind are this build's. The tree itself is
+    unchanged: the work is the reparse, and a vectors-off pass never embeds.
+    """
+    core, reg, entry, project, _store, embedder = rig
+    assert core.run_index(entry.slug, project,
+                          vectors="off")["state"] == "idle"
+    files_before, chunks_before, _errors = _snapshot(core, entry)
+    # What the fixture's older extraction would have left behind: one symbol
+    # row short. No version stamp can bring it back; only a reparse re-extracts
+    # it, so this is the row-level fact that says "reparsed, not re-stamped".
+    _drop_a_symbol_row(core, entry, "caf\u00e9_na\u00efve.py", "handler_2")
+    _set_extraction_version(core, entry, EXTRACTION_VERSION - 1)
+    embedder.embed_calls.clear()
+
+    result = core.run_index(entry.slug, project, vectors="off")
+
+    assert result["state"] == "idle"
+    assert result["result"]["files_deleted"] == 0
+    assert result["result"]["files_indexed"] == 2, (
+        "older row axes must force a reparse of every file, not a re-stamp")
+    assert result["result"]["chunks_embedded"] == 0, (
+        "a vectors-off pass must embed nothing")
+    assert embedder.embed_calls == [], "the vectors-off arm embedded"
+    files_after, chunks_after, _errors = _snapshot(core, entry)
+    assert files_after == files_before
+    assert chunks_after == chunks_before
+    assert _symbol_names(core, entry, "caf\u00e9_na\u00efve.py") == {
+        "handler_0", "handler_1", "handler_2"}, (
+        "the dropped symbol row is not back: the pass re-stamped without "
+        "reparsing")
+    manifest = core.manifest_for(entry.slug)
+    try:
+        assert manifest.get_meta("extraction_version") == str(
+            EXTRACTION_VERSION)
+    finally:
+        manifest.close()
+
+
+def test_a_vectors_off_upgrade_still_deletes_a_gone_file(rig):
+    """The older direction on the vectors-off arm still purges a file that is
+    genuinely gone -- the reparse must not turn the pass into a no-op."""
     core, reg, entry, project, _store, _embedder = rig
     assert core.run_index(entry.slug, project,
                           vectors="off")["state"] == "idle"
@@ -354,14 +414,26 @@ def test_a_vectors_off_manifest_from_older_code_still_deletes_and_restamps_incre
 
     assert result["state"] == "idle"
     assert result["result"]["files_deleted"] == 1
+    assert result["result"]["chunks_embedded"] == 0
     files_after, _chunks, _errors = _snapshot(core, entry)
     assert files_after == {"caf\u00e9_na\u00efve.py"}
-    manifest = core.manifest_for(entry.slug)
-    try:
-        assert manifest.get_meta("extraction_version") == str(
-            EXTRACTION_VERSION)
-    finally:
-        manifest.close()
+
+
+def test_an_unchanged_tree_at_current_axes_reparses_nothing(rig):
+    """The other direction of the same comparison: a tree already at the
+    recorded row axes has no work, so the pass is genuinely incremental
+    (files_indexed 0) and still embeds nothing."""
+    core, reg, entry, project, _store, embedder = rig
+    assert core.run_index(entry.slug, project,
+                          vectors="off")["state"] == "idle"
+    embedder.embed_calls.clear()
+
+    result = core.run_index(entry.slug, project, vectors="off")
+
+    assert result["state"] == "idle"
+    assert result["result"]["files_indexed"] == 0
+    assert result["result"]["chunks_embedded"] == 0
+    assert embedder.embed_calls == []
 
 
 def test_a_refused_pass_exits_four_from_reindex_project(tmp_path,
