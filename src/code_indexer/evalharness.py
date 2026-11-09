@@ -301,15 +301,36 @@ def _format_one_arm(report: dict[str, Any], arm: str | None,
 
 
 def compare_reports(a: dict[str, Any], b: dict[str, Any]) -> str:
-    """Delta table (b vs a) + per-query win/loss list. Deterministic."""
+    """Delta table (b vs a) + per-query win/loss list. Deterministic.
+
+    The header names each side's arm, so a delta can never be published
+    without the shaping it measured. Two documents that name DIFFERENT arms
+    are refused: a merged report's numbers and an unmerged one's differ by a
+    whole pass, so a delta across them would read as a rule change rather
+    than a measurement. The two-arm report already carries both arms from
+    ONE retrieval, so the comparison across shapings lives inside it; a
+    comparison across runs takes one report per arm. A report written before
+    the ``arm`` field existed is labelled ``arm unrecorded`` rather than
+    silently assumed to be either arm.
+    """
     if "arms" in a or "arms" in b:
         raise ValueError(
             "error: eval-compare reads single-arm reports; a two-arm report "
             "carries both arms already -- write one report per arm "
             "(--arm merged / --arm unmerged) to compare across runs")
+    arm_a, arm_b = a.get("arm"), b.get("arm")
+    if arm_a is not None and arm_b is not None and arm_a != arm_b:
+        raise ValueError(
+            f"error: eval-compare compares one arm at a time: a is {arm_a!r} "
+            f"and b is {arm_b!r}; a delta across arms reads as a rule change. "
+            f"Compare two reports of the same arm (--arm), or read both "
+            f"arms from one --arm both report")
     ma, mb = a["metrics"], b["metrics"]
     keys = list(dict.fromkeys(list(ma) + list(mb)))
-    lines = ["metric                    a          b         delta",
+    # The metric table keeps its original geometry byte for byte; the arm
+    # line above it is what a reader now cannot miss.
+    lines = [f"a ({arm_a or 'arm unrecorded'}) vs b ({arm_b or 'arm unrecorded'})",
+             "metric                    a          b         delta",
              "----------------------------------------------------"]
     for k in keys:
         va, vb = ma.get(k, 0.0), mb.get(k, 0.0)

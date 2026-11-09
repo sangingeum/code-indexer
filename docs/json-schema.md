@@ -893,9 +893,12 @@ query:
 the single-arm report already has. The arms share the retrieval (one query
 embedding and one vector search per query); a row's `latency_s` is that
 shared retrieval plus the arm's own shaping time, so the two latencies are
-not the pair's wall time counted twice. A two-arm document is what
-`eval-compare` refuses, because it compares two single-arm reports; neither
-shape has a `--json` envelope.
+not the pair's wall time counted twice. A two-arm report's latency is also not
+comparable with a single-arm report's of the same shaping: the shared retrieval
+is measured once per query here, against a fresh retrieval there. A two-arm
+document is what `eval-compare` refuses (a usage error, exit 2), because it
+compares two single-arm reports of one arm; neither shape has a `--json`
+envelope.
 
 ## Error contract (non-JSON)
 

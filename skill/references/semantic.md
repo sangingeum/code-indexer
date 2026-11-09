@@ -119,12 +119,16 @@ code-indexer eval-compare /tmp/eval-dense.json /tmp/eval-rerank.json
   `approx_tokens`). A two-arm report has `arm: "both"` and an `arms` object
   holding one `metrics` + `results` block per arm; `docs/json-schema.md`
   owns that shape.
-- `eval-compare` reads two single-arm reports and prints a metric delta table
-  (`a`, `b`, `delta`) plus the per-query `improved` / `regressed` / `unchanged`
-  lists; a two-arm report already carries both arms, so it is refused there
-  and comparing across runs takes one report per arm. Neither command has
-  `--json`: the report is already machine-readable, and `--skip-stale-check` /
-  `--refresh` are accepted but inert here because both only read files.
+- `eval-compare` reads two single-arm reports of the SAME arm and prints a
+  metric delta table (`a`, `b`, `delta`) whose header names each side's arm
+  (a report written before `--arm` existed reads `arm unrecorded`), plus the
+  per-query `improved` / `regressed` / `unchanged` lists. A cross-arm pair is
+  refused -- a delta across the two shapings would read as a rule change, and
+  the two-arm report already carries both arms -- and so is a two-arm report;
+  both are `ArgumentError`, exit 2, and comparing across runs takes one report
+  per arm. Neither command has `--json`: the report is already
+  machine-readable, and `--skip-stale-check` / `--refresh` are accepted but
+  inert here because both only read files.
 
 ### Which arm a published number came from
 

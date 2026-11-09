@@ -72,8 +72,9 @@ own rung. The rule is rung-scoped, so it can never put a source duplicate below
 a document; it is an order, never a filter, and a hit with no line range keeps
 its place. On a shipped read the earlier merge has already collapsed one
 file's overlapping and adjacent chunks into a single union hit before the
-class key, so the rule is an identity there: it acts on the unmerged answer
-`code-indexer eval` scores, which is the surface where its measured win lives.
+class key, so the rule is an identity there: it acts on the unmerged arm
+(`--arm unmerged`, the default), which is the surface where its measured win
+lives.
 
 **A point repair needs no embedding service.** `reindex-project --repair-points`
 re-addresses vectors that are already in the collection, so it has no reason to

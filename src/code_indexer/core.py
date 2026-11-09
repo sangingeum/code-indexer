@@ -1280,11 +1280,22 @@ class Core:
         """The expensive half of ``search``: resolution, the gates, ONE query
         embedding and the per-project retrieval, before any shaping.
 
-        Nothing here merges, orders or trims: every project's hits come back
-        as its store and ranking produced them, so a caller can shape the
-        same retrieval more than once without paying for it twice. Raises
-        ValueError, ConfigError and BackendError exactly as ``search``
-        documents -- the refusals belong to the retrieval, not the shaping.
+        What comes back is post-retrieval, not pristine: ``search_one`` has
+        already score-ordered the pool, re-scored it with the selected
+        ranking pass (``metadata_rerank`` / ``hybrid_fuse``), down-weighted
+        pure-data chunks and applied the data-file share cap inside the
+        over-fetched top-k window -- so the order and the scores are the
+        store's candidates after those passes, and the window is already
+        reordered by the share cap. The lexical and fused pools are trimmed
+        to ``limit * 3``, and ``rerank`` (when asked) reorders the head. What
+        has NOT happened yet is the shaping every answer shares: the
+        same-file merge, the class ladder, the repeat-coverage order, the
+        per-file cap and the budget trim -- those belong to
+        ``_shape_answer``. That split is what lets a caller shape the same
+        retrieval more than once (``search_both_shapings``) without paying
+        for it twice. Raises ValueError, ConfigError and BackendError exactly
+        as ``search`` documents -- the refusals belong to the retrieval, not
+        the shaping.
         """
         if mode not in SEARCH_MODES:
             raise ValueError(f"error: unknown search mode: {mode}")
@@ -1376,9 +1387,21 @@ class Core:
         """One retrieval's pools in, one answer out.
 
         ``merge`` is the shipped shaping's first pass: overlapping or adjacent
-        hits of one file collapse into a union hit before the class key. The
-        hits are shaped in place, so a caller that shapes one pool twice hands
-        the second pass its own copy (``search_both_shapings`` does).
+        hits of one file collapse into a union hit before the class key.
+
+        NON-MUTATION CONTRACT: no pass here writes into the hits it is given.
+        Every ranking pass either copies a hit before changing a field
+        (``downweight_data_files``, ``hybrid_fuse``, ``metadata_rerank``,
+        ``truncate_snippets``, ``_merge_run``) or builds a new list of the
+        same references (``score_order``, ``class_order``,
+        ``demote_repeated_spans``, ``merge_overlapping``, ``cap_per_file``,
+        ``cap_data_file_share``, ``trim_to_budget``, ``rrf_fuse``). The pool
+        a caller holds is therefore read-only to this method: shaping it once
+        leaves it byte-identical, and shaping it twice returns the same
+        answer. ``search_both_shapings`` shapes a pool twice and is what the
+        contract exists for; it still hands the second pass a deep copy, but
+        as belt-and-braces -- the copy makes a future in-place pass a
+        performance regression rather than a wrong answer.
         """
 
         if len(per_project) == 1:
@@ -1514,9 +1537,12 @@ class Core:
             query, project, limit, file_filter, symbol_type, language,
             ranking_mode, mode, rerank, all_projects, budget_s)
         retrieval_s = time.perf_counter() - started
-        # The shaping mutates its hits (the share cap rewrites ``score``, the
-        # snippet trim rewrites ``snippet``), so the second pass gets its own
-        # copy. The pool is a few dozen small dicts, not the cost being saved.
+        # Every shaping pass returns new structures and never writes into the
+        # hits it is handed (the non-mutation contract on ``_shape_answer``),
+        # so the two passes COULD share one pool. The copy is belt-and-braces:
+        # it makes a future in-place pass a performance regression instead of
+        # a wrong answer for the first shaping. The pool is a few dozen small
+        # dicts, not the cost being saved.
         pristine = copy.deepcopy(per_project)
         answers: dict[str, dict[str, Any]] = {}
         shaping_s: dict[str, float] = {}

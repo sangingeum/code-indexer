@@ -23,8 +23,8 @@ retrieval mode (`--mode dense`, `hybrid`, `lexical`):
   the distinct spans of its own rung, so a region no hit has shown yet
   outranks a re-shown one. Still an ORDER: never a filter, never a merge.
   `merge_overlapping` runs before it on a shipped read, where it has already
-  collapsed the same-file siblings, so the pass acts on the unmerged (eval)
-  answer.
+  collapsed the same-file siblings, so the pass acts on the unmerged arm
+  (`--arm unmerged`, the default).
 - **two waivers**, stated here because a waiver nobody wrote down is folklore:
   1. a query that targets tests — a token in `TEST_QUERY_MARKERS` (`test`,
      `tests`, `testing`, `spec`, `specs`, `fixture`, `fixtures`, `unittest`,

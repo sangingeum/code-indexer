@@ -3775,7 +3775,12 @@ def eval_compare(
     try:
         typer.echo(compare_reports(ra, rb))
     except ValueError as exc:
-        _die(str(exc))
+        # Both refusals -- a two-arm document and a cross-arm pair -- are
+        # about the ARGUMENTS the caller handed the command: each is a valid
+        # eval report the comparison cannot accept, and each message names the
+        # next invocation. That is the usage (argument) class, exit 2, not a
+        # fault in the tool (ADR-0003 section 5).
+        _usage_die(str(exc))
 
 
 # The listing is grouped here, after every command is registered; the command
