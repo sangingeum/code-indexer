@@ -45,7 +45,9 @@ direction-blind full rebuild, but let the pass continue: an older watcher still
 ran a delete step derived from its own scan set (vivarium-sim lost all 12
 multibyte-straddle files, 823 -> 811 rows) and could embed changed files with
 its older extraction code. The guard now refuses the whole pass before any
-delete or manifest write, raising the rebuild class. That refusal covers the
+delete or row/version write, raising the rebuild class. (`index-more` records
+its scope in the manifest before the pass starts, so a refused `index-more` can
+still add a scope entry; the pass itself writes nothing.) That refusal covers the
 service-free pass too: the version ordering needs no embedder, so a
 `--vectors off` pass -- which deletes from its own scan set and re-stamps the
 row axes just the same -- is refused on the same terms. The class now survives

@@ -10,14 +10,23 @@ write, and the refusal is the rebuild class (exit 4) naming the remedy.
 The legitimate direction -- manifest built by OLDER code, this process newer --
 must still rebuild, delete what is genuinely gone, and re-stamp.
 
-Only `test_a_manifest_from_older_code_still_rebuilds_and_deletes` is green at
-the base commit 78fcd64, and the reason is that the base code already took
-exactly that path: `manifest_newer_than` returned False for a LOWER recorded
-version, so the else-branch compared the row axes, saw the extraction-version
-difference and set `rebuild`, the ordinary pass then purged the genuinely
-gone file and re-stamped the current fingerprint. The refusal added by the
-rewrite is the NEWER direction only, so this test is the guard that the
-refusal does not over-reach.
+Two tests are green at the base commit 78fcd64, and both are the UPGRADE
+direction -- the one the refusal must not over-reach. On the vectors-on arm
+`test_a_manifest_from_older_code_still_rebuilds_and_deletes` passed because the
+base code already took exactly that path: `manifest_newer_than` returned False
+for a LOWER recorded version, so the else-branch compared the row axes, saw the
+extraction-version difference and set `rebuild`, the ordinary pass then purged the
+genuinely gone file and re-stamped the current fingerprint. On the vectors-off arm
+`test_a_vectors_off_manifest_from_older_code_still_rebuilds_and_restamps` passed
+for a different reason, and the reason is worth stating because it is the hole:
+with no embedder the base built no `current_fp`, so `row_diffs` came back empty
+and the older axes were never COMPARED -- the pass simply ran incrementally,
+deleted the file that was genuinely gone, and the row-side stamp at the end of the
+pass wrote the current versions unconditionally. The test asserts exactly that,
+so it was green at base by way of the missing comparison, not by way of a
+comparison that went the right way. The refusal added by the rewrite is the NEWER
+direction only, so
+these two are the guard that it does not over-reach.
 """
 
 from __future__ import annotations
