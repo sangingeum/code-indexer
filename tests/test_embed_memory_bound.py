@@ -11,6 +11,19 @@ is exact).
 ``cfg.embed_group`` is set after construction on purpose: the attribute is the
 property under test, and a construction-time keyword would make this file
 error out at the base commit instead of failing on the property.
+
+Two of these five tests are green at the base commit 78fcd64, and both are
+green for a true reason rather than by accident. The base pass already built
+every request's texts with ``embed_text(file, chunk)`` over the same stored
+chunk rows, so `test_the_grouped_pass_embeds_the_same_construction_as_the_rows`
+passed before the rewrite -- what changed is the batching boundary, not the
+construction. And the base pass already isolated a per-chunk embed failure:
+`test_a_poisoned_chunk_is_recorded_and_skipped_inside_its_group` passed because
+the error was recorded in ``index_errors``, the poisoned chunk was skipped, and
+a file's row was committed only for chunks that reached the store, so a file
+emptied by failures was never claimed. The three failing tests are the new
+properties: one bounded request, one bounded group alive, and a file larger
+than a group travelling whole.
 """
 
 from __future__ import annotations

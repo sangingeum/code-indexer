@@ -9,6 +9,15 @@ write, and the refusal is the rebuild class (exit 4) naming the remedy.
 
 The legitimate direction -- manifest built by OLDER code, this process newer --
 must still rebuild, delete what is genuinely gone, and re-stamp.
+
+Only `test_a_manifest_from_older_code_still_rebuilds_and_deletes` is green at
+the base commit 78fcd64, and the reason is that the base code already took
+exactly that path: `manifest_newer_than` returned False for a LOWER recorded
+version, so the else-branch compared the row axes, saw the extraction-version
+difference and set `rebuild`, the ordinary pass then purged the genuinely
+gone file and re-stamped the current fingerprint. The refusal added by the
+rewrite is the NEWER direction only, so this test is the guard that the
+refusal does not over-reach.
 """
 
 from __future__ import annotations
@@ -31,13 +40,17 @@ from code_indexer.registry import Registry  # noqa: E402
 
 
 class StubEmbedder:
+    """Counts every embed request, so "it embedded nothing" is witnessed."""
+
     def __init__(self, dim: int = 4) -> None:
         self.dim = dim
+        self.embed_calls: list[int] = []
 
     def dimension(self) -> int:
         return self.dim
 
     def embed(self, texts):
+        self.embed_calls.append(len(texts))
         return [[0.1] * self.dim for _ in texts]
 
 
@@ -112,7 +125,7 @@ def rig():
     core.indexer.store = store  # type: ignore[assignment]
     reg = Registry(os.path.join(tmp, "registry.db"))
     entry = reg.add(project, name="guardproj")
-    yield core, reg, entry, project, store
+    yield core, reg, entry, project, store, embedder
     reg.close()
     shutil.rmtree(tmp, ignore_errors=True)
     shutil.rmtree(project, ignore_errors=True)
@@ -158,7 +171,7 @@ def _snapshot(core, entry) -> tuple[set[str], int, list]:
 def test_a_newer_manifest_pass_deletes_no_row(rig, monkeypatch):
     """The recorded-newer pass refuses: the row for the file its older scan
     cannot see survives, and the store is never told to purge it."""
-    core, reg, entry, project, store = rig
+    core, reg, entry, project, store, _embedder = rig
     assert core.run_index(entry.slug, project)["state"] == "idle"
     files_before, chunks_before, _errors = _snapshot(core, entry)
     assert "caf\u00e9_na\u00efve.py" in files_before
@@ -177,24 +190,29 @@ def test_a_newer_manifest_pass_deletes_no_row(rig, monkeypatch):
 
 
 def test_a_newer_manifest_pass_writes_no_row_or_vector(rig, monkeypatch):
-    """Nor does it embed: no request reaches the store, no chunk error is
-    recorded, and the recorded (newer) fingerprint still stands."""
-    core, reg, entry, project, store = rig
+    """Nor does it embed: the embedder sees no request at all, nothing reaches
+    the store, no chunk error is recorded, and the recorded (newer)
+fingerprint still stands."""
+    core, reg, entry, project, store, embedder = rig
     assert core.run_index(entry.slug, project)["state"] == "idle"
     newer = EXTRACTION_VERSION + 1
     _set_extraction_version(core, entry, newer)
     store.upserts.clear()
+    embedder.embed_calls.clear()
     _hide_a_file_from_the_scan(monkeypatch, "alpha.py")
 
     result = core.run_index(entry.slug, project)
 
+    # Measured on the embedder itself: a refusal that read the manifest and
+    # then embedded anyway would leave a call here.
+    assert embedder.embed_calls == [], "the refused pass must not embed"
     assert result["state"] == "error"
     assert store.upserts == []
     assert _stored_extraction_version(core, entry) == newer
 
 
 def test_the_refusal_names_the_manifest_and_the_remedy(rig, monkeypatch):
-    core, reg, entry, project, store = rig
+    core, reg, entry, project, store, _embedder = rig
     assert core.run_index(entry.slug, project)["state"] == "idle"
     newer = EXTRACTION_VERSION + 1
     _set_extraction_version(core, entry, newer)
@@ -215,7 +233,7 @@ def test_the_refusal_raises_the_rebuild_class_that_exits_four(rig):
     remedy in its own message (core reports a pass failure as state=error)."""
     from code_indexer.errors import RebuildRequiredError
 
-    core, reg, entry, project, store = rig
+    core, reg, entry, project, store, _embedder = rig
     assert core.run_index(entry.slug, project)["state"] == "idle"
     newer = EXTRACTION_VERSION + 1
     _set_extraction_version(core, entry, newer)
@@ -236,7 +254,7 @@ def test_the_refusal_raises_the_rebuild_class_that_exits_four(rig):
 def test_a_manifest_from_older_code_still_rebuilds_and_deletes(rig):
     """The legitimate upgrade: older recorded axes rebuild, a file genuinely
     gone still loses its row, and the fingerprint is re-stamped to current."""
-    core, reg, entry, project, store = rig
+    core, reg, entry, project, store, _embedder = rig
     assert core.run_index(entry.slug, project)["state"] == "idle"
     _set_extraction_version(core, entry, EXTRACTION_VERSION - 1)
     os.remove(os.path.join(project, "alpha.py"))
