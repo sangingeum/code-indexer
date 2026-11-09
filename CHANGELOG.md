@@ -10,7 +10,10 @@ current axes (`14 -> 15`) over rows the older extraction had produced -- every
 row-reading surface saw versions that agreed while the rows underneath were not
 this build's. The recorded `chunker_version`/`extraction_version` are now
 compared directly (the inverse of the newer-direction check), and a LOWER
-recorded value reparses every file. It stays a vectors-off pass: no chunk is
+recorded value reparses every file. A blank or absent recorded version is not a
+verdict -- the same rule as `newer_version_gaps` -- so a pre-versioning manifest
+is re-stamped rather than reparsed, and the first vectors-on pass writes a
+complete fingerprint for it. It stays a vectors-off pass: no chunk is
 queued for embedding and no vector surface changes. The NEWER direction still
 refuses the whole pass, unchanged. The row-side stamp now waits for the
 reparse: if a file the reparse had to rebuild cannot be re-opened between the

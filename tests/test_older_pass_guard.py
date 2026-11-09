@@ -10,24 +10,33 @@ write, and the refusal is the rebuild class (exit 4) naming the remedy.
 The legitimate direction -- manifest built by OLDER code, this process newer --
 must still rebuild, delete what is genuinely gone, and re-stamp.
 
-Two tests are green at the base commit 78fcd64, and both are the UPGRADE
-direction -- the one the refusal must not over-reach. On the vectors-on arm
-`test_a_manifest_from_older_code_still_rebuilds_and_deletes` passed because the
-base code already took exactly that path: `manifest_newer_than` returned False
-for a LOWER recorded version, so the else-branch compared the row axes, saw the
-extraction-version difference and set `rebuild`, the ordinary pass then purged the
-genuinely gone file and re-stamped the current fingerprint. On the vectors-off arm
-`test_a_vectors_off_manifest_from_older_code_still_deletes_and_restamps_incrementally`
-also passed, for a different reason, and that reason was the hole: with no
-embedder the base built no `current_fp`, so `row_diffs` came back empty and the
-older axes were never COMPARED -- the pass ran incrementally and the row-side
-stamp at the end of the pass wrote the current versions unconditionally. The test
-asserted exactly that, so it was green by way of the missing comparison. The
-refusal added by the rewrite is the NEWER direction only. The OLDER direction on
-that arm is now a forced REPARSE (owner ruling): the recorded version
-keys are compared directly, a lower value rebuilds every row, and the pass still
-embeds nothing because the vectors-off arm never queues a chunk. The cases below
-are the guard in both directions.
+Three of the current tests are green at the base commit 78fcd64. On the
+vectors-on arm `test_a_manifest_from_older_code_still_rebuilds_and_deletes`
+passed because the base already took the upgrade path: `manifest_newer_than`
+returned False for a LOWER recorded version, so the else-branch compared the row
+axes, saw the extraction-version difference and set `rebuild`, and the ordinary
+pass purged the genuinely gone file and re-stamped the current fingerprint.
+
+The other two are the vectors-off additions, and both ride the base's empty
+`row_diffs`: with no embedder the base built no `current_fp`, so the axes were
+never COMPARED, the pass ran incrementally, and the end-of-pass row-side stamp
+wrote the current versions unconditionally.
+`test_a_vectors_off_upgrade_still_deletes_a_gone_file` was green on that: the
+incremental pass still deleted the genuinely gone file, and the stamp certified
+the current versions over rows it had not reparsed, so the delete, the zero
+embed count and the surviving rows it asserts all held.
+`test_an_unchanged_tree_at_current_axes_reparses_nothing` was green from the
+other side of the same empty comparison: a tree already at the recorded axes had
+no work, which is the `files_indexed 0` and the zero embeds it asserts.
+`test_a_vectors_off_pass_over_older_axes_reparses_and_embeds_nothing` is NEW at
+base -- it fails there on `files_indexed` (`assert 0 == 2`) -- so it needs no
+base-green reason.
+
+The refusal added by the rewrite is the NEWER direction only. The OLDER
+direction on that arm is now a forced REPARSE (owner ruling): the recorded
+version keys are compared directly, a lower value rebuilds every row, and the
+pass still embeds nothing because the vectors-off arm never queues a chunk. The
+cases below are the guard in both directions.
 """
 
 from __future__ import annotations
