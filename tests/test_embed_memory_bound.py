@@ -20,8 +20,11 @@ passed before the rewrite -- what changed is the batching boundary, not the
 construction. And the base pass already isolated a per-chunk embed failure:
 `test_a_poisoned_chunk_is_recorded_and_skipped_inside_its_group` passed because
 the error was recorded in ``index_errors``, the poisoned chunk was skipped, and
-a file's row was committed only for chunks that reached the store, so a file
-emptied by failures was never claimed. The three failing tests are the new
+a file whose every chunk failed was left uncommitted, so a file
+emptied by failures was never claimed. (The chunk rows themselves are written
+at parse time, before any embed, so a partial failure does leave a chunk row
+whose vector never reached the store; what the pass never does is claim a file
+whose every chunk failed.) The three failing tests are the new
 properties: one bounded request, one bounded group alive, and a file larger
 than a group travelling whole.
 """
