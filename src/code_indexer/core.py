@@ -22,7 +22,7 @@ from .config import Config, load_config
 from .errors import (ArgumentError, BackendError,
                      ExtensionUnavailableError, InternalError, LockedError,
                      NotFoundError, RebuildRequiredError,
-                     VectorsDisabledError)
+                     VectorsDisabledError, class_for, classify)
 from .extensions import SEMANTIC_EXTENSION_MESSAGE
 from .fingerprint import (ConfigError, EMBED_FORMAT, ROW_SIDE_KEYS,
                           configured_values, read_fingerprint,
@@ -525,8 +525,13 @@ class Core:
                 return {"state": "idle", "result": vars(result)}
             except Exception as exc:  # noqa: BLE001
                 logger.exception("indexing failed for %s", project_path)
-                self._set_state(slug, state="error", error=str(exc))
-                return {"state": "error", "error": str(exc)}
+                failure = classify(exc)
+                self._set_state(slug, state="error", error=str(failure))
+                # ``error_type`` travels with the message so a caller of a
+                # pass command can rebuild the class and keep its exit code
+                # (a refused pass is the rebuild class, 4; not a generic 1).
+                return {"state": "error", "error": str(failure),
+                        "error_type": failure.error_type}
             finally:
                 manifest.close()
 
@@ -558,7 +563,7 @@ class Core:
         if result.get("state") == "indexing":
             raise LockedError("indexing in progress")
         if result.get("state") == "error":
-            raise InternalError(
+            raise class_for(str(result.get("error_type") or ""))(
                 f"index pass failed for {entry.path}: {result.get('error')}")
         return result
 
@@ -989,8 +994,12 @@ class Core:
                 return {"state": "idle", "result": vars(result)}
             except Exception as exc:  # noqa: BLE001
                 logger.exception("swap rebuild failed for %s", project_path)
-                self._set_state(slug, state="error", error=str(exc))
-                return {"state": "error", "error": str(exc)}
+                failure = classify(exc)
+                self._set_state(slug, state="error", error=str(failure))
+                # Same seam as run_index: the class travels with the message
+                # so a refused rebuild reaches the caller as exit 4.
+                return {"state": "error", "error": str(failure),
+                        "error_type": failure.error_type}
             finally:
                 manifest.close()
 

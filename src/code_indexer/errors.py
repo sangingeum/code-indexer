@@ -361,6 +361,23 @@ class PartialApplyError(IndexerError):
     exit_code = EXIT_FAIL
 
 
+# The classes a PASS can report, so a failure that crossed the pass seam as
+# data (``core.run_index``) can be rebuilt with the class that produced it --
+# a refused pass is the rebuild class (exit 4), not a generic failure.
+PASS_ERROR_TYPES = (
+    ArgumentError, BackendError, ConfigError, InternalError, LockedError,
+    NotFoundError, RebuildRequiredError, VectorsDisabledError,
+)
+
+
+def class_for(error_type: str) -> type[IndexerError]:
+    """The taxonomy class named by ``error_type``; InternalError otherwise."""
+    for cls in PASS_ERROR_TYPES:
+        if cls.error_type == error_type:
+            return cls
+    return InternalError
+
+
 def classify(exc: BaseException) -> IndexerError:
     """Map any exception onto the taxonomy (mechanical, no content change).
 

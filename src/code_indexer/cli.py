@@ -25,10 +25,10 @@ logger = logging.getLogger("code-indexer.cli")
 
 from .command_classes import COMPACT_FORMAT_COMMANDS, HELP_PANEL_ORDER, help_panel
 from .errors import fail
-from .errors import ArgumentError, classify, IndexerError, RebuildRequiredError
+from .errors import (ArgumentError, classify, class_for, IndexerError,
+                     RebuildRequiredError)
 from .errors import (AmbiguousSymbolError, ExtensionUnavailableError,
-                     InternalError, LocatorMismatchError, NotFoundError,
-                     NotUtf8Error)
+                     LocatorMismatchError, NotFoundError, NotUtf8Error)
 from . import plans
 from . import apply as apply_mod
 from . import keeper as keeper_mod
@@ -323,6 +323,20 @@ def _pass_fail(exc: IndexerError, json_output: bool) -> NoReturn:
         _json_failure(exc, True)
     fail(exc)
     raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _pass_failure(result: dict, prefix: str) -> IndexerError:
+    """The failure a pass reported, rebuilt with the class that produced it.
+
+    ``core.run_index`` hands a failed pass back as data with its
+    ``error_type`` beside the message, so the class survives this seam: a
+    refused pass stays the rebuild class and exits 4, which is how a caller
+    scripting a watcher tells a refusal from an internal fault. The caller
+    passes the result itself -- the ``--json`` payload deliberately carries
+    only the message.
+    """
+    return class_for(str(result.get("error_type") or ""))(
+        f"{prefix}: {result.get('error')}")
 
 
 def _package_version() -> str:
@@ -1208,8 +1222,8 @@ def add_project(
     result = core.run_index(entry.slug, entry.path, vectors=vectors)
     index = _index_payload(entry.slug, result)
     if index["state"] == "error":
-        _pass_fail(InternalError(
-            f"{entry.slug}: indexing error: {index['error']}"), json_output)
+        _pass_fail(_pass_failure(result, f"{entry.slug}: indexing error"),
+                   json_output)
     lines.append(_pass_line(entry.slug, result))
     _emit_pass({"schema": 1, "command": "add-project", "path": entry.path,
                 "slug": entry.slug, "name": entry.name, "registered": True,
@@ -1276,8 +1290,8 @@ def index_more(
                             rescan=True)
     index = _index_payload(entry.slug, result)
     if index["state"] == "error":
-        _pass_fail(InternalError(
-            f"{entry.slug}: indexing error: {index['error']}"), json_output)
+        _pass_fail(_pass_failure(result, f"{entry.slug}: indexing error"),
+                   json_output)
     _emit_pass({"schema": 1, "command": "index-more", "path": entry.path,
                 "slug": entry.slug, "scope_include": current, "index": index},
                [scope_line, _pass_line(entry.slug, result)], json_output)
@@ -2000,9 +2014,8 @@ def reindex_project(
             _pass_fail(exc, json_output)
         index = _index_payload(entry.slug, result)
         if index["state"] == "error":
-            _pass_fail(InternalError(
-                f"{entry.slug}: point repair failed: {index.get('error')}"),
-                json_output)
+            _pass_fail(_pass_failure(result, f"{entry.slug}: point repair failed"),
+                       json_output)
         unrepairable = int((index.get("result") or {})
                            .get("chunks_unrepairable") or 0)
         if unrepairable:
@@ -2022,8 +2035,8 @@ def reindex_project(
     result = core.reindex_with_swap(entry.slug, entry.path, vectors=vectors)
     index = _index_payload(entry.slug, result)
     if index["state"] == "error":
-        _pass_fail(InternalError(
-            f"{entry.slug}: indexing error: {index['error']}"), json_output)
+        _pass_fail(_pass_failure(result, f"{entry.slug}: indexing error"),
+                   json_output)
     _emit_pass({"schema": 1, "command": "reindex-project",
                 "path": entry.path, "slug": entry.slug,
                 "vectors": core.resolve_vectors(entry.slug, vectors),

@@ -176,14 +176,14 @@ code-indexer unwatch --all
   `<INDEX_ROOT>/watch.pid`; a second is refused while a live one holds it, and
   `--background` confirms the daemon before printing `watch daemon started`.
 - No watchdog, or inotify descriptor exhaustion, degrades to quiet-period
-  polling: correctness is never lost, only latency. A project whose root is
-  missing is skipped with a warning; the watcher exits nonzero only if it covers none.
+  polling: latency, never correctness; a missing project root is skipped with a warning.
 - Projects are repeatable path/slug/name arguments or `--all`, never both.
 - `unwatch` SIGTERMs the live holder, waits for the flock (`--timeout`, default
   10 s) and reports the projects it served; the flock, never pid existence, is
   the liveness test. No watcher running is a clean no-op at exit 0; an unstoppable holder is exit 1.
-- **A pass older than the recorded fingerprint is refused**, not just the
-  re-stamp: the rebuild class, never a delete of rows its older scan cannot see, and the line names `unwatch` and `reindex-project`.
+- **A pass older than the recorded fingerprint is refused** on both arms (a
+  `--vectors off` pass deletes rows too): no delete, no manifest write, exit 4,
+  naming `unwatch`, `watch` and `reindex-project`.
 
 ## Asking what state an index is in
 

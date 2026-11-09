@@ -22,9 +22,12 @@ from .chunker import Chunk
 from .config import Config
 from .embed_text import EMBED_FORMAT, embed_text
 from .errors import RebuildRequiredError
-from .fingerprint import (configured_values, current_fingerprint,
-                          manifest_newer_than, read_fingerprint,
-                          row_side_mismatches, write_fingerprint)
+from .fingerprint import (VERSION_KEYS, configured_values,
+                          current_fingerprint, current_version_meta,
+                          current_version_stamp, describe_versions,
+                          manifest_newer_than, newer_version_gaps,
+                          read_fingerprint, row_side_mismatches,
+                          write_fingerprint)
 from . import ts_chunker
 from .manifest import ChunkRow, Manifest, ManifestFile, SymbolRow
 from .scanner import (SKIP_SENSITIVE, SKIP_UNREADABLE, ScanAccounting,
@@ -57,6 +60,14 @@ def _bounded_file_groups(entries: list[tuple[str, T]],
     at most ``limit`` entries; a single file with more entries than that
     travels alone, so the bound is then that file's own size, the smallest
     group that still keeps the resumability unit whole.
+
+    Precondition: ``entries`` must already be grouped by path -- every entry
+    for one file contiguous, no file's entries split across a later run.
+    ``itertools.groupby`` splits an interleaved file into two groups and
+    ``_commit_file`` would then run twice for it; callers today guarantee the
+    order (``to_embed`` is appended per file as the scan hands files over,
+    ``manifest.all_chunks`` reads ``ORDER BY file, chunk_index``), and this
+    sentence is the contract a future caller must keep.
     """
     limit = max(1, limit)
     groups: list[list[tuple[str, T]]] = []
@@ -440,7 +451,22 @@ class Indexer:
             current_fingerprint(self.cfg.embed_model, self.embedder.dimension())
             if vectors else None)
         recorded_fp = read_fingerprint(manifest)
-        if current_fp is not None and recorded_fp is None and (old_files or force_full):
+        # The version ordering is service-free -- chunker_version and
+        # extraction_version are module constants -- so the newer-manifest
+        # verdict is taken on BOTH arms. A vectors-off pass builds no full
+        # fingerprint but still deletes from its own scan set and re-stamps
+        # the row axes, so the harm is the same; a manifest that a vectors-off
+        # pass built records only those two keys, so its versions are read
+        # directly. The verdict precedes the legacy backfill below: a backfill
+        # would otherwise stamp this older process's full fingerprint over a
+        # newer row-only manifest and hide the regression.
+        recorded_versions = {key: manifest.get_meta(key) for key in VERSION_KEYS}
+        manifest_is_newer = (
+            manifest_newer_than(recorded_fp, current_version_stamp())
+            or (recorded_fp is None
+                and bool(newer_version_gaps(recorded_versions))))
+        if (current_fp is not None and recorded_fp is None
+                and not manifest_is_newer and (old_files or force_full)):
             logger.info(
                 "manifest has no index fingerprint; backfilling current "
                 "config (%s) — no reindex required", current_fp.describe())
@@ -463,8 +489,11 @@ class Indexer:
         # refusal is loud (the watcher reports the error on every tick) and
         # names the remedy; the legitimate upgrade direction above is
         # untouched.
-        if current_fp is not None and manifest_newer_than(recorded_fp, current_fp):
-            assert recorded_fp is not None  # manifest_newer_than implies it
+        if manifest_is_newer:
+            recorded_desc = (recorded_fp.describe() if recorded_fp is not None
+                             else describe_versions(recorded_versions))
+            current_desc = (current_fp.describe() if current_fp is not None
+                            else describe_versions(current_version_meta()))
             logger.warning(
                 "index for %s was built by NEWER code (%s) than this process "
                 "(%s, pid %d): refusing the pass so it neither deletes from "
@@ -472,12 +501,12 @@ class Indexer:
                 "extraction code. Remedy: stop this watcher (code-indexer "
                 "unwatch) and restart it on the current code, or run: "
                 "code-indexer reindex-project %s",
-                slug, recorded_fp.describe(), current_fp.describe(),
+                slug, recorded_desc, current_desc,
                 os.getpid(), project_path)
             raise RebuildRequiredError(
                 f"index for {slug} was built by NEWER code "
-                f"({recorded_fp.describe()}) than this process "
-                f"({current_fp.describe()}, pid {os.getpid()}): refusing the "
+                f"({recorded_desc}) than this process "
+                f"({current_desc}, pid {os.getpid()}): refusing the "
                 f"pass — it would delete rows this older scan cannot see and "
                 f"write rows this older extraction code cannot vouch for. "
                 f"Stop this watcher (code-indexer unwatch) and restart it on "
@@ -867,6 +896,16 @@ class Indexer:
             if skipped_errors:
                 logger.warning("%d chunk(s) skipped after embed failures "
                                "(recorded in index_errors)", skipped_errors)
+            if self.progress_cb is not None and files_done < files_total:
+                # A file whose every chunk failed never reaches
+                # ``_commit_file``, so its count would keep the ETA above zero
+                # for ever. The pass has finished PROCESSING every file it
+                # counted; the loss is carried in ``errors``.
+                self.progress_cb({
+                    "files_done": files_total, "files_total": files_total,
+                    "chunks_done": embedded, "chunks_total": len(to_embed),
+                    "docs_per_s": 0.0, "eta_s": 0.0,
+                    "errors": skipped_errors})
         # Files with nothing to embed (fully reused) still need their rows — but
         # NOT files whose chunks all failed to embed: their vectors are not in
         # the store, so committing them would claim an index that does not
@@ -1110,6 +1149,14 @@ class Indexer:
                 # Drop this group's vectors before the next group is embedded:
                 # the bound is one group alive, never two.
                 del group_vectors, group_errors
+            if self.progress_cb is not None and written < files_total:
+                # Same terminal count as the main loop: a file whose every
+                # chunk failed never writes, so without it the ETA never
+                # reaches zero. The loss is carried in ``errors``.
+                self.progress_cb({
+                    "files_done": files_total, "files_total": files_total,
+                    "chunks_done": embedded, "chunks_total": len(pending),
+                    "docs_per_s": 0.0, "eta_s": 0.0, "errors": skipped})
 
         # Record the construction that produced these vectors, on the vector
         # side only: the rows were not touched and their axes are already

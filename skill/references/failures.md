@@ -89,6 +89,11 @@ command then answers.
 A refusal is not a staleness warning: a warning above an answer still reads
 as a fact about the code, so the tool refuses instead.
 
+A pass command reports the same class and the same exit code: `add-project`,
+`index-more` and `reindex-project` rebuild the failure with the class that
+raised it, so a refused pass exits 4 with one `RebuildRequiredError:` line and
+a script can tell it from an internal fault (exit 1).
+
 ## Exit 5 -- a lock or a concurrency conflict
 
 | `ErrorType` | Cause | Remedy |

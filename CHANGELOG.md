@@ -16,16 +16,26 @@ chunk is still recorded in `index_errors` and skipped. The embedded text is the
 same `embed_text()` construction as before, byte for byte, so no vector changes.
 
 Measured on a generated fixture of 80 files / 8,000 chunks at dimension 1024,
-one runner: the largest single embed request 8,000 -> 500 chunks, the peak
-number of vector objects alive at once 8,000 -> 500 (16x), and the process's
-RSS growth 74.6 MB -> 11.6 MB. At 16,000 chunks the base peak doubles to 16,000
-while the grouped pass stays at 500, so the bound is a function of the group,
-not of the tree. A 512-chunk group at the fleet's 4096 dimensions is about
-65.5 MB of vectors, against about 4.28 GB for the whole 32,629-chunk project --
-the size the OOM measured. Throughput costs 3.7%: 0.730 -> 0.757 ms/chunk,
-median of three runs on the same fixture with a per-request and per-text delay
-standing in for Ollama. The embedded texts hash identically before and after,
-so the grouping changed where the vectors live, never what they are.
+one runner: the largest embed call 8,000 -> 500 chunks (the HTTP request size
+stays bounded by `EMBED_BATCH`, 48, inside it), the peak number of vector
+objects alive at once 8,000 -> 500 (16x), and the process's RSS growth 74.6 MB
+-> 11.6 MB. On that fixture the wall time went 1.049 -> 1.004 s, 4.29% faster
+(`calc eval (1.004-1.049)/1.049*100` = -4.2898, the negative sign meaning
+faster). At 16,000 chunks the base
+peak doubles to 16,000 while the grouped pass stays at 500, so the bound is a
+function of the group, not of the tree. A 512-chunk group at the fleet's 4096
+dimensions is about 67.1 MB of vectors in one memory model -- one Python float
+object plus a list slot per coordinate, 32 bytes (512 x 4096 x 32 B = 67.1 MB)
+-- against about 4.28 GB for the whole 32,629-chunk project in the same model
+(32,629 x 4096 x 32 B = 4.277 GB), the size the OOM measured. The 74.6 MB RSS
+growth above was measured on vectors sharing one float object per dimension
+(`[0.1] * dim`, 8 B per coordinate), a different and flatter model, so it is
+not the one this paragraph's MB/GB figures use. Throughput on a SEPARATE
+fixture -- 20 files / 2,000 chunks at dimension 1024, with 20 ms per request
+and 0.5 ms per text injected to stand in for Ollama -- costs 3.7%: 0.730 ->
+0.757 ms/chunk, median of three runs each. The embedded texts hash identically
+before and after, so the grouping changed where the vectors live, never what
+they are.
 
 ## [Unreleased] — a pass older than the recorded fingerprint refuses
 
@@ -35,18 +45,28 @@ direction-blind full rebuild, but let the pass continue: an older watcher still
 ran a delete step derived from its own scan set (vivarium-sim lost all 12
 multibyte-straddle files, 823 -> 811 rows) and could embed changed files with
 its older extraction code. The guard now refuses the whole pass before any
-delete or write, raising the rebuild class (exit 4); the pass surfaces report
-it as the project's `state=error` carrying that message and the remedy -- stop
-the watcher (`code-indexer unwatch`) and restart it on the current code, or run
+delete or manifest write, raising the rebuild class. That refusal covers the
+service-free pass too: the version ordering needs no embedder, so a
+`--vectors off` pass -- which deletes from its own scan set and re-stamps the
+row axes just the same -- is refused on the same terms. The class now survives
+the pass-failure seam, so a caller sees the rebuild exit code (4) from
+`add-project`, `index-more` and `reindex-project` rather than a generic
+failure (1); the pass
+surfaces still report the project's `state=error` carrying the message and the
+remedy -- stop the watcher (`code-indexer unwatch`), then restart it on the
+current code (`code-indexer watch --all --background`), or run
 `code-indexer reindex-project <path>`. A watcher left running across an upgrade
 reports that error on every tick instead of corrupting silently. The legitimate
 direction is untouched: a manifest built by OLDER code still rebuilds, deletes
-what is genuinely gone and re-stamps.
+what is genuinely gone and re-stamps, on both arms.
 
 Measured: the dedicated guard tests reproduce the deletion at the base commit
 (the multibyte-named file's row disappears while the recorded newer fingerprint
-stands) and hold every row after the change, with the upgrade direction
-re-embedding, deleting and re-stamping in its own test.
+stands, and on the vectors-off arm a row is deleted and the recorded extraction
+version regresses) and hold every row after the change, with the upgrade
+direction re-embedding, deleting and re-stamping in its own test -- on the
+vectors-off arm too. A refused `reindex-project` exits 4 (`RebuildRequiredError`
+on stderr), not 1.
 
 ## [Unreleased] — a lexical token's prefix family survives its position
 

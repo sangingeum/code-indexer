@@ -192,7 +192,7 @@ def test_a_newer_manifest_pass_deletes_no_row(rig, monkeypatch):
 def test_a_newer_manifest_pass_writes_no_row_or_vector(rig, monkeypatch):
     """Nor does it embed: the embedder sees no request at all, nothing reaches
     the store, no chunk error is recorded, and the recorded (newer)
-fingerprint still stands."""
+    fingerprint still stands."""
     core, reg, entry, project, store, embedder = rig
     assert core.run_index(entry.slug, project)["state"] == "idle"
     newer = EXTRACTION_VERSION + 1
@@ -268,3 +268,127 @@ def test_a_manifest_from_older_code_still_rebuilds_and_deletes(rig):
     files_after, _chunks, _errors = _snapshot(core, entry)
     assert files_after == {"caf\u00e9_na\u00efve.py"}
     assert _stored_extraction_version(core, entry) == EXTRACTION_VERSION
+
+
+def test_a_vectors_off_pass_under_a_newer_manifest_deletes_no_row(
+        rig, monkeypatch):
+    """The service-free arm of the same guard.
+
+    A vectors-off pass builds no fingerprint, but its harm is vectors-free:
+    the delete step runs from this process's own scan set and
+    ``write_row_side`` stamps this older process's chunker/extraction
+    versions over the newer ones recorded. The version ordering is still
+    answerable without a service, so this pass must refuse too.
+    """
+    core, reg, entry, project, store, _embedder = rig
+    assert core.run_index(entry.slug, project,
+                          vectors="off")["state"] == "idle"
+    files_before, chunks_before, _errors = _snapshot(core, entry)
+    assert "caf\u00e9_na\u00efve.py" in files_before
+    newer = EXTRACTION_VERSION + 1
+    _set_extraction_version(core, entry, newer)
+    store.purges.clear()
+    _hide_a_file_from_the_scan(monkeypatch, "caf\u00e9_na\u00efve.py")
+
+    result = core.run_index(entry.slug, project, vectors="off")
+
+    files_after, chunks_after, _errors = _snapshot(core, entry)
+    assert files_after == files_before, (
+        "a vectors-off pass under a newer manifest deleted a row")
+    assert chunks_after == chunks_before
+    assert store.purges == []
+    assert result["state"] == "error"
+    assert "NEWER code" in result["error"]
+    manifest = core.manifest_for(entry.slug)
+    try:
+        assert manifest.get_meta("extraction_version") == str(newer), (
+            "the refused pass regressed the recorded extraction version")
+    finally:
+        manifest.close()
+
+
+def test_a_vectors_off_pass_under_a_newer_full_fingerprint_also_refuses(
+        rig, monkeypatch):
+    """A vectors-on manifest, then a vectors-off pass: ``current_fp`` is None
+    on that arm, so the recorded version keys must be compared directly."""
+    core, reg, entry, project, store, _embedder = rig
+    assert core.run_index(entry.slug, project)["state"] == "idle"
+    files_before, _chunks, _errors = _snapshot(core, entry)
+    newer = EXTRACTION_VERSION + 1
+    _set_extraction_version(core, entry, newer)
+    store.purges.clear()
+    _hide_a_file_from_the_scan(monkeypatch, "caf\u00e9_na\u00efve.py")
+
+    result = core.run_index(entry.slug, project, vectors="off")
+
+    files_after, _chunks, _errors = _snapshot(core, entry)
+    assert files_after == files_before
+    assert store.purges == []
+    assert result["state"] == "error"
+    assert "NEWER code" in result["error"]
+
+
+def test_a_vectors_off_manifest_from_older_code_still_rebuilds_and_restamps(
+        rig):
+    """The legitimate direction on the vectors-off arm: older recorded axes
+    still rebuild, a file genuinely gone still loses its row, and the row
+    axes are re-stamped to current."""
+    core, reg, entry, project, _store, _embedder = rig
+    assert core.run_index(entry.slug, project,
+                          vectors="off")["state"] == "idle"
+    _set_extraction_version(core, entry, EXTRACTION_VERSION - 1)
+    os.remove(os.path.join(project, "alpha.py"))
+
+    result = core.run_index(entry.slug, project, vectors="off")
+
+    assert result["state"] == "idle"
+    assert result["result"]["files_deleted"] == 1
+    files_after, _chunks, _errors = _snapshot(core, entry)
+    assert files_after == {"caf\u00e9_na\u00efve.py"}
+    manifest = core.manifest_for(entry.slug)
+    try:
+        assert manifest.get_meta("extraction_version") == str(
+            EXTRACTION_VERSION)
+    finally:
+        manifest.close()
+
+
+def test_a_refused_pass_exits_four_from_reindex_project(tmp_path,
+                                                        monkeypatch):
+    """The class survives the pass seam: a caller sees the rebuild exit code
+    (4), not the generic failure (1), so a refusal is distinguishable from an
+    internal fault."""
+    from typer.testing import CliRunner
+
+    import code_indexer.cli as cli
+    from code_indexer.cli import app
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    _write_functions(str(project / "alpha.py"), 3)
+    cfg = Config(ollama_url="", qdrant_url="", embed_model="stub-model",
+                 index_root=str(tmp_path / "state"), embed_batch=48,
+                 upsert_batch=256, max_file_bytes=1048576, watch_debounce=3,
+                 watch_sweep_interval=300)
+    store = StubStore()
+    core = Core(cfg)
+    core.embedder = StubEmbedder()  # type: ignore[assignment]
+    core.store = store  # type: ignore[assignment]
+    core.indexer.embedder = core.embedder  # type: ignore[assignment]
+    core.indexer.store = store  # type: ignore[assignment]
+    reg = Registry(os.path.join(cfg.index_root, "registry.db"))
+    try:
+        entry = reg.add(str(project), name="refused")
+        assert core.run_index(entry.slug, str(project),
+                              vectors="off")["state"] == "idle"
+        _set_extraction_version(core, entry, EXTRACTION_VERSION + 1)
+        monkeypatch.setattr(cli, "_get_core", lambda skip: core)
+        result = CliRunner().invoke(
+            app, ["reindex-project", str(project), "--vectors", "off"])
+    finally:
+        reg.close()
+    assert result.exit_code == 4, (result.output, result.stderr)
+    assert result.stdout == ""
+    line = result.stderr.strip().splitlines()[-1]
+    assert line.startswith("RebuildRequiredError: "), result.stderr
+    assert "NEWER code" in line

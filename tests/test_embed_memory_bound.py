@@ -3,7 +3,7 @@
 A pass used to build every text for the whole project, embed them in ONE call
 and only then start writing, so the vector set alive grew with the tree and a
 large reindex was OOM-killed. These tests measure the two properties that
-replace it: the largest single embed request, and the peak number of vector
+replace it: the largest embed call, and the peak number of vector
 objects alive at once (weakref finalizers on a list subclass; CPython frees a
 list of floats by refcount the moment its last reference drops, so the count
 is exact).

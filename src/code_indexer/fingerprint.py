@@ -62,6 +62,56 @@ def compose_embedding_version(embed_model: str, embed_dim: int,
 VERSION_KEYS = ("chunker_version", "extraction_version")
 
 
+def current_version_meta() -> dict[str, str]:
+    """The version-ordered keys and this build's values, as meta strings."""
+    return {"chunker_version": str(CHUNKER_VERSION),
+            "extraction_version": str(EXTRACTION_VERSION)}
+
+
+def describe_versions(values: Mapping[str, str | None]) -> str:
+    """``chunker=<v>/extr=<v>`` from version-key meta values.
+
+    The service-free half of ``Fingerprint.describe``: a manifest built by a
+    vectors-off pass records only the row side, so it has no complete
+    fingerprint, and a process with vectors off has no probed dimension.
+    Both sides can still name the two version-ordered axes, and the refusal
+    states exactly those.
+    """
+    parts: list[str] = []
+    for key in VERSION_KEYS:
+        short = "chunker" if key == "chunker_version" else "extr"
+        value = values.get(key)
+        parts.append(f"{short}={value if value not in (None, '') else '?'}")
+    return "/".join(parts)
+
+
+def newer_version_gaps(
+        recorded: Mapping[str, str | None]) -> list[str]:
+    """Version keys a manifest recorded as GREATER than this build's.
+
+    ``manifest_newer_than`` reads a complete Fingerprint, but a manifest
+    built by a vectors-off pass records only the row side, so
+    ``read_fingerprint`` returns None for it and that comparison cannot run.
+    The two version keys are still recorded, and a recorded value above the
+    current one means the same thing there: newer code wrote the rows. A
+    blank or unreadable value is not a verdict, exactly as in
+    ``recorded_row_version_gaps``.
+    """
+    gaps: list[str] = []
+    current = {key: int(value) for key, value in current_version_meta().items()}
+    for key in VERSION_KEYS:
+        raw = recorded.get(key)
+        if raw in (None, ""):
+            continue
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if value > current[key]:
+            gaps.append(f"{key}: {value} > {current[key]}")
+    return gaps
+
+
 # Keys whose configured value is knowable from configuration alone. The
 # embedding dimension is a property of the model and is only knowable by
 # asking the service, so a read path never compares it (ADR-0001 section 1).
