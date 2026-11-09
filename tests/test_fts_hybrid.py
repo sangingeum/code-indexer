@@ -33,9 +33,9 @@ def test_tokenize_splits_identifiers_keeps_original():
 
 def test_build_match_query_quotes_every_token_and_ors_them():
     """A multi-word query is an OR of quoted tokens (phrase as evidence),
-    with the last token prefixed; no caller-supplied operator survives."""
+    with EVERY token prefixed; no caller-supplied operator survives."""
     q = build_match_query('where do we "refresh" tokens?')
-    assert q == '"where" OR "do" OR "we" OR "refresh" OR "tokens"*'
+    assert q == ('"where"* OR "do"* OR "we"* OR "refresh"* OR "tokens"*')
     assert build_match_query("!!!") is None
 
 
