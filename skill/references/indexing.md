@@ -135,8 +135,8 @@ code-indexer reindex-project /path/to/repo
   subpath relative to the project root -- one outside it is exit 2, and the root
   itself is `**`. Neither spelling infers a project from the working directory.
 - `reindex-project` is a full rebuild, also foreground; a vectors-on rebuild
-  embeds nothing its rows already store, and writes in whole-file `EMBED_GROUP`
-  (default 512) chunk groups, so a crash costs one group's re-embed.
+  embeds nothing its rows already store and writes whole-file `EMBED_GROUP`
+  (default 512) chunk groups; a file's rows go in after its points, so a crash costs one re-embed.
 
 ## Removing and sweeping
 
@@ -153,8 +153,7 @@ code-indexer sweep-orphans /path/to/repo --apply
 
 `remove-project` deletes the whole index; re-adding re-indexes from scratch.
 `sweep-orphans` is a read in its default dry-run shape and a write only with
-`--apply`: `sweep-orphans --apply` is the write invocation, which is why the
-command carries both the read and the write class.
+`--apply`: `sweep-orphans --apply` is the write invocation, so its class is both.
 
 ## Watching
 
@@ -169,13 +168,11 @@ code-indexer watch /path/to/repo --duration 300
 code-indexer unwatch --all
 ```
 
-- `--duration T` exits 0 after T seconds (`0`/omitted = forever, honoured by
-  `--background` too); SIGINT and SIGTERM exit 0.
+- `--duration T` exits 0 after T seconds (`0`/omitted = forever, honoured by `--background` too); SIGINT and SIGTERM exit 0.
 - One watcher per index root: both modes take the same flock-guarded
   `<INDEX_ROOT>/watch.pid`; a second is refused while a live one holds it, and
   `--background` confirms the daemon before printing `watch daemon started`.
-- No watchdog, or inotify descriptor exhaustion, degrades to quiet-period
-  polling: latency, never correctness; a missing project root is skipped with a warning.
+- No watchdog, or inotify descriptor exhaustion, degrades to quiet-period polling: latency, never correctness.
 - Projects are repeatable path/slug/name arguments or `--all`, never both.
 - `unwatch` SIGTERMs the live holder, waits for the flock (`--timeout`, default
   10 s) and reports the projects it served; the flock, never pid existence, is
@@ -183,10 +180,15 @@ code-indexer unwatch --all
 - **A pass older than the recorded fingerprint is refused** on both arms (a
   `--vectors off` pass deletes rows too): no delete and no row or version write
   (`index-more` keeps its scope), exit 4, naming `unwatch`, `watch` and `reindex-project`.
+  One axis older and one newer takes THIS refusal, never the reparse: the newer
+  check runs first, and refusal is the safe side.
 - **The other direction reparses on the `--vectors off` arm**: recorded row axes
   LOWER than this build's rebuild every file's rows instead of re-stamping them,
   so a reader sees this extraction's rows; still no vector write, and a tree
   already at the axes does nothing (`files_indexed=0`, `chunks_embedded=0`).
+  A reparse that could not re-read a scanned file leaves the axes older, so every
+  later pass reparses the whole project and re-warns until the file is readable
+  or leaves the scan set (its row then deleted): fix the read, or let it drop.
 
 ## Asking what state an index is in
 
@@ -228,14 +230,14 @@ stderr line saying what the pair MEANS, from the same verdict object the
   differs, `vectors_state=stale`): the sentence names the key that did not
   match and says `reindex-project` clears it -- never "every key matched".
 - `vectors-on-marker-stale` (`vectors=on`, identity matches, the manifest
-  records `stale` -- a marker this build never writes): the sentence says the
-  MANIFEST's record is what is stale.
+  records `stale`): the sentence says the MANIFEST's record is what is stale.
 - `vectors-off-identity-differs` (`vectors=off`, a recorded identity
   differs): there is no vector side, so nothing about vectors is stale, no
   rebuild is prescribed, and the difference is inert until a vectors-on pass.
 - `vectors-off-identity-matched` (`vectors=off`, identity matches): every
   comparable key matched and no rebuild is prescribed -- no vector side here.
-- `no-verdict-recorded` (no `fingerprint` field): the comparison did not run.
+- `no-verdict-recorded` (no `fingerprint` field): the comparison did not run,
+  and the sentence says so -- silence would read as a pass.
 
 `vectors_state` is the RECORDED marker; `stale` is written by no pass in this
 build, and with vectors off it prints as-is -- "not `stale`" is not "matched".
@@ -252,15 +254,12 @@ with no AST reader, freshness -- fields in [machine-output.md](machine-output.md
 `key=value`; `doctor` and `list-projects` refuse `compact` with exit 2 ([machine-output.md](machine-output.md)).
 
 It also names what the sensitive layer withheld: a suffixed
-`1 file skipped (sensitive content)` (or `sensitive filename`), followed by the
-`--allow-sensitive` hint, and in `--json` the `withheld_count` / `withheld_files`
-/ `withheld_summary` / `withheld_unexamined_count` fields. Those files have no
-rows and are not stale reasons (see "Indexing scope and environment"); the count
-on the line is this tree's, the last pass's own only in `sensitive_skipped`.
-
-**Consumer rule:** `stale: false` beside a non-zero withheld count is not
-"nothing was withheld": those files are neither stale nor indexed, so branch
-on the withheld count.
+`1 file skipped (sensitive content)` (or `sensitive filename`), the
+`--allow-sensitive` hint, and in `--json` the `withheld_count` / `withheld_files` /
+`withheld_summary` / `withheld_unexamined_count` fields -- this tree's count on the
+line, the last pass's own only in `sensitive_skipped`. **Consumer rule:** a withheld
+file has no rows and is not a stale reason, so `stale: false` beside a non-zero
+count is not "nothing was withheld": branch on the count (see "Indexing scope and environment").
 
 `list-projects` gives the same summary for every registered project;
 `lookup-project` answers only whether a path, slug or name is registered, and
@@ -325,7 +324,8 @@ The three version axes:
 | `index_schema_version` | `meta` | the manifest migrates on the next WRITE open; the collection is untouched |
 
 **A read never migrates the manifest.** Reads open it read-only -- no
-journal-mode write, no DDL; an older one reports `schema=<n>` and refuses with exit 4.
+journal-mode write, no DDL. An older manifest is reported as `schema=<n>`, and
+its row surfaces refuse with exit 4 until a pass runs.
 
 ## Configuration
 

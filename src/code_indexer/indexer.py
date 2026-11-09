@@ -533,7 +533,10 @@ class Indexer:
         # vectors-off pass: `to_embed` is only appended to when `vectors` is
         # set, so nothing is embedded and no vector surface changes. Only the
         # OLDER direction reparse here; the NEWER direction above is a refusal
-        # of the whole pass.
+        # of the whole pass. A manifest whose two axes disagree with this build
+        # in BOTH directions (one older, one newer) also takes that refusal,
+        # never this reparse: the newer check runs first, and refusal is the
+        # safe side.
         #
         # A blank or absent recorded value is not a verdict (same rule as
         # `newer_version_gaps`), so a pre-versioning manifest is still
@@ -1003,6 +1006,10 @@ class Indexer:
             # next pass's detection alive (and the error rows say why). A file
             # the SCANNER cannot read is dropped from the scan set and its row
             # deleted instead, so nothing stale is certified there either.
+            # Until that file becomes readable or leaves the scan set, the axes
+            # stay older: every later pass reparses the whole project and
+            # repeats this warning, and the row reads keep refusing (exit 4).
+            # The remedy is to fix the read, or let the scanner drop the file.
             logger.warning(
                 "row axes stay at the recorded (older) values: %d file(s) "
                 "could not be reparsed, so not every row is this build's",

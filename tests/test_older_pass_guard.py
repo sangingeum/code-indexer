@@ -10,7 +10,7 @@ write, and the refusal is the rebuild class (exit 4) naming the remedy.
 The legitimate direction -- manifest built by OLDER code, this process newer --
 must still rebuild, delete what is genuinely gone, and re-stamp.
 
-Three of the current tests are green at the base commit 78fcd64. On the
+Three of the rewrite's own tests are green at the base commit 78fcd64. On the
 vectors-on arm `test_a_manifest_from_older_code_still_rebuilds_and_deletes`
 passed because the base already took the upgrade path: `manifest_newer_than`
 returned False for a LOWER recorded version, so the else-branch compared the row
@@ -31,6 +31,12 @@ no work, which is the `files_indexed 0` and the zero embeds it asserts.
 `test_a_vectors_off_pass_over_older_axes_reparses_and_embeds_nothing` is NEW at
 base -- it fails there on `files_indexed` (`assert 0 == 2`) -- so it needs no
 base-green reason.
+`test_a_blank_extraction_version_is_stamped_current_without_a_reparse` is green
+at base too, deliberately: it pins the deliberate leave. A manifest recording a
+blank extraction version cannot say its rows are older, so the pass keeps the
+incremental path (`files_indexed 0`), stamps both row axes current and embeds
+nothing. The rewrite must not turn that leave into a reparse; the test is the
+pin, not a measure of the fix.
 
 The refusal added by the rewrite is the NEWER direction only. The OLDER
 direction on that arm is now a forced REPARSE (owner ruling): the recorded
@@ -55,6 +61,7 @@ from code_indexer.config import Config  # noqa: E402
 from code_indexer.core import Core  # noqa: E402
 from code_indexer.fingerprint import read_fingerprint  # noqa: E402
 from code_indexer.graph_extract import EXTRACTION_VERSION  # noqa: E402
+from code_indexer.ts_chunker import CHUNKER_VERSION  # noqa: E402
 from code_indexer.registry import Registry  # noqa: E402
 
 
@@ -443,6 +450,43 @@ def test_an_unchanged_tree_at_current_axes_reparses_nothing(rig):
     assert result["result"]["files_indexed"] == 0
     assert result["result"]["chunks_embedded"] == 0
     assert embedder.embed_calls == []
+
+
+def test_a_blank_extraction_version_is_stamped_current_without_a_reparse(rig):
+    """The deliberate leave, pinned.
+
+    A manifest recording a BLANK extraction version (or none at all) says
+    nothing about the age of its rows, so the pass must not read it as older:
+    the unchanged tree keeps the incremental path (``files_indexed 0``) and
+    ``write_row_side`` stamps both row axes current. That certification is
+    deliberate -- nothing recorded can say the rows are older, and the first
+    vectors-on pass writes a complete fingerprint -- so a change that silently
+    turns the leave into a reparse, or into a gap, has to fail here.
+    """
+    core, reg, entry, project, _store, embedder = rig
+    assert core.run_index(entry.slug, project,
+                          vectors="off")["state"] == "idle"
+    manifest = core.manifest_for(entry.slug)
+    try:
+        manifest.set_meta("extraction_version", "")
+        manifest.set_meta("chunker_version", "")
+    finally:
+        manifest.close()
+    embedder.embed_calls.clear()
+
+    result = core.run_index(entry.slug, project, vectors="off")
+
+    assert result["state"] == "idle"
+    assert result["result"]["files_indexed"] == 0, (
+        "a blank recorded version is not a verdict: the tree must not reparse")
+    assert result["result"]["chunks_embedded"] == 0
+    assert embedder.embed_calls == []
+    manifest = core.manifest_for(entry.slug)
+    try:
+        assert manifest.get_meta("extraction_version") == str(EXTRACTION_VERSION)
+        assert manifest.get_meta("chunker_version") == str(CHUNKER_VERSION)
+    finally:
+        manifest.close()
 
 
 def test_a_refused_pass_exits_four_from_reindex_project(tmp_path,

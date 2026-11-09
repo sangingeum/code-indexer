@@ -20,6 +20,15 @@ reparse: if a file the reparse had to rebuild cannot be re-opened between the
 scan and the parse, the recorded axes are left where they are for the next pass
 instead of being certified current over it.
 
+A manifest whose two axes disagree with this build in BOTH directions (one
+older, one newer) takes the newer/refusal branch, never the reparse: the newer
+check runs first, and refusal is the safe side. The cost of a reparse that
+could not re-read a scanned file is stated too: the axes stay at the older
+values, so every later pass reparses the whole project and repeats the warning
+-- and the row reads keep refusing -- until that file becomes readable or
+leaves the scan set (its row is then deleted). The remedy is to fix the read,
+or let the scanner drop the file.
+
 Measured on the guard fixture (2 files, 3 functions each) from the counters the
 pass returns: older axes with the tree unchanged -- `files_indexed 2`,
 `chunks_embedded 0`, `files_deleted 0`, zero embedder calls, and a symbol row
