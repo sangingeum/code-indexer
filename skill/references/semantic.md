@@ -131,8 +131,12 @@ code-indexer eval-compare /tmp/eval-dense.json /tmp/eval-rerank.json
 Every number the retrieval rounds published before the arm existed came from
 the **unmerged** shaping: the harness had only that path, so its tables and
 the pre-chunker baseline they compare against (recall@1 0.5714, MRR 0.6914,
-nDCG@10 0.7434) all describe the unmerged arm. The round's dense tip figures
--- recall@1 0.5238, MRR 0.6655, nDCG@10 0.7194 -- are that arm too.
+nDCG@10 0.7434, measured in `runs/eval-r1` on a throwaway index of the
+`4caa72d` corpus with the `76ddcca` chunker) all describe the unmerged arm.
+The round's dense tip figures at revision 3047
+(`runs/2026-11-08-ranking-gate-1489cae/report.md`, the candidate dense
+column) -- recall@1 0.5238, MRR 0.6655, nDCG@10 0.7194 -- are that arm too,
+and they are 3047 numbers, not the 3310 figures in the table below.
 
 Against that baseline the tip residual is -0.0476 / -0.0259 / -0.0240 for the
 unmerged arm: the pre-chunker numbers did not come back, and no reading of
@@ -157,11 +161,13 @@ state idle, rows current, vectors current:
 
 Both arms carry recall@10 = 0.8810 (37/42) at this revision. That is the
 in-window ceiling the round already sat on: the two depth misses lie outside
-the answer window by construction (the round's probe placed them at raw
-cosine rank 42 and 64), so no ordering change inside the window recovers
-them. 0.9286 (39/42) is the ceiling only if the candidate pool widens; the
-window is max(limit*3, 24) = 30 today, and changing it is a pool-size
-decision with its own latency cost -- a separate round, not work done here.
+the answer window by construction (at revision 3033 the round's probe placed
+them at raw cosine rank 64, `q-concept-03`, and 42, `q-ident-08`; re-measured
+at 3310 they sit at 61 and 44), so no ordering change inside the window
+recovers them. 0.9286 (39/42) is the ceiling only if the candidate pool
+widens; the window is max(limit*3, 24) = 30 today, and changing it is a
+pool-size decision with its own latency cost -- a separate round, not work
+done here.
 
 ## Ordering: source, then samples, tests, docs, artifacts
 
