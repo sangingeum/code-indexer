@@ -34,13 +34,14 @@ all.** The direction-aware guard refused the fingerprint re-stamp and the
 direction-blind full rebuild, but let the pass continue: an older watcher still
 ran a delete step derived from its own scan set (vivarium-sim lost all 12
 multibyte-straddle files, 823 -> 811 rows) and could embed changed files with
-its older extraction code. The guard now raises the rebuild class (exit 4)
-before any delete or write, naming the recorded and running fingerprints and the
-remedy -- stop the watcher (`code-indexer unwatch`) and restart it on the
-current code, or run `code-indexer reindex-project <path>`. A watcher left
-running across an upgrade reports that error on every tick instead of
-corrupting silently. The legitimate direction is untouched: a manifest built by
-OLDER code still rebuilds, deletes what is genuinely gone and re-stamps.
+its older extraction code. The guard now refuses the whole pass before any
+delete or write, raising the rebuild class (exit 4); the pass surfaces report
+it as the project's `state=error` carrying that message and the remedy -- stop
+the watcher (`code-indexer unwatch`) and restart it on the current code, or run
+`code-indexer reindex-project <path>`. A watcher left running across an upgrade
+reports that error on every tick instead of corrupting silently. The legitimate
+direction is untouched: a manifest built by OLDER code still rebuilds, deletes
+what is genuinely gone and re-stamps.
 
 Measured: the dedicated guard tests reproduce the deletion at the base commit
 (the multibyte-named file's row disappears while the recorded newer fingerprint

@@ -183,7 +183,7 @@ code-indexer unwatch --all
   10 s) and reports the projects it served; the flock, never pid existence, is
   the liveness test. No watcher running is a clean no-op at exit 0; an unstoppable holder is exit 1.
 - **A pass older than the recorded fingerprint is refused**, not just the
-  re-stamp: exit 4, never a delete of rows its older scan cannot see, and the line names `unwatch` and `reindex-project`.
+  re-stamp: the rebuild class, never a delete of rows its older scan cannot see, and the line names `unwatch` and `reindex-project`.
 
 ## Asking what state an index is in
 
