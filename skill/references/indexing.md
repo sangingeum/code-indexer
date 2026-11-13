@@ -386,7 +386,10 @@ A path the check cannot OPEN is a third state, never `added` or withheld:
 `unreadable_count` / `unreadable_files` with `1 file could not be read
 (permission or I/O error)`. That covers a row's file too: the scanner counts an
 existing file it cannot open as `unreadable` (never `binary`), a pass keeps that
-row instead of deleting it, and the diff says unreadable, not `deleted`.
+row instead of deleting it, and the diff says unreadable, not `deleted`. A path
+that exists but is not a regular file (a FIFO, a socket, a directory) is
+`not-a-file` instead, and a row for it may be deleted: nothing indexable is
+there.
 
 An absent or unenterable root is `unknown`, not `stale` -- nothing is not
 empty. A DIRECTORY the walk could not enter is that gap one level down: its

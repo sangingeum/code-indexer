@@ -313,6 +313,7 @@ SKIP_OVERSIZED = "oversized"
 SKIP_BINARY = "binary"
 SKIP_NON_UTF8 = "non-utf8"
 SKIP_UNREADABLE = "unreadable"
+SKIP_NOT_A_FILE = "not-a-file"
 SKIP_OUT_OF_SCOPE = "out-of-scope"
 SKIP_SENSITIVE = "sensitive"
 
@@ -580,8 +581,18 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
             try:
                 st = os.stat(abs_path)
                 if not os.path.isfile(abs_path):
+                    # The name exists and is NOT a regular file: a FIFO, a
+                    # socket, a device, or a directory wearing a file's name
+                    # in the walk's list. Nothing here is indexable content,
+                    # so this is its own skip reason -- and a row for such a
+                    # path MAY be deleted, which is a DECISION about the
+                    # tree, not an accident of a shared bucket: unlike an
+                    # unreadable file, this pass looked and found nothing it
+                    # could ever parse. ``unreadable`` is left to mean the
+                    # one thing it says: the pass tried and could not look.
+                    logger.debug("skip (not a file): %s", rel_path)
                     if accounting is not None:
-                        accounting.skip(SKIP_UNREADABLE, rel_path)
+                        accounting.skip(SKIP_NOT_A_FILE, rel_path)
                     continue
             except OSError:
                 keep_unreadable(rel_path, "stat")

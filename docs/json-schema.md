@@ -532,9 +532,12 @@ skipped_directories, examples, counted_exactly}`. `walked` counts the file
 entries the walk considered, including files inside subtrees it pruned as
 ignored; every one of them is `indexed`, `uncommitted` or counted in
 `skipped` under a named reason — `ignored`,
-`ignored-directory`, `oversized`, `binary`, `non-utf8`, `unreadable`,
-`out-of-scope`, `sensitive` — so `walked == indexed + uncommitted +
-skipped_total` always holds. `indexed` is what the manifest holds after the
+`ignored-directory`, `oversized`, `binary`, `non-utf8`, `not-a-file`,
+`unreadable`, `out-of-scope`, `sensitive` — so `walked == indexed + uncommitted +
+skipped_total` always holds. `not-a-file` is a path that exists and is not a
+regular file (a FIFO, a socket, a device): nothing indexable is there, a row for
+it may be deleted, and it is neither `unreadable` nor named to the pass.
+`indexed` is what the manifest holds after the
 pass, minus any file this pass failed to read (that file is counted under
 `unreadable`, even when an older row for it survives) and minus the rows under
 a directory the walk could not enter, and `uncommitted` is a

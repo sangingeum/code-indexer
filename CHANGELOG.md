@@ -25,6 +25,15 @@ because suppressing a repair a tree provably needs would be the worse answer.
 chunker or embedding-identity value moves: the fact is accounting vocabulary,
 not a stored field.
 
+**A path that exists but is not a regular file has its own skip reason.**
+A FIFO, a socket, a device or a directory wearing a file's name in the walk's
+list was counted `unreadable` **and** left out of `could_not_read`, so one
+bucket meant two things and the diff could not tell them apart. Such a path is
+now counted `not-a-file` and is neither `unreadable` nor `could_not_read`, and
+a row for it may be deleted — the pass looked and found nothing it could ever
+parse, which is a decision about the tree, not an accident of a shared bucket.
+`unreadable` now means exactly one thing: the pass tried and could not look.
+
 **The staleness warning now names a repair that clears it.** The vectors-on arm
 of `reindex-project` took the cheap path -- embed the stored chunks, swap the
 identity-stamped collection in, parse nothing -- whenever
