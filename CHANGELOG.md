@@ -17,6 +17,17 @@ ONE implementation shared by the read-side check and by
 against the same walk; a rows-current project whose tree has moved on takes the
 full parse, and `rows_current` alone never decides whether a pass parses.
 
+**A tree this process cannot enter reads `unknown`, from the diff both
+readers use.** `tree_needs_a_pass` carried its own `os.access` guard, and the
+shared diff walked with `os.walk`, which reports nothing for a root it cannot
+enter instead of raising: the check read "nothing" as "every file is gone",
+printed `stale [deleted alpha.py, deleted beta.py]`, and the cheap arm kept the
+same wrong answer, so the banner survived every pass. The scanner now probes
+its own root and raises, so the shared diff answers `unknown` with the detail
+naming what could not be read; the guard beside it is gone, and one
+computation decides for the banner and for the pass. The vectors-off arm
+cannot parse a tree it cannot see either, and it deletes nothing on the way.
+
 Two answers keep the rows instead of parsing: `fresh` (nothing to parse) and
 every `unknown` state -- a walk budget stop, or a tree this process cannot
 enter. An unknown verdict is no evidence of a change, and a parse taken on no

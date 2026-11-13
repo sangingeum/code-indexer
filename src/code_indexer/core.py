@@ -669,6 +669,10 @@ class Core:
             return staleness.unknown(str(exc), last_indexed=last_indexed,
                                      index_revision=index_revision)
         except OSError as exc:
+            # An absent or unenterable root, or any other read failure on the
+            # tree itself. ``os.walk`` reports nothing for a root it cannot
+            # enter, so this branch exists because the scanner probes its own
+            # root and raises: "nothing" is not an answer about the tree.
             return staleness.unknown(f"tree unreadable: {exc}",
                                      last_indexed=last_indexed,
                                      index_revision=index_revision)
@@ -689,13 +693,14 @@ class Core:
         Two answers keep the rows instead of parsing: ``fresh`` (the tree
         matches, so there is nothing to parse) and every ``unknown`` state.
         An unknown verdict is no evidence of a change -- a walk budget stop, an
-        unreadable or absent tree -- and a parse taken on no evidence would
-        read the files it could not walk as deleted and purge their rows. For
-        the same reason a tree this process cannot enter is not a tree that
-        moved on.
+        unenterable or absent tree -- and a parse taken on no evidence would
+        read the files it could not walk as deleted and purge their rows.
+
+        There is no second visibility test here. A tree this process cannot
+        enter reaches the same ``unknown`` the banner prints, so one
+        computation answers both readers; a guard beside the diff was a
+        decision the read side did not share.
         """
-        if not os.access(project_path, os.R_OK | os.X_OK):
-            return False
         verdict = self.verdict_against_tree(
             manifest, project_path,
             last_indexed=staleness.iso_timestamp(

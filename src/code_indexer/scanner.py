@@ -422,6 +422,13 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
     previous = previous if previous is not None and \
         os.environ.get("PARANOID_HASH") not in ("1", "true") else {}
     root = os.path.abspath(root)
+    # The walk's own root probe. ``os.walk`` reports NOTHING for a root it
+    # cannot enter instead of raising, and "nothing" downstream means "every
+    # row is deleted" -- which is how a tree the check could not look at was
+    # read as a tree that had emptied. A root this process cannot open is an
+    # OSError the caller answers as an ``unknown`` verdict, not an empty tree.
+    with os.scandir(root):
+        pass
     results: list[ScannedFile] = []
     _GITIGNORE_CACHE.clear()
     _REPO_EXCLUDE_CACHE.clear()

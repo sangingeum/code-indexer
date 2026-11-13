@@ -93,9 +93,8 @@ otherwise. The same is true of every pass command below.
 ## What each command writes, and where
 
 These commands are not read answers, so they do not follow the read contract
-in `docs/json-schema.md` (a read writes stderr only for the staleness
-warning, the coverage line, the fingerprint sentence, the scoped-index note and
-a graph answer's `note:` lines). The lines each one writes on success:
+in `docs/json-schema.md` -- a read writes stderr only for the staleness
+warning and its notes. The lines each one writes on success:
 
 | command | **stdout** | **stderr** |
 |---|---|---|
@@ -137,9 +136,10 @@ code-indexer reindex-project /path/to/repo
 - `reindex-project` is a full rebuild, also foreground; a vectors-on rebuild
   writes whole-file `EMBED_GROUP` (default 512) chunk groups and a file's rows
   after its points, so a crash costs one re-embed. **Current rows are not a
-  current tree:** the cheap arm (embed the stored chunks, parse nothing) is
-  taken only when the tree diff is `fresh`, so this is the repair the staleness
-  warning names; a tree this process cannot enter keeps its rows.
+  current tree:** the cheap arm is taken only when the tree diff is `fresh`,
+  so this is the repair the staleness warning names. It reparses nothing and
+  still walks the tree, reading a bounded prefix of each file to decide; a root
+  this process cannot enter is `unknown` and keeps every row it has.
 
 ## Removing and sweeping
 
@@ -155,8 +155,7 @@ code-indexer sweep-orphans /path/to/repo --apply
 ```
 
 `remove-project` deletes the whole index; re-adding re-indexes from scratch.
-`sweep-orphans` is a read in its default dry-run shape and a write only with
-`--apply`: `sweep-orphans --apply` is the write invocation, so its class is both.
+`sweep-orphans` is a read in its dry-run shape and a write only with `--apply`.
 
 ## Watching
 
@@ -219,9 +218,8 @@ parse-verdict counts (`parse=parsed:N,parse_error:N,parse_unavailable:N`),
 and, when chunk errors are recorded, `error_count=N` (the total) beside `last_errors=` (at most three examples; neither field with no errors). A path that is GONE by the read -- deleted between the walk's stat and the read, as a tool's own temp file is -- never becomes one of those errors: it leaves the scan set with no row, no skip and no error row, so a clean index reports `error_count` 0.
 
 Both verdict pairs are flags a caller branches on, and the text form adds one
-stderr line saying what the pair MEANS, from the same verdict object the
-`vectors=`/`vectors_state=` fields come from; the ids below are
-`MEANING_BRANCHES` and json-schema.md carries each row's field values.
+stderr line saying what the pair MEANS, from the same verdict object; the ids
+below are `MEANING_BRANCHES` and json-schema.md carries each row's field values.
 
 - `row-keys-differ` (`fingerprint=needs-reindex`): the named row keys differ,
   so the row reads refuse until a rebuild; a stale vector side is named too,
@@ -243,25 +241,21 @@ stderr line saying what the pair MEANS, from the same verdict object the
 
 `vectors_state` is the RECORDED marker; `stale` is written by no pass in this
 build, and with vectors off it prints as-is -- "not `stale`" is not "matched".
-
-JSON carries the same sentence as `fingerprint_meaning`; the field names and
-the one-line shape are unchanged because the sentence rides stderr.
+JSON carries the same sentence as `fingerprint_meaning`.
 
 Every read answer's JSON, `index-status` included, carries the `coverage`
 block: files in scope, parsed and unparsed counts, withheld files, languages
 with no AST reader, freshness -- fields in [machine-output.md](machine-output.md).
 
-`index-status` takes `--format text|json` (`--json` is the alias) and
-`--format compact`, the SAME line the text form prints -- it is already
-`key=value`; `doctor` and `list-projects` refuse `compact` with exit 2 ([machine-output.md](machine-output.md)).
+`index-status` takes `--format text|json|compact` (`--json` is the alias;
+compact is already `key=value`); `doctor` and `list-projects` refuse `compact`
+with exit 2 ([machine-output.md](machine-output.md)).
 
-It also names what the sensitive layer withheld: a suffixed
-`1 file skipped (sensitive content)` (or `sensitive filename`), the
-`--allow-sensitive` hint, and in `--json` the `withheld_count` / `withheld_files` /
-`withheld_summary` / `withheld_unexamined_count` fields -- this tree's count on the
-line, the last pass's own only in `sensitive_skipped`. **Consumer rule:** a withheld
-file has no rows and is not a stale reason, so `stale: false` beside a non-zero
-count is not "nothing was withheld": branch on the count (see "Indexing scope and environment").
+It also names what the sensitive layer withheld -- `1 file skipped (sensitive
+content)`, the `withheld_*` fields and `--allow-sensitive`; `sensitive_skipped`
+carries the last pass's own count. **Consumer rule:** a withheld file has no rows
+and is not a stale reason, so `stale: false` beside a non-zero count is not
+"nothing was withheld": branch on the count.
 
 `list-projects` gives the same summary for every registered project;
 `lookup-project` answers only whether a path, slug or name is registered, and
