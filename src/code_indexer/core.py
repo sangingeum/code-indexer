@@ -482,10 +482,12 @@ class Core:
 
         ``vectors`` is the request (auto|on|off); the resolved mode decides
         whether a semantic client is constructed at all. When the rows are
-        already current and the project was kept with vectors off, turning
-        vectors on embeds straight from ``chunks`` — no scan, no reparse, no
-        source read. ``rescan=True`` (index-more, which widens the scope)
-        forces the row pass instead.
+        already current, the project was kept with vectors off, and the tree
+        still matches those rows, turning vectors on embeds straight from
+        ``chunks`` — no scan, no reparse, no source read. A tree that has moved
+        on from the rows takes the ordinary pass instead: current rows are a
+        fact about the last pass, never about the tree. ``rescan=True``
+        (index-more, which widens the scope) forces the row pass too.
         """
         with project_lock(self._lock_path(slug)) as acquired:
             if not acquired:
@@ -501,7 +503,12 @@ class Core:
                               and vectors_policy.rows_current(manifest)
                               and (vectors_policy.recorded_mode(manifest)
                                    == vectors_policy.MODE_OFF
-                                   or identity_changed))
+                                   or identity_changed)
+                              # A rows-current verdict is bookkeeping: the
+                              # parse is skipped only when the tree diff
+                              # proves nothing moved.
+                              and not self.tree_needs_a_pass(manifest,
+                                                            project_path))
                 indexer = self._build_indexer(use_vectors)
                 indexer.progress_cb = (
                     lambda info, s=slug: self._set_state(s, progress=info))
@@ -614,14 +621,35 @@ class Core:
                                      index_revision=index_revision)
         m = Manifest(mdir, writable=False)
         try:
-            indexed = m.all_files()
-            scope = [ln for ln in (m.get_meta("scope_include") or "")
-                     .splitlines() if ln.strip()]
-            # Read with the scope, from the same open: the override changes
-            # what the next pass withholds, so the diff must honour it too.
-            allow_sensitive = m.get_meta("allow_sensitive") == "1"
+            return self.verdict_against_tree(
+                m, entry.path, last_indexed=last_indexed,
+                index_revision=index_revision)
         finally:
             m.close()
+
+    def verdict_against_tree(self, manifest: Manifest, project_path: str, *,
+                             last_indexed: str | None,
+                             index_revision: str | None
+                             ) -> staleness.StalenessVerdict:
+        """Compare an OPEN manifest's rows against the tree they describe.
+
+        ONE implementation, two readers: the read-side staleness check and the
+        pass that has to decide whether a rows-current project still needs a
+        parse. Both must diff the same rows against the same walk, or the
+        banner and the repair describe different trees.
+
+        ``fresh`` is the only state that says the tree matches the rows, and
+        ``stale`` the only one that says it moved on. An ``unknown`` verdict --
+        a budget stop, an unreadable tree, no completed pass -- is neither, and
+        a pass must treat it as "nobody proved it either way" rather than as
+        permission to purge.
+        """
+        indexed = manifest.all_files()
+        scope = [ln for ln in (manifest.get_meta("scope_include") or "")
+                 .splitlines() if ln.strip()]
+        # Read with the scope, from the same open: the override changes what
+        # the next pass withholds, so the diff must honour it too.
+        allow_sensitive = manifest.get_meta("allow_sensitive") == "1"
         if not indexed or last_indexed is None:
             return staleness.unknown("no indexing pass has completed",
                                      last_indexed=last_indexed,
@@ -635,7 +663,7 @@ class Core:
                             max_seconds=staleness.SCAN_BUDGET_SECONDS)
         try:
             scanned: list[ScannedFile] = scan_project(
-                entry.path, max_file_bytes=self.cfg.max_file_bytes,
+                project_path, max_file_bytes=self.cfg.max_file_bytes,
                 previous=previous, include=scope or None, budget=budget)
         except ScanBudgetExceeded as exc:
             return staleness.unknown(str(exc), last_indexed=last_indexed,
@@ -647,6 +675,34 @@ class Core:
         return staleness.detect(indexed, scanned, last_indexed=last_indexed,
                                 index_revision=index_revision,
                                 allow_sensitive=allow_sensitive)
+
+    def tree_needs_a_pass(self, manifest: Manifest,
+                          project_path: str) -> bool:
+        """True only when the rows are PROVEN to describe an older tree.
+
+        ``vectors_policy.rows_current`` answers a bookkeeping question -- a
+        pass completed and its extraction is this build's -- and says nothing
+        about the tree. This answers the tree question with the same diff the
+        staleness banner prints, and it is the only thing that may decide a
+        pass (re)parses source.
+
+        Two answers keep the rows instead of parsing: ``fresh`` (the tree
+        matches, so there is nothing to parse) and every ``unknown`` state.
+        An unknown verdict is no evidence of a change -- a walk budget stop, an
+        unreadable or absent tree -- and a parse taken on no evidence would
+        read the files it could not walk as deleted and purge their rows. For
+        the same reason a tree this process cannot enter is not a tree that
+        moved on.
+        """
+        if not os.access(project_path, os.R_OK | os.X_OK):
+            return False
+        verdict = self.verdict_against_tree(
+            manifest, project_path,
+            last_indexed=staleness.iso_timestamp(
+                manifest.get_meta("last_indexed")),
+            index_revision=(manifest.get_meta("index_revision")
+                            or manifest.get_meta("last_indexed")))
+        return verdict.state == staleness.STALE
 
     # ------------------------------------------------------------------
     # project resolution / summaries
@@ -972,8 +1028,15 @@ class Core:
                 indexer = self._build_indexer(use_vectors)
                 indexer.progress_cb = (
                     lambda info, s=slug: self._set_state(s, progress=info))
-                if use_vectors and vectors_policy.rows_current(manifest):
+                if (use_vectors and vectors_policy.rows_current(manifest)
+                        and not self.tree_needs_a_pass(manifest,
+                                                       project_path)):
                     # Rows survive a vector rebuild: no parse, no source read.
+                    # The cheap path is taken only when the tree still matches
+                    # those rows. ``rows_current`` alone is bookkeeping about
+                    # the last pass, and a shortcut taken on it alone walks
+                    # nothing -- the pass the staleness banner names as the
+                    # repair would then never repair the tree.
                     # The physical collection carries the identity; the swap
                     # binds the alias to it (a no-op when already bound).
                     collection = self._vector_target(slug, indexer)
@@ -982,8 +1045,9 @@ class Core:
                     self.store.swap_collection(
                         collection, vectors_policy.alias_for(slug))
                 elif use_vectors:
-                    # Rows are obsolete too: parse and embed into a fresh
-                    # collection, then swap it in.
+                    # The rows are obsolete, or the tree has moved on from
+                    # them: parse and embed into a fresh collection, then swap
+                    # it in.
                     tmp = indexer.physical_collection(slug)
                     if self.store.collection_exists(tmp):
                         self.store.drop_collection(tmp)

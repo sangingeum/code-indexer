@@ -172,7 +172,10 @@ named reason (`ignored`, `ignored-directory`, `oversized`, `binary`,
 `non-utf8`, `unreadable`, `out-of-scope`, `sensitive`), `skipped_total`, and
 `examples`, the first few skipped paths of each kind. `walked == indexed +
 uncommitted + skipped_total` always holds; a file the pass cannot re-open
-after the scan is an `unreadable` skip, not uncommitted. `counted_exactly:
+after the scan is an `unreadable` skip, not uncommitted -- except a file that
+is GONE by the read: it leaves the scan set with no row, no skip and no error
+row, because nothing is there to index and no reindex could clear a complaint
+about it. `counted_exactly:
 false` means a
 pruned subtree was too large to count and `walked` is a floor. `outline` on a
 file the index does not hold quotes the recorded reason for it when the path

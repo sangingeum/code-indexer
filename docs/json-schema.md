@@ -520,7 +520,11 @@ pass, minus any file this pass failed to read (that file is counted under
 file the pass read and could not store because every one of its chunks failed
 to embed (a later pass retries it). A file the pass cannot re-open after the
 scan is never uncommitted: it is a skip under `unreadable`, and the same
-reason is recorded as the pass's error for it.
+reason is recorded as the pass's error for it. A file that is GONE by the read
+(deleted between the walk's stat and the read, as a tool's own temp file is)
+is a different fact: it leaves the scan set with no row, no skip and no error
+row, and an older pass's row for it is deleted with it -- so `error_count`
+stays 0 on a clean index and no later read reports it as `deleted`.
 
 `examples` names the first few paths of each kind (capped). `outline` answers
 why a file it cannot find was left out: the recorded reason when the path is

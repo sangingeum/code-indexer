@@ -1,5 +1,53 @@
 # Changelog
 
+## [Unreleased] — reindex-project parses a tree its rows no longer describe
+
+**The staleness warning now names a repair that clears it.** The vectors-on arm
+of `reindex-project` took the cheap path -- embed the stored chunks, swap the
+identity-stamped collection in, parse nothing -- whenever
+`vectors_policy.rows_current` held. That is a BOOKKEEPING fact: a pass
+completed and its recorded `extraction_version` is this build's. It says
+nothing about the tree. So on a project whose rows were current but which had
+gained and changed files, the command embedded the old chunks, walked nothing
+and returned `files_indexed: 0`, and the warning it is named as the repair for
+was unchanged: a permanent stale banner on a healthy tree. The cheap arm is now
+taken only when the staleness diff is `fresh`. `Core.verdict_against_tree` is
+ONE implementation shared by the read-side check and by
+`Core.tree_needs_a_pass`, so the banner and the repair diff the same rows
+against the same walk; a rows-current project whose tree has moved on takes the
+full parse, and `rows_current` alone never decides whether a pass parses.
+
+Two answers keep the rows instead of parsing: `fresh` (nothing to parse) and
+every `unknown` state -- a walk budget stop, or a tree this process cannot
+enter. An unknown verdict is no evidence of a change, and a parse taken on no
+evidence would read every file it could not walk as `deleted` and purge its
+rows. The cheap arm's promise to run with the source tree absent or unreadable
+is unchanged and pinned by its own test. The vectors-off arm is untouched, and
+a failure before the swap still leaves the old collection serving reads.
+
+Measured on the fixture probe (`runs/reindex-tree-repair/probe.py`: two files,
+a stub embedder and store at the Core seam, real scanner/manifest/staleness):
+after one added and one modified file the verdict reads `stale` with reasons
+`alpha.py modified` and `beta.py added`; one `reindex-project` returns
+`files_indexed 2`, `chunks_embedded 2`, `files_committed 2`, `files_deleted 0`
+and the verdict reads `fresh`; a second pass on the unchanged tree returns
+`files_indexed 0` -- the vector rebuild that parses nothing.
+
+**A file that is GONE by the read is no longer an index error.** A tool's own
+temp file inside the project could be stat'ed and hashed by the walk, deleted
+before the pass opened it, and land as
+`<path>#None: cannot read: [Errno 2] No such file or directory` -- leaving
+`error_count=1` on a clean index, an error row nothing could clear. A scanned
+path that raises `FileNotFoundError` at the read now leaves the scan set: no
+row, no `unreadable` skip and no error row. An older pass's row for it is
+deleted with the file, so no later staleness read reports it as `deleted`
+either, and `walked == indexed + uncommitted + skipped_total` still holds
+because the walk's own count loses that entry with it. Permission and I/O
+errors keep the `unreadable`/error path unchanged.
+
+Same probe, after the vanished temp file: `error_count 0`, `last_errors []`,
+`skipped {}`, `walked 2 == indexed 2`, verdict `fresh`.
+
 ## [Unreleased] — the shipped ordering was measured against ranking the unmerged hits and kept
 
 **The merge-before-the-class-key order stays, and the reason is measured, not

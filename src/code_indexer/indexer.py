@@ -648,6 +648,10 @@ class Indexer:
         # reason. They become a named skip (never `uncommitted`, whose one
         # cause is a chunk lost to an embed failure).
         read_failures: dict[str, str] = {}
+        # Files the walk saw and the read found GONE (a tool's temp file, a
+        # file deleted mid-pass). Not unreadable: there is nothing to read, so
+        # they are out of the scan set -- no row, no skip, no error row.
+        vanished: set[str] = set()
 
         def _process_file(path: str) -> tuple[str, str, list[Chunk], list, str,
                                           str | None] | None:
@@ -662,6 +666,14 @@ class Indexer:
                 with open(f.abs_path, encoding="utf-8", errors="replace") as fh:
                     file_text = fh.read()
                     chunks, verdict, lang = _parse_dispatch(path, file_text)
+            except FileNotFoundError:
+                # There at the walk's stat, gone at the read. That is not an
+                # unreadable file -- nothing is there to read -- so it leaves
+                # the scan set instead of becoming an error row about a path
+                # the tool itself already removed.
+                logger.debug("vanished between the walk and the read: %s", path)
+                vanished.add(path)
+                return None
             except OSError as exc:
                 logger.warning("cannot read %s: %s", path, exc)
                 read_failures[path] = str(exc)
@@ -792,12 +804,31 @@ class Indexer:
         def _record_read_failure(path: str) -> None:
             """A file the scan handed over and the parse could not open.
 
-            It is a skip under the scanner's own reason, so it appears in the
-            reconciliation as ``unreadable`` instead of parking in
-            ``uncommitted`` -- whose only cause is a chunk lost to an embed
-            failure. The reason is recorded against the file too, so
-            ``index-status`` names it rather than counting a silent drop.
+            A file that is GONE by the read is out of the scan set, not an
+            unreadable file: it gets no row, no skip and no error row, and an
+            older pass's row for it is deleted with it, so the next staleness
+            read reports neither ``added`` nor ``deleted`` about a path the
+            tree no longer holds. The walk's count loses that entry too, which
+            keeps ``walked == indexed + uncommitted + skipped`` true.
+
+            Any other failure -- permissions, an I/O error -- is a skip under
+            the scanner's own reason, so it appears in the reconciliation as
+            ``unreadable`` instead of parking in ``uncommitted`` (whose only
+            cause is a chunk lost to an embed failure). The reason is
+            recorded against the file too, so ``index-status`` names it
+            rather than counting a silent drop.
             """
+            if path in vanished:
+                scanned_map.pop(path, None)
+                if path in old_files:
+                    if vectors:
+                        self.store.purge_file_points(collection, project_path,
+                                                     path)
+                    manifest.delete_files([path])
+                    manifest.fts_purge_file(path)
+                if accounting.walked > 0:
+                    accounting.walked -= 1
+                return
             accounting.skip(SKIP_UNREADABLE, path)
             manifest.record_index_error(
                 path, None,

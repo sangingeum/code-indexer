@@ -135,8 +135,11 @@ code-indexer reindex-project /path/to/repo
   subpath relative to the project root -- one outside it is exit 2, and the root
   itself is `**`. Neither spelling infers a project from the working directory.
 - `reindex-project` is a full rebuild, also foreground; a vectors-on rebuild
-  embeds nothing its rows already store and writes whole-file `EMBED_GROUP`
-  (default 512) chunk groups; a file's rows go in after its points, so a crash costs one re-embed.
+  writes whole-file `EMBED_GROUP` (default 512) chunk groups and a file's rows
+  after its points, so a crash costs one re-embed. **Current rows are not a
+  current tree:** the cheap arm (embed the stored chunks, parse nothing) is
+  taken only when the tree diff is `fresh`, so this is the repair the staleness
+  warning names; a tree this process cannot enter keeps its rows.
 
 ## Removing and sweeping
 
@@ -183,12 +186,11 @@ code-indexer unwatch --all
   One axis older and one newer takes THIS refusal, never the reparse: the newer
   check runs first, and refusal is the safe side.
 - **The other direction reparses on the `--vectors off` arm**: recorded row axes
-  LOWER than this build's rebuild every file's rows instead of re-stamping them,
-  so a reader sees this extraction's rows; still no vector write, and a tree
-  already at the axes does nothing (`files_indexed=0`, `chunks_embedded=0`).
-  A reparse that could not re-read a scanned file leaves the axes older, so every
-  later pass reparses the whole project and re-warns until the file is readable
-  or leaves the scan set (its row then deleted): fix the read, or let it drop.
+  LOWER than this build's rebuild every file's rows instead of re-stamping them;
+  still no vector write, and a tree already at the axes does nothing
+  (`files_indexed=0`, `chunks_embedded=0`). A reparse that could not re-read a
+  scanned file leaves the axes older, so every later pass reparses and re-warns
+  until the file is readable or leaves the scan set: fix the read, or let it drop.
 
 ## Asking what state an index is in
 
@@ -214,7 +216,7 @@ It also reports both halves of the vector story -- `vectors=on|off` and
 `vectors_state=current|absent|stale|error` (stale is the read's identity
 comparison, never a recorded write) -- plus `rows=current|absent`, the
 parse-verdict counts (`parse=parsed:N,parse_error:N,parse_unavailable:N`),
-and, when chunk errors are recorded, `error_count=N` (the total) beside `last_errors=` (at most three examples; neither field with no errors).
+and, when chunk errors are recorded, `error_count=N` (the total) beside `last_errors=` (at most three examples; neither field with no errors). A path that is GONE by the read -- deleted between the walk's stat and the read, as a tool's own temp file is -- never becomes one of those errors: it leaves the scan set with no row, no skip and no error row, so a clean index reports `error_count` 0.
 
 Both verdict pairs are flags a caller branches on, and the text form adds one
 stderr line saying what the pair MEANS, from the same verdict object the
@@ -292,9 +294,10 @@ and locks, per-project fingerprint status) and exits 1 when one fails.
 
 `auto` never silently enables embedding on a fresh install, and an existing
 vectors-on project stays on across the upgrade. `watch` follows the recorded
-mode and never turns vectors on itself. Turning vectors on for a current
-project reparses nothing and reads no source file: it embeds the stored chunk
-text. A changed embedding identity is a NEW physical collection
+mode and never turns vectors on itself. Turning vectors on for a project whose
+rows are current AND whose tree matches them reparses nothing: it embeds the
+stored chunk text; a tree that moved on takes the ordinary pass (see
+`reindex-project`). A changed embedding identity is a NEW physical collection
 (`idx_<slug>__<identity digest>`) that every vector-writing pass binds the
 `idx_<slug>` alias to; writes name it, reads resolve the alias.
 
@@ -367,15 +370,13 @@ what is committed, the index what is searchable. The root `.codeindexignore`
 excludes `runs/` (round captures and gate logs; untracked) and `eval/` (the
 retrieval corpus: user-shaped queries, so indexing them outranks the code;
 tracked), anchored to the root so a same-named `src/` directory stays indexed.
-Nested ignore files compose as git does: each is read root-outwards against
-its own directory and the last rule decides, so a deeper `!pattern`
-re-includes and an anchored one (`/secret.txt`) anchors where it sits. The
-repo-local `.git/info/exclude` joins there, read before every `.gitignore` and
-anchored at the repository root even for a subdirectory scan. Two deliberate
-limits: a user-global exclude is never read, and the exclude belongs to the
-repository covering the scanned root, never a nested one. On a tree with
-nothing untracked and not ignored the scan set is `git ls-files` minus `git
-check-ignore` hits; rows leave a manifest on a reindex, not on the edit.
+Nested ignore files compose as git does: each is read root-outwards against its
+own directory and the last rule decides, so a deeper `!pattern` re-includes and
+an anchored `/secret.txt` anchors where it sits. The repo-local
+`.git/info/exclude` joins there, before every `.gitignore`, anchored at the
+repository root even for a subdirectory scan; a user-global exclude is never
+read. On a clean tree the scan set is `git ls-files` minus `git check-ignore`
+hits; rows leave a manifest on a reindex, not on the edit.
 
 A withheld file sits between scan set and manifest: scanned, deliberately
 rowless, and **not** a staleness reason. The diff re-applies the pass's own
@@ -394,7 +395,6 @@ measured threshold). A path past the budget stays `added` and rides
 `withheld_unexamined_count`.
 
 A rowless path the check cannot OPEN is a third state -- scan and diff are two
-moments, so it reports `unreadable_count` / `unreadable_files` with `1 file
-could not be read (permission or I/O error)`, never `added` or withheld. The
-scanner drops paths it cannot open, so this reports only what the diff saw: a
-path the scan never returned is not counted.
+moments -- reported as `unreadable_count` / `unreadable_files` with `1 file
+could not be read (permission or I/O error)`, never `added` or withheld; the
+scanner drops what it cannot open, so a path the scan never returned is not counted.

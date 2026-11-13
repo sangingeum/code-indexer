@@ -1957,10 +1957,14 @@ def reindex_project(
 ) -> None:
     """Force a full rebuild of a project's index (runs foreground in the CLI).
 
-    A vectors-on rebuild whose rows are already current embeds from the
-    stored chunks and swaps in a collection for the current identity — it
-    reparses nothing. ``--vectors off`` rebuilds the rows with no service and
-    leaves any existing collection untouched.
+    A vectors-on rebuild whose rows are already current AND whose tree still
+    matches those rows embeds from the stored chunks and swaps in a
+    collection for the current identity — it reparses nothing, which is what
+    makes a vector-identity rebuild cheap. When the tree has moved on from
+    the rows, the same command reparses it: current rows are a fact about the
+    last pass, so the repair the staleness warning names is a real parse.
+    ``--vectors off`` rebuilds the rows with no service and leaves any
+    existing collection untouched.
 
     ``--repair-points`` is the collection repair, not a rebuild: every stored
     row's vector is found by content and written at the point id the row's
