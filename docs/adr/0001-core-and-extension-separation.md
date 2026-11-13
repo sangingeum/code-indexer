@@ -4,7 +4,7 @@
 - Date: 2026-11-07
 - Deciders: owner (ratification), architecture review
 - Supersedes / Superseded by: --
-- Amended: 2026-11-07 -- section 2 previously read "Migrated on open", a sentence that licensed a read to migrate and empty a manifest; ADR-0003 section 1 governs, so the sentence now says the next pass migrates and a read never does.
+- Amended: 2026-11-07 -- section 2 previously read "Migrated on open", a sentence that licensed a read to migrate and empty a manifest; ADR-0003 section 1 governs, so the sentence now says the next pass migrates and a read never does. Also 2026-11-14 -- section 3 said a vectors-on pass "reparses nothing and reads no file"; that arm is taken only when the staleness diff is `fresh`, so the sentence now says what a tree that has moved on makes the same pass do.
 
 ## Decision in one paragraph
 
