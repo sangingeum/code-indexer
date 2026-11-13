@@ -281,17 +281,20 @@ nothing is classified and every rowless path is an `added` reason -- the row
 the next pass will write.
 
 `unreadable_count`, `unreadable_files` and `unreadable_summary` describe the
-rowless paths the check could not OPEN (permissions, a broken symlink target,
-an I/O error). The check could not look at them, so they are neither stale
-reasons nor withheld files -- an `added` reason would say the path is new and a
-reindex would never clear it. They are counted, listed (capped at five) and
-phrased like the withheld fields, on a `fresh` verdict too, and the text line
-says so even when the verdict is fresh: `1 file could not be read (permission
-or I/O error), so part of the tree was not checked`. The state reports what
-the diff saw, and no more: the scanner drops a path it cannot open, so the
-check only ever sees a path the scan returned -- a file already unreadable
-when the tree was walked (a stable `chmod 000`, a dangling symlink) never
-reaches the diff and is not counted.
+paths the check could not OPEN (permissions, a broken symlink target, an I/O
+error). The check could not look at them, so they are neither stale reasons nor
+withheld files -- an `added` reason would say the path is new and a reindex
+would never clear it, and a `deleted` reason would say a file still on disk is
+gone. They are counted, listed (capped at five) and phrased like the withheld
+fields, on a `fresh` verdict too, and the text line says so even when the
+verdict is fresh: `1 file could not be read (permission or I/O error), so part
+of the tree was not checked`. Two shapes reach it. One is a rowless path the
+diff re-read and could not open. The other is a path the SCAN itself could not
+stat, sniff or hash: the scan counts it under `skipped.unreadable` and names it
+to the pass, which keeps whatever row it has instead of deleting it -- so it
+is reported here, never as `deleted`, and `index-status` still answers it.
+The state reports what the diff saw, and no more: a path the walk never saw (an
+ignored subtree, a file the tree no longer holds) is not counted.
 
 Consumer rule: `stale: false` with a non-zero `withheld_count` is not
 "nothing was withheld", and `stale` alone says nothing about withheld files.
