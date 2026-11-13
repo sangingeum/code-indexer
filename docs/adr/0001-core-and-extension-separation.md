@@ -59,7 +59,7 @@ The manifest gains one table and becomes authoritative for chunk content: `chunk
 
 - A pass writes files, symbols, refs, imports, `chunks`, `chunks_fts` and `index_errors` with no service reachable, and records `meta.vectors=off`.
 - Qdrant is a vector store only. The payload keeps what a ranked hit needs to render, but no read path takes text from it.
-- A vectors-on pass reads `chunks.text` and `chunks.chunk_hash`, embeds and upserts. It reparses nothing and reads no file; a cached hash costs nothing.
+- A vectors-on pass reads `chunks.text` and `chunks.chunk_hash`, embeds and upserts. It reparses nothing and reads no file; a cached hash costs nothing. (amended 2026-11-14: this is the cheap arm, and it is taken only when the staleness diff is `fresh` -- a tree that has moved on from the rows makes the same pass parse it and read its source.)
 - A chunk removed from a file leaves `chunks` and the collection under the same per-file purge that exists today.
 
 ### 4. CLI shape
