@@ -12,7 +12,12 @@ the walk no longer listed the name — `fresh` by forgetting, applied to a
 directory instead of a file. The walk now carries an `onerror` hook that
 records each failed directory in the pass's own accounting, once, beside the
 paths it could not read; the staleness diff and the pass read that one fact
-rather than deriving it twice. A row under such a directory is never a
+rather than deriving it twice. A failure of the ROOT itself cannot be recorded
+that way -- its project-relative name is `.`, which no row lies under, and the
+probe and the walk are two opens of the same directory microseconds apart (a
+mount that went away between them, an autofs expiry) -- so it is raised, the
+same answer the root probe gives, and the pass writes nothing. A row under an
+unenterable directory is never a
 `deleted` reason and is never deleted by a pass, on the incremental and the
 `force_full` arm alike, and the pass does not stamp the current version axes
 over rows it never parsed (the embedding side is still recorded: it describes

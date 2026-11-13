@@ -516,12 +516,25 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
 
         A failure that cannot name a directory is not swallowed: raising it
         keeps "could not look" from becoming "empty", which is the one
-        answer this hook exists to prevent.
+        answer this hook exists to prevent. The ROOT failing inside the walk
+        (a mount that went away between the probe and the walk) is that same
+        case one level up: its project-relative name is ``"."``, which names
+        no row, so it is raised beside the probe's own answer rather than
+        recorded as a directory no row lies under.
         """
         name = getattr(exc, "filename", None)
         if not name:
             raise exc
         rel = os.path.relpath(name, root).replace(os.sep, "/")
+        if rel == ".":
+            # The failure IS the root. ``relpath`` yields ``"."`` for it, and
+            # ``"."`` matches no row under the one predicate, so recording it
+            # would leave the exclusion set empty and every row looking
+            # deleted -- the whole-project purge this hook exists to prevent,
+            # at the one depth the recorded name cannot express. The root
+            # probe answers this case by raising; the walk answers it the
+            # same way, so "could not look" never becomes "empty".
+            raise exc
         logger.warning("cannot enter directory %s: %s", rel, exc)
         if accounting is not None:
             accounting.unenterable_dirs.add(rel)
