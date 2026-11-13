@@ -58,15 +58,18 @@ same wrong answer, so the banner survived every pass. The scanner now probes
 its own root and raises, so the shared diff answers `unknown` with the detail
 naming what could not be read; the guard beside it is gone, and one
 computation decides for the banner and for the pass. A vectors-off pass
-cannot parse a tree it cannot see either, and it deletes nothing on the way.
+cannot parse a tree it cannot see either: with an unenterable root it fails
+before writing anything and exits 1 with every row kept, and a subtree it
+could not enter is excluded from its deletions the same way.
 
 Two answers keep the rows instead of parsing: `fresh` (nothing to parse) and
 every `unknown` state -- a walk budget stop, or a tree this process cannot
 enter. An unknown verdict is no evidence of a change, and a parse taken on no
 evidence would read every file it could not walk as `deleted` and purge its
 rows. The cheap arm's promise to run with the source tree absent or unreadable
-is unchanged and pinned by its own test. The vectors-off arm is untouched, and
-a failure before the swap still leaves the old collection serving reads.
+is unchanged and pinned by its own test. The vectors-off arm is unchanged on a
+readable tree, and a failure before the swap still leaves the old collection
+serving reads.
 
 **An existing file this process cannot read is `unreadable`, never `binary`.**
 The binary sniff answered `True` for an `OSError`, so a file the process could
