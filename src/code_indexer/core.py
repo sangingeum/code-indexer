@@ -643,9 +643,15 @@ class Core:
 
         ``fresh`` is the only state that says the tree matches the rows, and
         ``stale`` the only one that says it moved on. An ``unknown`` verdict --
-        a budget stop, an unreadable tree, no completed pass -- is neither, and
-        a pass must treat it as "nobody proved it either way" rather than as
+        a budget stop, an unreadable tree, no completed pass, or a subtree the
+        walk could not enter with nothing else proven -- is neither, and a
+        pass must treat it as "nobody proved it either way" rather than as
         permission to purge.
+
+        The walk's own account travels with the diff: the paths it SAW and
+        could not read, and the DIRECTORIES it could not enter. Both are
+        evidence gaps about the delete decision, and a row under one is never
+        a ``deleted`` reason.
         """
         indexed = manifest.all_files()
         scope = [ln for ln in (manifest.get_meta("scope_include") or "")
@@ -686,7 +692,8 @@ class Core:
         return staleness.detect(indexed, scanned, last_indexed=last_indexed,
                                 index_revision=index_revision,
                                 allow_sensitive=allow_sensitive,
-                                could_not_read=accounting.could_not_read)
+                                could_not_read=accounting.could_not_read,
+                                unenterable=accounting.unenterable_dirs)
 
     def tree_needs_a_pass(self, manifest: Manifest,
                           project_path: str) -> bool:

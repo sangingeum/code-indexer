@@ -255,12 +255,16 @@ block (`schema` stays `1`):
  "unreadable_count": int,
  "unreadable_files": [{"file": str}],
  "unreadable_summary": str|null,
+ "unenterable_count": int,
+ "unenterable_dirs": [str],
+ "unenterable_summary": str|null,
  "index_revision": str|null, "last_indexed": str|null}
 ```
 
 `stale_known` false means the verdict is `unknown` (project path absent, no
-completed pass, or the scan exceeded its budget), so `stale: false` alone
-never means "checked and fresh". `stale_reasons` is capped at five while
+completed pass, the scan exceeded its budget, or a directory the walk could not
+enter with no other proven change), so `stale: false` alone never means
+"checked and fresh". `stale_reasons` is capped at five while
 `stale_reason_count` is the total before the cap. `index_revision` names the
 pass the answer was read from and `last_indexed` is that pass's timestamp in
 ISO-8601 UTC.
@@ -295,6 +299,19 @@ to the pass, which keeps whatever row it has instead of deleting it -- so it
 is reported here, never as `deleted`, and `index-status` still answers it.
 The state reports what the diff saw, and no more: a path the walk never saw (an
 ignored subtree, a file the tree no longer holds) is not counted.
+
+`unenterable_count`, `unenterable_dirs` and `unenterable_summary` describe the
+DIRECTORIES the walk could not enter: `os.walk` yields nothing for a subtree it
+cannot open and never raises, so without this fact every row under it would
+look deleted. Those rows are never a `deleted` reason and no pass purges them,
+and the pass stamps no version axis over rows it did not parse. `unenterable_dirs`
+is capped at five while the count is the total; the summary reads like the two
+above (`1 directory could not be entered (vendor)`). The fact rides on a `stale`
+verdict as well as on an `unknown` one -- when something else provably moved,
+suppressing that repair would be the worse answer -- and `index-status` names the
+directories on its line. It is not a `scan_accounting` key: the stored payload
+keeps its schema, and the fact is the walk's report to the diff and the pass,
+not a field of the pass record.
 
 Consumer rule: `stale: false` with a non-zero `withheld_count` is not
 "nothing was withheld", and `stale` alone says nothing about withheld files.
@@ -519,7 +536,8 @@ ignored; every one of them is `indexed`, `uncommitted` or counted in
 `out-of-scope`, `sensitive` — so `walked == indexed + uncommitted +
 skipped_total` always holds. `indexed` is what the manifest holds after the
 pass, minus any file this pass failed to read (that file is counted under
-`unreadable`, even when an older row for it survives), and `uncommitted` is a
+`unreadable`, even when an older row for it survives) and minus the rows under
+a directory the walk could not enter, and `uncommitted` is a
 file the pass read and could not store because every one of its chunks failed
 to embed (a later pass retries it). A file the pass cannot re-open after the
 scan is never uncommitted: it is a skip under `unreadable`, and the same

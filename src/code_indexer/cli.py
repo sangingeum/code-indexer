@@ -1854,6 +1854,12 @@ def index_status(
     if block.get("unreadable_summary"):
         parts.append(f"{block['unreadable_summary']} — not checked; "
                      "fix the file's permissions or link and re-read")
+    # A directory the walk could not enter is the same kind of fact one level
+    # up, and it is named here for the same reason: a reader repairing an
+    # index needs to know which part of the tree was never looked at.
+    if block.get("unenterable_summary"):
+        parts.append(f"{block['unenterable_summary']} — not walked; "
+                     "fix the directory's permissions and re-read")
     if json_output:
         fields.update(block)
         fields["coverage"] = _coverage(core, entry, block)

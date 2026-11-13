@@ -25,6 +25,21 @@ reason. ``added`` says "this path is not in the index" and nothing more, but
 an unreadable path also says the check could not look at it -- a condition no
 reindex can clear, so folding it into the stale banner would never let the
 banner go quiet.
+
+A DIRECTORY the walk could not enter is the same evidence gap one level up,
+and it has no natural depth: ``os.walk`` yields nothing for a subtree it
+cannot open, so every row beneath it is absent from the scan without any file
+on disk having moved. Those rows are never ``deleted`` reasons. Unlike the
+single unreadable file, the gap changes the VERDICT: with no proven change
+left, the check cannot answer "do these rows describe this tree", and the
+state is ``unknown`` with a detail naming the directories. ``unknown`` is "no
+evidence"; an unenterable directory is an evidence gap for the DELETE
+decision, not for the parse decision -- the two are split elsewhere, and this
+module answers the delete side. When proven changes exist elsewhere the state
+is ``stale`` with those reasons and the unenterable fact rides BESIDE the
+verdict, in the same shape as ``withheld`` and ``unreadable``: suppressing
+the repair of a tree that provably moved would be the worse answer.
+``fresh`` is never returned while any directory could not be entered.
 """
 
 from __future__ import annotations
@@ -111,6 +126,13 @@ class StalenessVerdict:
     condition is about the check, not about the tree. ``unexamined_count``
     names the rowless paths the re-check's budget never reached, which stay
     ordinary ``added`` reasons.
+
+    ``unenterable`` names the DIRECTORIES the walk could not enter, and
+    ``unenterable_count`` how many there were. Every row under one of them is
+    withheld from the ``deleted`` reasons, and the fact rides beside the
+    verdict on ``stale`` as well as on ``unknown`` -- see the module
+    docstring for why the gap decides the verdict only when nothing else
+    moved.
     """
 
     state: str
@@ -120,6 +142,8 @@ class StalenessVerdict:
     withheld_count: int = 0
     unreadable: tuple[UnreadableFile, ...] = ()
     unreadable_count: int = 0
+    unenterable: tuple[str, ...] = ()
+    unenterable_count: int = 0
     unexamined_count: int = 0
     last_indexed: str | None = None
     index_revision: str | None = None
@@ -148,7 +172,8 @@ def detect(indexed: Mapping[str, Any], scanned: Iterable[Any], *,
            last_indexed: str | None,
            index_revision: str | None,
            allow_sensitive: bool = False,
-           could_not_read: Iterable[str] = ()) -> StalenessVerdict:
+           could_not_read: Iterable[str] = (),
+           unenterable: Iterable[str] = ()) -> StalenessVerdict:
     """Compare the indexed files with a scan of the tree.
 
     ``indexed`` maps a project-relative path to its manifest row (``size``,
@@ -162,6 +187,13 @@ def detect(indexed: Mapping[str, Any], scanned: Iterable[Any], *,
     still on disk, the check simply could not look at it, and no reindex can
     clear a claim the tree never made. It joins the ``unreadable`` fact
     instead -- the same class as a rowless path the check cannot open.
+
+    ``unenterable`` is the WALK's set of directories it could not enter, the
+    same fact at directory scale: every row under one of them is missing from
+    the scan without any file having moved, so none of them is a ``deleted``
+    reason. When that gap leaves no proven change the state is ``unknown``
+    (see the module docstring); when changes are proven elsewhere the state is
+    ``stale`` and the gap rides beside the verdict.
 
     A scanned path with no manifest row is a withheld file when the same
     detector the pass applied still withholds it, and an ``unreadable`` path
@@ -182,9 +214,17 @@ def detect(indexed: Mapping[str, Any], scanned: Iterable[Any], *,
     for path in added:
         reasons.append(Reason("added", path))
     unread_rows = set(could_not_read)
+    unentered = tuple(sorted(set(unenterable)))
     for path in sorted(set(indexed) - set(tree)):
         if path in unread_rows:
             unreadable.append(UnreadableFile(path))
+            continue
+        if _under_directory(path, unentered):
+            # The row's directory could not be opened, so its absence from
+            # the scan proves nothing: it is an evidence gap for the DELETE
+            # decision, reported as ``unenterable`` beside the verdict -- not
+            # a ``deleted`` reason, and not an unreadable FILE either (no
+            # file was reached).
             continue
         reasons.append(Reason("deleted", path))
     unreadable.sort(key=lambda s: s.file)
@@ -192,16 +232,30 @@ def detect(indexed: Mapping[str, Any], scanned: Iterable[Any], *,
         if tree[path].content_hash != indexed[path].content_hash:
             reasons.append(Reason("modified", path))
     reasons.sort(key=lambda r: (_KIND_ORDER.index(r.kind), r.file))
-    state = STALE if reasons else FRESH
+    detail = None
+    if reasons:
+        state = STALE
+    elif unentered:
+        # No proven change, and part of the tree could not be looked at: the
+        # check cannot answer "do these rows describe this tree". No evidence
+        # is ``unknown``, and ``unknown`` is never ``fresh``.
+        state = UNKNOWN
+        detail = (f"{_unenterable_summary(unentered, len(unentered))}, so "
+                  "not every row could be checked")
+    else:
+        state = FRESH
     return StalenessVerdict(state=state, reasons=tuple(reasons),
                             reason_count=len(reasons),
                             withheld=tuple(withheld),
                             withheld_count=len(withheld),
                             unreadable=tuple(unreadable),
                             unreadable_count=len(unreadable),
+                            unenterable=unentered,
+                            unenterable_count=len(unentered),
                             unexamined_count=unexamined,
                             last_indexed=last_indexed,
-                            index_revision=index_revision)
+                            index_revision=index_revision,
+                            detail=detail)
 
 
 def _classify_withheld(candidates: list[Any], *,
@@ -264,6 +318,32 @@ def _classify_withheld(candidates: list[Any], *,
     return withheld, unreadable, added, unexamined
 
 
+def _under_directory(path: str, directories: Iterable[str]) -> bool:
+    """True when ``path`` lies inside one of ``directories``.
+
+    Both sides are project-relative POSIX paths, so the test is a prefix
+    match on a path BOUNDARY: ``vendor`` covers ``vendor/x.py`` and never
+    ``vendored/x.py``.
+    """
+    return any(path == d or path.startswith(d + "/") for d in directories)
+
+
+def _unenterable_summary(directories: Iterable[str], count: int) -> str | None:
+    """``2 directories could not be entered (vendor, locked)``, or None.
+
+    The sentence states what the check KNOWS and nothing else: a directory was
+    there and the process could not open it. The paths are capped like every
+    other list on an answer, and the count is always the full count, so a
+    capped list never reads as the whole picture.
+    """
+    if not count:
+        return None
+    noun = "directory" if count == 1 else "directories"
+    named = list(directories)[:REASON_CAP]
+    paths = f" ({', '.join(named)})" if named else ""
+    return f"{count} {noun} could not be entered{paths}"
+
+
 def _unreadable_summary(count: int) -> str | None:
     """``1 file could not be read (permission or I/O error)``, or None.
 
@@ -317,6 +397,11 @@ def block(verdict: StalenessVerdict) -> dict[str, Any]:
     not OPEN. They are neither stale reasons nor withheld files -- the check
     could not look at them -- so they are counted, listed (capped) and phrased
     the same way, on a FRESH verdict too.
+
+    ``unenterable_*`` is the same shape one level up: the DIRECTORIES the walk
+    could not enter. Their rows are never ``deleted`` reasons, and the fact is
+    present on a ``stale`` and on an ``unknown`` verdict alike -- a reader
+    repairing the tree must know which part of it was never looked at.
     """
     return {
         "stale": verdict.stale,
@@ -332,6 +417,10 @@ def block(verdict: StalenessVerdict) -> dict[str, Any]:
         "unreadable_files": [s.to_dict()
                              for s in verdict.unreadable[:REASON_CAP]],
         "unreadable_summary": _unreadable_summary(verdict.unreadable_count),
+        "unenterable_count": verdict.unenterable_count,
+        "unenterable_dirs": list(verdict.unenterable[:REASON_CAP]),
+        "unenterable_summary": _unenterable_summary(verdict.unenterable,
+                                                   verdict.unenterable_count),
         "index_revision": verdict.index_revision,
         "last_indexed": verdict.last_indexed,
     }
@@ -371,14 +460,17 @@ def warning_line(verdict: StalenessVerdict, project_path: str, *,
     There is no session token: every read states the verdict it just computed.
 
     ``include_reported`` appends the facts reported BESIDE the verdict --
-    withheld files (a deliberate skip) and unreadable paths (the check could
-    not open them), neither of which is a stale reason -- for callers that do
-    not print them themselves; ``index-status`` passes False because its own
-    line already carries both.
+    withheld files (a deliberate skip), unreadable paths (the check could not
+    open them) and unenterable directories (the walk could not look under
+    them), none of which is a stale reason -- for callers that do not print
+    them themselves; ``index-status`` passes False because its own line
+    already carries all three.
 
     A ``fresh`` verdict is silent EXCEPT when paths were unreadable: then the
     check could not compare them, so the answer says so instead of letting
-    silence read as "everything was checked".
+    silence read as "everything was checked". A ``fresh`` verdict is never
+    produced while a directory could not be entered -- that gap makes the
+    verdict ``unknown``, whose own branch prints the detail naming it.
     """
     if verdict.state == FRESH:
         unreadable = _unreadable_summary(verdict.unreadable_count)
@@ -397,6 +489,10 @@ def warning_line(verdict: StalenessVerdict, project_path: str, *,
     unreadable = _unreadable_summary(verdict.unreadable_count)
     if include_reported and unreadable:
         facts.append(unreadable)
+    unenterable = _unenterable_summary(verdict.unenterable,
+                                      verdict.unenterable_count)
+    if include_reported and unenterable:
+        facts.append(unenterable)
     return (f"Warning: index is stale: {'; '.join(facts)} -- {project_path}; "
             "answers describe the index, not the tree; "
             f"refresh with code-indexer reindex-project {project_path}")
@@ -420,6 +516,9 @@ def aggregate(verdicts: Mapping[str, StalenessVerdict]) -> dict[str, Any]:
     withheld_total = sum(v.withheld_count for v in verdicts.values())
     merged_unreadable = [s for v in verdicts.values() for s in v.unreadable]
     unreadable_total = sum(v.unreadable_count for v in verdicts.values())
+    merged_unenterable = sorted({d for v in verdicts.values()
+                                for d in v.unenterable})
+    unenterable_total = sum(v.unenterable_count for v in verdicts.values())
     unexamined_total = sum(v.unexamined_count for v in verdicts.values())
     known = all(v.known for v in verdicts.values())
     any_stale = any(v.stale for v in verdicts.values())
@@ -436,6 +535,10 @@ def aggregate(verdicts: Mapping[str, StalenessVerdict]) -> dict[str, Any]:
         "unreadable_files": [s.to_dict()
                              for s in merged_unreadable[:REASON_CAP]],
         "unreadable_summary": _unreadable_summary(unreadable_total),
+        "unenterable_count": unenterable_total,
+        "unenterable_dirs": merged_unenterable[:REASON_CAP],
+        "unenterable_summary": _unenterable_summary(merged_unenterable,
+                                                   unenterable_total),
         "index_revision": None,
         "last_indexed": None,
     }

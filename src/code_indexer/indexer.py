@@ -599,8 +599,15 @@ class Indexer:
         # The same set is what the staleness diff reads, so the banner and
         # the pass answer one question the same way.
         unreadable_paths = accounting.could_not_read
+        # ... and one level up: every row under a directory the walk could not
+        # enter. Those rows are absent from the scan set without any file
+        # having moved, so purging them would be the same silent forgetting at
+        # subtree scale. ONE exclusion set, used by both the incremental and
+        # the force_full arm below, so the two cannot drift.
+        unseen_paths = unreadable_paths | {
+            p for p in old_files if accounting.under_unentered(p)}
         deleted = [p for p in old_files
-                   if p not in scanned_map and p not in unreadable_paths]
+                   if p not in scanned_map and p not in unseen_paths]
         changed = [
             p for p in scanned_map
             if p in old_files and scanned_map[p].content_hash != old_files[p].content_hash
@@ -609,7 +616,7 @@ class Indexer:
             changed = list(scanned_map.keys())
             added = []
             deleted = [p for p in old_files
-                       if p not in scanned_map and p not in unreadable_paths]
+                       if p not in scanned_map and p not in unseen_paths]
             # A full rebuild must actually re-embed everything it processes:
             # the store may have been wiped independently of the manifest, and
             # a changed embedding construction describes vectors built by
@@ -1018,7 +1025,18 @@ class Indexer:
         # rows this pass did not fail to read, which keeps one file out of two
         # buckets and the identity true on a second pass as on the first.
         committed = manifest.all_files()
-        accounting.indexed = sum(1 for p in committed if p not in read_failures)
+        # Rows this pass neither read nor even WALKED keep their place in the
+        # manifest but are not this pass's work: an unreadable path is
+        # already counted under `skipped`, and the rows under a directory the
+        # walk could not enter were never walked at all. Counting either as
+        # `indexed` would break `walked == indexed + uncommitted +
+        # skipped_total`, the one reconciliation a reader has against the
+        # tree.
+        accounting.indexed = sum(
+            1 for p in committed
+            if p not in read_failures
+            and p not in accounting.could_not_read
+            and not accounting.under_unentered(p))
         accounting.uncommitted = max(
             0, len(scanned_map) - len(read_failures) - accounting.indexed)
         write_scan_accounting(manifest, accounting)
@@ -1034,27 +1052,30 @@ class Indexer:
         # The pass's fingerprint is stamped here, on every direction: a pass
         # that reached this line ran under code at least as new as the recorded
         # one (the older-code case was refused before any write).
+        #
+        # A pass that did not SEE every row cannot certify that every row is
+        # this build's. Two facts say so: a file re-scanned but not re-opened
+        # by the parse (``read_failures``), and a DIRECTORY the walk could not
+        # enter -- its rows are neither scanned nor reparsed, so the row axes
+        # this pass would stamp did not produce them. Stamping would make them
+        # read as current and no later pass would ever detect them again, so
+        # the axes stay at the recorded values and every later pass repeats
+        # the warning until that part of the tree is readable.
+        #
+        # The embedding side is not withheld: it describes the collection this
+        # pass WROTE, and records nothing about which rows were seen.
+        from .fingerprint import write_embedding_side, write_row_side
+        unseen_rows = bool(read_failures) or bool(accounting.unenterable_dirs)
         if current_fp is not None:
-            write_fingerprint(manifest, current_fp)
-        elif row_axes_older and read_failures:
-            # A forced reparse that could not re-open a file it just scanned
-            # (the read fails between the scan and the parse) leaves that
-            # file's rows as the older extraction wrote them. Stamping the
-            # current axes over them is exactly the certification this pass was
-            # made to stop; leaving the recorded axes where they are keeps the
-            # next pass's detection alive (and the error rows say why). A file
-            # the SCANNER cannot read is dropped from the scan set and its row
-            # deleted instead, so nothing stale is certified there either.
-            # Until that file becomes readable or leaves the scan set, the axes
-            # stay older: every later pass reparses the whole project and
-            # repeats this warning, and the row reads keep refusing (exit 4).
-            # The remedy is to fix the read, or let the scanner drop the file.
+            write_embedding_side(manifest, self.cfg.embed_model,
+                                 self.embedder.dimension())
+        if unseen_rows and (rebuild or row_axes_older):
             logger.warning(
-                "row axes stay at the recorded (older) values: %d file(s) "
-                "could not be reparsed, so not every row is this build's",
-                len(read_failures))
+                "row axes stay at the recorded values: %d file(s) could not "
+                "be reparsed and %d directory(ies) could not be entered, so "
+                "not every row is this build's",
+                len(read_failures), len(accounting.unenterable_dirs))
         else:
-            from .fingerprint import write_row_side
             write_row_side(manifest)
 
         # Unchanged files keep their manifest rows; ensure they're recorded

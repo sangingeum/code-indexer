@@ -2,6 +2,29 @@
 
 ## [Unreleased] — reindex-project parses a tree its rows no longer describe
 
+**A directory this process cannot enter is not a directory that emptied.**
+`os.walk` reports nothing for a subtree it cannot open and does not raise, so
+a `chmod 000` on `vendor/` (or a stale mount, or a group membership that
+changed under a running watcher) read as every row under it being deleted: the
+diff said `stale [deleted sub/b.py]`, the pass purged the row and its points,
+wrote no `index_errors` row, and the next `index-status` read `fresh` because
+the walk no longer listed the name — `fresh` by forgetting, applied to a
+directory instead of a file. The walk now carries an `onerror` hook that
+records each failed directory in the pass's own accounting, once, beside the
+paths it could not read; the staleness diff and the pass read that one fact
+rather than deriving it twice. A row under such a directory is never a
+`deleted` reason and is never deleted by a pass, on the incremental and the
+`force_full` arm alike, and the pass does not stamp the current version axes
+over rows it never parsed (the embedding side is still recorded: it describes
+the collection the pass wrote). The verdict says `unknown` — never `fresh` —
+when the gap leaves no proven change; when something else provably moved the
+state stays `stale` with those reasons and the gap rides beside them, as a
+count, the capped paths and a phrase on the banner and in the JSON block,
+because suppressing a repair a tree provably needs would be the worse answer.
+`index-status` names the directories. No manifest-schema, extraction,
+chunker or embedding-identity value moves: the fact is accounting vocabulary,
+not a stored field.
+
 **The staleness warning now names a repair that clears it.** The vectors-on arm
 of `reindex-project` took the cheap path -- embed the stored chunks, swap the
 identity-stamped collection in, parse nothing -- whenever
@@ -25,7 +48,7 @@ printed `stale [deleted alpha.py, deleted beta.py]`, and the cheap arm kept the
 same wrong answer, so the banner survived every pass. The scanner now probes
 its own root and raises, so the shared diff answers `unknown` with the detail
 naming what could not be read; the guard beside it is gone, and one
-computation decides for the banner and for the pass. The vectors-off arm
+computation decides for the banner and for the pass. A vectors-off pass
 cannot parse a tree it cannot see either, and it deletes nothing on the way.
 
 Two answers keep the rows instead of parsing: `fresh` (nothing to parse) and

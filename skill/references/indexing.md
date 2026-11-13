@@ -135,9 +135,8 @@ code-indexer reindex-project /path/to/repo
   after its points, so a crash costs one re-embed. **Current rows are not a
   current tree:** the cheap arm is taken only when the tree diff is `fresh`,
   so this is the repair the staleness warning names. It reparses nothing and
-  still walks the tree, reading a bounded prefix of each file to decide; a root
-  or file this process cannot read is `unknown` or `unreadable`, and keeps every
-  row it has.
+  still walks the tree, reading a bounded prefix of each file to decide; it
+  keeps every row whose file, directory or root it could not read.
 
 ## Removing and sweeping
 
@@ -145,10 +144,8 @@ code-indexer reindex-project /path/to/repo
 # DESTRUCTIVE: drops the collection, the manifest and the registry entry
 code-indexer remove-project /path/to/repo
 
-# list residue rows for files that left the tree (read: dry run)
+# residue rows for files that left the tree: dry run, then --apply deletes
 code-indexer sweep-orphans /path/to/repo
-
-# delete those rows
 code-indexer sweep-orphans /path/to/repo --apply
 ```
 
@@ -214,7 +211,7 @@ It also reports both halves of the vector story -- `vectors=on|off` and
 `vectors_state=current|absent|stale|error` (stale is the read's identity
 comparison, never a recorded write) -- plus `rows=current|absent`, the
 parse-verdict counts (`parse=parsed:N,parse_error:N,parse_unavailable:N`),
-and, when chunk errors are recorded, `error_count=N` (the total) beside `last_errors=` (at most three examples; neither field with no errors). A path that is GONE by the read -- deleted between the walk's stat and the read, as a tool's own temp file is -- never becomes one of those errors: it leaves the scan set with no row, no skip and no error row, so a clean index reports `error_count` 0.
+and, when chunk errors are recorded, `error_count=N` beside `last_errors=` (at most three examples; neither field with no errors). A path GONE by the read -- a tool's own temp file, deleted between the walk's stat and the read -- is never one of those errors: it leaves the scan set with no row, no skip and no error row.
 
 Both verdict pairs are flags a caller branches on, and the text form adds one
 stderr line saying what the pair MEANS, from the same verdict object; the ids
@@ -251,10 +248,9 @@ compact is already `key=value`); `doctor` and `list-projects` refuse `compact`
 with exit 2 ([machine-output.md](machine-output.md)).
 
 It also names what the sensitive layer withheld -- `1 file skipped (sensitive
-content)`, the `withheld_*` fields and `--allow-sensitive`; `sensitive_skipped`
-carries the last pass's own count. **Consumer rule:** a withheld file has no rows
-and is not a stale reason, so `stale: false` beside a non-zero count is not
-"nothing was withheld": branch on the count.
+content)` and the `withheld_*` fields; `sensitive_skipped` is the last pass's
+own count. A withheld file has no rows and is not a stale reason, so
+`stale: false` beside a non-zero count is not "nothing was withheld".
 
 `list-projects` gives the same summary for every registered project;
 `lookup-project` answers only whether a path, slug or name is registered, and
@@ -382,14 +378,20 @@ genuinely new non-sensitive file still reports `added`, and because the
 decision is re-applied rather than remembered, a withheld file that changes
 stays withheld. Under `--allow-sensitive` nothing is withheld.
 
-The check reads only rowless scanned paths, up to the same 256 KiB prefix,
-inside an 8 MiB budget charged in bytes actually read (an approximation, not a
-measured threshold). A path past the budget stays `added` and rides
-`withheld_unexamined_count`.
+The check reads only rowless scanned paths, the same 256 KiB prefix each,
+inside an 8 MiB budget charged in bytes actually read (an approximation). A
+path past the budget stays `added` and rides `withheld_unexamined_count`.
 
 A path the check cannot OPEN is a third state, never `added` or withheld:
 `unreadable_count` / `unreadable_files` with `1 file could not be read
 (permission or I/O error)`. That covers a row's file too: the scanner counts an
 existing file it cannot open as `unreadable` (never `binary`), a pass keeps that
-row instead of deleting it, and the diff says unreadable, not `deleted`. An
-absent or unenterable root is `unknown`, not `stale` -- nothing is not empty.
+row instead of deleting it, and the diff says unreadable, not `deleted`.
+
+An absent or unenterable root is `unknown`, not `stale` -- nothing is not
+empty. A DIRECTORY the walk could not enter is that gap one level down: its
+rows are never `deleted` and no pass purges them, no version axis is stamped
+over rows the pass did not parse, and the verdict is `unknown` while nothing
+else is proven -- `stale`, the gap beside the reasons, when something is. The
+line reads `N directories could not be entered (<paths>)`; `--json` carries
+`unenterable_count`, `unenterable_dirs` and `unenterable_summary`.

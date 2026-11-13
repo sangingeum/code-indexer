@@ -10,6 +10,12 @@ in ``ScanAccounting`` under a named skip reason. A file that leaves a pass
 without a reason is a defect -- an index that reports 403 files against a
 tree of 450 cannot be reconciled by a reader.
 
+A DIRECTORY the walk could not enter is the same discipline one level up, and
+it has no natural depth: ``os.walk`` yields nothing for it and does not raise,
+so silence would stand for an empty subtree. The walk therefore reports each
+failed directory into ``ScanAccounting.unenterable_dirs`` -- one fact, recorded
+once here, read by the staleness diff and by the pass.
+
 A caller may pass a ``ScanBudget`` so a very large tree stops the walk and
 reports that it stopped, instead of walking for minutes: the staleness check
 uses this to degrade to ``unknown`` rather than silence.
@@ -358,6 +364,27 @@ class ScanAccounting:
     #: outside ``as_dict``: the stored accounting keeps its schema, and
     #: ``skipped['unreadable']`` is the count a reader needs.
     could_not_read: set[str] = field(default_factory=set)
+    #: Directories the walk could NOT enter (project-relative, POSIX). The
+    #: same shape of fact as ``could_not_read`` and recorded by the same walk
+    #: that produced it: ``os.walk`` yields NOTHING for such a directory, so
+    #: without this every row beneath it looks deleted -- "fresh by
+    #: forgetting" applied to a whole subtree instead of one file. ONE fact,
+    #: three readers: the staleness diff withholds those rows from its
+    #: ``deleted`` reasons and reports the directories beside the verdict;
+    #: the pass neither purges those rows nor stamps the current version axes
+    #: over content it never parsed; ``index-status`` names the directories.
+    #: Deliberately outside ``as_dict``, exactly like ``could_not_read``: the
+    #: stored accounting payload keeps its schema and no version axis moves.
+    unenterable_dirs: set[str] = field(default_factory=set)
+
+    def under_unentered(self, path: str) -> bool:
+        """True when ``path`` lies under a directory the walk could not enter.
+
+        The one predicate both readers use, so "is this row's subtree an
+        evidence gap?" cannot be answered two ways.
+        """
+        return any(path == d or path.startswith(d + "/")
+                   for d in self.unenterable_dirs)
 
     def skip(self, reason: str, path: str | None = None) -> None:
         self.skipped[reason] += 1
@@ -439,6 +466,8 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
     # row is deleted" -- which is how a tree the check could not look at was
     # read as a tree that had emptied. A root this process cannot open is an
     # OSError the caller answers as an ``unknown`` verdict, not an empty tree.
+    # The probe covers the root only; the ``onerror`` hook below covers every
+    # directory under it, for the same reason and at no natural depth.
     with os.scandir(root):
         pass
     results: list[ScannedFile] = []
@@ -474,7 +503,30 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
             raise ScanBudgetExceeded(
                 f"scan budget exceeded after {budget.max_seconds:g}s")
 
-    for dirpath, dirnames, filenames in os.walk(root, topdown=True):
+    def on_walk_error(exc: OSError) -> None:
+        """A directory the walk could not ENTER, reported instead of borne.
+
+        ``os.walk`` does not raise for a subtree it cannot open: it calls
+        this hook if one is given and otherwise yields nothing, so the
+        subtree silently stops existing. Downstream, "nothing" is the shape
+        of "every file here was deleted" -- the index forgot a whole
+        directory and read ``fresh`` over it. So the failure is recorded as
+        the fact it is, once, under the directory's project-relative name.
+
+        A failure that cannot name a directory is not swallowed: raising it
+        keeps "could not look" from becoming "empty", which is the one
+        answer this hook exists to prevent.
+        """
+        name = getattr(exc, "filename", None)
+        if not name:
+            raise exc
+        rel = os.path.relpath(name, root).replace(os.sep, "/")
+        logger.warning("cannot enter directory %s: %s", rel, exc)
+        if accounting is not None:
+            accounting.unenterable_dirs.add(rel)
+
+    for dirpath, dirnames, filenames in os.walk(root, topdown=True,
+                                                onerror=on_walk_error):
         rel_dir = os.path.relpath(dirpath, root)
 
         # Per-directory ignore composition: prune dirnames in-place so we
