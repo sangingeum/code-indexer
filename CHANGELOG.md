@@ -72,6 +72,13 @@ errors keep the `unreadable`/error path unchanged.
 Same probe, after the vanished temp file: `error_count 0`, `last_errors []`,
 `skipped {}`, `walked 2 == indexed 2`, verdict `fresh`.
 
+**The cheap arm's prose now matches what it does.** The comments and the CLI
+help promised "no scan, no source read"; the arm reparses nothing and still
+walks the tree and reads a bounded prefix of every file, because that read IS
+the decision that the rows describe this tree. The claim is corrected in
+`Core.run_index`, `Core.reindex_with_swap`, the `reindex-project` help and
+`indexing.md`, which stays inside its 400-line budget.
+
 ## [Unreleased] — the shipped ordering was measured against ranking the unmerged hits and kept
 
 **The merge-before-the-class-key order stays, and the reason is measured, not

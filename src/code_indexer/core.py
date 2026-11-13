@@ -484,10 +484,13 @@ class Core:
         whether a semantic client is constructed at all. When the rows are
         already current, the project was kept with vectors off, and the tree
         still matches those rows, turning vectors on embeds straight from
-        ``chunks`` — no scan, no reparse, no source read. A tree that has moved
-        on from the rows takes the ordinary pass instead: current rows are a
-        fact about the last pass, never about the tree. ``rescan=True``
-        (index-more, which widens the scope) forces the row pass too.
+        ``chunks``: it reparses nothing. The tree question is still asked --
+        the shared diff walks the tree and reads a bounded prefix of each file
+        to prove it matches the rows -- so the pass costs a walk, not a parse.
+        A tree that has moved on from the rows takes the ordinary pass instead:
+        current rows are a fact about the last pass, never about the tree.
+        ``rescan=True`` (index-more, which widens the scope) forces the row
+        pass too.
         """
         with project_lock(self._lock_path(slug)) as acquired:
             if not acquired:
@@ -1041,7 +1044,10 @@ class Core:
                 if (use_vectors and vectors_policy.rows_current(manifest)
                         and not self.tree_needs_a_pass(manifest,
                                                        project_path)):
-                    # Rows survive a vector rebuild: no parse, no source read.
+                    # Rows survive a vector rebuild: nothing is reparsed.
+                    # The tree is still walked and a bounded prefix of each
+                    # file read -- that IS the decision that the rows still
+                    # describe this tree, and it costs a walk, not a parse.
                     # The cheap path is taken only when the tree still matches
                     # those rows. ``rows_current`` alone is bookkeeping about
                     # the last pass, and a shortcut taken on it alone walks

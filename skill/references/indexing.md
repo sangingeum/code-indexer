@@ -103,9 +103,6 @@ warning and its notes. The lines each one writes on success:
 | `watch` | start/stop and watched-project lines | `watch: skipping project <slug> (<path>): path is missing or unreadable`; `watch: already running (pid=..., pidfile=...)`; `watch: requested project(s) are NOT covered by the live watcher ...`; the holder-undetermined note |
 | `unwatch` | the stopped pid and the projects it was serving | `unwatch: note: it did not cover every requested project` |
 
-`eval --out` is the dev harness, not one of these: `wrote <path>` goes on
-stderr beside its report on stdout.
-
 ## Building and extending
 
 ```bash
@@ -156,7 +153,8 @@ code-indexer sweep-orphans /path/to/repo --apply
 ```
 
 `remove-project` deletes the whole index; re-adding re-indexes from scratch.
-`sweep-orphans` is a read in its dry-run shape and a write only with `--apply`.
+`sweep-orphans` is a read in its dry-run shape and a write only with
+`--apply`: `sweep-orphans --apply` is the write invocation.
 
 ## Watching
 
@@ -291,7 +289,8 @@ and locks, per-project fingerprint status) and exits 1 when one fails.
 vectors-on project stays on across the upgrade. `watch` follows the recorded
 mode and never turns vectors on itself. Turning vectors on for a project whose
 rows are current AND whose tree matches them reparses nothing: it embeds the
-stored chunk text; a tree that moved on takes the ordinary pass (see
+stored chunk text, having walked the tree and read a prefix of each file to
+prove the match. A tree that moved on takes the ordinary pass (see
 `reindex-project`). A changed embedding identity is a NEW physical collection
 (`idx_<slug>__<identity digest>`) that every vector-writing pass binds the
 `idx_<slug>` alias to; writes name it, reads resolve the alias.
@@ -375,14 +374,13 @@ hits; rows leave a manifest on a reindex, not on the edit.
 
 A withheld file sits between scan set and manifest: scanned, deliberately
 rowless, and **not** a staleness reason. The diff re-applies the pass's own
-decision function (`sensitive.skip_verdict`, over the same 256 KiB prefix) and
-reports such a path with the layer that fired -- `1 file skipped (sensitive
-content)` on the `index-status` line, and `withheld_count` / `withheld_files`
-/ `withheld_summary` in `--json` -- while the verdict stays `fresh`; two
-layers firing carry a per-reason numeral, one does not. A genuinely new
-non-sensitive file still reports `added`; because the decision is re-applied
-rather than remembered, a withheld file that changes stays withheld. Under
-`--allow-sensitive` nothing is withheld, so every rowless path is `added`.
+decision function (`sensitive.skip_verdict`, over the same 256 KiB prefix), so
+a path is reported with the layer that fired -- `1 file skipped (sensitive
+content)` on the line, `withheld_summary` in `--json` -- and the verdict stays
+`fresh`; two layers firing carry a per-reason numeral, one does not. A
+genuinely new non-sensitive file still reports `added`, and because the
+decision is re-applied rather than remembered, a withheld file that changes
+stays withheld. Under `--allow-sensitive` nothing is withheld.
 
 The check reads only rowless scanned paths, up to the same 256 KiB prefix,
 inside an 8 MiB budget charged in bytes actually read (an approximation, not a
