@@ -593,7 +593,14 @@ class Indexer:
             manifest.fts_backfill(backfill_rows)
 
         added = [p for p in scanned_map if p not in old_files]
-        deleted = [p for p in old_files if p not in scanned_map]
+        # A row whose path the walk SAW and this pass could not read is not a
+        # deleted file: unreadable is a fact about the pass, and dropping the
+        # row would make the index silently forget a file that still exists.
+        # The same set is what the staleness diff reads, so the banner and
+        # the pass answer one question the same way.
+        unreadable_paths = accounting.could_not_read
+        deleted = [p for p in old_files
+                   if p not in scanned_map and p not in unreadable_paths]
         changed = [
             p for p in scanned_map
             if p in old_files and scanned_map[p].content_hash != old_files[p].content_hash
@@ -601,7 +608,8 @@ class Indexer:
         if force_full or rebuild:
             changed = list(scanned_map.keys())
             added = []
-            deleted = [p for p in old_files if p not in scanned_map]
+            deleted = [p for p in old_files
+                       if p not in scanned_map and p not in unreadable_paths]
             # A full rebuild must actually re-embed everything it processes:
             # the store may have been wiped independently of the manifest, and
             # a changed embedding construction describes vectors built by

@@ -36,9 +36,9 @@ from . import staleness
 from . import ts_chunker
 from . import vectors as vectors_policy
 from .registry import ProjectEntry, Registry
-from .scanner import (ScanBudget, ScanBudgetExceeded, ScannedFile,
-                      read_scan_accounting, scan_project, skip_counts_phrase,
-                      skip_reason_for)
+from .scanner import (ScanAccounting, ScanBudget, ScanBudgetExceeded,
+                      ScannedFile, read_scan_accounting, scan_project,
+                      skip_counts_phrase, skip_reason_for)
 
 if TYPE_CHECKING:  # annotations only: no client library is imported here
     from .embedder import Embedder
@@ -661,10 +661,14 @@ class Core:
         }
         budget = ScanBudget(max_files=staleness.SCAN_BUDGET_FILES,
                             max_seconds=staleness.SCAN_BUDGET_SECONDS)
+        # The walk's own account of what it could not read travels with the
+        # diff: a row whose file is still on disk is not a ``deleted`` reason.
+        accounting = ScanAccounting()
         try:
             scanned: list[ScannedFile] = scan_project(
                 project_path, max_file_bytes=self.cfg.max_file_bytes,
-                previous=previous, include=scope or None, budget=budget)
+                previous=previous, include=scope or None, budget=budget,
+                accounting=accounting)
         except ScanBudgetExceeded as exc:
             return staleness.unknown(str(exc), last_indexed=last_indexed,
                                      index_revision=index_revision)
@@ -678,7 +682,8 @@ class Core:
                                      index_revision=index_revision)
         return staleness.detect(indexed, scanned, last_indexed=last_indexed,
                                 index_revision=index_revision,
-                                allow_sensitive=allow_sensitive)
+                                allow_sensitive=allow_sensitive,
+                                could_not_read=accounting.could_not_read)
 
     def tree_needs_a_pass(self, manifest: Manifest,
                           project_path: str) -> bool:

@@ -252,15 +252,20 @@ def _ignored(rel_path: str, specs: list[tuple[str, pathspec.PathSpec]],
 
 
 def _is_binary(path: str) -> bool:
-    """Null byte in first 8KB or known binary extension."""
+    """Null byte in first 8KB or known binary extension.
+
+    An OSError here is NOT an answer, so it propagates. A path this process
+    cannot open is not a binary file: it is a file the scan could not read,
+    and the caller counts it as ``unreadable`` and keeps whatever row it
+    already has. Answering ``True`` dropped the file as ``binary``, deleted
+    its row and left ``index-status`` reading ``fresh`` over a file the index
+    had silently forgotten.
+    """
     ext = os.path.splitext(path)[1].lower()
     if ext in BINARY_EXTENSIONS:
         return True
-    try:
-        with open(path, "rb") as f:
-            return b"\x00" in f.read(8192)
-    except OSError:
-        return True
+    with open(path, "rb") as f:
+        return b"\x00" in f.read(8192)
 
 
 SNIFF_SAMPLE_BYTES = 4096
@@ -285,14 +290,14 @@ def _looks_utf8ish(path: str) -> bool:
     truncated tail stored U+FFFD under `parse_unavailable` instead.
     """
     decoder = codecs.getincrementaldecoder("utf-8")("strict")
+    with open(path, "rb") as f:
+        sample = f.read(SNIFF_SAMPLE_BYTES)
+    if not sample:
+        return True
     try:
-        with open(path, "rb") as f:
-            sample = f.read(SNIFF_SAMPLE_BYTES)
-        if not sample:
-            return True
         decoder.decode(sample, final=len(sample) < SNIFF_SAMPLE_BYTES)
         return True
-    except (UnicodeDecodeError, OSError):
+    except UnicodeDecodeError:
         return False
 
 
@@ -346,6 +351,13 @@ class ScanAccounting:
     skipped_directories: int = 0
     exact: bool = True
     examples: dict[str, list[str]] = field(default_factory=dict)
+    #: Paths the walk SAW and this process could not stat or read. ONE fact,
+    #: two readers: the pass keeps whatever row such a path already has (an
+    #: unreadable file is not a deleted file), and the staleness diff reports
+    #: it as ``unreadable`` instead of as a ``deleted`` reason. Deliberately
+    #: outside ``as_dict``: the stored accounting keeps its schema, and
+    #: ``skipped['unreadable']`` is the count a reader needs.
+    could_not_read: set[str] = field(default_factory=set)
 
     def skip(self, reason: str, path: str | None = None) -> None:
         self.skipped[reason] += 1
@@ -435,6 +447,19 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
     walked = 0
     started = time.monotonic()
 
+    def keep_unreadable(rel_path: str, what: str) -> None:
+        """The name is on disk and this pass could not look at it.
+
+        Not a ``binary``/``non-utf8`` classification: nothing was examined,
+        so nothing is claimed about the content. The path is counted as
+        ``unreadable`` and named in ``could_not_read``, which is what stops a
+        pass deleting its row and what stops the diff calling it ``deleted``.
+        """
+        logger.debug("skip (unreadable: %s): %s", what, rel_path)
+        if accounting is not None:
+            accounting.skip(SKIP_UNREADABLE, rel_path)
+            accounting.could_not_read.add(rel_path)
+
     def check_budget() -> None:
         """Stop the walk when its own budget is spent (never a silent long run)."""
         nonlocal walked
@@ -507,20 +532,28 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
                         accounting.skip(SKIP_UNREADABLE, rel_path)
                     continue
             except OSError:
-                if accounting is not None:
-                    accounting.skip(SKIP_UNREADABLE, rel_path)
+                keep_unreadable(rel_path, "stat")
                 continue
             if st.st_size > max_file_bytes:
                 logger.debug("skip (too large): %s", rel_path)
                 if accounting is not None:
                     accounting.skip(SKIP_OVERSIZED, rel_path)
                 continue
-            if _is_binary(abs_path):
+            try:
+                binary = _is_binary(abs_path)
+                textish = None if binary else _looks_utf8ish(abs_path)
+            except OSError:
+                # An existing file this process cannot open. It used to be
+                # answered as ``binary`` and dropped, which deleted the row
+                # of a file the index had merely failed to read.
+                keep_unreadable(rel_path, "read")
+                continue
+            if binary:
                 logger.debug("skip (binary): %s", rel_path)
                 if accounting is not None:
                     accounting.skip(SKIP_BINARY, rel_path)
                 continue
-            if not _looks_utf8ish(abs_path):
+            if not textish:
                 logger.debug("skip (non-utf8): %s", rel_path)
                 if accounting is not None:
                     accounting.skip(SKIP_NON_UTF8, rel_path)
@@ -535,8 +568,7 @@ def scan_project(root: str, max_file_bytes: int = 1_048_576,
                 continue
             sha = _hash_file(abs_path)
             if sha is None:
-                if accounting is not None:
-                    accounting.skip(SKIP_UNREADABLE, rel_path)
+                keep_unreadable(rel_path, "hash")
                 continue
             results.append(ScannedFile(rel_path, abs_path, st.st_size, sha,
                                        st.st_mtime_ns, st.st_ino))

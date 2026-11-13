@@ -139,7 +139,8 @@ code-indexer reindex-project /path/to/repo
   current tree:** the cheap arm is taken only when the tree diff is `fresh`,
   so this is the repair the staleness warning names. It reparses nothing and
   still walks the tree, reading a bounded prefix of each file to decide; a root
-  this process cannot enter is `unknown` and keeps every row it has.
+  or file this process cannot read is `unknown` or `unreadable`, and keeps every
+  row it has.
 
 ## Removing and sweeping
 
@@ -388,7 +389,9 @@ inside an 8 MiB budget charged in bytes actually read (an approximation, not a
 measured threshold). A path past the budget stays `added` and rides
 `withheld_unexamined_count`.
 
-A rowless path the check cannot OPEN is a third state -- scan and diff are two
-moments -- reported as `unreadable_count` / `unreadable_files` with `1 file
-could not be read (permission or I/O error)`, never `added` or withheld; the
-scanner drops what it cannot open, so a path the scan never returned is not counted.
+A path the check cannot OPEN is a third state, never `added` or withheld:
+`unreadable_count` / `unreadable_files` with `1 file could not be read
+(permission or I/O error)`. That covers a row's file too: the scanner counts an
+existing file it cannot open as `unreadable` (never `binary`), a pass keeps that
+row instead of deleting it, and the diff says unreadable, not `deleted`. An
+absent or unenterable root is `unknown`, not `stale` -- nothing is not empty.

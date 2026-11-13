@@ -36,6 +36,19 @@ rows. The cheap arm's promise to run with the source tree absent or unreadable
 is unchanged and pinned by its own test. The vectors-off arm is untouched, and
 a failure before the swap still leaves the old collection serving reads.
 
+**An existing file this process cannot read is `unreadable`, never `binary`.**
+The binary sniff answered `True` for an `OSError`, so a file the process could
+not open was dropped from the scan set as a binary file: its row was deleted
+(`files_deleted 1`, `files 0`), no error row was written, and `index-status`
+then reported a clean index -- `fresh` by forgetting. This is a pre-existing
+defect the round's predicate surfaced; it is outside the issue's repro and its
+own fix. A path the walk saw and could not stat, sniff or hash is now counted
+in `skipped.unreadable` and recorded in the pass's `could_not_read` set; a pass
+keeps the row such a path already has, and the diff reports it under
+`unreadable` rather than `deleted`. The stat fast-path and the classification
+of a file that WAS read are unchanged, and neither the stored accounting schema
+nor any version axis moves.
+
 Measured on the fixture probe (`runs/reindex-tree-repair/probe.py`: two files,
 a stub embedder and store at the Core seam, real scanner/manifest/staleness):
 after one added and one modified file the verdict reads `stale` with reasons

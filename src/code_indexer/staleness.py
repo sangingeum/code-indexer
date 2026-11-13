@@ -147,7 +147,8 @@ def iso_timestamp(epoch: str | None) -> str | None:
 def detect(indexed: Mapping[str, Any], scanned: Iterable[Any], *,
            last_indexed: str | None,
            index_revision: str | None,
-           allow_sensitive: bool = False) -> StalenessVerdict:
+           allow_sensitive: bool = False,
+           could_not_read: Iterable[str] = ()) -> StalenessVerdict:
     """Compare the indexed files with a scan of the tree.
 
     ``indexed`` maps a project-relative path to its manifest row (``size``,
@@ -155,6 +156,12 @@ def detect(indexed: Mapping[str, Any], scanned: Iterable[Any], *,
     is the scanner's result for the same tree and the same include/exclude
     rules. A file whose stat changed but whose content hash still matches is
     NOT reported: nothing a reader can observe changed.
+
+    ``could_not_read`` is the scan's own set of paths it saw and could not
+    open. A row whose path is in it is NOT a ``deleted`` reason: the file is
+    still on disk, the check simply could not look at it, and no reindex can
+    clear a claim the tree never made. It joins the ``unreadable`` fact
+    instead -- the same class as a rowless path the check cannot open.
 
     A scanned path with no manifest row is a withheld file when the same
     detector the pass applied still withholds it, and an ``unreadable`` path
@@ -174,8 +181,13 @@ def detect(indexed: Mapping[str, Any], scanned: Iterable[Any], *,
         allow_sensitive=allow_sensitive)
     for path in added:
         reasons.append(Reason("added", path))
+    unread_rows = set(could_not_read)
     for path in sorted(set(indexed) - set(tree)):
+        if path in unread_rows:
+            unreadable.append(UnreadableFile(path))
+            continue
         reasons.append(Reason("deleted", path))
+    unreadable.sort(key=lambda s: s.file)
     for path in sorted(set(indexed) & set(tree)):
         if tree[path].content_hash != indexed[path].content_hash:
             reasons.append(Reason("modified", path))
