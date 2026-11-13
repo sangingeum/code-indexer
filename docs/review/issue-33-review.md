@@ -632,3 +632,247 @@ files, `CHANGELOG.md`, `docs/json-schema.md`, `docs/adr/0001-*` and
   than the prose to weaken.
 - **Open items:** the depth-0 finding; and, on the next touch of
   `skill/references/indexing.md`, its ceiling (N1).
+
+---
+
+# Second re-review (depth-0 fold)
+
+**Fold base:** `0e8487e` (the tip of my previous re-review). **New tip:**
+`792d03c`, one commit — "fix(scanner): a root that fails inside the walk is
+raised, not recorded as `\".\"`". Round base `8e16515`. `skill/` is untouched
+by the fold, so the installed copy still matches and needs no reinstall.
+
+**Verdict: approved with notes.** The one line I asked for is the one line that
+shipped, it is in the right seam, and it is measurable: the depth-0 purge is
+gone on both deletion arms and the read side answers `unknown` over it. Nine
+notes, none of them behaviour; one of them (N7) is a pre-existing hole beside
+the new sentence's word "writes nothing" and is a candidate for a card, not
+for scope here.
+
+**Out of this close, by design:** the round's design questions — A1 and A2,
+the pass-side error class, and the verdict-shape ruling — stand as recorded
+and are carried as cards. This section rules on the one-line fold and nothing
+else.
+
+Suite at the tip: `1512 passed, 2 deselected` in 160s, warn-clean under
+`-W error`. Publishing hygiene at the tip: `scanned=234 skipped=0
+violations=0`.
+
+## What the fold changed, exactly
+
+`git diff --numstat 0e8487e 792d03c` — `CHANGELOG.md` 6/1, `scanner.py` 14/1,
+`tests/test_root_failing_inside_the_walk_keeps_its_rows.py` 251/0. The only
+executable change is eight lines in `on_walk_error` (`scanner.py:529-537`):
+after computing `rel`, `if rel == ".": raise exc`. The docstring gained the
+sentences at `scanner.py:519-524`; the CHANGELOG clause that my finding
+falsified was rewritten rather than deleted (`CHANGELOG.md:15-22`).
+
+It is the remedy I named, at the seam I named, with no new state: the hook's
+root case now gives the answer the pre-walk probe already gives, so both
+readers of "could not look" see one answer at every depth.
+
+## Bars
+
+### Bar 1 — the property at depth 0: PASS, incremental and `force_full`
+
+Measured on a fixture of my own, not the fold's: a live root with one file at
+the top and one under `sub/`, indexed and read `fresh` first; then an
+`os.scandir` that answers the scanner's root probe and fails every later open
+of the same root — the window a concurrent unmount, an autofs expiry or a
+stale mount produces, which no `chmod` can reach.
+
+```
+depth 0, incremental                depth 0, force_full
+opens of root (probe/walk): 2       opens of root (probe/walk): 2
+the walk raises: Permission denied  the walk raises: Permission denied
+pass state: error                   pass state: error
+rows before == rows after: True     rows before == rows after: True
+rows: ['a.py', 'sub/c.py']          rows: ['a.py', 'sub/c.py']
+purge_file_points calls: 0          purge_file_points calls: 0
+verdict: unknown, reasons ()        verdict: unknown, reasons ()
+detail: tree unreadable: ...        detail: tree unreadable: ...
+unenterable: ()  fresh: False       unenterable: ()  fresh: False
+```
+
+Nothing is filed under `"."`: `unenterable` is empty, because the case never
+reaches the recording line. No `deleted` reason anywhere, on either arm, and
+the state is never `fresh` and never `stale`.
+
+That the fixture is the defect and not a restatement of it is pinned by
+replay: the fold's four tests run against a worktree of `0e8487e` fail 4/4,
+and the base's own log names the defect verbatim —
+`cannot enter directory .: [Errno 13] Permission denied: <scratch>/project` —
+while the forced arm reports `idle`. At the tip the same four pass.
+
+### Bar 2 — no partial state: PASS, with the boundary named
+
+The raise at `scanner.py:529-537` unwinds `os.walk`'s `onerror` call with
+`topdown=True` and leaves `scan_project` before the walk has yielded a single
+directory. From there:
+
+- **Pass side.** `index_project` calls the walk at `indexer.py:390` and holds
+  no write before its first one at `indexer.py:1042`
+  (`write_scan_accounting`): nothing in lines 390-1042 runs, because the
+  raise never returns. The pass's deletion sets are built at
+  `indexer.py:609-610` (incremental) and `617-619` (`force_full`), and both
+  arms purge at `indexer.py:626-634` — all of it hundreds of lines after the
+  raise. No accounting, no fingerprint (`indexer.py:474`), no manifest row,
+  no stored payload. The callers are the two catch-alls at `core.py:543` and
+  `core.py:1089`, which classify the `OSError`, set the project state to
+  `error` and close the manifest; neither reaches a deletion step, and the
+  result dict carries no `files_deleted` at all.
+- **Read side.** `verdict_against_tree` catches the `OSError` at
+  `core.py:684-696` and returns `staleness.unknown("tree unreadable: ...")`
+  before `staleness.detect` is called, so the exclusion-set machinery is
+  never consulted with an empty set — which was the whole defect.
+
+One collection-level write is ordered ahead of the walk and is therefore not
+covered by "nothing was written": see N7. It deletes no row, and no pass can
+read it as a file deletion.
+
+### Bar 3 — the two falsified sentences are true now: PASS
+
+- **The `on_walk_error` docstring** (`scanner.py:519-524`) states the root
+  case as its own branch — the name that cannot express a row, raised beside
+  the probe's answer — and leaves the promise behind it intact. The recording
+  branch it promises is the code one block below (`scanner.py:538-540`),
+  untouched, and measured still to record at depth ≥ 1.
+- **The CHANGELOG clause** (`CHANGELOG.md:15-22`): "A failure of the ROOT
+  itself cannot be recorded that way ... so it is raised ... and the pass
+  writes nothing. A row under an unenterable directory is never a `deleted`
+  reason and is never deleted by a pass, on the incremental and the
+  `force_full` arm alike." Both halves are true of the code as measured: the
+  root arm writes nothing (bar 1), and a row under a named unenterable
+  directory is kept on both arms (measured again here: pass `idle`,
+  `files_deleted 0`, rows intact, `unenterable ('sub',)`, verdict `unknown`).
+- **No overclaim across depths.** The sentence does not answer the
+  subdirectory case with the root's mechanism; it answers it with the
+  recording it already had, and the code keeps the two branches distinct. A
+  directory two levels down is the same hook and the same recording line as
+  one level down, and the subtree tests (two and three levels, both arms) are
+  in the green suite.
+
+The one word that is not literally true — "writes nothing" — is discussed at
+N7 and is not a defect of this sentence: the subject of the paragraph is rows
+and purges.
+
+### Bar 4 — nothing else regressed: PASS
+
+- **Depth ≥ 1 still records.** The raise is guarded on `rel == "."` and sits
+  above the unchanged `logger.warning` + `unenterable_dirs.add(rel)` pair
+  (`scanner.py:538-540`). Measured: a failing `sub/` records
+  `unenterable ('sub',)` and the pass stays `idle` with `files_deleted 0` on
+  both arms, and the subtree tests at two and three levels pass.
+- **The prefix-boundary predicate is untouched.** Neither
+  `ScanAccounting.under_unentered` (`scanner.py:381-388`) nor
+  `staleness._under_directory` (`staleness.py:321-328`) appears in the diff.
+  The fold depends on that predicate continuing to match nothing for `"."`;
+  it does, and it should.
+- **`not-a-file` is untouched.** `SKIP_NOT_A_FILE` and its branch do not
+  appear in the diff; the tests that pin it are in the green suite.
+- **The new test decides nothing global.** Its fixture builds its own
+  registry and index root, registers nothing outside a temp tree, and stubs
+  the embedder and the store — no live project, no watcher, no service.
+
+### Bar 5 — my earlier notes remain notes: PASS
+
+Nothing in the fold's three-file diff makes N1-N6 false, and nothing in it
+should have. **N2 specifically:** leaving the `unknown` branch's lead ("index
+staleness check did not run", `staleness.py:483-484`) as it is, is acceptable
+now and does not need a card.
+
+- The depth-0 failure makes the phrase *most* true, not less: nothing below
+  the root was enumerated, so the check did not run in any useful sense, and
+  the parenthetical names the cause on the same line.
+- The inherited inaccuracy is at depth ≥ 1, where the check did run and could
+  not look everywhere — and there the parenthetical ("1 directory could not be
+  entered (sub), so not every row could be checked") corrects the lead in the
+  same breath, while `stale_known=false`, `coverage.freshness: unknown` and
+  `unenterable_dirs` carry the machine-readable fact for anything that parses
+  instead of reads.
+- No behaviour depends on the string. A card would hold a cosmetic obligation
+  open across rounds, and the honest time to rewrite the lead is the round
+  that adds another `unknown` cause — it is a branch-wide wording pass, not a
+  one-line fix.
+
+**Condition on that ruling:** if a future round adds a second cause that
+reaches this branch where the check demonstrably ran, the lead-in must be
+revised in that same round rather than inherited again.
+
+## Notes (no behaviour change)
+
+- **N7.** In the swap-rebuild arm the target physical collection is dropped
+  *before* the walk: `core.py:1075-1078` drops
+  `indexer.physical_collection(slug)` and then calls `index_project` at
+  `core.py:1077`. When the embedding identity is unchanged this name is the
+  one the project's alias currently binds, so a walk that fails after the drop
+  leaves the alias pointing at an emptied collection while every manifest row
+  survives and `index-status` still reads `fresh` — vectors gone, rows intact,
+  no file deletion to read. This is not a finding against the fold: the same
+  order exists at the base, the one-line change neither introduces nor widens
+  it, and it purges no row. But it is the one place where the CHANGELOG's "the
+  pass writes nothing" is not literally true, and the fix (drop after the
+  walk, or drop into a fresh name and swap) touches the repair path the
+  round's open design questions already own. Recommend a card on that list
+  rather than scope here.
+- **N8.** Two pinning choices in the new test are worth a reader's eye. The
+  `files_deleted` assertion reads
+  `result.get("result", {}).get("files_deleted", 0) == 0` and passes by
+  absence — an aborted pass has no result dict — so the proof of "nothing was
+  purged" is the row-set equality beside it, which is the right assertion and
+  is the one that would fail at the base. And `fake.opens == 2` pins the exact
+  number of root opens, so a future second pre-walk probe would break the test
+  for a reason unrelated to the property. Both are cheap to relax if either
+  ever bites; neither is wrong today.
+- **N9.** The CHANGELOG addition lengthens an already dense paragraph (six
+  added lines inside one clause chain). It reads correctly and states the two
+  branches in order, root then subtree; the round's changelog style is prose,
+  so this is a style note only, and only if that paragraph is next touched.
+
+## What was measured here, and what was read
+
+Measured (fixtures under the scratch directory, none registered, no live index
+or watcher touched, no `reindex-project`/`index`/`--refresh` run against a
+registered project):
+
+1. The depth-0 property on my own fixture, incremental and `force_full`: rows
+   before == after, zero `purge_file_points` calls, pass `error`, verdict
+   `unknown` with no reasons, `unenterable` empty, the probe and the walk the
+   only two opens of the root.
+2. The depth-1 control on the same fixture: `unenterable ('sub',)`, pass
+   `idle`, `files_deleted 0`, rows intact, verdict `unknown` with the
+   directory named in the detail — on both arms.
+3. Replay of the fold's four tests against a worktree of `0e8487e`:
+   `4 failed in 0.66s`, with the base's own log line recording
+   `cannot enter directory .`.
+4. `tests/test_unenterable_root_is_unknown.py`,
+   `tests/test_unenterable_subtree_keeps_its_rows.py` and the fold's new file:
+   `16 passed in 2.26s`, warn-clean.
+5. The whole suite at the tip, warn-clean under `-W error`:
+   `1512 passed, 2 deselected in 160.26s`.
+6. Publishing hygiene at the tip: `scanned=234 skipped=0 violations=0`.
+
+Read: the fold's commit in full (message, `CHANGELOG.md`, `scanner.py`, the
+new test file); `scanner.py` from the probe through the walk;
+`staleness.py` (`detect`, `_under_directory`, `unknown`, `warning_line`);
+`indexer.py` (`index_project`'s walk call, the two deletion sets, the purge
+step, `write_scan_accounting`); `core.py` (`verdict_against_tree`, both
+`index_project` call sites and their handlers); the previous two sections of
+this document.
+
+## Documentation Impact (depth-0 close)
+
+- **Updated:** this review document — the appended second re-review section.
+  The two earlier sections stand unchanged.
+- **Created:** nothing.
+- **Deleted:** nothing.
+- **No other doc changes needed because:** the round's doc surfaces were
+  checked against the shipped code and are now true of it. The sentence my
+  previous section flagged at `CHANGELOG.md:16` is not weakened in the prose —
+  the code was changed to make it true, and the new root clause names the one
+  case the recording cannot express. `skill/references/indexing.md` was not
+  touched and still matches the installed copy.
+- **Open items:** none against this fold. N7 (the swap-rebuild drop ordered
+  ahead of the walk) is a candidate for a card on the round's open design
+  list; N1's ceiling on `skill/references/indexing.md` remains for the next
+  round that touches it.
